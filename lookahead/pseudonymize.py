@@ -16,9 +16,11 @@ import hmac
 import os
 import re
 import secrets
+import sqlite3
 import sys
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections import Counter
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from lookahead.config import load_env
@@ -121,13 +123,102 @@ def init_key(env_path: Path) -> bool:
     return True
 
 
+# Coverage scan: what might still identify someone after the rules ran.
+_NAME_TYPES = {
+    "credit memo", "deposit", "withdrawal", "accounts payable",
+    "customer transfer cr.", "customer transfer dr.",
+}  # fmt: skip
+_FIXED_TEXTS = {"", "Free Interac E-Transfer", "Interac E-Transfer Rtn", "Mb-Transfer"}
+_CAPITALIZED_WORD = re.compile(r"\b[A-Z][a-z]+\b")
+_SPLIT_DIGITS = re.compile(r"\d(?:[ -]?\d){6,}")  # 7+ digits, maybe split by spaces/dashes
+_TOKEN = re.compile(r"([A-Z]+)_[0-9a-f]{12}")
+
+
+@dataclass
+class Coverage:
+    rows: int = 0
+    rules: Counter[str] = field(default_factory=Counter)  # rule -> rows where it fired
+    tokens: dict[str, set[str]] = field(default_factory=dict)  # kind -> distinct tokens
+    digits_left: Counter[str] = field(default_factory=Counter)  # transaction type -> rows
+    names_left: Counter[str] = field(default_factory=Counter)  # transaction type -> rows
+
+    @property
+    def ok(self) -> bool:
+        return not self.digits_left and not self.names_left
+
+
+def coverage(rows: Iterable[tuple[str, str]], key: bytes) -> Coverage:
+    """Apply the rules to (description, sub_description) rows and count what they miss."""
+    result = Coverage()
+    for description, sub in rows:
+        result.rows += 1
+        done = pseudonymize_sub_description(description, sub, key)
+        for rule in set(done.rules):
+            result.rules[rule] += 1
+        for match in _TOKEN.finditer(done.text):
+            result.tokens.setdefault(match.group(1), set()).add(match.group())
+        rest = " ".join(_TOKEN.sub(" ", done.text).split())
+        if _SPLIT_DIGITS.search(rest):
+            result.digits_left[description] += 1
+        if (
+            description in _NAME_TYPES
+            and rest not in _FIXED_TEXTS
+            and len(_CAPITALIZED_WORD.findall(rest)) >= 2
+        ):
+            result.names_left[description] += 1
+    return result
+
+
+def _by_type(counts: Counter[str]) -> str:
+    total = sum(counts.values())
+    detail = ", ".join(f"{kind}: {n}" for kind, n in sorted(counts.items()))
+    return f"{total} rows" + (f" ({detail})" if detail else "")
+
+
+def _report(db_path: Path, env_path: Path, account: str) -> int:
+    """Counts-only coverage report. Opens the database read-only; prints no bank text."""
+    if not db_path.exists():
+        print(f"database not found: {db_path}")
+        return 2
+    try:
+        key = pseudonym_key(env_path)
+    except PseudonymKeyError as e:
+        print(e)
+        return 2
+    conn = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)
+    rows = conn.execute(
+        "SELECT description, sub_description FROM transactions WHERE account = ?", (account,)
+    ).fetchall()
+    conn.close()
+
+    result = coverage(rows, key)
+    print(f"Pseudonymization coverage: {result.rows} rows scanned, account {account}")
+    rules = ", ".join(f"{r}: {result.rules[r]} rows" for r in ("person", "reference", "number"))
+    print(f"rules fired: {rules}")
+    kinds = ", ".join(
+        f"{k}: {len(result.tokens.get(k, ()))} distinct" for k in ("PERSON", "REF", "NUM")
+    )
+    print(f"distinct tokens: {kinds}")
+    print("possible identifiers left:")
+    print(f"  long digit runs: {_by_type(result.digits_left)}")
+    print(f"  possible names: {_by_type(result.names_left)}")
+    print("RESULT: PASS" if result.ok else "RESULT: FAIL")
+    return 0 if result.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m lookahead.pseudonymize")
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init-key", help=f"create {KEY_NAME} in .env if it is not set")
     init.add_argument("--env", type=Path, default=Path(".env"))
+    rep = commands.add_parser("report", help="counts-only check of what the rules cover")
+    rep.add_argument("--db", type=Path, required=True)
+    rep.add_argument("--env", type=Path, default=Path(".env"))
+    rep.add_argument("--account", default="scotia-chequing")
     args = parser.parse_args(argv)
 
+    if args.command == "report":
+        return _report(args.db, args.env, args.account)
     if init_key(args.env):
         print(f"wrote a new {KEY_NAME} to {args.env} (keep it; replacing it changes every token)")
         return 0
