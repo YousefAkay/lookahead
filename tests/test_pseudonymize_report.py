@@ -40,7 +40,10 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path, 
 
 
 def report(db: Path, env: Path, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
-    code = main(["report", "--db", str(db), "--env", str(env)])
+    # Always pass an allowlist path in a temp folder: tests must never read the default
+    # data/private/ allowlist.
+    no_allowlist = env.parent / "no-allowlist.txt"
+    code = main(["report", "--db", str(db), "--env", str(env), "--allowlist", str(no_allowlist)])
     return code, capsys.readouterr().out
 
 
@@ -143,7 +146,8 @@ def test_missing_database_is_not_created(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     missing = tmp_path / "nope" / "l.db"
-    code = main(["report", "--db", str(missing), "--env", str(tmp_path / ".env")])
+    args = ["report", "--db", str(missing), "--env", str(tmp_path / ".env")]
+    code = main([*args, "--allowlist", str(tmp_path / "none.txt")])
     assert code == 2 and "not found" in capsys.readouterr().out
     assert not missing.exists()
 
@@ -155,3 +159,65 @@ def test_report_writes_nothing(
     before = db.read_bytes()
     report(db, env, capsys)
     assert db.read_bytes() == before
+
+
+# --- Private allowlist of known business texts ---
+
+
+def run_with_allowlist(
+    db: Path, env: Path, allowlist: Path, capsys: pytest.CaptureFixture[str]
+) -> tuple[int, str]:
+    code = main(["report", "--db", str(db), "--env", str(env), "--allowlist", str(allowlist)])
+    return code, capsys.readouterr().out
+
+
+def test_allowlisted_business_texts_are_not_names(
+    setup: tuple[Path, Path, list[str]], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db, env, raw = setup
+    add_row(db, "accounts payable", "Example Tickets Refund ")
+    add_row(db, "customer transfer cr.", "Rewards Cash Credit ")
+    allowlist = tmp_path / "allow.txt"
+    # Case and spacing are ignored; comments and blank lines are skipped.
+    allowlist.write_text(
+        "# known businesses\n\nexample   TICKETS refund\nRewards Cash Credit\n", encoding="utf-8"
+    )
+    code, out = run_with_allowlist(db, env, allowlist, capsys)
+    assert code == 0, out
+    assert "possible names: 0 rows" in out
+    assert "allowlisted as businesses: 2 rows" in out
+    assert "Example" not in out and "Rewards" not in out  # allowlist contents never printed
+    assert_private(out, raw)
+
+
+def test_allowlist_only_covers_exact_texts(
+    setup: tuple[Path, Path, list[str]], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db, env, _ = setup
+    add_row(db, "accounts payable", "Example Tickets Refund ")
+    add_row(db, "accounts payable", "Jean Tremblay ")
+    allowlist = tmp_path / "allow.txt"
+    allowlist.write_text("Example Tickets Refund\n", encoding="utf-8")
+    code, out = run_with_allowlist(db, env, allowlist, capsys)
+    assert code == 1
+    assert "possible names: 1 rows (accounts payable: 1)" in out
+    assert "allowlisted as businesses: 1 rows" in out
+
+
+def test_allowlist_does_not_hide_long_digit_runs(
+    setup: tuple[Path, Path, list[str]], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db, env, _ = setup
+    add_row(db, "withdrawal", "Card 4520 1234 5678 9012 ")
+    allowlist = tmp_path / "allow.txt"
+    allowlist.write_text("Card 4520 1234 5678 9012\n", encoding="utf-8")
+    code, out = run_with_allowlist(db, env, allowlist, capsys)
+    assert code == 1 and "long digit runs: 1 rows" in out
+
+
+def test_missing_allowlist_file_means_an_empty_allowlist(
+    setup: tuple[Path, Path, list[str]], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db, env, _ = setup
+    code, out = run_with_allowlist(db, env, tmp_path / "none.txt", capsys)
+    assert code == 0 and "allowlisted as businesses: 0 rows" in out

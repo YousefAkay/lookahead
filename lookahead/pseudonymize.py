@@ -141,14 +141,38 @@ class Coverage:
     tokens: dict[str, set[str]] = field(default_factory=dict)  # kind -> distinct tokens
     digits_left: Counter[str] = field(default_factory=Counter)  # transaction type -> rows
     names_left: Counter[str] = field(default_factory=Counter)  # transaction type -> rows
+    allowlisted: int = 0  # rows skipped by the names scan as known businesses
 
     @property
     def ok(self) -> bool:
         return not self.digits_left and not self.names_left
 
 
-def coverage(rows: Iterable[tuple[str, str]], key: bytes) -> Coverage:
-    """Apply the rules to (description, sub_description) rows and count what they miss."""
+def _normalized(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def load_allowlist(path: Path) -> set[str]:
+    """Known business texts, one per line (case and spacing ignored; # comments).
+
+    Lives in data/private/ (git-ignored): the texts come from real data, so they are
+    never committed and never printed. A missing file is an empty allowlist.
+    """
+    if not path.exists():
+        return set()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return {_normalized(ln) for ln in lines if ln.strip() and not ln.strip().startswith("#")}
+
+
+def coverage(
+    rows: Iterable[tuple[str, str]], key: bytes, allowlist: set[str] | None = None
+) -> Coverage:
+    """Apply the rules to (description, sub_description) rows and count what they miss.
+
+    Rows whose text is on the allowlist are skipped by the names scan only; long digit
+    runs are still counted.
+    """
+    known = allowlist or set()
     result = Coverage()
     for description, sub in rows:
         result.rows += 1
@@ -165,7 +189,10 @@ def coverage(rows: Iterable[tuple[str, str]], key: bytes) -> Coverage:
             and rest not in _FIXED_TEXTS
             and len(_CAPITALIZED_WORD.findall(rest)) >= 2
         ):
-            result.names_left[description] += 1
+            if _normalized(sub) in known:
+                result.allowlisted += 1
+            else:
+                result.names_left[description] += 1
     return result
 
 
@@ -175,7 +202,7 @@ def _by_type(counts: Counter[str]) -> str:
     return f"{total} rows" + (f" ({detail})" if detail else "")
 
 
-def _report(db_path: Path, env_path: Path, account: str) -> int:
+def _report(db_path: Path, env_path: Path, account: str, allowlist_path: Path) -> int:
     """Counts-only coverage report. Opens the database read-only; prints no bank text."""
     if not db_path.exists():
         print(f"database not found: {db_path}")
@@ -191,7 +218,7 @@ def _report(db_path: Path, env_path: Path, account: str) -> int:
     ).fetchall()
     conn.close()
 
-    result = coverage(rows, key)
+    result = coverage(rows, key, load_allowlist(allowlist_path))
     print(f"Pseudonymization coverage: {result.rows} rows scanned, account {account}")
     rules = ", ".join(f"{r}: {result.rules[r]} rows" for r in ("person", "reference", "number"))
     print(f"rules fired: {rules}")
@@ -202,6 +229,7 @@ def _report(db_path: Path, env_path: Path, account: str) -> int:
     print("possible identifiers left:")
     print(f"  long digit runs: {_by_type(result.digits_left)}")
     print(f"  possible names: {_by_type(result.names_left)}")
+    print(f"  allowlisted as businesses: {result.allowlisted} rows")
     print("RESULT: PASS" if result.ok else "RESULT: FAIL")
     return 0 if result.ok else 1
 
@@ -215,10 +243,16 @@ def main(argv: list[str] | None = None) -> int:
     rep.add_argument("--db", type=Path, required=True)
     rep.add_argument("--env", type=Path, default=Path(".env"))
     rep.add_argument("--account", default="scotia-chequing")
+    rep.add_argument(
+        "--allowlist",
+        type=Path,
+        default=Path("data/private/pseudonymize_allowlist.txt"),
+        help="known business texts, one per line (git-ignored; never printed)",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "report":
-        return _report(args.db, args.env, args.account)
+        return _report(args.db, args.env, args.account, args.allowlist)
     if init_key(args.env):
         print(f"wrote a new {KEY_NAME} to {args.env} (keep it; replacing it changes every token)")
         return 0
