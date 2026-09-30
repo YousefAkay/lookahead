@@ -9,6 +9,8 @@ Stages (each with its own random stream, so changing one never shifts another's 
      (overdraft limit, cutting back when low) and balance-triggered top-ups;
 (quirks) planted card quirks: pre-authorization holds, returns, duplicates (only adds
      rows, plus link/quirk on the rows they pair with);
+(fees) event-driven bank fees: transfer, ATM, handling charges, overdraft interest
+     (only adds rows);
 4. bank description text: changes only the two text fields.
 """
 
@@ -18,6 +20,7 @@ from datetime import date
 import numpy as np
 
 from lookahead.generator.descriptions import describe
+from lookahead.generator.fees import add_bank_fees
 from lookahead.generator.personas import Persona
 from lookahead.generator.quirks import plant_card_quirks
 from lookahead.generator.schedules import GeneratedTxn
@@ -26,12 +29,13 @@ from lookahead.generator.simulate import simulate
 
 def generate_persona(persona: Persona, start: date, end: date, seed: int) -> list[GeneratedTxn]:
     """All of a persona's transactions posted in [start, end], sorted by date."""
-    scheduled_rng, spending_rng, topup_rng, text_rng, quirk_rng = (
+    scheduled_rng, spending_rng, topup_rng, text_rng, quirk_rng, fee_rng = (
         np.random.default_rng(s)
-        for s in np.random.SeedSequence([seed, zlib.crc32(persona.persona_id.encode())]).spawn(5)
+        for s in np.random.SeedSequence([seed, zlib.crc32(persona.persona_id.encode())]).spawn(6)
     )
     rows = persona.generate(start, end, scheduled_rng)
     rows += simulate(persona, rows, start, end, spending_rng, topup_rng)
     rows = sorted(rows, key=lambda t: t.posted_date)
     rows = plant_card_quirks(rows, persona.persona_id, start, end, quirk_rng)
+    rows = add_bank_fees(rows, persona.opening_balance_cents, start, end, fee_rng)
     return describe(rows, text_rng)
