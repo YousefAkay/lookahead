@@ -20,6 +20,15 @@ from lookahead.taxonomy import check_labels
 
 _DAYS_PER_MONTH = 30.44
 
+# CAD per unit of foreign currency, drawn uniformly per purchase, in plausible ranges;
+# AED stands in for "a currency worth much less than CAD".
+CURRENCY_RATES: dict[str, tuple[float, float]] = {
+    "USD": (1.36, 1.45),
+    "EUR": (1.55, 1.70),
+    "GBP": (1.75, 1.90),
+    "AED": (0.37, 0.40),
+}
+
 
 @dataclass(frozen=True)
 class Merchant:
@@ -29,10 +38,13 @@ class Merchant:
     category: str
     online: bool
     weight: float  # relative frequency among this persona's purchases
-    median_cents: int  # typical purchase amount (positive; the sign is applied later)
+    median_cents: int  # typical amount, in the merchant's currency (positive)
+    currency: str = "CAD"
 
     def __post_init__(self) -> None:
         check_labels(self.category, "everyday")
+        if self.currency != "CAD" and self.currency not in CURRENCY_RATES:
+            raise ValueError(f"unknown currency {self.currency!r}")
 
 
 @dataclass(frozen=True)
@@ -60,14 +72,22 @@ class SpendingProfile:
         weights = np.array([m.weight for m in self.merchants], dtype=float)
         merchant = self.merchants[int(rng.choice(len(self.merchants), p=weights / weights.sum()))]
         amount = merchant.median_cents * float(np.exp(self.amount_sigma * rng.standard_normal()))
+        amount_cents = max(100, round(amount))  # at least 1.00 in the merchant's currency
+        original = None
+        if merchant.currency != "CAD":
+            # The bank converts: CAD amount = foreign amount x that day's rate.
+            original = amount_cents
+            amount_cents = round(original * rng.uniform(*CURRENCY_RATES[merchant.currency]))
         return GeneratedTxn(
             posted_date=next_card_posting_day(made),
-            amount_cents=-max(100, round(amount)),  # at least $1.00
+            amount_cents=-amount_cents,
             txn_type="pos purchase",
             merchant=merchant.name,
             category=merchant.category,
             flow_type="everyday",
             online=merchant.online,
+            currency=merchant.currency,
+            original_amount_cents=-original if original is not None else None,
         )
 
     def _cash(self, made: date, rng: np.random.Generator) -> GeneratedTxn:

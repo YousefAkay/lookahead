@@ -51,6 +51,10 @@ class GeneratedTxn:
     one_off: bool = False  # large single item, excluded from everyday spending
     link_id: str | None = None  # shared by related rows (funding + payment, return + original)
     online: bool | None = None  # card purchases only: True = online, False = in person
+    currency: str = "CAD"  # card purchases in a foreign currency: its code, e.g. "USD"
+    original_amount_cents: int | None = None  # amount in that currency (signed), else None
+    description: str = ""  # bank "Description" column; filled by the description stage
+    sub_description: str = ""  # bank "Sub-description" column; filled by the description stage
 
     def __post_init__(self) -> None:
         check_labels(self.category, self.flow_type)

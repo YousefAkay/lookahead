@@ -79,9 +79,16 @@ def _monthly(
     )
 
 
-def _m(name: str, category: str, online: bool, weight: float, median_dollars: float) -> Merchant:
-    """Short merchant constructor for the tables below (median given in dollars)."""
-    return Merchant(name, category, online, weight, round(median_dollars * 100))
+def _m(
+    name: str,
+    category: str,
+    online: bool,
+    weight: float,
+    median: float,
+    currency: str = "CAD",
+) -> Merchant:
+    """Short merchant constructor for the tables below (median in whole currency units)."""
+    return Merchant(name, category, online, weight, round(median * 100), currency)
 
 
 def _big(merchant: str, category: str, due: date, dollars: float, online: bool) -> OneOff:
@@ -110,7 +117,7 @@ _SPENDING_A = SpendingProfile(
         _m("Uber Eats", _DELIV, True, 12, 27),
         _m("DoorDash", _DELIV, True, 7, 25),
         _m("Tim Hortons", _CAFE, False, 9, 5),
-        _m("Cafe Quorvel", _CAFE, False, 6, 6),
+        _m("Café Quorvel", _CAFE, False, 6, 6),
         _m("Maxi", _GROC, False, 6, 34),
         _m("Super C", _GROC, False, 4, 30),
         _m("Couche-Tard", _GROC, False, 6, 8),
@@ -121,7 +128,7 @@ _SPENDING_A = SpendingProfile(
 
 # B: young worker, groceries and restaurants.
 _SPENDING_B = SpendingProfile(
-    purchases_per_day=1.2,
+    purchases_per_day=1.1,  # expected ~$1,180/month: 30.4 x 1.1 x ~$34.35 + ~$30 cash
     amount_sigma=0.45,
     cash_per_month=0.5,
     weekday_factors=(0.9, 0.9, 0.95, 1.0, 1.15, 1.25, 0.85),
@@ -129,12 +136,13 @@ _SPENDING_B = SpendingProfile(
         _m("IGA", _GROC, False, 8, 48),
         _m("Metro", _GROC, False, 7, 42),
         _m("Restaurant Le Petit Orme", _REST, False, 6, 42),
-        _m("Cafe Velisaro", _CAFE, False, 7, 6),
+        _m("Café Velisaro", _CAFE, False, 7, 6),
         _m("Bixi", _TRANS, True, 5, 4),
         _m("Pharmaprix", "Health & pharmacy", False, 4, 22),
         _m("Amazon.ca", _SHOP, True, 5, 38),
         _m("Winners", _SHOP, False, 2, 55),
         _m("SAQ", _GROC, False, 3, 24),
+        _m("Etsy", _SHOP, True, 0.3, 40, "USD"),  # rare USD online purchase
     ),
 )
 
@@ -158,7 +166,8 @@ _SPENDING_C = SpendingProfile(
         _m("Uber", _TRANS, True, 3, 22),
         _m("Lyft", _TRANS, True, 2, 19),
         _m("Amazon.ca", _SHOP, True, 4, 36),
-        _m("Steam", "Entertainment", True, 1, 14),
+        _m("Steam", "Entertainment", True, 1, 14, "USD"),
+        _m("Etsy", _SHOP, True, 0.5, 120, "AED"),  # occasional lower-value currency
         _m("Best Buy", _SHOP, False, 0.7, 140),  # the occasional larger purchase
     ),
 )
@@ -212,11 +221,11 @@ PERSONA_B = Persona(
             amount=Amount(190_000),
             shift="earlier",
         ),
-        _monthly("B-rent", "Gestion Immobiliere", "Rent & housing", "bill payment", 1,
+        _monthly("B-rent", "Gestion Immobilière", "Rent & housing", "bill payment", 1,
                  Amount(-115_000), "later"),
-        _monthly("B-hydro", "Hydro-Quebec", "Phone, internet & utilities", "bill payment", 20,
+        _monthly("B-hydro", "Hydro-Québec", "Phone, internet & utilities", "bill payment", 20,
                  Amount(-9_000, spread_cents=3_000), "later"),
-        _monthly("B-videotron", "Videotron", "Phone, internet & utilities", "bill payment", 8,
+        _monthly("B-videotron", "Vidéotron", "Phone, internet & utilities", "bill payment", 8,
                  Amount(-8_500), "later"),
         _monthly("B-netflix", "Netflix", "Subscriptions", "pos purchase", 14,
                  Amount(-1_899), "card"),
@@ -243,7 +252,7 @@ _TUITION = DatedSeries(
 # each tuition payment, covering most of it, linked to it.
 _EARMARKED_MEMOS = DatedSeries(
     series_id="C-family",
-    merchant="Family",
+    merchant="Nadia Haddad",  # made-up sender name
     category="Income",
     flow_type="income",
     txn_type="credit memo",
@@ -267,7 +276,7 @@ PERSONA_C = Persona(
     topups=(
         BalanceTopUp(
             series_id="C-family",
-            merchant="Family",
+            merchant="Nadia Haddad",  # made-up sender name
             category="Income",
             flow_type="income",
             txn_type="credit memo",

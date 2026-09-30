@@ -99,3 +99,28 @@ def test_rejects_bad_weekday_factors() -> None:
 def test_rejects_invalid_merchant_category() -> None:
     with pytest.raises(ValueError):
         Merchant("X", "Food", online=False, weight=1, median_cents=100)
+
+
+# --- Foreign-currency merchants ---
+
+
+def test_foreign_purchase_keeps_original_amount_and_a_plausible_rate() -> None:
+    usd = Merchant(
+        "Steam", "Entertainment", online=True, weight=1, median_cents=1_500, currency="USD"
+    )
+    got = rows(profile(merchants=(usd,), cash_per_month=0.0))
+    assert got
+    for t in got:
+        assert t.currency == "USD" and t.original_amount_cents is not None
+        # Drawn rate is 1.36-1.45; rounding to the cent can nudge the ratio slightly.
+        assert 1.355 <= t.amount_cents / t.original_amount_cents <= 1.455  # both negative
+
+
+def test_cad_purchases_have_no_original_amount() -> None:
+    for t in rows(profile()):
+        assert t.currency == "CAD" and t.original_amount_cents is None
+
+
+def test_unknown_currency_is_rejected() -> None:
+    with pytest.raises(ValueError, match="currency"):
+        Merchant("X", "Shopping", online=True, weight=1, median_cents=100, currency="XYZ")
