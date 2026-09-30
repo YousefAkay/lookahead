@@ -50,6 +50,7 @@ class GeneratedTxn:
     series_id: str | None = None  # set only for recurring series
     one_off: bool = False  # large single item, excluded from everyday spending
     link_id: str | None = None  # shared by related rows (funding + payment, return + original)
+    online: bool | None = None  # card purchases only: True = online, False = in person
 
     def __post_init__(self) -> None:
         check_labels(self.category, self.flow_type)

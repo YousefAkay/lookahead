@@ -1,4 +1,4 @@
-"""The three hand-written v0 personas: scheduled money only (everyday spending comes in 2c).
+"""The three hand-written v0 personas: scheduled money and everyday spending.
 
 Amounts are integer cents: 85_000 = $850.00. Signs: + into the account, - out.
 """
@@ -20,6 +20,7 @@ from lookahead.generator.schedules import (
     RecurringSchedule,
     Shift,
 )
+from lookahead.generator.spending import Merchant, SpendingProfile
 
 
 class Source(Protocol):
@@ -30,14 +31,19 @@ class Source(Protocol):
 
 @dataclass(frozen=True)
 class Persona:
-    """A synthetic account holder: opening balance, scheduled money, quiet months."""
+    """A synthetic account holder: opening balance, scheduled money, everyday spending."""
 
     persona_id: str
     description: str
     opening_balance_cents: int
     sources: tuple[Source, ...]
+    spending: SpendingProfile | None = None
     quiet_months: frozenset[int] = frozenset()  # months with low everyday activity
-    quiet_activity: float = 1.0  # everyday-spending multiplier in quiet months (used in 2c)
+    quiet_activity: float = 1.0  # everyday-spending multiplier in quiet months
+
+    def activity(self, d: date) -> float:
+        """Everyday-spending multiplier on day d: lower in quiet months."""
+        return self.quiet_activity if d.month in self.quiet_months else 1.0
 
     def generate(self, start: date, end: date, rng: np.random.Generator) -> list[GeneratedTxn]:
         """All scheduled transactions in [start, end], sorted by date (stable)."""
@@ -69,10 +75,82 @@ def _monthly(
     )
 
 
+def _m(name: str, category: str, online: bool, weight: float, median_dollars: float) -> Merchant:
+    """Short merchant constructor for the tables below (median given in dollars)."""
+    return Merchant(name, category, online, weight, round(median_dollars * 100))
+
+
+_CAFE, _REST, _DELIV = "Restaurants & cafés", "Restaurants & cafés", "Food delivery"
+_GROC, _SHOP, _TRANS = "Groceries", "Shopping", "Transport"
+
+# A: student, lots of food delivery.
+_SPENDING_A = SpendingProfile(
+    purchases_per_day=1.3,
+    amount_sigma=0.45,
+    cash_per_month=1.0,
+    merchants=(
+        _m("Uber Eats", _DELIV, True, 12, 27),
+        _m("DoorDash", _DELIV, True, 7, 25),
+        _m("Tim Hortons", _CAFE, False, 9, 5),
+        _m("Cafe Quorvel", _CAFE, False, 6, 6),
+        _m("Maxi", _GROC, False, 6, 34),
+        _m("Super C", _GROC, False, 4, 30),
+        _m("Couche-Tard", _GROC, False, 6, 8),
+        _m("STM", _TRANS, False, 4, 12),
+        _m("Dollarama", _SHOP, False, 2, 10),
+    ),
+)
+
+# B: young worker, groceries and restaurants.
+_SPENDING_B = SpendingProfile(
+    purchases_per_day=1.2,
+    amount_sigma=0.45,
+    cash_per_month=0.5,
+    weekday_factors=(0.9, 0.9, 0.95, 1.0, 1.15, 1.25, 0.85),
+    merchants=(
+        _m("IGA", _GROC, False, 8, 48),
+        _m("Metro", _GROC, False, 7, 42),
+        _m("Restaurant Le Petit Orme", _REST, False, 6, 42),
+        _m("Cafe Velisaro", _CAFE, False, 7, 6),
+        _m("Bixi", _TRANS, True, 5, 4),
+        _m("Pharmaprix", "Health & pharmacy", False, 4, 22),
+        _m("Amazon.ca", _SHOP, True, 5, 38),
+        _m("Winners", _SHOP, False, 2, 55),
+        _m("SAQ", _GROC, False, 3, 24),
+    ),
+)
+
+# C: a made-up student budget (all values invented).
+_SPENDING_C = SpendingProfile(
+    purchases_per_day=1.6,
+    amount_sigma=0.5,
+    cash_per_month=1.0,
+    merchants=(
+        _m("Tim Hortons", _CAFE, False, 6, 5),
+        _m("Café Quorvel", _CAFE, False, 4, 6),
+        _m("Couche-Tard", _GROC, False, 5, 9),
+        _m("Metro", _GROC, False, 7, 34),
+        _m("Super C", _GROC, False, 5, 41),
+        _m("Restaurant Le Petit Orme", _REST, False, 2.5, 26),
+        _m("Jean Coutu", "Health & pharmacy", False, 2, 24),
+        _m("Dollarama", _SHOP, False, 3, 9),
+        _m("STM", _TRANS, False, 6, 11),
+        _m("Bixi", _TRANS, False, 2, 5),
+        _m("Uber Eats", _DELIV, True, 6, 29),
+        _m("Uber", _TRANS, True, 3, 22),
+        _m("Lyft", _TRANS, True, 2, 19),
+        _m("Amazon.ca", _SHOP, True, 4, 36),
+        _m("Steam", "Entertainment", True, 1, 14),
+        _m("Best Buy", _SHOP, False, 0.7, 140),  # the occasional larger purchase
+    ),
+)
+
+
 PERSONA_A = Persona(
     persona_id="A",
     description="Student with a part-time job, paid biweekly; tight before payday",
     opening_balance_cents=60_000,
+    spending=_SPENDING_A,
     sources=(
         RecurringSchedule(
             series_id="A-pay",
@@ -98,6 +176,7 @@ PERSONA_B = Persona(
     persona_id="B",
     description="Young worker paid on the 15th and last day; saves monthly",
     opening_balance_cents=250_000,
+    spending=_SPENDING_B,
     sources=(
         RecurringSchedule(
             series_id="B-pay",
@@ -157,6 +236,7 @@ PERSONA_C = Persona(
     persona_id="C",
     description="Student funded by family credit memos; tuition each term; quiet in August",
     opening_balance_cents=135_000,
+    spending=_SPENDING_C,
     quiet_months=frozenset({8}),
     quiet_activity=0.25,
     sources=(
