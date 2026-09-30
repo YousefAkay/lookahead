@@ -1,7 +1,8 @@
 """Calendar rules for posting dates: month-end clamping, holidays, business-day shifts.
 
-The holiday list is an ASSUMPTION about when Canadian banks do not post payments
-(see DECISIONS.md). It will be checked against real Scotiabank posting dates.
+Two kinds of posting day (see DECISIONS.md; both supported by real posting counts):
+- business day (Mon-Fri, not a holiday): scheduled bills and payroll;
+- card posting day (Mon-Sat, not a holiday): card purchases and e-Transfers.
 """
 
 import calendar
@@ -80,6 +81,18 @@ def holidays(year: int) -> frozenset[date]:
 def is_business_day(d: date) -> bool:
     """True if `d` is a weekday that is not a holiday."""
     return d.weekday() < 5 and d not in holidays(d.year)
+
+
+def is_card_posting_day(d: date) -> bool:
+    """True if card purchases post on `d`: Monday to Saturday, not a holiday."""
+    return d.weekday() != 6 and d not in holidays(d.year)
+
+
+def next_card_posting_day(d: date) -> date:
+    """The day a card purchase made on `d` posts: `d` itself, or the next posting day."""
+    while not is_card_posting_day(d):
+        d += timedelta(days=1)
+    return d
 
 
 def shift_to_business_day(d: date, direction: Direction) -> date:

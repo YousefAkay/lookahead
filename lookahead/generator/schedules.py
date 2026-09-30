@@ -11,7 +11,12 @@ from typing import Literal
 
 import numpy as np
 
-from lookahead.calendar_rules import Direction, monthly_date, shift_to_business_day
+from lookahead.calendar_rules import (
+    Direction,
+    monthly_date,
+    next_card_posting_day,
+    shift_to_business_day,
+)
 from lookahead.taxonomy import check_labels
 
 Cadence = Literal["weekly", "biweekly", "monthly", "semimonthly"]
@@ -31,6 +36,8 @@ class GeneratedTxn:
     category: str
     flow_type: str
     series_id: str | None = None  # set only for recurring series
+    one_off: bool = False  # large single item, excluded from everyday spending
+    link_id: str | None = None  # shared by related rows (funding + payment, return + original)
 
     def __post_init__(self) -> None:
         check_labels(self.category, self.flow_type)
@@ -134,6 +141,7 @@ class OneOff:
     flow_type: str
     txn_type: str
     shift: Direction = "later"
+    link_id: str | None = None
 
     def __post_init__(self) -> None:
         check_labels(self.category, self.flow_type)
@@ -151,6 +159,8 @@ class OneOff:
                 merchant=self.merchant,
                 category=self.category,
                 flow_type=self.flow_type,
+                one_off=True,
+                link_id=self.link_id,
             )
         ]
 
@@ -159,7 +169,8 @@ class OneOff:
 class IrregularIncome:
     """Random incoming transfers: a random count per month, random round amounts.
 
-    No business-day shift: Interac e-Transfers post on weekends too (assumption).
+    Dates follow the card posting day rule: Saturdays post, a Sunday or holiday
+    moves to the next posting day, and a date moved past the range end is dropped.
     """
 
     merchant: str
@@ -183,9 +194,12 @@ class IrregularIncome:
             n_days = (last - first).days + 1
             count = int(rng.integers(self.per_month[0], self.per_month[1] + 1))
             for _ in range(count):
-                posted = first + timedelta(days=int(rng.integers(n_days)))
+                sent = first + timedelta(days=int(rng.integers(n_days)))
                 low, high = (a // self.round_to_cents for a in self.amount_range_cents)
                 amount = int(rng.integers(low, high + 1)) * self.round_to_cents
+                posted = next_card_posting_day(sent)
+                if posted > end:
+                    continue
                 out.append(
                     GeneratedTxn(
                         posted_date=posted,

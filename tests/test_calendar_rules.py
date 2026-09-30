@@ -7,7 +7,9 @@ import pytest
 from lookahead.calendar_rules import (
     holidays,
     is_business_day,
+    is_card_posting_day,
     monthly_date,
+    next_card_posting_day,
     shift_to_business_day,
 )
 
@@ -126,3 +128,34 @@ def test_shift_skips_a_holiday_next_to_a_weekend() -> None:
 def test_shift_rejects_unknown_direction() -> None:
     with pytest.raises(ValueError):
         shift_to_business_day(date(2026, 6, 13), "sideways")  # type: ignore[arg-type]
+
+
+# --- Card posting days: Monday to Saturday, not a holiday ---
+
+
+@pytest.mark.parametrize(
+    ("d", "expected"),
+    [
+        (date(2026, 6, 13), True),  # Saturday: card purchases post
+        (date(2026, 6, 14), False),  # Sunday: never
+        (date(2026, 7, 1), False),  # Canada Day
+        (date(2026, 12, 26), True),  # Saturday Boxing Day; the holiday is observed Mon Dec 28
+    ],
+)
+def test_is_card_posting_day(d: date, expected: bool) -> None:
+    assert is_card_posting_day(d) is expected
+
+
+@pytest.mark.parametrize(
+    ("made", "posted"),
+    [
+        (date(2026, 6, 13), date(2026, 6, 13)),  # Saturday stays
+        (date(2026, 6, 14), date(2026, 6, 15)),  # Sunday -> Monday
+        (date(2026, 4, 5), date(2026, 4, 6)),  # Easter Sunday -> Easter Monday (not a holiday)
+        (date(2026, 9, 7), date(2026, 9, 8)),  # Labour Day -> Tuesday
+        (date(2026, 9, 6), date(2026, 9, 8)),  # Sunday before Labour Day skips both
+        (date(2026, 12, 25), date(2026, 12, 26)),  # Christmas (Fri) -> Saturday
+    ],
+)
+def test_next_card_posting_day(made: date, posted: date) -> None:
+    assert next_card_posting_day(made) == posted

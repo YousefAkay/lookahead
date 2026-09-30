@@ -5,6 +5,7 @@ from datetime import date, timedelta
 import numpy as np
 import pytest
 
+from lookahead.calendar_rules import is_card_posting_day
 from lookahead.generator.schedules import (
     Amount,
     GeneratedTxn,
@@ -171,6 +172,26 @@ def test_one_off_shifts_later_and_has_no_series() -> None:
     assert txn.series_id is None
 
 
+def test_one_off_is_flagged_and_carries_its_link() -> None:
+    funds = OneOff(
+        due=date(2026, 8, 28),
+        amount_cents=700_000,
+        merchant="Family",
+        category="Income",
+        flow_type="income",
+        txn_type="credit memo",
+        link_id="tuition-fall-2026",
+    )
+    [memo] = funds.generate(START, END, rng())
+    assert memo.one_off is True
+    assert memo.link_id == "tuition-fall-2026"
+
+
+def test_recurring_and_irregular_rows_are_not_one_offs() -> None:
+    txns = schedule().generate(START, END, rng()) + family_etransfers().generate(START, END, rng())
+    assert all(t.one_off is False and t.link_id is None for t in txns)
+
+
 def test_one_off_outside_range_produces_nothing() -> None:
     assert tuition(date(2026, 12, 1)).generate(START, END, rng()) == []
 
@@ -192,12 +213,30 @@ def family_etransfers() -> IrregularIncome:
 
 def test_irregular_income_counts_and_amounts() -> None:
     txns = family_etransfers().generate(START, END, rng())
+    # 2-4 are drawn per month, but a Sunday or holiday draw moves to the next posting
+    # day, which can cross into the next month or past the range end (then dropped).
     for month in (6, 7, 8, 9):
-        assert 2 <= sum(t.posted_date.month == month for t in txns) <= 4
+        assert 1 <= sum(t.posted_date.month == month for t in txns) <= 5
+    assert 7 <= len(txns) <= 16
     assert all(5_000 <= t.amount_cents <= 40_000 for t in txns)
     assert all(t.amount_cents % 1_000 == 0 for t in txns)  # round amounts, like family transfers
     assert all(START <= t.posted_date <= END for t in txns)
     assert all(type(t.amount_cents) is int and t.series_id is None for t in txns)
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_irregular_income_never_posts_on_sundays_or_holidays(seed: int) -> None:
+    busy = IrregularIncome(
+        merchant="Interac e-Transfer",
+        category="Income",
+        flow_type="income",
+        txn_type="deposit",
+        per_month=(20, 25),  # many draws, so Sundays and holidays would be hit
+        amount_range_cents=(5_000, 40_000),
+    )
+    txns = busy.generate(START, END, rng(seed))
+    assert all(is_card_posting_day(t.posted_date) for t in txns)
+    assert all(START <= t.posted_date <= END for t in txns)
 
 
 def test_irregular_income_is_sorted_by_date() -> None:
