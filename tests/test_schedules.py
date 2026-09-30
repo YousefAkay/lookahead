@@ -8,8 +8,11 @@ import pytest
 from lookahead.calendar_rules import is_card_posting_day
 from lookahead.generator.schedules import (
     Amount,
+    DatedItem,
+    DatedSeries,
     GeneratedTxn,
     IrregularIncome,
+    IrregularSeries,
     OneOff,
     RecurringSchedule,
 )
@@ -255,3 +258,98 @@ def test_unknown_category_is_rejected() -> None:
 def test_unknown_flow_type_is_rejected() -> None:
     with pytest.raises(ValueError, match="flow_type"):
         schedule(flow_type="bill")
+
+
+# --- shift="card": account-holder-initiated payments follow the card posting day rule ---
+
+
+def test_card_shift_keeps_saturday_and_moves_sunday() -> None:
+    rent = schedule(shift="card")  # e-Transfer rent on the 1st
+    got = dates(rent.generate(START, END, rng()))
+    assert date(2026, 8, 1) in got  # Saturday: posts the same day
+    assert date(2026, 7, 2) in got  # Canada Day: next posting day
+
+
+def test_card_shift_on_one_off() -> None:
+    sent = OneOff(
+        due=date(2026, 6, 21),  # Sunday
+        amount_cents=-12_000,
+        merchant="Interac e-Transfer",
+        category="Transfers",
+        flow_type="transfer",
+        txn_type="withdrawal",
+        shift="card",
+    )
+    [txn] = sent.generate(START, END, rng())
+    assert txn.posted_date == date(2026, 6, 22)
+
+
+# --- DatedSeries: a series on explicit dates (tuition by semester) ---
+
+
+def tuition_series() -> DatedSeries:
+    return DatedSeries(
+        series_id="tuition",
+        merchant="Concordia University",
+        category="Education",
+        flow_type="recurring_outflow",
+        txn_type="bill payment",
+        shift="later",
+        items=(
+            DatedItem(date(2026, 5, 5), -725_000, "tuition-summer-2026"),
+            DatedItem(date(2026, 9, 5), -725_000, "tuition-fall-2026"),  # Saturday
+            DatedItem(date(2027, 2, 5), -690_000, "tuition-winter-2027"),
+        ),
+    )
+
+
+def test_dated_series_keeps_in_range_items_with_their_links() -> None:
+    [txn] = tuition_series().generate(START, END, rng())
+    assert txn.posted_date == date(2026, 9, 8)  # Sat -> Mon Labour Day -> Tue
+    assert txn.link_id == "tuition-fall-2026"
+    assert txn.series_id == "tuition"
+    assert txn.one_off is False
+    assert txn.amount_cents == -725_000
+
+
+# --- IrregularSeries: a recurring source with irregular gaps (family credit memos) ---
+
+
+def family_memos(**overrides: object) -> IrregularSeries:
+    fields: dict[str, object] = {
+        "series_id": "family",
+        "merchant": "Family",
+        "category": "Income",
+        "flow_type": "income",
+        "txn_type": "credit memo",
+        "gap_days": (28, 56),
+        "amount_range_cents": (150_000, 300_000),
+        "round_to_cents": 10_000,
+        "round_share": 0.7,
+    }
+    fields.update(overrides)
+    return IrregularSeries(**fields)  # type: ignore[arg-type]
+
+
+def test_irregular_series_gaps_and_labels() -> None:
+    txns = family_memos().generate(START, END, rng())
+    assert len(txns) >= 2  # first within 56 days of the start, then every <= 56 days
+    got = dates(txns)
+    # Gaps are drawn in 28..56 days; posting shifts can move a date by up to 3 days.
+    assert all(25 <= (b - a).days <= 59 for a, b in zip(got, got[1:], strict=False))
+    assert all(is_card_posting_day(d) and START <= d <= END for d in got)
+    assert all(t.series_id == "family" and t.one_off is False for t in txns)
+    assert all(150_000 <= t.amount_cents <= 300_000 for t in txns)
+
+
+def test_irregular_series_mostly_round_amounts() -> None:
+    txns = family_memos().generate(date(2026, 1, 1), date(2035, 12, 31), rng())
+    share = sum(t.amount_cents % 10_000 == 0 for t in txns) / len(txns)
+    assert 0.5 <= share <= 0.9  # round_share = 0.7
+
+
+def test_irregular_series_rejects_bad_settings() -> None:
+    with pytest.raises(ValueError):
+        family_memos(gap_days=(56, 28))
+    with pytest.raises(ValueError):
+        family_memos(round_share=1.5)

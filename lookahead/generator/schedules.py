@@ -21,8 +21,20 @@ from lookahead.taxonomy import check_labels
 
 Cadence = Literal["weekly", "biweekly", "monthly", "semimonthly"]
 
+# "earlier"/"later": business-day rule (payroll, bill payments).
+# "card": card posting day rule (things the account holder initiates:
+# card purchases, card-billed subscriptions, sent e-Transfers).
+Shift = Direction | Literal["card"]
+
 # A due date after the range end can still shift earlier into the range.
 _SHIFT_MARGIN = timedelta(days=7)
+
+
+def _post(due: date, shift: Shift) -> date:
+    """The posting date for an item due on `due`."""
+    if shift == "card":
+        return next_card_posting_day(due)
+    return shift_to_business_day(due, shift)
 
 
 @dataclass(frozen=True)
@@ -83,7 +95,7 @@ class RecurringSchedule:
     cadence: Cadence
     anchor: date
     amount: Amount
-    shift: Direction
+    shift: Shift
     end: date | None = None
 
     def __post_init__(self) -> None:
@@ -114,7 +126,7 @@ class RecurringSchedule:
         """Transactions whose posting date falls in [start, end]."""
         out = []
         for due in self._due_dates(end + _SHIFT_MARGIN):
-            posted = shift_to_business_day(due, self.shift)
+            posted = _post(due, self.shift)
             if start <= posted <= end:
                 out.append(
                     GeneratedTxn(
@@ -132,7 +144,7 @@ class RecurringSchedule:
 
 @dataclass(frozen=True)
 class OneOff:
-    """A single dated item, such as a tuition payment or a large family transfer."""
+    """A single unscheduled item, such as a returned e-Transfer. Flagged one_off."""
 
     due: date
     amount_cents: int
@@ -140,7 +152,7 @@ class OneOff:
     category: str
     flow_type: str
     txn_type: str
-    shift: Direction = "later"
+    shift: Shift = "later"
     link_id: str | None = None
 
     def __post_init__(self) -> None:
@@ -148,7 +160,7 @@ class OneOff:
 
     def generate(self, start: date, end: date, rng: np.random.Generator) -> list[GeneratedTxn]:
         """A one-item list, or empty if the posting date is outside [start, end]."""
-        posted = shift_to_business_day(self.due, self.shift)
+        posted = _post(self.due, self.shift)
         if not start <= posted <= end:
             return []
         return [
@@ -212,3 +224,110 @@ class IrregularIncome:
                 )
             year, month = (year + 1, 1) if month == 12 else (year, month + 1)
         return sorted(out, key=lambda t: t.posted_date)
+
+
+@dataclass(frozen=True)
+class DatedItem:
+    """One occurrence of a DatedSeries."""
+
+    due: date
+    amount_cents: int
+    link_id: str | None = None
+
+
+@dataclass(frozen=True)
+class DatedSeries:
+    """A recurring series on explicit dates, e.g. tuition each semester.
+
+    For series whose spacing is irregular but known in advance. Each item can
+    carry its own link_id (e.g. to the transfer that funds it).
+    """
+
+    series_id: str
+    merchant: str
+    category: str
+    flow_type: str
+    txn_type: str
+    shift: Shift
+    items: tuple[DatedItem, ...]
+
+    def __post_init__(self) -> None:
+        check_labels(self.category, self.flow_type)
+
+    def generate(self, start: date, end: date, rng: np.random.Generator) -> list[GeneratedTxn]:
+        """Items whose posting date falls in [start, end], sorted by date."""
+        out = []
+        for item in self.items:
+            posted = _post(item.due, self.shift)
+            if start <= posted <= end:
+                out.append(
+                    GeneratedTxn(
+                        posted_date=posted,
+                        amount_cents=item.amount_cents,
+                        txn_type=self.txn_type,
+                        merchant=self.merchant,
+                        category=self.category,
+                        flow_type=self.flow_type,
+                        series_id=self.series_id,
+                        link_id=item.link_id,
+                    )
+                )
+        return sorted(out, key=lambda t: t.posted_date)
+
+
+@dataclass(frozen=True)
+class IrregularSeries:
+    """A recurring source with irregular gaps, e.g. family credit memos every 4-8 weeks.
+
+    Each gap is drawn uniformly from `gap_days`. A share `round_share` of amounts
+    is rounded to `round_to_cents`; the rest are exact to the cent. Dates follow
+    the card posting day rule.
+    """
+
+    series_id: str
+    merchant: str
+    category: str
+    flow_type: str
+    txn_type: str
+    gap_days: tuple[int, int]  # inclusive min, max days between arrivals
+    amount_range_cents: tuple[int, int]  # inclusive min, max
+    round_to_cents: int = 100
+    round_share: float = 1.0
+
+    def __post_init__(self) -> None:
+        check_labels(self.category, self.flow_type)
+        if not 1 <= self.gap_days[0] <= self.gap_days[1]:
+            raise ValueError("gap_days must be (min, max) with 1 <= min <= max")
+        if not 0.0 <= self.round_share <= 1.0:
+            raise ValueError("round_share must be between 0 and 1")
+
+    def _amount(self, rng: np.random.Generator) -> int:
+        low, high = self.amount_range_cents
+        if rng.random() < self.round_share:
+            step = self.round_to_cents
+            return int(rng.integers(-(-low // step), high // step + 1)) * step
+        return int(rng.integers(low, high + 1))
+
+    def generate(self, start: date, end: date, rng: np.random.Generator) -> list[GeneratedTxn]:
+        """Arrivals in [start, end], sorted by date."""
+        out = []
+        # The first arrival is somewhere in the first gap, as if the series began earlier.
+        arrival = start + timedelta(days=int(rng.integers(self.gap_days[1])))
+        while arrival <= end:
+            posted = next_card_posting_day(arrival)
+            amount = self._amount(rng)
+            if posted <= end:
+                out.append(
+                    GeneratedTxn(
+                        posted_date=posted,
+                        amount_cents=amount,
+                        txn_type=self.txn_type,
+                        merchant=self.merchant,
+                        category=self.category,
+                        flow_type=self.flow_type,
+                        series_id=self.series_id,
+                    )
+                )
+            gap = int(rng.integers(self.gap_days[0], self.gap_days[1] + 1))
+            arrival += timedelta(days=gap)
+        return out
