@@ -1,6 +1,6 @@
 """Import every Scotiabank export in a folder, then reconcile. Prints counts only.
 
-    python -m lookahead.ingest <folder> --db <database file>
+    python -m lookahead.ingest <folder> --db <database file> [--glob "*.csv"]
 
 Output never contains amounts, balances, descriptions or file names: only counts,
 row positions, line numbers, dates of reconciliation breaks, and PASS/FAIL. That makes
@@ -33,12 +33,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("folder", type=Path, help="folder with .csv exports")
     parser.add_argument("--db", type=Path, required=True, help="SQLite database file")
     parser.add_argument("--account", default=DEFAULT_ACCOUNT)
+    parser.add_argument("--glob", default="*.csv", help='which files to import (default "*.csv")')
     args = parser.parse_args(argv)
 
-    paths = sorted(args.folder.glob("*.csv"))
+    paths = sorted(args.folder.glob(args.glob))
     print(f"Lookahead import: {len(paths)} file(s), account {args.account}")
     if not paths:
-        print("no .csv files found")
+        print(f"no files matching {args.glob} found (no .csv files)")
         return 2
 
     # Parse everything first: a format error stops the run before anything is stored.

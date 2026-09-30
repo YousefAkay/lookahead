@@ -43,6 +43,13 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def connect_readonly(path: Path) -> sqlite3.Connection:
+    """Open an existing database read-only: SQLite refuses writes and never creates the file."""
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def existing_fingerprints(conn: sqlite3.Connection, account: str) -> set[str]:
     return {
         r[0]
