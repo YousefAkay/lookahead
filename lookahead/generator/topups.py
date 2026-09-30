@@ -91,39 +91,38 @@ class BalanceTopUp:
         return int(rng.integers(low, high + 1))
 
 
-def apply_topups(
-    rows: list[GeneratedTxn],
-    opening_balance_cents: int,
-    topups: tuple[BalanceTopUp, ...],
-    start: date,
-    end: date,
-    rng: np.random.Generator,
-) -> list[GeneratedTxn]:
-    """Walk the running balance day by day and return the top-up rows it triggers.
+class TopUpRunner:
+    """Runs top-up rules day by day, for a caller that tracks the posted balance.
 
-    Each day: pending top-ups due that day post first (morning), then the day's
-    other rows; in the evening, each rule checks the balance and may schedule one.
+    Each day: call `morning(day)` (returns top-ups posting today), apply the day's
+    other rows, then call `evening(day, balance)` with the posted balance.
+    `scheduled` rows (everything but everyday spending) feed the look-ahead.
     """
-    by_day: dict[date, int] = {}
-    scheduled_by_day: dict[date, int] = {}  # known in advance: everything but everyday spending
-    for t in rows:
-        by_day[t.posted_date] = by_day.get(t.posted_date, 0) + t.amount_cents
-        if t.flow_type != "everyday":
-            scheduled_by_day[t.posted_date] = (
-                scheduled_by_day.get(t.posted_date, 0) + t.amount_cents
-            )
 
-    pending: dict[int, tuple[date, int]] = {}  # rule index -> (arrival date, amount)
-    last_arrival: dict[int, date] = {}
-    out: list[GeneratedTxn] = []
-    balance = opening_balance_cents
-    day = start
-    while day <= end:
-        for i, rule in enumerate(topups):
-            if i in pending and pending[i][0] == day:
-                _, amount = pending.pop(i)
-                balance += amount
-                last_arrival[i] = day
+    def __init__(
+        self,
+        topups: tuple[BalanceTopUp, ...],
+        scheduled: list[GeneratedTxn],
+        rng: np.random.Generator,
+    ) -> None:
+        self.topups = topups
+        self.rng = rng
+        self.scheduled_by_day: dict[date, int] = {}
+        for t in scheduled:
+            if t.flow_type != "everyday":
+                self.scheduled_by_day[t.posted_date] = (
+                    self.scheduled_by_day.get(t.posted_date, 0) + t.amount_cents
+                )
+        self.pending: dict[int, tuple[date, int]] = {}  # rule index -> (arrival, amount)
+        self.last_arrival: dict[int, date] = {}
+
+    def morning(self, day: date) -> list[GeneratedTxn]:
+        """Top-ups that post today."""
+        out = []
+        for i, rule in enumerate(self.topups):
+            if i in self.pending and self.pending[i][0] == day:
+                _, amount = self.pending.pop(i)
+                self.last_arrival[i] = day
                 out.append(
                     GeneratedTxn(
                         posted_date=day,
@@ -135,14 +134,41 @@ def apply_topups(
                         series_id=rule.series_id,
                     )
                 )
-        balance += by_day.get(day, 0)
-        for i, rule in enumerate(topups):
-            gap_ok = i not in last_arrival or (day - last_arrival[i]).days >= rule.min_gap_days
+        return out
+
+    def evening(self, day: date, balance: int) -> None:
+        """Check each rule against the evening balance; schedule a top-up if needed."""
+        for i, rule in enumerate(self.topups):
+            last = self.last_arrival.get(i)
+            gap_ok = last is None or (day - last).days >= rule.min_gap_days
             upcoming = sum(
-                scheduled_by_day.get(day + timedelta(days=k), 0)
+                self.scheduled_by_day.get(day + timedelta(days=k), 0)
                 for k in range(1, rule.lookahead_days + 1)
             )
-            if balance + upcoming < rule.threshold_cents and i not in pending and gap_ok:
-                pending[i] = (rule.draw_arrival(day, rng), rule.draw_amount(rng))
+            if balance + upcoming < rule.threshold_cents and i not in self.pending and gap_ok:
+                self.pending[i] = (rule.draw_arrival(day, self.rng), rule.draw_amount(self.rng))
+
+
+def apply_topups(
+    rows: list[GeneratedTxn],
+    opening_balance_cents: int,
+    topups: tuple[BalanceTopUp, ...],
+    start: date,
+    end: date,
+    rng: np.random.Generator,
+) -> list[GeneratedTxn]:
+    """Walk the running balance of fixed `rows` day by day; return the top-ups it triggers."""
+    runner = TopUpRunner(topups, rows, rng)
+    by_day: dict[date, int] = {}
+    for t in rows:
+        by_day[t.posted_date] = by_day.get(t.posted_date, 0) + t.amount_cents
+    out: list[GeneratedTxn] = []
+    balance = opening_balance_cents
+    day = start
+    while day <= end:
+        arrivals = runner.morning(day)
+        out += arrivals
+        balance += sum(t.amount_cents for t in arrivals) + by_day.get(day, 0)
+        runner.evening(day, balance)
         day += timedelta(days=1)
     return out

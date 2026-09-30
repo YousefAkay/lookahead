@@ -122,7 +122,9 @@ def test_a_dips_below_zero_in_some_months_but_not_others() -> None:
         balances = evening_balances("A", full("A", seed), START, END)
         for m in dipped:
             dipped[m] += min(b for d, b in balances.items() if d.month == m) < 0
-    assert all(2 <= n <= 18 for n in dipped.values()), dipped  # 10%-90% of runs
+    # Every month dips in at least one run and not in most. Since cutting back when
+    # low (step 2d-i), dips are rarer and shallower.
+    assert all(1 <= n <= 18 for n in dipped.values()), dipped
 
 
 def test_a_has_larger_one_off_expenses() -> None:
@@ -199,3 +201,22 @@ def test_every_row_has_bank_text(pid: str) -> None:
     for t in full(pid, 42):
         assert t.description == t.txn_type
         assert t.sub_description, t  # at least a single space
+
+
+# --- Overdraft limit and cutting back (A is the main shortfall persona) ---
+
+
+def lowest_balances(pid: str, seeds: range) -> list[int]:
+    return [min(evening_balances(pid, full(pid, s), START, END).values()) for s in seeds]
+
+
+def test_a_lowest_point_is_shallow() -> None:
+    # Overdrafts should be shallow and short.
+    lows = lowest_balances("A", range(20))
+    assert -15_000 <= float(np.median(lows)) <= 10_000  # median lowest: -$150 to +$100
+
+
+def test_a_rarely_passes_the_overdraft_limit() -> None:
+    # Only scheduled payments (rent, bills) can cross -$500; it should be rare.
+    lows = lowest_balances("A", range(20))
+    assert sum(low < PERSONAS["A"].overdraft_limit_cents for low in lows) <= 3

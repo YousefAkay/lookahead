@@ -5,8 +5,8 @@ persona id, so two personas run with the same seed are still independent.
 
 Stages (each with its own random stream, so changing one never shifts another's draws):
 1. scheduled money (pay, rent, bills, tuition, one-offs): no balance needed;
-2. everyday spending: no balance needed;
-3. balance-driven income (top-ups): walks the running balance of stages 1 and 2;
+2+3. day-by-day simulation (simulate.py): everyday spending that reacts to the balance
+     (overdraft limit, cutting back when low) and balance-triggered top-ups;
 4. bank description text: changes only the two text fields.
 """
 
@@ -18,7 +18,7 @@ import numpy as np
 from lookahead.generator.descriptions import describe
 from lookahead.generator.personas import Persona
 from lookahead.generator.schedules import GeneratedTxn
-from lookahead.generator.topups import apply_topups
+from lookahead.generator.simulate import simulate
 
 
 def generate_persona(persona: Persona, start: date, end: date, seed: int) -> list[GeneratedTxn]:
@@ -28,10 +28,5 @@ def generate_persona(persona: Persona, start: date, end: date, seed: int) -> lis
         for s in np.random.SeedSequence([seed, zlib.crc32(persona.persona_id.encode())]).spawn(4)
     )
     rows = persona.generate(start, end, scheduled_rng)
-    if persona.spending is not None:
-        rows += persona.spending.generate(start, end, spending_rng, persona.activity)
-    if persona.topups:
-        rows += apply_topups(
-            rows, persona.opening_balance_cents, persona.topups, start, end, topup_rng
-        )
+    rows += simulate(persona, rows, start, end, spending_rng, topup_rng)
     return describe(sorted(rows, key=lambda t: t.posted_date), text_rng)

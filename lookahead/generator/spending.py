@@ -5,7 +5,8 @@ number of purchases made is Poisson-distributed around `purchases_per_day`,
 scaled by a weekday factor and the persona's activity that month. Each purchase
 posts on the next card posting day, so Sunday purchases land on Monday.
 
-Spending does not react to the balance (known v0 limit, see DECISIONS.md).
+`generate` ignores the balance; `simulate.py` adds the overdraft limit and
+cutting back when the balance is low.
 """
 
 from collections.abc import Callable
@@ -101,6 +102,19 @@ class SpendingProfile:
             flow_type="everyday",
         )
 
+    def day(self, made: date, rng: np.random.Generator, scale: float) -> list[GeneratedTxn]:
+        """Purchases and cash withdrawals made on `made`, scaled by `scale`.
+
+        Each row carries its posting date (the next card posting day), which can be
+        later than `made` (Sunday purchases post Monday).
+        """
+        rate = self.purchases_per_day * self.weekday_factors[made.weekday()] * scale
+        n_purchases = rng.poisson(rate)
+        n_cash = rng.poisson(self.cash_per_month / _DAYS_PER_MONTH * scale)
+        return [self._purchase(made, rng) for _ in range(n_purchases)] + [
+            self._cash(made, rng) for _ in range(n_cash)
+        ]
+
     def generate(
         self,
         start: date,
@@ -108,21 +122,16 @@ class SpendingProfile:
         rng: np.random.Generator,
         activity: Callable[[date], float],
     ) -> list[GeneratedTxn]:
-        """Everyday rows posted in [start, end], sorted by date.
+        """Unconstrained everyday rows posted in [start, end], sorted by date.
 
+        Ignores the balance: this is the persona's spending "wish". The pipeline uses
+        `simulate`, which applies the overdraft limit and cutting back when low.
         `activity(d)` scales spending on day d (1.0 = normal, 0.1 = away).
         """
         out = []
-        cash_rate = self.cash_per_month / _DAYS_PER_MONTH
         made = start
         while made <= end:
-            scale = activity(made)
-            n_purchases = rng.poisson(
-                self.purchases_per_day * self.weekday_factors[made.weekday()] * scale
-            )
-            n_cash = rng.poisson(cash_rate * scale)
-            out += [self._purchase(made, rng) for _ in range(n_purchases)]
-            out += [self._cash(made, rng) for _ in range(n_cash)]
+            out += self.day(made, rng, activity(made))
             made += timedelta(days=1)
         # A purchase made on the last day can post after the range end: drop it.
         return sorted((t for t in out if t.posted_date <= end), key=lambda t: t.posted_date)

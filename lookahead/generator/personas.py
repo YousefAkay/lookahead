@@ -42,6 +42,10 @@ class Persona:
     topups: tuple[BalanceTopUp, ...] = ()
     quiet_months: frozenset[int] = frozenset()  # months with low everyday activity
     quiet_activity: float = 1.0  # everyday-spending multiplier in quiet months
+    overdraft_limit_cents: int = -50_000  # everyday purchases past this are declined
+    cutback_below_cents: int = 10_000  # cut back when (available - bills due soon) is below
+    cutback_factor: float = 0.5  # everyday-spending multiplier while cutting back
+    cutback_lookahead_days: int = 7  # "bills due soon" = scheduled outflows in the next N days
 
     def activity(self, d: date) -> float:
         """Everyday-spending multiplier on day d: lower in quiet months."""
