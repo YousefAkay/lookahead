@@ -11,3 +11,26 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- **Observation:** in real data, `Opos` appears on online purchases (Amazon, Uber, Lyft) and `Apos` on in-person ones (Tim Hortons, Maxi, Couche-Tard). No official meaning found.
+
+
