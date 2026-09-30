@@ -23,7 +23,16 @@ _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 class ExportFormatError(ValueError):
-    """The file is not a Scotiabank chequing export in the expected format."""
+    """The file is not a Scotiabank chequing export in the expected format.
+
+    The message may quote the offending text (useful on synthetic files). `kind` and
+    `line` carry the same information without any data, for counts-only reports.
+    """
+
+    def __init__(self, message: str, kind: str, line: int | None = None) -> None:
+        super().__init__(message)
+        self.kind = kind  # fixed label, e.g. "amount", "header", "encoding"
+        self.line = line
 
 
 @dataclass(frozen=True)
@@ -55,32 +64,32 @@ def parse_amount_cents(text: str) -> int:
 
 
 def _parse_row(record: list[str], position: int, line_no: int) -> ParsedRow:
-    def fail(reason: str) -> ExportFormatError:
-        return ExportFormatError(f"line {line_no}: {reason}")
+    def fail(kind: str, reason: str) -> ExportFormatError:
+        return ExportFormatError(f"line {line_no}: {reason}", kind, line_no)
 
     if len(record) != len(EXPECTED_HEADER):
-        raise fail(f"expected 7 fields, found {len(record)}")
+        raise fail("field count", f"expected 7 fields, found {len(record)}")
     _filter, raw_date, description, sub_description, kind, raw_amount, raw_balance = record
 
     if not _ISO_DATE.fullmatch(raw_date):
-        raise fail(f"date is not YYYY-MM-DD: {raw_date!r}")
+        raise fail("date", f"date is not YYYY-MM-DD: {raw_date!r}")
     try:
         posted = date.fromisoformat(raw_date)  # dates after the export date are fine
     except ValueError as e:
-        raise fail(f"invalid date {raw_date!r}") from e
+        raise fail("date", f"invalid date {raw_date!r}") from e
     try:
         amount = parse_amount_cents(raw_amount)
     except ValueError as e:
-        raise fail(f"bad amount {raw_amount!r}") from e
+        raise fail("amount", f"bad amount {raw_amount!r}") from e
     try:
         balance = parse_amount_cents(raw_balance)
     except ValueError as e:
-        raise fail(f"bad balance {raw_balance!r}") from e
+        raise fail("balance", f"bad balance {raw_balance!r}") from e
 
     if kind not in ("Debit", "Credit"):
-        raise fail(f"Type of Transaction must be Debit or Credit, found {kind!r}")
+        raise fail("type", f"Type of Transaction must be Debit or Credit, found {kind!r}")
     if (amount > 0 and kind != "Credit") or (amount < 0 and kind != "Debit"):
-        raise fail(f"{kind} does not match the sign of amount {raw_amount}")
+        raise fail("sign", f"{kind} does not match the sign of amount {raw_amount}")
 
     return ParsedRow(
         posted_date=posted,
@@ -102,16 +111,16 @@ def parse_export(path: Path) -> list[ParsedRow]:
             reader = csv.reader(f)
             header = next(reader, None)
             if header is None:
-                raise ExportFormatError(f"{path.name}: empty file")
+                raise ExportFormatError(f"{path.name}: empty file", "empty file")
             if header != EXPECTED_HEADER:
-                raise ExportFormatError(f"line 1: unexpected header {header}")
+                raise ExportFormatError(f"line 1: unexpected header {header}", "header", 1)
             rows: list[ParsedRow] = []
             for record in reader:
                 if not record:
                     continue  # tolerate a blank line
                 rows.append(_parse_row(record, len(rows) + 1, reader.line_num))
     except UnicodeDecodeError as e:
-        raise ExportFormatError(f"{path.name}: not UTF-8 text ({e.reason})") from e
+        raise ExportFormatError(f"{path.name}: not UTF-8 text ({e.reason})", "encoding") from e
     return rows
 
 
