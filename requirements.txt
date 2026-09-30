@@ -1,0 +1,9 @@
+# Week 1 dependencies.
+# Exact pins for top-level packages only; see DECISIONS.md.
+pandas==3.0.6
+numpy==2.5.3
+pydantic==2.13.5
+streamlit==1.64.0
+plotly==7.1.0
+pytest==9.1.1
+ruff==0.16.9

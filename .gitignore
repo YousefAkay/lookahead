@@ -1,0 +1,29 @@
+# --- Private data: NEVER commit (real bank data and anything derived from it) ---
+data/private/
+
+# --- Local-only docs: kept on this machine, never pushed ---
+docs/HANDOFF.md
+
+# --- Secrets ---
+.env
+
+# --- Databases and trained models ---
+*.db
+*.sqlite
+*.sqlite3
+models/
+*.joblib
+*.pkl
+
+# --- Python environment and caches ---
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- Editor / OS ---
+.vscode/
+.DS_Store
+Thumbs.db

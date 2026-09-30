@@ -1,0 +1,15 @@
+# Tool settings only. Dependencies live in requirements.txt.
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# E/W = pycodestyle style, F = pyflakes (real bugs like unused imports),
+# I = import sorting, B = bugbear (common mistakes), UP = modern Python syntax.
+select = ["E", "W", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Lets tests `import lookahead` from the project root without installing it.
+pythonpath = ["."]
