@@ -98,6 +98,7 @@ class RecurringSchedule:
     amount: Amount
     shift: Shift
     end: date | None = None
+    online: bool | None = None  # card-billed subscriptions: True
 
     def __post_init__(self) -> None:
         check_labels(self.category, self.flow_type)
@@ -138,6 +139,7 @@ class RecurringSchedule:
                         category=self.category,
                         flow_type=self.flow_type,
                         series_id=self.series_id,
+                        online=self.online,
                     )
                 )
         return out
@@ -155,6 +157,7 @@ class OneOff:
     txn_type: str
     shift: Shift = "later"
     link_id: str | None = None
+    online: bool | None = None  # card purchases only
 
     def __post_init__(self) -> None:
         check_labels(self.category, self.flow_type)
@@ -174,6 +177,7 @@ class OneOff:
                 flow_type=self.flow_type,
                 one_off=True,
                 link_id=self.link_id,
+                online=self.online,
             )
         ]
 

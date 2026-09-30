@@ -1,11 +1,13 @@
 """Tests for the three hand-written v0 personas."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import pytest
 
+from lookahead.calendar_rules import is_business_day, is_card_posting_day
 from lookahead.generator.personas import PERSONAS
+from lookahead.generator.pipeline import generate_persona
 from lookahead.generator.schedules import GeneratedTxn
 
 START = date(2026, 6, 1)
@@ -75,3 +77,105 @@ def test_c_has_one_returned_etransfer_linked_to_the_original() -> None:
 def test_c_is_quiet_in_august() -> None:
     assert PERSONAS["C"].quiet_months == frozenset({8})
     assert PERSONAS["A"].quiet_months == frozenset()
+
+
+# --- Full pipeline checks (scheduled + everyday + top-ups) ---
+
+
+def full(pid: str, seed: int, start: date = START, end: date = END) -> list[GeneratedTxn]:
+    return generate_persona(PERSONAS[pid], start, end, seed)
+
+
+def evening_balances(pid: str, rows: list[GeneratedTxn], start: date, end: date) -> dict[date, int]:
+    """End-of-day balance for every day in [start, end]."""
+    by_day: dict[date, int] = {}
+    for t in rows:
+        by_day[t.posted_date] = by_day.get(t.posted_date, 0) + t.amount_cents
+    balance, out, d = PERSONAS[pid].opening_balance_cents, {}, start
+    while d <= end:
+        balance += by_day.get(d, 0)
+        out[d] = balance
+        d += timedelta(days=1)
+    return out
+
+
+def topups(rows: list[GeneratedTxn]) -> list[GeneratedTxn]:
+    """C's living-money credit memos: the ones not earmarked for tuition."""
+    return [t for t in rows if t.txn_type == "credit memo" and t.link_id is None]
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_a_gets_tight(seed: int) -> None:
+    balances = evening_balances("A", full("A", seed), START, END)
+    assert min(balances.values()) < 10_000  # gets close to (or below) zero
+
+
+def test_a_hovers_without_a_trend() -> None:
+    opening = PERSONAS["A"].opening_balance_cents
+    ends = [evening_balances("A", full("A", s), START, END)[END] for s in range(20)]
+    assert abs(sum(ends) / len(ends) - opening) < 30_000  # average drift under $300
+
+
+def test_a_dips_below_zero_in_some_months_but_not_others() -> None:
+    dipped = {m: 0 for m in (6, 7, 8, 9)}
+    for seed in range(20):
+        balances = evening_balances("A", full("A", seed), START, END)
+        for m in dipped:
+            dipped[m] += min(b for d, b in balances.items() if d.month == m) < 0
+    assert all(2 <= n <= 18 for n in dipped.values()), dipped  # 10%-90% of runs
+
+
+def test_a_has_larger_one_off_expenses() -> None:
+    big = [t for t in txns("A") if t.one_off]
+    assert len(big) == 3  # phone repair (Jul), concert (Aug), textbooks (Sep)
+    assert all(t.flow_type == "everyday" and t.amount_cents < 0 for t in big)
+    assert all(is_card_posting_day(t.posted_date) for t in big)
+
+
+def test_card_billed_subscriptions_are_online() -> None:
+    spotify = [t for t in txns("A") if t.merchant == "Spotify"]
+    assert spotify and all(t.online is True for t in spotify)
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_c_credit_memos_post_on_business_days(seed: int) -> None:
+    memos = [t for t in full("C", seed) if t.txn_type == "credit memo"]
+    assert topups(memos)  # at least one balance-triggered top-up
+    assert all(is_business_day(t.posted_date) for t in memos)
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_c_topups_follow_a_low_balance(seed: int) -> None:
+    # Trigger rule: evening balance + scheduled rows due in the next 5 days < $500.
+    rows = full("C", seed)
+    balances = evening_balances("C", rows, START, END)
+    scheduled: dict[date, int] = {}
+    for t in rows:
+        if t.flow_type != "everyday" and t not in topups(rows):
+            scheduled[t.posted_date] = scheduled.get(t.posted_date, 0) + t.amount_cents
+
+    def looks_low(d: date) -> bool:
+        upcoming = sum(scheduled.get(d + timedelta(days=k), 0) for k in range(1, 6))
+        return balances.get(d, 10**9) + upcoming < 50_000
+
+    for t in topups(rows):
+        window = [t.posted_date - timedelta(days=k) for k in range(1, 16)]  # 9 business days
+        assert any(looks_low(d) for d in window), t
+
+
+def test_c_topups_follow_their_profile() -> None:
+    # Two years, ten seeds: balance the evening before arrival, and amounts.
+    start, end = date(2026, 6, 1), date(2028, 5, 31)
+    before, amounts = [], []
+    for seed in range(10):
+        rows = full("C", seed, start, end)
+        balances = evening_balances("C", rows, start, end)
+        for t in topups(rows):
+            if t.posted_date > start:
+                before.append(balances[t.posted_date - timedelta(days=1)] / 100)
+                amounts.append(t.amount_cents / 100)
+    assert -100 <= float(np.median(before)) <= 300
+    assert float(np.percentile(before, 75)) <= 600
+    assert sum(b < 0 for b in before) / len(before) <= 0.2  # rare overdrafts
+    assert 2_800 <= float(np.median(amounts)) <= 3_800
+    assert max(amounts) > 4_500  # the occasional larger one

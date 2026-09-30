@@ -1,7 +1,8 @@
 """Calibration checks: each persona's everyday spending matches its targets.
 
-A and B to hand-set budgets. Measured over two simulated years at full activity,
-in 30-day blocks, so random noise averages out.
+All three follow hand-set budgets (C's values are made up). Measured over five
+simulated years at full activity, in 30-day blocks: two years proved too short (one
+seed gave A a month 15% below its expected level).
 """
 
 from datetime import date, timedelta
@@ -13,7 +14,7 @@ from lookahead.generator.personas import PERSONAS
 from lookahead.generator.schedules import GeneratedTxn
 
 START = date(2027, 1, 1)
-DAYS = 720
+DAYS = 1_800
 
 
 def everyday(pid: str) -> list[GeneratedTxn]:
@@ -56,6 +57,6 @@ def test_c_card_spending_follows_its_profile() -> None:
     assert 0.7 <= cash_per_month <= 1.3  # 1 a month
 
 
-@pytest.mark.parametrize(("pid", "low", "high"), [("A", 700, 900), ("B", 1_000, 1_300)])
+@pytest.mark.parametrize(("pid", "low", "high"), [("A", 800, 900), ("B", 1_000, 1_300)])
 def test_a_and_b_monthly_budgets(pid: str, low: int, high: int) -> None:
     assert low <= float(np.median(monthly_totals(everyday(pid)))) <= high

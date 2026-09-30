@@ -15,12 +15,12 @@ from lookahead.generator.schedules import (
     DatedSeries,
     GeneratedTxn,
     IrregularIncome,
-    IrregularSeries,
     OneOff,
     RecurringSchedule,
     Shift,
 )
 from lookahead.generator.spending import Merchant, SpendingProfile
+from lookahead.generator.topups import BalanceTopUp
 
 
 class Source(Protocol):
@@ -31,13 +31,15 @@ class Source(Protocol):
 
 @dataclass(frozen=True)
 class Persona:
-    """A synthetic account holder: opening balance, scheduled money, everyday spending."""
+    """A synthetic account holder: opening balance, scheduled money, everyday spending,
+    and optional balance-triggered top-ups."""
 
     persona_id: str
     description: str
     opening_balance_cents: int
     sources: tuple[Source, ...]
     spending: SpendingProfile | None = None
+    topups: tuple[BalanceTopUp, ...] = ()
     quiet_months: frozenset[int] = frozenset()  # months with low everyday activity
     quiet_activity: float = 1.0  # everyday-spending multiplier in quiet months
 
@@ -61,7 +63,8 @@ def _monthly(
     shift: Shift,
 ) -> RecurringSchedule:
     """A monthly outflow from June 2026. Flow type: `transfer` for Transfers, else
-    `recurring_outflow`. Keeps the persona tables short."""
+    `recurring_outflow`. Card-billed (`pos purchase`) items are online. Keeps the
+    persona tables short."""
     return RecurringSchedule(
         series_id=series_id,
         merchant=merchant,
@@ -72,6 +75,7 @@ def _monthly(
         anchor=date(2026, 6, day),
         amount=amount,
         shift=shift,
+        online=True if txn_type == "pos purchase" else None,
     )
 
 
@@ -80,12 +84,26 @@ def _m(name: str, category: str, online: bool, weight: float, median_dollars: fl
     return Merchant(name, category, online, weight, round(median_dollars * 100))
 
 
+def _big(merchant: str, category: str, due: date, dollars: float, online: bool) -> OneOff:
+    """A larger unscheduled card purchase: flow type everyday, flagged one-off."""
+    return OneOff(
+        due=due,
+        amount_cents=-round(dollars * 100),
+        merchant=merchant,
+        category=category,
+        flow_type="everyday",
+        txn_type="pos purchase",
+        shift="card",
+        online=online,
+    )
+
+
 _CAFE, _REST, _DELIV = "Restaurants & cafés", "Restaurants & cafés", "Food delivery"
 _GROC, _SHOP, _TRANS = "Groceries", "Shopping", "Transport"
 
 # A: student, lots of food delivery.
 _SPENDING_A = SpendingProfile(
-    purchases_per_day=1.3,
+    purchases_per_day=1.3,  # expected ~$858/month: 30.4 days x 1.3 x ~$20.15 + ~$60 cash
     amount_sigma=0.45,
     cash_per_month=1.0,
     merchants=(
@@ -148,8 +166,8 @@ _SPENDING_C = SpendingProfile(
 
 PERSONA_A = Persona(
     persona_id="A",
-    description="Student with a part-time job, paid biweekly; tight before payday",
-    opening_balance_cents=60_000,
+    description="Student with a part-time job, paid biweekly; hovers low, tight before payday",
+    opening_balance_cents=90_000,
     spending=_SPENDING_A,
     sources=(
         RecurringSchedule(
@@ -160,7 +178,7 @@ PERSONA_A = Persona(
             txn_type="deposit",
             cadence="biweekly",
             anchor=date(2026, 6, 5),
-            amount=Amount(85_000, spread_cents=6_000),  # hours vary
+            amount=Amount(80_000, spread_cents=5_000),  # hours vary
             shift="earlier",
         ),
         _monthly("A-rent", "Interac e-Transfer", "Rent & housing", "withdrawal", 1,
@@ -169,6 +187,11 @@ PERSONA_A = Persona(
                  Amount(-3_500), "card"),
         _monthly("A-spotify", "Spotify", "Subscriptions", "pos purchase", 20,
                  Amount(-1_299), "card"),
+        # Irregular larger expenses: everyday spending, but one-offs.
+        _big("Concordia Bookstore", "Education", date(2026, 9, 8), 240, online=False),
+        _big("Concordia Bookstore", "Education", date(2027, 1, 12), 180, online=False),
+        _big("uBreakiFix", _SHOP, date(2026, 7, 23), 180, online=False),
+        _big("Ticketmaster", "Entertainment", date(2026, 8, 14), 95, online=True),
     ),
 )  # fmt: skip
 
@@ -224,7 +247,7 @@ _EARMARKED_MEMOS = DatedSeries(
     category="Income",
     flow_type="income",
     txn_type="credit memo",
-    shift="card",
+    shift="earlier",  # a memo due on a weekend posts the business day before
     items=(
         DatedItem(date(2026, 5, 6), 640_000, "tuition-summer-2026"),
         DatedItem(date(2026, 8, 24), 640_000, "tuition-fall-2026"),
@@ -239,18 +262,29 @@ PERSONA_C = Persona(
     spending=_SPENDING_C,
     quiet_months=frozenset({8}),
     quiet_activity=0.25,
-    sources=(
-        IrregularSeries(  # main income: living money, every 3-6 weeks
+    # Main income: living-money credit memos when the balance runs low (counting
+    # scheduled payments due in the next few days). All values are made up.
+    topups=(
+        BalanceTopUp(
             series_id="C-family",
             merchant="Family",
             category="Income",
             flow_type="income",
             txn_type="credit memo",
-            gap_days=(21, 42),
+            threshold_cents=50_000,
+            delay_business_days=(2, 4),
+            late_chance=0.15,
+            late_delay_business_days=(5, 9),
             amount_range_cents=(120_000, 280_000),
+            large_chance=0.05,
+            large_range_cents=(280_000, 400_000),
             round_to_cents=5_000,
             round_share=0.5,
+            min_gap_days=10,
+            lookahead_days=5,
         ),
+    ),
+    sources=(
         _EARMARKED_MEMOS,
         _TUITION,
         IrregularIncome(  # secondary income: small e-Transfers
