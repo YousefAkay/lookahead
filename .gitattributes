@@ -1,0 +1,3 @@
+# Synthetic bank exports must keep their exact bytes (BOM, CRLF, no final newline).
+# "-text" tells git never to convert their line endings.
+data/synthetic/*.csv -text
