@@ -91,3 +91,5 @@
 
 
 - **Import command doubles as the private check:** `python -m lookahead.ingest <folder> --db <path>` prints counts and pass/fail only (files, rows read, duplicates skipped, rows inserted, balance-chain check, reconciliation OK or the dates where it breaks), never amounts, balances or descriptions. **Rule:** automated runs use synthetic files only; only I run it on `data/private/`.
+
+
