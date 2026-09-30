@@ -18,6 +18,7 @@ import re
 import secrets
 import sys
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from lookahead.config import load_env
@@ -40,6 +41,53 @@ def token(kind: str, value: str, key: bytes) -> str:
     message = f"{kind}\x1f{normalized}".encode()  # the kind is mixed in: PERSON x != REF x
     digest = hmac.new(key, message, hashlib.sha256).hexdigest()
     return f"{kind}_{digest[:_TOKEN_HEX]}"
+
+
+@dataclass(frozen=True)
+class Pseudonymized:
+    text: str
+    rules: tuple[str, ...]  # which rules fired: "person", "reference", "number"
+
+
+_MEMO = re.compile(r"(1/)?(.*?)(\s*)")  # optional "1/", the sender's name, trailing space
+_MOBILE_BILL = re.compile(r"Mb-(.+) (\d{8})")  # "Mb-{payee} {8-digit reference}"
+_LONG_DIGITS = re.compile(r"\d{7,}")
+
+
+def _numbers(text: str, key: bytes, fired: list[str]) -> str:
+    """Replace every run of 7+ digits in ORIGINAL text (never in text holding tokens)."""
+
+    def replace(match: re.Match[str]) -> str:
+        fired.append("number")
+        return token("NUM", match.group(), key)
+
+    return _LONG_DIGITS.sub(replace, text)
+
+
+def pseudonymize_sub_description(
+    description: str, sub_description: str, key: bytes
+) -> Pseudonymized:
+    """Replace identifiers in one row's Sub-description; everything else is kept exactly.
+
+    Rules: credit memo sender name -> PERSON token (keeps "1/" and trailing spaces);
+    mobile-banking bill reference -> REF token (payee kept); any other run of 7+ digits
+    -> NUM token. Apply to raw text once: tokens themselves contain digits.
+    """
+    fired: list[str] = []
+    if description == "credit memo":
+        match = _MEMO.fullmatch(sub_description)
+        assert match is not None  # the pattern matches any text
+        prefix, name, space = match.groups()
+        if name:
+            fired.append("person")
+            return Pseudonymized(f"{prefix or ''}{token('PERSON', name, key)}{space}", tuple(fired))
+    bill = _MOBILE_BILL.fullmatch(sub_description)
+    if bill:
+        payee, reference = bill.groups()
+        payee = _numbers(payee, key, fired)
+        fired.append("reference")
+        return Pseudonymized(f"Mb-{payee} {token('REF', reference, key)}", tuple(fired))
+    return Pseudonymized(_numbers(sub_description, key, fired), tuple(fired))
 
 
 def pseudonym_key(env_path: Path = Path(".env"), environ: Mapping[str, str] | None = None) -> bytes:
