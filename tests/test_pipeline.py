@@ -38,8 +38,14 @@ def test_stages_use_independent_random_streams() -> None:
     p = PERSONAS["A"]
     with_spending = generate_persona(p, START, END, seed=42)
     without = generate_persona(replace(p, spending=None), START, END, seed=42)
-    # Stage 2 rows = everyday and not one-off (A's big purchases are stage-1 one-offs).
-    stage_1 = [t for t in with_spending if t.flow_type != "everyday" or t.one_off]
+    # Stage 1 rows: not everyday spending (A's big purchases are stage-1 one-offs), and
+    # not added by the quirks stage (returns, corrections), which follows spending.
+    stage_1 = [
+        t
+        for t in with_spending
+        if (t.flow_type != "everyday" or t.one_off)
+        and t.txn_type not in ("pos return", "correction")
+    ]
     assert no_text(stage_1) == no_text(without)
 
 

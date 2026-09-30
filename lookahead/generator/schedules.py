@@ -55,6 +55,7 @@ class GeneratedTxn:
     original_amount_cents: int | None = None  # amount in that currency (signed), else None
     description: str = ""  # bank "Description" column; filled by the description stage
     sub_description: str = ""  # bank "Sub-description" column; filled by the description stage
+    quirk: str | None = None  # planted pattern, e.g. "preauth_hold", "duplicate_charge"
 
     def __post_init__(self) -> None:
         check_labels(self.category, self.flow_type)

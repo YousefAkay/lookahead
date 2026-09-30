@@ -155,3 +155,16 @@ def test_same_seed_same_text() -> None:
 def test_unknown_transaction_type_is_rejected() -> None:
     with pytest.raises(ValueError, match="txn_type"):
         describe([txn("mystery", "X")], np.random.default_rng(0))
+
+
+def test_correction_uses_the_card_format() -> None:
+    fix = txn("correction", "Uber Eats", online=True, amount_cents=2_254, flow_type="refund",
+              category="Food delivery", quirk="preauth_correction")  # fmt: skip
+    assert sub(fix) == "Opos Uber Canada/Ubereatstoron "
+
+
+def test_lyft_hold_says_temp_auth_hold() -> None:
+    # 20 characters fill the merchant field, so the location joins the last word and
+    # title-casing gives "Holdvanco", like the real "Ubereatstoron".
+    hold = card("Lyft", online=True, category="Transport", quirk="preauth_hold")
+    assert sub(hold) == "Opos Lyft *Temp Auth Holdvanco "

@@ -99,6 +99,21 @@ def evening_balances(pid: str, rows: list[GeneratedTxn], start: date, end: date)
     return out
 
 
+def before_quirks(rows: list[GeneratedTxn]) -> list[GeneratedTxn]:
+    """Rows as the simulation saw them: drop the rows the quirks stage added after it."""
+    added = {"preauth_hold", "preauth_correction", "duplicate_charge"}
+    out, twin_seen = [], False
+    for t in rows:
+        if t.txn_type == "pos return" or t.quirk in added:
+            continue
+        if t.quirk == "identical_legit":
+            if twin_seen:
+                continue  # the second of the pair was added
+            twin_seen = True
+        out.append(t)
+    return out
+
+
 def topups(rows: list[GeneratedTxn]) -> list[GeneratedTxn]:
     """C's living-money credit memos: the ones not earmarked for tuition."""
     return [t for t in rows if t.txn_type == "credit memo" and t.link_id is None]
@@ -149,7 +164,7 @@ def test_c_credit_memos_post_on_business_days(seed: int) -> None:
 @pytest.mark.parametrize("seed", range(5))
 def test_c_topups_follow_a_low_balance(seed: int) -> None:
     # Trigger rule: evening balance + scheduled rows due in the next 5 days < $500.
-    rows = full("C", seed)
+    rows = before_quirks(full("C", seed))
     balances = evening_balances("C", rows, START, END)
     scheduled: dict[date, int] = {}
     for t in rows:

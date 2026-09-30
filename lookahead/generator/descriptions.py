@@ -20,7 +20,7 @@ _LOCATION_WIDTH = 5
 _MISSING_MEMO_PREFIX = 0.05  # share of credit memos without "1/"
 _MOBILE_BANKING_SHARE = 0.5  # share of payees paid through mobile banking ("Mb-")
 
-_CARD_TYPES = {"pos purchase", "pos return"}
+_CARD_TYPES = {"pos purchase", "pos return", "correction"}
 _BLANK_TYPES = {"abm withdrawal", "service charge", "overdraft interest", "overdrawn handling chg."}
 
 
@@ -100,6 +100,8 @@ class _Describer:
 
     def card(self, t: GeneratedTxn) -> str:
         template = _TEMPLATES.get(t.merchant, _Template(t.merchant.upper(), "MONTR"))
+        if t.merchant == "Lyft" and t.quirk == "preauth_hold":
+            template = _Template("LYFT *TEMP AUTH HOLD", "VANCO")  # exactly 20 characters
         raw = template.raw.format(
             store=self._store(t.merchant) if "{store}" in template.raw else "",
             code=self._code() if "{code}" in template.raw else "",
