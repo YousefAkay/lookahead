@@ -3,6 +3,7 @@
 Temporary databases from synthetic personas only: never data/private/.
 """
 
+import shutil
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -34,21 +35,37 @@ ACCOUNT = "synthetic-C"
 TODAY = date(2026, 10, 2)
 
 
-@pytest.fixture
-def conn(tmp_path: Path) -> sqlite3.Connection:
-    export, _ = write_persona(
-        PERSONAS["C"], tmp_path / "s", 42, date(2026, 1, 1), date(2026, 9, 30)
-    )
-    c = connect(tmp_path / "db" / "t.db")
+@pytest.fixture(scope="module")
+def templates(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
+    """Built once per file (it is the slow part): a plain database and a frozen copy.
+    Each test gets its own copy, so tests still cannot affect each other."""
+    tmp = tmp_path_factory.mktemp("labels")
+    export, _ = write_persona(PERSONAS["C"], tmp / "s", 42, date(2026, 1, 1), date(2026, 9, 30))
+    plain, frozen_db = tmp / "plain.db", tmp / "frozen.db"
+    c = connect(plain)
     store_exports(c, ACCOUNT, [(export.name, parse_export(export))], datetime(2026, 10, 2))
     c.commit()
-    return c
+    c.close()
+    shutil.copy(plain, frozen_db)
+    c = connect(frozen_db)
+    freeze_splits(c, ACCOUNT, seed=7, today=TODAY)
+    c.close()
+    return plain, frozen_db
+
+
+def _copy(template: Path, tmp_path: Path) -> sqlite3.Connection:
+    (tmp_path / "db").mkdir()
+    return connect(shutil.copy(template, tmp_path / "db" / "t.db"))
 
 
 @pytest.fixture
-def frozen(conn: sqlite3.Connection) -> sqlite3.Connection:
-    freeze_splits(conn, ACCOUNT, seed=7, today=TODAY)
-    return conn
+def conn(tmp_path: Path, templates: tuple[Path, Path]) -> sqlite3.Connection:
+    return _copy(templates[0], tmp_path)
+
+
+@pytest.fixture
+def frozen(tmp_path: Path, templates: tuple[Path, Path]) -> sqlite3.Connection:
+    return _copy(templates[1], tmp_path)
 
 
 # --- Freezing the splits ---

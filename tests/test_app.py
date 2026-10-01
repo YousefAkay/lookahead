@@ -12,6 +12,8 @@ from streamlit.testing.v1 import AppTest
 from lookahead.generator.personas import PERSONAS
 from lookahead.generator.writer import write_persona
 
+pytestmark = pytest.mark.slow  # run with the full suite, before commits
+
 APP = Path(__file__).resolve().parents[1] / "app"
 HOME = APP / "Home.py"
 TRANSACTIONS = APP / "pages" / "1_Transactions.py"

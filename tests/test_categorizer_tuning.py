@@ -79,6 +79,7 @@ def toy() -> tuple[pd.DataFrame, list[str], list[str]]:
     return pd.DataFrame(rows), y, groups
 
 
+@pytest.mark.slow
 def test_tune_picks_from_the_grid() -> None:
     x, y, groups = toy()
     params, score = tune(make_logreg, x, y, groups, folds=3)
@@ -87,6 +88,7 @@ def test_tune_picks_from_the_grid() -> None:
     assert 0.0 <= score <= 1.0
 
 
+@pytest.mark.slow
 def test_tune_never_puts_a_merchant_on_both_sides(monkeypatch: pytest.MonkeyPatch) -> None:
     import lookahead.categorizer as c
 
@@ -108,6 +110,7 @@ def test_tune_never_puts_a_merchant_on_both_sides(monkeypatch: pytest.MonkeyPatc
 # --- Nested tuning in the synthetic eval never sees a test merchant ---
 
 
+@pytest.mark.slow
 def test_nested_tuning_only_sees_training_merchants(monkeypatch: pytest.MonkeyPatch) -> None:
     import eval.categorizer as ev
 

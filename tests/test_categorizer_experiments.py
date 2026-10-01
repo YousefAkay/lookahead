@@ -153,6 +153,7 @@ def db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return tmp / "t.db"
 
 
+@pytest.mark.slow
 def test_command_runs_every_declared_variant_counts_only(
     db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

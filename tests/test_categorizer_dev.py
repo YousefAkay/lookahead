@@ -60,6 +60,7 @@ def db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return path
 
 
+@pytest.mark.slow
 def test_only_dev_rows_are_ever_trained_on(db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     conn = connect(db)
     dev = labelled_examples(conn, ACCOUNT, ("dev",))
@@ -77,6 +78,7 @@ def test_only_dev_rows_are_ever_trained_on(db: Path, monkeypatch: pytest.MonkeyP
     assert seen and all(not (s & holdout) for s in seen)
 
 
+@pytest.mark.slow
 def test_report_covers_both_protocols_and_the_curve(db: Path) -> None:
     conn = connect(db)
     dev = labelled_examples(conn, ACCOUNT, ("dev",))
@@ -101,6 +103,7 @@ def test_the_choice_rule_is_fixed_in_advance(real: float, both: float, chosen: s
     assert choose_training({"real only": real, "real + synthetic": both}) == chosen
 
 
+@pytest.mark.slow
 def test_command_prints_counts_only_and_saves_the_choice(
     db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

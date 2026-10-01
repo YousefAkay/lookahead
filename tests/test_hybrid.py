@@ -134,6 +134,7 @@ def test_rows_with_a_preference_are_decided_before_the_categorizer() -> None:
 # --- Combined system on synthetic splits (eval/categorizer.py) ---
 
 
+@pytest.mark.slow
 def test_hybrid_routes_on_synthetic_splits() -> None:
     import eval.categorizer as ev
 

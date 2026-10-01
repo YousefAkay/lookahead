@@ -180,6 +180,7 @@ def test_c_topups_follow_a_low_balance(seed: int) -> None:
         assert any(looks_low(d) for d in window), t
 
 
+@pytest.mark.slow
 def test_c_topups_follow_their_profile() -> None:
     # Two years, ten seeds: balance the evening before arrival, and amounts.
     start, end = date(2026, 6, 1), date(2028, 5, 31)
