@@ -31,6 +31,27 @@ CREATE TABLE IF NOT EXISTS balance_anchors (
     source_file   TEXT    NOT NULL DEFAULT '',
     PRIMARY KEY (account, date, source, source_file)
 );
+
+-- Merchant resolution (HANDOFF 06 planned `aliases` as a column; a table keeps one row
+-- per name, so a name can be looked up and belongs to exactly one merchant).
+-- For now only the owner's decisions are stored; rule merges are recomputed each time.
+CREATE TABLE IF NOT EXISTS merchants (
+    merchant_id    INTEGER PRIMARY KEY,
+    canonical_name TEXT    NOT NULL,
+    source         TEXT    NOT NULL CHECK (source IN ('rule', 'similarity', 'user'))
+);
+CREATE TABLE IF NOT EXISTS merchant_aliases (
+    alias_key   TEXT    PRIMARY KEY,  -- normalized name (resolve.name_key)
+    merchant_id INTEGER NOT NULL REFERENCES merchants (merchant_id),
+    source      TEXT    NOT NULL CHECK (source IN ('rule', 'similarity', 'user'))
+);
+-- Pairs the owner said are different merchants: no rule or proposal joins them.
+CREATE TABLE IF NOT EXISTS merchant_splits (
+    key_a TEXT NOT NULL,
+    key_b TEXT NOT NULL,
+    PRIMARY KEY (key_a, key_b),
+    CHECK (key_a < key_b)
+);
 """
 
 

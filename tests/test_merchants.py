@@ -87,7 +87,7 @@ def test_store_number_cut_to_a_lone_hash() -> None:
 @pytest.mark.parametrize(
     ("merchant", "location", "expected"),
     [
-        ("Doordash*Ngbs2", "+1855", "Doordash"),
+        ("Doordash*Ngbs2", "+1855", "DoorDash"),  # a delivery platform: its proper name
         ("Amazon.Ca*7Efhd", "+1877", "Amazon.Ca"),
         ("Lyft *Ride Y1Qkq", "Vanco", "Lyft"),
     ],
@@ -280,3 +280,76 @@ def test_transit_machine_code_and_city_fragment() -> None:
 def test_short_words_that_start_a_city_name_are_kept(name: str) -> None:
     # Only fragments of 5+ letters count as a cut city ("Mont" could be a real word).
     assert extract_merchant(card("Apos", name, "Montr")).merchant == name
+
+
+# --- Delivery platforms (shape from the owner's real data, made-up restaurants) ---
+
+
+@pytest.mark.parametrize(
+    ("merchant_field", "restaurant"),
+    [
+        ("Dd/Doordashpizzanapol", "pizzanapo"),  # short prefix, restaurant glued on, cut at 20
+        ("Doordashsushimaki", "sushimaki"),  # no prefix
+        ("Doordash Sushi Maki", "Sushi Maki"),  # with a space
+    ],
+)
+def test_delivery_platform_becomes_the_merchant(merchant_field: str, restaurant: str) -> None:
+    got = extract_merchant(card("Opos", merchant_field, "+1855"))
+    assert got.merchant == "DoorDash"
+    assert got.via_restaurant is not None and got.via_restaurant.startswith(restaurant)
+
+
+def test_different_restaurants_give_one_platform_merchant() -> None:
+    texts = [
+        card("Opos", f"Dd/Doordash{r}", "+1855") for r in ("thaiexpress", "pizzaroma", "phobac")
+    ]
+    got = [extract_merchant(t) for t in texts]
+    assert {g.merchant for g in got} == {"DoorDash"}
+    assert len({g.via_restaurant for g in got}) == 3
+
+
+def test_platform_subscription_is_its_own_merchant() -> None:
+    for field in ("Dd/Doordashdashpass", "Dd/Doordashdashp"):  # whole, and cut short
+        got = extract_merchant(card("Opos", field, "+1855"))
+        assert got.merchant == "DoorDash DashPass" and got.via_restaurant is None
+
+
+def test_platform_with_an_order_code_has_no_restaurant() -> None:
+    got = extract_merchant(card("Opos", "Doordash*Ngbs2", "+1855"))
+    assert got.merchant == "DoorDash" and got.via_restaurant is None
+
+
+def test_other_platforms() -> None:
+    got = extract_merchant(card("Opos", "Ubereatsthaiexpress", "+1855"))
+    assert got.merchant == "Uber Eats" and got.via_restaurant == "thaiexpress"
+    got = extract_merchant(card("Opos", "Skipthedishesbanhmi", "+1888"))
+    assert got.merchant == "SkipTheDishes" and got.via_restaurant == "banhmi"
+
+
+@pytest.mark.parametrize(
+    "name", ["Uber Canada/Ubereats", "Doorway Cafe", "Ab/Cafe Velo", "Instant Noodle Bar"]
+)
+def test_names_that_are_not_platform_orders_are_unchanged(name: str) -> None:
+    got = extract_merchant(card("Opos", name, "Montr"))
+    assert got.merchant == name and got.via_restaurant is None
+
+
+def test_rows_without_a_platform_have_no_restaurant_detail() -> None:
+    assert extract_merchant(card("Apos", "Maxi #350", "Montr")).via_restaurant is None
+
+
+# --- Payment-processor prefixes (2-letter code + space) ---
+
+
+@pytest.mark.parametrize(
+    ("merchant_field", "expected"),
+    [
+        ("Sq Cafe Velo", "Cafe Velo"),
+        ("Ls Boulangerie Ange", "Boulangerie Ange"),
+        ("Sp Atelier Bois", "Atelier Bois"),
+        ("Le Petit Cafe", "Le Petit Cafe"),  # not a processor code
+        ("Sq", "Sq"),  # nothing would be left
+    ],
+)
+def test_processor_prefix_is_removed(merchant_field: str, expected: str) -> None:
+    assert extract_merchant(card("Apos", merchant_field, "Montr")).merchant == expected

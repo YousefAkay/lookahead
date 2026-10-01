@@ -42,11 +42,14 @@ class Extracted:
     channel: card rows only: "online" (Opos) or "in_person" (Apos); None otherwise.
     kind: "card" (Apos/Opos), "named" (payee, sender or employer), "transfer"
           (e-Transfer or own-account transfer text, no counterparty), "blank".
+    via_restaurant: delivery-platform orders only: the restaurant text after the platform
+          name (the merchant is the platform); None otherwise.
     """
 
     merchant: str | None
     channel: Channel | None
     kind: Kind
+    via_restaurant: str | None = None
 
 
 _MERCHANT_WIDTH = 20
@@ -69,8 +72,25 @@ _PHONE = re.compile(r"(?:\+?1[\s-]?)?\(?\d{3}\)?[\s-]\d{3}[\s-]\d{4}|\+\d{2,}")
 _STORE = re.compile(r"#\s*[A-Za-z0-9-]*|\bno\.?\s*\d+\b", re.IGNORECASE)
 _CODE = re.compile(r"\d{3,}|(?=[A-Za-z]*\d)(?=\d*[A-Za-z])[A-Za-z0-9]{4,}")
 
-# Payment processors that put their own name before the star: the shop comes after it.
-_PROCESSORS = {"sq", "paypal", "pp", "tst", "sp"}
+# Payment processors whose code comes before the shop's name ("Sq *Cafe Velo", "Ls Cafe Velo").
+_PROCESSORS = {"sq", "sp", "pp", "ls", "iz", "tst", "paypal"}
+
+# Delivery platforms: their name (letters only, lowercase) -> the merchant. Bank text may glue
+# a different restaurant onto the platform name each time ("Doordashpizzaroma"), sometimes
+# after a short prefix ("Xx/"); the restaurant is kept as a detail, not as the merchant.
+_PLATFORMS = {
+    "doordash": "DoorDash", "ubereats": "Uber Eats", "skipthedishes": "SkipTheDishes",
+    "fantuan": "Fantuan", "grubhub": "Grubhub", "instacart": "Instacart",
+}  # fmt: skip
+# A platform's own subscription is a separate merchant (a subscription, not a meal).
+_PLATFORM_PRODUCTS = {
+    "DoorDash": {"dashpass": "DoorDash DashPass"},
+    "Uber Eats": {"eatspass": "Uber Eats Pass", "uberone": "Uber One"},
+    "SkipTheDishes": {"skipplus": "Skip+"},
+    "Instacart": {"instacartplus": "Instacart+", "plus": "Instacart+"},
+}
+_PLATFORM_PREFIX = re.compile(r"^[A-Za-z]{2,3}/")
+_PRODUCT_MIN = 4  # a subscription name cut to 4+ letters still counts ("dashp")
 
 # Compared without case or accents; a "?" in bank text matches any one letter.
 _PAYMENT_WORDS = {
@@ -125,19 +145,47 @@ def _drop_star_code(name: str) -> str:
     return before or after
 
 
-def _clean(name: str) -> str | None:
-    """Remove amounts, codes, store numbers, phones, payment words and places from a name."""
+def _platform_order(name: str) -> tuple[str, str | None] | None:
+    """(platform merchant, restaurant or None) if `name` starts with a delivery platform."""
+    match = _PLATFORM_PREFIX.match(name)
+    for text in (name, name[match.end() :]) if match else (name,):
+        letters = [(i, c.lower()) for i, c in enumerate(text) if c.isalnum()]
+        compact = "".join(c for _, c in letters)
+        for word, platform in _PLATFORMS.items():
+            if not compact.startswith(word):
+                continue
+            rest_compact = compact[len(word) :]
+            for product_word, product in _PLATFORM_PRODUCTS.get(platform, {}).items():
+                if rest_compact.startswith(product_word) or (
+                    len(rest_compact) >= _PRODUCT_MIN and product_word.startswith(rest_compact)
+                ):
+                    return product, None
+            rest = text[letters[len(word) - 1][0] + 1 :]
+            return platform, _tidy(rest) if rest_compact else None
+    return None
+
+
+def _clean(name: str) -> tuple[str | None, str | None]:
+    """(merchant, restaurant): remove amounts, codes, store numbers, phones, payment words and
+    places; a delivery-platform order becomes the platform, with the restaurant as a detail."""
     name = _UNDERSCORE_STORE.sub("", " ".join(name.split()))
     name = " ".join(name.replace("_", " ").split())
     name = _FOREIGN_AMOUNT.sub("", name)
     name = _drop_star_code(name)
+    order = _platform_order(name)
+    if order is not None:
+        return order
+    return _tidy(name), None
+
+
+def _tidy(name: str) -> str | None:
     name = _PHONE.sub(" ", name)
     name = _STORE.sub(" ", name)
     words = name.split()
     changed = True
     while changed and len(words) > 1:  # never strip a name down to nothing
         changed = False
-        if _is_one_of(words[0], _PAYMENT_WORDS):
+        if _is_one_of(words[0], _PAYMENT_WORDS) or _key(words[0]) in _PROCESSORS:
             words.pop(0)
             changed = True
         elif _is_one_of(words[-1], _PAYMENT_WORDS) or _is_place(words[-1]):
@@ -169,10 +217,12 @@ def extract_merchant(sub_description: str) -> Extracted:
         body = card.group(2)
         if len(body) >= _MERCHANT_WIDTH + _LOCATION_WIDTH:  # the full fixed-width layout
             body = body[:_MERCHANT_WIDTH]  # drops the 5-character city or phone prefix
-        return Extracted(_clean(body), channel, "card")
+        merchant, restaurant = _clean(body)
+        return Extracted(merchant, channel, "card", restaurant)
 
     text = _MEMO_PREFIX.sub("", _MOBILE_BANKING.sub("", text))
-    return Extracted(_clean(text), None, "named")
+    merchant, restaurant = _clean(text)
+    return Extracted(merchant, None, "named", restaurant)
 
 
 # --- Counts-only report on a database ---
@@ -233,6 +283,7 @@ class ExtractionCounts:
     empty: Counter[str] = field(default_factory=Counter)  # why: blank, transfer, nothing left
     channels: Counter[str] = field(default_factory=Counter)  # card rows: online, in_person
     distinct: int = 0
+    delivery: int = 0  # delivery-platform orders (merchant = platform, restaurant as a detail)
     leftovers: int = 0  # rows whose name hits at least one leftover pattern
     allowlisted: int = 0  # rows whose only digits belong to an allowlisted brand
     accepted: int = 0  # leftover rows whose name the owner accepted
@@ -272,6 +323,8 @@ def count_extraction(
             continue
         result.named += 1
         names.add(got.merchant.casefold())
+        if got.via_restaurant is not None:
+            result.delivery += 1
         hits = leftover_patterns(got.merchant)
         if hits and brands:
             hits = leftover_patterns(_without_brands(got.merchant, brands))
@@ -342,6 +395,7 @@ def _report(
     )
     print(f"card rows: online {channels['online']}, in person {channels['in_person']}")
     print(f"distinct merchant names: {c.distinct} (ignoring case)")
+    print(f"delivery-platform orders with a restaurant detail: {c.delivery} rows")
     print(f"allowlisted brand numbers: {c.allowlisted} rows")
     print(
         f"possible leftovers in names: {c.leftovers} rows "

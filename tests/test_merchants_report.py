@@ -308,3 +308,23 @@ def test_report_singular_wording(tmp_path: Path, capsys: pytest.CaptureFixture[s
     accepted.write_text("Deli505 Ste\n", encoding="utf-8")
     main(["report", "--db", str(path), "--account", "acct", "--accepted", str(accepted)])
     assert capsys.readouterr().out.rstrip().endswith("RESULT: PASS (1 accepted leftover)")
+
+
+def test_delivery_orders_are_counted_without_names(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    texts = [f"Opos {'Dd/Doordash' + r:<20}+1855 " for r in ("thaiexpres", "pizzaroma")]
+    assert count_extraction(texts).delivery == 2
+    path = tmp_path / "d.db"
+    conn = connect(path)
+    rows = [
+        ("acct", "2026-09-01", -100, "pos purchase", t, 1000 - i, f"fp{i}", "f", "t")
+        for i, t in enumerate(texts)
+    ]
+    insert_transactions(conn, rows)
+    conn.commit()
+    conn.close()
+    main(["report", "--db", str(path), "--account", "acct"])
+    out = capsys.readouterr().out
+    assert "delivery-platform orders with a restaurant detail: 2 rows" in out
+    assert "thaiexpres" not in out.casefold() and "doordash" not in out.casefold()
