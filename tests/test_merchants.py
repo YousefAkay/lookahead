@@ -390,3 +390,38 @@ def test_bare_uber_has_an_unknown_service() -> None:
 )
 def test_other_uber_texts_are_unchanged(field: str, merchant: str) -> None:
     assert extract_merchant(card("Opos", field, "toron")).merchant == merchant
+
+
+# --- Trailing 2-digit store number without "#" (owner's real-data find) ---
+
+
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        ("Cafe Velo 12", "Cafe Velo"),
+        ("Iga Extra 07", "Iga Extra"),
+        ("Coutu Lasalle 45", "Coutu Lasalle"),
+    ],
+)
+def test_trailing_two_digit_store_number_is_removed(field: str, expected: str) -> None:
+    assert extract_merchant(card("Apos", field, "Montr")).merchant == expected
+
+
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        ("Super 8", "Super 8"),  # one digit: part of the name
+        ("Pizza 2 Go", "Pizza 2 Go"),  # not at the end
+        ("747 Burger Bar Us 2", "747 Burger Bar"),  # country code + lone digit, as before
+        ("88", "88"),  # never strip a name to nothing
+    ],
+)
+def test_other_numbers_are_unchanged(field: str, expected: str) -> None:
+    assert extract_merchant(card("Apos", field, "Montr")).merchant == expected
+
+
+def test_store_number_cut_to_one_digit_stays_known_limit() -> None:
+    # 21 characters: the bank's 20-character field keeps only "4". One digit can be part of
+    # a name ("Super 8"), so it stays (measured rule: 2+ digits; see DECISIONS.md).
+    text = card("Apos", "Jean Coutu Lasalle 45", "Montr")
+    assert extract_merchant(text).merchant == "Jean Coutu Lasalle 4"

@@ -15,9 +15,11 @@ Order of work (DECISIONS.md):
 import argparse
 import json
 import math
+import re
 import secrets
 import sqlite3
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -29,7 +31,7 @@ from lookahead.categories import load_category_preferences
 from lookahead.categorizer import HybridCategorizer, examples
 from lookahead.db import connect
 from lookahead.flows import Txn
-from lookahead.resolve import load_user_decisions
+from lookahead.resolve import NameInfo, UserDecisions, load_user_decisions, resolve
 from lookahead.taxonomy import CATEGORIES
 
 TEST_B_SHARE = 0.25  # of merchant groups
@@ -329,6 +331,47 @@ def check_splits(conn: sqlite3.Connection, account: str) -> SplitCheck:
     return SplitCheck(len(frozen), still, len(frozen) - still, int((~present).sum()), mixed)
 
 
+# --- What-if: a trailing 2-digit store number (counts only, nothing is changed) ---
+
+_TWO_DIGIT_STORE = re.compile(r"^(.*\S)\s\d{2}$")  # "Cafe Velo 12" -> "Cafe Velo"
+
+
+@dataclass(frozen=True)
+class MergeImpact:
+    rows_renamed: int  # rows whose name would lose a trailing 2-digit number
+    merged_groups: int  # new groups made of 2+ of today's groups
+    old_groups_merged: int  # today's groups that would disappear into those
+    mixing_test_b: int  # merged groups with Test B rows and other rows (breaks Test B)
+    label_conflicts: int  # merged groups whose rows carry different labels
+
+
+def store_number_impact(
+    rows: pd.DataFrame, labels: dict[str, Label], user: UserDecisions | None = None
+) -> MergeImpact:
+    """What stripping a trailing "<space><2 digits>" from names would do to the merchant
+    groups of frozen rows. Only measures; extraction is not changed."""
+    old_names = list(rows["name"])
+    new_names = [m.group(1) if (m := _TWO_DIGIT_STORE.match(n)) else n for n in old_names]
+    resolution = resolve([NameInfo(n, c) for n, c in Counter(new_names).items()], user)
+    df = rows.assign(new_group=[resolution.group_of(n) for n in new_names])
+    merged = mixing = conflicts = old_merged = 0
+    for _, part in df.groupby("new_group"):
+        old = set(part["group"])
+        if len(old) < 2:
+            continue
+        merged += 1
+        old_merged += len(old)
+        splits = set(part["split"])
+        mixing += "test_b" in splits and len(splits) > 1
+        categories = {
+            labels[f].category for f in part["fingerprint"]
+            if f in labels and labels[f].status == "labelled"
+        }  # fmt: skip
+        conflicts += len(categories) > 1
+    renamed = sum(a != b for a, b in zip(old_names, new_names, strict=True))
+    return MergeImpact(renamed, merged, old_merged, mixing, conflicts)
+
+
 # --- Commands ---
 
 
@@ -337,9 +380,12 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     fr = commands.add_parser("freeze-splits", help="assign dev / test_a / test_b once")
     ck = commands.add_parser("check-splits", help="counts: did a code change disturb them?")
+    si = commands.add_parser(
+        "store-number-impact", help="counts: what stripping a trailing 2-digit number would merge"
+    )
     cl = commands.add_parser("clear", help="reset one merchant group's labels")
     cl.add_argument("--group", required=True, help="the merchant's name as shown on the page")
-    for sub in (fr, ck, cl):
+    for sub in (fr, ck, cl, si):
         sub.add_argument("--db", type=Path, required=True)
         sub.add_argument("--account", default="scotia-chequing")
     args = parser.parse_args(argv)
@@ -357,6 +403,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"merchant groups mixing Test B with other rows: {c.mixed_test_b_groups}")
         print("RESULT: PASS" if c.ok else "RESULT: CHECK")
         return 0 if c.ok else 1
+    if args.command == "store-number-impact":
+        impact = store_number_impact(
+            load_rows(conn, args.account), current_labels(conn, args.account),
+            load_user_decisions(conn),
+        )  # fmt: skip
+        conn.close()
+        print("What-if (nothing changed): strip a trailing '<space><2 digits>' from names")
+        print(f"  rows renamed: {impact.rows_renamed}")
+        print(f"  merged groups: {impact.merged_groups} (from {impact.old_groups_merged} groups)")
+        print(f"  merged groups mixing Test B with other rows: {impact.mixing_test_b}")
+        print(f"  merged groups whose labels disagree: {impact.label_conflicts}")
+        return 0
     if args.command == "clear":
         n = clear_merchant(conn, args.account, args.group)
         conn.close()

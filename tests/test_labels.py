@@ -7,6 +7,7 @@ import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from lookahead.db import connect
@@ -370,3 +371,43 @@ def test_label_status_counts(frozen: sqlite3.Connection) -> None:
         "merchants done": 2,
         "merchants": len(sizes),
     }
+
+
+# --- What-if: strip a trailing 2-digit store number (owner's question, counts only) ---
+
+
+def impact_rows(rows: list[tuple[str, str, str]]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [{"fingerprint": f"f{i}", "name": n, "group": n, "split": s} for i, (n, s, _) in
+         enumerate(rows)]
+    )  # fmt: skip
+
+
+def test_impact_counts_merges_within_one_split() -> None:
+    from lookahead.labels import Label, store_number_impact
+
+    rows = impact_rows([("Cafe Velo 12", "dev", "x"), ("Cafe Velo 47", "dev", "x"),
+                        ("Cafe Velo", "test_a", "x"), ("Maxi", "dev", "x")])  # fmt: skip
+    labels = {f"f{i}": Label("Restaurants & cafés", "labelled") for i in range(4)}
+    impact = store_number_impact(rows, labels)
+    assert impact.rows_renamed == 2
+    assert impact.merged_groups == 1 and impact.old_groups_merged == 3
+    assert impact.mixing_test_b == 0  # dev + test_a in one group is allowed
+    assert impact.label_conflicts == 0
+
+
+def test_impact_finds_a_merge_across_test_b() -> None:
+    from lookahead.labels import Label, store_number_impact
+
+    rows = impact_rows([("Cafe Velo 12", "test_b", "x"), ("Cafe Velo", "dev", "x")])
+    labels = {"f0": Label("Restaurants & cafés", "labelled"), "f1": Label("Shopping", "labelled")}
+    impact = store_number_impact(rows, labels)
+    assert impact.mixing_test_b == 1 and impact.label_conflicts == 1
+
+
+def test_impact_ignores_other_digit_shapes() -> None:
+    from lookahead.labels import store_number_impact
+
+    rows = impact_rows([("Super 8", "dev", "x"), ("Studio 1234", "dev", "x"),
+                        ("7-Eleven", "dev", "x"), ("Pizza 2 Go", "dev", "x")])  # fmt: skip
+    assert store_number_impact(rows, {}).rows_renamed == 0

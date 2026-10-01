@@ -70,7 +70,9 @@ _CITY_FRAGMENT_MIN = 5  # "Montr", "Toron": the bank's own 5-letter cut; "Mont" 
 _FOREIGN_AMOUNT = re.compile(r"^\d{1,3}(?:,\d{3})*\.\d{2}\s+")  # "7.33 Steamgames.Com"
 _PHONE = re.compile(r"(?:\+?1[\s-]?)?\(?\d{3}\)?[\s-]\d{3}[\s-]\d{4}|\+\d{2,}")
 _STORE = re.compile(r"#\s*[A-Za-z0-9-]*|\bno\.?\s*\d+\b", re.IGNORECASE)
-_CODE = re.compile(r"\d{3,}|(?=[A-Za-z]*\d)(?=\d*[A-Za-z])[A-Za-z0-9]{4,}")
+# Last word only: a pure number of 2+ digits (a store number, "Cafe Velo 12") or a
+# 4+ character mix of letters and digits (an order code, "P4Xucq").
+_CODE = re.compile(r"\d{2,}|(?=[A-Za-z]*\d)(?=\d*[A-Za-z])[A-Za-z0-9]{4,}")
 
 # Payment processors whose code comes before the shop's name ("Sq *Cafe Velo", "Ls Cafe Velo").
 _PROCESSORS = {"sq", "sp", "pp", "ls", "iz", "tst", "paypal"}
