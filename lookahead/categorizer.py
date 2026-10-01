@@ -9,17 +9,21 @@ Models:
 - MerchantLookup (baseline 1): reuse the most common label of a known merchant group;
 - TF-IDF + linear SVM (baseline 2);
 - TF-IDF + logistic regression (main model: it gives probabilities, for "needs review").
-Hyperparameters are defaults here; step 5b tunes them with grouped cross-validation.
+Tuning (step 5b): `tune` picks C and the n-gram range by macro-F1 with grouped
+cross-validation (no merchant group in both parts), on training data only. "Needs review":
+`choose_review_threshold` picks, from out-of-fold probabilities on training data, the lowest
+confidence at which the accepted rows are at least REVIEW_TARGET correct.
 
 Counts-only check on a database (no labels exist before step 6, so no accuracy):
     python -m lookahead.categorizer report --db data/private/db/lookahead.db
 """
 
 import argparse
+import math
 import sqlite3
 import sys
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import date
 from pathlib import Path
 
@@ -28,6 +32,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV, GroupKFold, cross_val_predict
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.svm import LinearSVC
@@ -128,6 +133,81 @@ class MerchantLookup:
 
 def _most_common(counts: Counter[str]) -> str:
     return min(counts, key=lambda label: (-counts[label], label))
+
+
+# --- Tuning and "needs review" (step 5b) ---
+
+PARAM_GRID: dict[str, list[object]] = {
+    "model__C": [0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0],
+    "features__name__ngram_range": [(2, 4), (2, 5), (3, 5)],
+}
+REVIEW_TARGET = 0.95  # accuracy wanted on rows NOT sent to review (our choice; see DECISIONS)
+
+
+def tune(
+    make: Callable[[], Pipeline],
+    x: pd.DataFrame,
+    y: Sequence[str],
+    groups: Sequence[str],
+    folds: int = 3,
+) -> tuple[dict[str, object], float]:
+    """Best PARAM_GRID setting by macro-F1 over grouped folds (a merchant group is never in
+    both the fitting and the scoring part). Call it on training data only."""
+    search = GridSearchCV(make(), PARAM_GRID, scoring="f1_macro", cv=GroupKFold(n_splits=folds))
+    search.fit(x, list(y), groups=list(groups))
+    return dict(search.best_params_), float(search.best_score_)
+
+
+def out_of_fold_confidence(
+    model: Pipeline, x: pd.DataFrame, y: Sequence[str], groups: Sequence[str], folds: int = 3
+) -> tuple[np.ndarray, np.ndarray]:
+    """(confidence, correct) for every training row, each predicted by a model that never
+    saw its merchant group. Confidence = the highest class probability."""
+    labels = list(y)
+    proba = cross_val_predict(
+        model, x, labels, groups=list(groups), cv=GroupKFold(n_splits=folds),
+        method="predict_proba",
+    )  # fmt: skip
+    classes = np.array(sorted(set(labels)))
+    return proba.max(axis=1), classes[proba.argmax(axis=1)] == np.array(labels)
+
+
+def choose_review_threshold(
+    confidence: np.ndarray, correct: np.ndarray, target: float = REVIEW_TARGET
+) -> float:
+    """Lowest confidence at which rows at or above it are at least `target` correct (so the
+    fewest rows go to review). math.inf if no threshold reaches it: review everything."""
+    for t in np.unique(confidence):  # ascending
+        if correct[confidence >= t].mean() >= target:
+            return float(t)
+    return math.inf
+
+
+def review_stats(
+    confidence: np.ndarray, correct: np.ndarray, threshold: float
+) -> tuple[float, float, int]:
+    """(share of rows sent to review, accuracy on the rows kept, number kept)."""
+    kept = confidence >= threshold
+    accuracy = float(correct[kept].mean()) if kept.any() else math.nan
+    return 1.0 - float(kept.mean()), accuracy, int(kept.sum())
+
+
+def reliability_table(confidence: np.ndarray, correct: np.ndarray, bins: int = 5) -> pd.DataFrame:
+    """Rows per confidence bin with mean confidence and actual accuracy. If the two columns
+    match, the confidence can be read as a probability; few rows per bin prove nothing."""
+    index = np.minimum((confidence * bins).astype(int), bins - 1)
+    records = []
+    for b in range(bins):
+        mask = index == b
+        records.append(
+            {
+                "bin": f"{b / bins:.1f}-{(b + 1) / bins:.1f}",
+                "rows": int(mask.sum()),
+                "mean_confidence": float(confidence[mask].mean()) if mask.any() else math.nan,
+                "accuracy": float(correct[mask].mean()) if mask.any() else math.nan,
+            }
+        )
+    return pd.DataFrame(records)
 
 
 # --- Counts-only report on a database ---
