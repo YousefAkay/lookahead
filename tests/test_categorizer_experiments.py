@@ -161,14 +161,15 @@ def test_command_runs_every_declared_variant_counts_only(
     out_file = tmp_path / "data" / "private" / "eval" / "experiments.json"
     assert main(["--db", str(db), "--out", str(out_file), "--months", "4"]) == 0
     out = capsys.readouterr().out
-    for variant in ("current", "balanced", "lexicon", "calibrated", "SVM", "SVM balanced"):
+    for variant in ("current", "balanced", "lexicon", "calibrated", "averaged", "SVM",
+                    "SVM balanced", "ensemble effect", "calibration effect"):  # fmt: skip
         assert variant in out
     assert "per-category recall" in out and "Flag rule" in out
     assert "$" not in out and not re.search(r"\d+\.\d{2}", out)
     for name in ("Tim Hortons", "Maxi", "Couche-Tard", "Nadia"):
         assert name not in out
     saved = json.loads(out_file.read_text(encoding="utf-8"))
-    assert {"current", "balanced", "lexicon", "calibrated"} <= set(saved["variants"])
+    assert {"current", "balanced", "lexicon", "calibrated", "averaged"} <= set(saved["variants"])
 
 
 def test_variants_use_partial_factories() -> None:
@@ -176,3 +177,66 @@ def test_variants_use_partial_factories() -> None:
 
     assert VARIANTS["balanced"].make.keywords == {"balanced": True}  # type: ignore[attr-defined]
     assert isinstance(VARIANTS["lexicon"].make, partial)
+
+
+# --- 3b: the same per-fold averaging as calibration, without calibrating (a control) ---
+
+
+def test_fold_average_is_the_mean_of_the_fold_models() -> None:
+    import numpy as np
+    from sklearn.base import clone
+    from sklearn.model_selection import GroupKFold
+
+    from lookahead.categorizer import FoldAverage
+
+    x, y = toy()
+    groups = list(x["group"])
+    splits = list(GroupKFold(n_splits=3).split(x, y, groups))
+    base = make_logreg().set_params(**PARAMS)
+    avg = FoldAverage(base, splits).fit(x, y)
+    test = rows(["Bistro Soleil", "Coiffure Soleil"])
+    expected = np.zeros((2, len(avg.classes_)))
+    for train_idx, _ in splits:
+        model = clone(base).fit(x.iloc[train_idx], [y[i] for i in train_idx])
+        cols = [list(avg.classes_).index(c) for c in model.classes_]
+        expected[:, cols] += model.predict_proba(test)
+    assert np.allclose(avg.predict_proba(test), expected / len(splits))
+    assert np.allclose(avg.predict_proba(test).sum(axis=1), 1.0)
+
+
+def test_fold_average_counts_a_category_a_fold_never_saw_as_zero() -> None:
+    import numpy as np
+
+    from lookahead.categorizer import FoldAverage
+
+    x, y = toy()
+    # The first split's training part has no Personal care rows.
+    no_care = [i for i, label in enumerate(y) if label != "Personal care"]
+    everything = list(range(len(y)))
+    avg = FoldAverage(make_logreg().set_params(**PARAMS), [(no_care, []), (everything, [])])
+    avg.fit(x, y)
+    proba = avg.predict_proba(rows(["Barbier Royal"]))
+    care = list(avg.classes_).index("Personal care")
+    assert 0 < proba[0, care] <= 0.5  # only the second model can give it any probability
+    assert np.isclose(proba.sum(), 1.0)
+
+
+def test_averaged_hybrid_variant() -> None:
+    x, y = toy()
+    model = HybridCategorizer(params=PARAMS, average=True).fit(x, y)
+    assert type(model.model_).__name__ == "FoldAverage"
+    got = model.predict_rows(rows(["Bistro Soleil"]))[0]
+    assert got.route == "new merchant" and 0 < got.confidence <= 1  # type: ignore[operator]
+
+
+def test_averaging_and_calibration_are_not_combined_in_one_model() -> None:
+    with pytest.raises(ValueError, match="either"):
+        HybridCategorizer(calibrate=True, average=True)
+
+
+def test_averaged_is_declared_as_a_control_not_a_combination_candidate() -> None:
+    from eval.categorizer_experiments import COMBINABLE, VARIANTS
+
+    assert VARIANTS["averaged"].average and not VARIANTS["averaged"].calibrate
+    assert "averaged" not in COMBINABLE
+    assert COMBINABLE == ("balanced", "lexicon", "calibrated")

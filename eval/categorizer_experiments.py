@@ -9,6 +9,9 @@ merchants). Variants, declared before running:
   1. "balanced": class_weight="balanced" (and the SVM with and without it, for comparison);
   2. "lexicon": the frozen keyword lexicon as extra features;
   3. "calibrated": sigmoid calibration on grouped folds inside each training part;
+  3b. "averaged" (a control): the same per-fold model averaging, without calibration, to
+     separate the ensemble effect (averaged - current) from the calibration effect
+     (calibrated - averaged); not a combination candidate (calibrated already averages);
   then "combined": every change that gained >= 1 point of unseen-merchant macro-F1 alone.
 Flag rule, declared before running: if the calibrated curve rises clearly (accuracy at 90%
 coverage >= accuracy at 100% + 5 points), keep a confidence threshold for new merchants;
@@ -46,6 +49,7 @@ CLEAR_RISE = 0.05  # flag rule: accuracy at 90% coverage >= accuracy at 100% + 5
 class Variant:
     make: Callable[[], object]
     calibrate: bool = False
+    average: bool = False
 
 
 VARIANTS: dict[str, Variant] = {
@@ -53,7 +57,9 @@ VARIANTS: dict[str, Variant] = {
     "balanced": Variant(partial(make_logreg, balanced=True)),
     "lexicon": Variant(partial(make_logreg, lexicon=True)),
     "calibrated": Variant(make_logreg, calibrate=True),
+    "averaged": Variant(make_logreg, average=True),
 }
+COMBINABLE = ("balanced", "lexicon", "calibrated")  # declared; "averaged" is a control
 
 
 def combined_variant(changes: list[str]) -> Variant:
@@ -87,7 +93,11 @@ def per_category_recall(
 
 def _fitter(variant: Variant) -> Callable[[pd.DataFrame, pd.DataFrame | None], HybridCategorizer]:
     def fit(train: pd.DataFrame, extra: pd.DataFrame | None) -> HybridCategorizer:
-        model = HybridCategorizer(make=variant.make, calibrate=variant.calibrate)  # type: ignore[arg-type]
+        model = HybridCategorizer(
+            make=variant.make,
+            calibrate=variant.calibrate,
+            average=variant.average,  # type: ignore[arg-type]
+        )
         if extra is None:
             return model.fit(train, train["label"])
         return model.fit(train, train["label"], extra_x=extra, extra_y=extra["label"])
@@ -190,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"   {category:<28} {_pct(recall)}  ({n} rows, {groups} groups)")
 
     base = results["current"].unseen.macro_f1
-    gains = {n: results[n].unseen.macro_f1 - base for n in ("balanced", "lexicon", "calibrated")}
+    gains = {n: results[n].unseen.macro_f1 - base for n in COMBINABLE}
     changes = combined_changes(gains)
     if len(changes) >= 2:
         results["combined"] = run_variant(dev, extra, combined_variant(changes))
@@ -205,6 +215,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{label:<13} unseen merchants: accuracy {_pct(acc)}, macro-F1 {_pct(f1)} "
               f"(comparison only: no probabilities)")  # fmt: skip
 
+    def rise(name: str) -> float:
+        at = {round(p.share, 2): p.accuracy for p in results[name].unseen.curve}
+        return at[0.9] - at[1.0]
+
+    cur, avg, cal = (results[n].unseen for n in ("current", "averaged", "calibrated"))
+    ensemble_f1, ensemble_acc = avg.macro_f1 - cur.macro_f1, avg.accuracy - cur.accuracy
+    calib_f1, calib_acc = cal.macro_f1 - avg.macro_f1, cal.accuracy - avg.accuracy
+    print(
+        f"3b split (unseen merchants): ensemble effect = averaged - current: macro-F1 "
+        f"{ensemble_f1:+.1%}, accuracy {ensemble_acc:+.1%}; calibration effect = calibrated"
+        f" - averaged: macro-F1 {calib_f1:+.1%}, accuracy {calib_acc:+.1%}"
+    )
+    print(f"   curve rise (90% minus 100% coverage): current {rise('current'):+.1%}, averaged "
+          f"{rise('averaged'):+.1%}, calibrated {rise('calibrated'):+.1%}")  # fmt: skip
     rule = flag_rule(results["calibrated"].unseen.curve)
     at = {round(p.share, 2): p.accuracy for p in results["calibrated"].unseen.curve}
     print(f"Flag rule (declared in advance; calibrated curve 90% {_pct(at[0.9])} vs 100% "

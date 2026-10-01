@@ -34,6 +34,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -246,6 +247,31 @@ def reliability_table(confidence: np.ndarray, correct: np.ndarray, bins: int = 5
     return pd.DataFrame(records)
 
 
+class FoldAverage:
+    """Experiment 3b (a control): one model per training part of `splits`, probabilities
+    averaged, exactly like CalibratedClassifierCV's default ensemble but without the
+    calibration. A category a fold model never saw counts as 0 for that model."""
+
+    def __init__(self, estimator: Pipeline, splits: Sequence[tuple[Sequence[int], object]]) -> None:
+        self.estimator, self.splits = estimator, splits
+
+    def fit(self, x: pd.DataFrame, y: Sequence[str]) -> "FoldAverage":
+        labels = list(y)
+        self.classes_ = np.array(sorted(set(labels)))
+        self.models_ = [
+            clone(self.estimator).fit(x.iloc[list(train)], [labels[i] for i in train])
+            for train, _ in self.splits
+        ]
+        return self
+
+    def predict_proba(self, x: pd.DataFrame) -> np.ndarray:
+        out = np.zeros((len(x), len(self.classes_)))
+        for model in self.models_:
+            columns = np.searchsorted(self.classes_, model.classes_)
+            out[:, columns] += model.predict_proba(x)
+        return out / len(self.models_)
+
+
 # --- The hybrid used by the app (step 5b-ii) ---
 
 
@@ -275,7 +301,11 @@ class HybridCategorizer:
         preferences: dict[str, str] | None = None,
         folds: int = 3,
         calibrate: bool = False,
+        average: bool = False,
     ) -> None:
+        if calibrate and average:
+            raise ValueError("use either calibrate (which already averages) or average")
+        self.average = average  # experiment 3b: the same per-fold averaging, no calibration
         self.make, self.params, self.threshold = make, params, threshold
         self.preferences = preferences or {}
         self.folds = folds
@@ -285,10 +315,12 @@ class HybridCategorizer:
         """The new-merchant model on (x, y). Calibrated: fitted on grouped folds of x, so
         the probabilities reflect merchants the model has not seen."""
         model = self.make().set_params(**self.params_)
-        if not self.calibrate:
+        if not (self.calibrate or self.average):
             return model.fit(x, y)
         k = min(self.folds, len(set(groups)))
         splits = list(GroupKFold(n_splits=k).split(x, y, groups))
+        if self.average:
+            return FoldAverage(model, splits).fit(x, y)
         return CalibratedClassifierCV(model, method="sigmoid", cv=splits).fit(x, y)
 
     def fit(
