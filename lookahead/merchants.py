@@ -89,6 +89,9 @@ _PLATFORM_PRODUCTS = {
     "SkipTheDishes": {"skipplus": "Skip+"},
     "Instacart": {"instacartplus": "Instacart+", "plus": "Instacart+"},
 }
+# Merchant names extraction gives to platform orders and to platform subscriptions.
+PLATFORM_MERCHANTS = frozenset(_PLATFORMS.values())
+PLATFORM_SUBSCRIPTIONS = frozenset(n for d in _PLATFORM_PRODUCTS.values() for n in d.values())
 _PLATFORM_PREFIX = re.compile(r"^[A-Za-z]{2,3}/")
 _PRODUCT_MIN = 4  # a subscription name cut to 4+ letters still counts ("dashp")
 

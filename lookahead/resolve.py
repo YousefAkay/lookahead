@@ -23,6 +23,7 @@ Counts-only commands (names go only to a file in data/private/, never to the ter
 import argparse
 import csv
 import io
+import itertools
 import math
 import re
 import sqlite3
@@ -31,6 +32,7 @@ import unicodedata
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 from lookahead.db import connect
@@ -341,8 +343,13 @@ def _has_tables(conn: sqlite3.Connection) -> bool:
     return found == 3
 
 
-def load_user_decisions(conn: sqlite3.Connection) -> UserDecisions:
-    """Your stored merges and splits. An older database without the tables has none."""
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    sql = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?"
+    return bool(conn.execute(sql, (name,)).fetchone()[0])
+
+
+def _from_tables(conn: sqlite3.Connection) -> UserDecisions:
+    """Your decisions as of today, from the merchant tables."""
     if not _has_tables(conn):
         return UserDecisions()
     merges: dict[str, set[str]] = {}
@@ -356,6 +363,74 @@ def load_user_decisions(conn: sqlite3.Connection) -> UserDecisions:
     merges = {name: keys for name, keys in merges.items() if len(keys) >= 2}
     splits = {frozenset(r) for r in conn.execute("SELECT key_a, key_b FROM merchant_splits")}
     return UserDecisions(merges, splits)
+
+
+def replay(events: Iterable[tuple[str, str, str, str]]) -> UserDecisions:
+    """Your decisions after (decision, key_a, key_b, name_a) events, in order. Same effect
+    as `_merge` / `_split` on the tables, so replaying everything gives today's state."""
+    merchant_of: dict[str, int] = {}
+    members: dict[int, set[str]] = {}
+    names: dict[int, str] = {}
+    splits: set[frozenset[str]] = set()
+    next_id = itertools.count(1)
+    for decision, ka, kb, name_a in events:
+        if ka == kb:
+            continue
+        ma, mb = merchant_of.get(ka), merchant_of.get(kb)
+        if decision == "merge":
+            splits.discard(frozenset((ka, kb)))
+            if ma is None and mb is None:
+                new = next(next_id)
+                names[new], members[new] = name_a, {ka, kb}
+                merchant_of[ka] = merchant_of[kb] = new
+            elif ma is None:
+                members[mb].add(ka)  # type: ignore[index]
+                merchant_of[ka] = mb  # type: ignore[assignment]
+            elif mb is None:
+                members[ma].add(kb)
+                merchant_of[kb] = ma
+            elif ma != mb:  # two merchants become one
+                for key in members.pop(mb):
+                    members[ma].add(key)
+                    merchant_of[key] = ma
+                del names[mb]
+        else:
+            splits.add(frozenset((ka, kb)))
+            if ma is not None and ma == mb:  # undo your earlier merge of these two
+                members[ma].discard(kb)
+                del merchant_of[kb]
+                if len(members[ma]) < 2:  # a merchant of one name joins nothing
+                    for key in members.pop(ma):
+                        del merchant_of[key]
+                    del names[ma]
+    return UserDecisions({names[m]: keys for m, keys in members.items()}, splits)
+
+
+def load_user_decisions(
+    conn: sqlite3.Connection, as_of: date | None = None, use_log: bool = True
+) -> UserDecisions:
+    """Your merges and splits, as made by `as_of` (all of them if None).
+
+    Read from the dated decision log. `use_log=False` reads today's state from the merchant
+    tables instead (used to check that the two agree). An older database without the log
+    can only give today's state; asking it for a date raises ValueError.
+    """
+    has_log = _table_exists(conn, "merchant_decisions") and bool(
+        conn.execute("SELECT COUNT(*) FROM merchant_decisions").fetchone()[0]
+    )
+    if use_log and has_log:
+        sql = "SELECT decision, key_a, key_b, name_a FROM merchant_decisions"
+        params: tuple[str, ...] = ()
+        if as_of is not None:
+            sql += " WHERE decided_at <= ?"
+            params = (as_of.isoformat(),)
+        return replay(conn.execute(sql + " ORDER BY decided_at, decision_id", params))
+    state = _from_tables(conn)
+    if as_of is not None and (state.merges or state.splits):
+        raise ValueError(
+            "these decisions have no dates yet; run: python -m lookahead.db migrate --db <db>"
+        )
+    return state
 
 
 def _merchant_id(conn: sqlite3.Connection, key: str) -> int | None:
@@ -415,22 +490,30 @@ def _split(conn: sqlite3.Connection, a: str, b: str) -> None:
 
 
 def apply_decisions(
-    conn: sqlite3.Connection, rows: Iterable[tuple[str, str, str]]
+    conn: sqlite3.Connection,
+    rows: Iterable[tuple[str, str, str]],
+    decided_at: date | None = None,
 ) -> dict[str, int]:
     """Store (decision, name_a, name_b) rows: "merge" or "split"; anything else is skipped.
+    Each one is also written to the dated decision log (`decided_at`, default today).
     All in one database transaction."""
+    day = (decided_at or date.today()).isoformat()
     counts = {"merges": 0, "splits": 0, "skipped": 0}
     with conn:
         for decision, a, b in rows:
             choice = decision.strip().casefold()
-            if choice == "merge":
-                _merge(conn, a, b)
-                counts["merges"] += 1
-            elif choice == "split":
-                _split(conn, a, b)
-                counts["splits"] += 1
-            else:
+            if choice not in ("merge", "split"):
                 counts["skipped"] += 1
+                continue
+            (_merge if choice == "merge" else _split)(conn, a, b)
+            counts["merges" if choice == "merge" else "splits"] += 1
+            ka, kb = name_key(a), name_key(b)
+            if ka != kb:
+                conn.execute(
+                    "INSERT INTO merchant_decisions (decided_at, decision, key_a, key_b, name_a)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (day, choice, ka, kb, a),
+                )
     return counts
 
 

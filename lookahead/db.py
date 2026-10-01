@@ -5,7 +5,10 @@ instead of one `raw_description`, and `balance_after_cents` added. Money is inte
 cents; dates are ISO text ("2026-09-30"), which sort correctly as text.
 """
 
+import argparse
 import sqlite3
+import sys
+from datetime import date
 from pathlib import Path
 
 SCHEMA = """
@@ -52,16 +55,65 @@ CREATE TABLE IF NOT EXISTS merchant_splits (
     PRIMARY KEY (key_a, key_b),
     CHECK (key_a < key_b)
 );
+
+-- Every owner decision, dated, in the order made. Replaying it up to a date gives the
+-- decisions made by then (Time Machine); the tables above are the state as of today.
+CREATE TABLE IF NOT EXISTS merchant_decisions (
+    decision_id INTEGER PRIMARY KEY,
+    decided_at  TEXT    NOT NULL,  -- ISO date
+    decision    TEXT    NOT NULL CHECK (decision IN ('merge', 'split')),
+    key_a       TEXT    NOT NULL,
+    key_b       TEXT    NOT NULL,
+    name_a      TEXT    NOT NULL   -- names the merchant if this merge creates one
+);
+-- Owner category choices per merchant name key; the latest one made by a date wins.
+CREATE TABLE IF NOT EXISTS category_preferences (
+    merchant_key TEXT NOT NULL,
+    category     TEXT NOT NULL,
+    decided_at   TEXT NOT NULL,
+    PRIMARY KEY (merchant_key, decided_at)
+);
 """
 
 
-def connect(path: Path) -> sqlite3.Connection:
-    """Open (and if needed create) the database; rows come back addressable by column name."""
+def connect(path: Path, today: date | None = None) -> sqlite3.Connection:
+    """Open (and if needed create) the database; rows come back addressable by column name.
+
+    Also migrates merchant decisions stored before they had dates (see `migrate_decisions`).
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    migrate_decisions(conn, today or date.today())
     return conn
+
+
+def migrate_decisions(conn: sqlite3.Connection, today: date) -> int:
+    """Write merges and splits stored before the decision log existed into the log, dated
+    `today` (their real dates were not recorded). Runs only while the log is empty, so
+    only once. Returns the number of log rows written."""
+    if conn.execute("SELECT COUNT(*) FROM merchant_decisions").fetchone()[0]:
+        return 0
+    events: list[tuple[str, str, str, str, str]] = []
+    day = today.isoformat()
+    merchants: dict[int, tuple[str, list[str]]] = {}
+    for merchant_id, name, key in conn.execute(
+        "SELECT m.merchant_id, m.canonical_name, a.alias_key FROM merchant_aliases a"
+        " JOIN merchants m USING (merchant_id) WHERE a.source = 'user' ORDER BY a.alias_key"
+    ):
+        merchants.setdefault(merchant_id, (name, []))[1].append(key)
+    for name, keys in merchants.values():
+        events += [(day, "merge", keys[0], other, name) for other in keys[1:]]
+    for key_a, key_b in conn.execute("SELECT key_a, key_b FROM merchant_splits"):
+        events.append((day, "split", key_a, key_b, key_a))
+    with conn:
+        conn.executemany(
+            "INSERT INTO merchant_decisions (decided_at, decision, key_a, key_b, name_a)"
+            " VALUES (?, ?, ?, ?, ?)",
+            events,
+        )
+    return len(events)
 
 
 def connect_readonly(path: Path) -> sqlite3.Connection:
@@ -103,3 +155,31 @@ def insert_anchors(conn: sqlite3.Connection, rows: list[tuple[object, ...]]) -> 
         rows,
     )
     return len(rows)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`python -m lookahead.db migrate --db PATH`: bring an existing database up to date.
+    Prints counts only."""
+    parser = argparse.ArgumentParser(prog="python -m lookahead.db")
+    commands = parser.add_subparsers(dest="command", required=True)
+    mig = commands.add_parser("migrate", help="add new tables and date old decisions")
+    mig.add_argument("--db", type=Path, required=True)
+    args = parser.parse_args(argv)
+    if not args.db.exists():
+        print(f"database not found: {args.db}")
+        return 2
+    conn = sqlite3.connect(args.db)
+    had_log = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'merchant_decisions'"
+    ).fetchone()[0]
+    before = conn.execute("SELECT COUNT(*) FROM merchant_decisions").fetchone()[0] if had_log else 0
+    conn.close()
+    conn = connect(args.db)
+    after = conn.execute("SELECT COUNT(*) FROM merchant_decisions").fetchone()[0]
+    conn.close()
+    print(f"merchant decisions in the log: {after} ({after - before} migrated now, dated today)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
