@@ -28,6 +28,7 @@ import json
 import math
 import sqlite3
 import warnings
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
@@ -117,6 +118,9 @@ def _without(
     return extra[~mask]
 
 
+Fit = Callable[[pd.DataFrame, pd.DataFrame | None], HybridCategorizer]
+
+
 def _fit(train: pd.DataFrame, extra: pd.DataFrame | None) -> HybridCategorizer:
     if extra is None:
         return HybridCategorizer().fit(train, train["label"])
@@ -125,26 +129,27 @@ def _fit(train: pd.DataFrame, extra: pd.DataFrame | None) -> HybridCategorizer:
 
 def unseen_merchants(
     dev: pd.DataFrame, extra: pd.DataFrame | None, folds: int = 5,
-    dropped: list[int] | None = None,
+    dropped: list[int] | None = None, fit: Fit | None = None,
 ) -> tuple[pd.Series, list[Prediction], pd.Series]:  # fmt: skip
     k = min(folds, dev["group"].nunique())
     out: list[Prediction | None] = [None] * len(dev)
     for train_idx, test_idx in GroupKFold(n_splits=k).split(dev, groups=dev["group"]):
         fold_extra = _without(extra, dev.iloc[test_idx], dropped if dropped is not None else [])
-        model = _fit(dev.iloc[train_idx], fold_extra)
+        model = (fit or _fit)(dev.iloc[train_idx], fold_extra)
         for i, p in zip(test_idx, model.predict_rows(dev.iloc[test_idx]), strict=True):
             out[i] = p
     return dev["label"], [p for p in out if p is not None], dev["group"]
 
 
 def future_rows(
-    dev: pd.DataFrame, extra: pd.DataFrame | None, dropped: list[int] | None = None
-) -> tuple[pd.Series, list[Prediction], pd.Series]:
+    dev: pd.DataFrame, extra: pd.DataFrame | None, dropped: list[int] | None = None,
+    fit: Fit | None = None,
+) -> tuple[pd.Series, list[Prediction], pd.Series]:  # fmt: skip
     dates = dev["posted_date"].sort_values()
     cutoff = dates.iloc[max(0, math.ceil(FUTURE_SHARE * len(dates)) - 1)]
     train, test = dev[dev["posted_date"] <= cutoff], dev[dev["posted_date"] > cutoff]
     held_out = test[~test["group"].isin(set(train["group"]))]  # new in the test period
-    model = _fit(train, _without(extra, held_out, dropped if dropped is not None else []))
+    model = (fit or _fit)(train, _without(extra, held_out, dropped if dropped is not None else []))
     return test["label"], model.predict_rows(test), test["group"]
 
 

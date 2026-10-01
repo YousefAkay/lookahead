@@ -34,16 +34,18 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV, GroupKFold, cross_val_predict
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import FunctionTransformer, OneHotEncoder
 from sklearn.svm import LinearSVC
 
 from lookahead.categories import category_by_rules, load_category_preferences
 from lookahead.flows import Txn
+from lookahead.lexicon import lexicon_matrix
 from lookahead.merchants import extract_merchant
 from lookahead.resolve import UserDecisions, load_user_decisions, name_infos, name_key, resolve
 
@@ -97,27 +99,34 @@ def examples(
     return pd.DataFrame(records, columns=_COLUMNS)
 
 
-def _features() -> ColumnTransformer:
-    return ColumnTransformer(
-        [
-            (
-                "name",
-                TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 5), sublinear_tf=True),
-                "name",
-            ),
-            ("meta", OneHotEncoder(handle_unknown="ignore"), META_COLUMNS),
-        ]
-    )
+def _features(lexicon: bool = False) -> ColumnTransformer:
+    parts: list[tuple[str, object, object]] = [
+        (
+            "name",
+            TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 5), sublinear_tf=True),
+            "name",
+        ),
+        ("meta", OneHotEncoder(handle_unknown="ignore"), META_COLUMNS),
+    ]
+    if lexicon:  # experiment 2: one "contains a keyword of category X" column per category
+        parts.append(("lexicon", FunctionTransformer(lexicon_matrix), "name"))
+    return ColumnTransformer(parts)
 
 
-def make_svm(c: float = 1.0) -> Pipeline:
+def _weights(balanced: bool) -> str | None:
+    return "balanced" if balanced else None  # experiment 1: rare categories weigh more
+
+
+def make_svm(c: float = 1.0, balanced: bool = False, lexicon: bool = False) -> Pipeline:
     """Baseline 2: character TF-IDF + linear SVM (no probabilities)."""
-    return Pipeline([("features", _features()), ("model", LinearSVC(C=c))])
+    model = LinearSVC(C=c, class_weight=_weights(balanced))
+    return Pipeline([("features", _features(lexicon)), ("model", model)])
 
 
-def make_logreg(c: float = 1.0) -> Pipeline:
-    """Main model: character TF-IDF + logistic regression (probabilities for review)."""
-    return Pipeline([("features", _features()), ("model", LogisticRegression(C=c, max_iter=5000))])
+def make_logreg(c: float = 1.0, balanced: bool = False, lexicon: bool = False) -> Pipeline:
+    """Main model: character TF-IDF + logistic regression (probabilities for flagging)."""
+    model = LogisticRegression(C=c, max_iter=5000, class_weight=_weights(balanced))
+    return Pipeline([("features", _features(lexicon)), ("model", model)])
 
 
 class MerchantLookup:
@@ -265,10 +274,22 @@ class HybridCategorizer:
         threshold: float | None = None,
         preferences: dict[str, str] | None = None,
         folds: int = 3,
+        calibrate: bool = False,
     ) -> None:
         self.make, self.params, self.threshold = make, params, threshold
         self.preferences = preferences or {}
         self.folds = folds
+        self.calibrate = calibrate  # experiment 3: sigmoid calibration on grouped folds
+
+    def _train(self, x: pd.DataFrame, y: list[str], groups: list[str]) -> object:
+        """The new-merchant model on (x, y). Calibrated: fitted on grouped folds of x, so
+        the probabilities reflect merchants the model has not seen."""
+        model = self.make().set_params(**self.params_)
+        if not self.calibrate:
+            return model.fit(x, y)
+        k = min(self.folds, len(set(groups)))
+        splits = list(GroupKFold(n_splits=k).split(x, y, groups))
+        return CalibratedClassifierCV(model, method="sigmoid", cv=splits).fit(x, y)
 
     def fit(
         self,
@@ -292,29 +313,29 @@ class HybridCategorizer:
         else:
             model_x, model_y, model_groups = x, labels, cv_groups
         self.params_ = self.params or tune(self.make, model_x, model_y, model_groups, self.folds)[0]
-        self.model_ = self.make().set_params(**self.params_).fit(model_x, model_y)
+        self.model_ = self._train(model_x, model_y, model_groups)
         if self.threshold is not None:
             self.threshold_ = self.threshold
             return self
-        if model_x is x:
-            confidence, correct = out_of_fold_confidence(
-                self.make().set_params(**self.params_), x, labels, cv_groups, self.folds
+        # Out of fold on the main rows only; extra rows are always in training.
+        has_extra = model_x is not x
+        confidence = np.zeros(len(x))
+        correct = np.zeros(len(x), dtype=bool)
+        for train_idx, test_idx in GroupKFold(n_splits=self.folds).split(x, labels, cv_groups):
+            fold_x = x.iloc[train_idx][FEATURE_COLUMNS]
+            fold_y = [labels[i] for i in train_idx]
+            fold_groups = [cv_groups[i] for i in train_idx]
+            if has_extra:
+                fold_x = pd.concat([fold_x, extra_x[FEATURE_COLUMNS]], ignore_index=True)  # type: ignore[index]
+                fold_y += list(extra_y)  # type: ignore[arg-type]
+                fold_groups += [f"extra:{g}" for g in extra_x["group"]]  # type: ignore[index]
+            model = self._train(fold_x, fold_y, fold_groups)
+            proba = model.predict_proba(x.iloc[test_idx])  # type: ignore[attr-defined]
+            confidence[test_idx] = proba.max(axis=1)
+            classes = model.classes_  # type: ignore[attr-defined]
+            correct[test_idx] = classes[proba.argmax(axis=1)] == np.array(
+                [labels[i] for i in test_idx]
             )
-        else:  # out of fold on the main rows; the extra rows are always in training
-            confidence = np.zeros(len(x))
-            correct = np.zeros(len(x), dtype=bool)
-            for train_idx, test_idx in GroupKFold(n_splits=self.folds).split(x, labels, cv_groups):
-                fold_x = pd.concat(
-                    [x.iloc[train_idx][FEATURE_COLUMNS], extra_x[FEATURE_COLUMNS]],  # type: ignore[index]
-                    ignore_index=True,
-                )
-                fold_y = [labels[i] for i in train_idx] + list(extra_y)  # type: ignore[arg-type]
-                model = self.make().set_params(**self.params_).fit(fold_x, fold_y)
-                proba = model.predict_proba(x.iloc[test_idx])
-                confidence[test_idx] = proba.max(axis=1)
-                correct[test_idx] = model.classes_[proba.argmax(axis=1)] == np.array(
-                    [labels[i] for i in test_idx]
-                )
         self.threshold_ = choose_flag_threshold(confidence, correct)
         return self
 
