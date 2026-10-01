@@ -14,6 +14,10 @@ cross-validation (no merchant group in both parts), on training data only. "Need
 `choose_review_threshold` picks, from out-of-fold probabilities on training data, the lowest
 confidence at which the accepted rows are at least REVIEW_TARGET correct.
 
+The system used (step 5b-ii): `HybridCategorizer`. A merchant group with labels in training
+gets the lookup (its labels disagree -> needs review, unless you stored a preference); an
+unseen group gets the tuned model, and only those rows use the review threshold.
+
 Counts-only check on a database (no labels exist before step 6, so no accuracy):
     python -m lookahead.categorizer report --db data/private/db/lookahead.db
 """
@@ -24,6 +28,7 @@ import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -40,7 +45,7 @@ from sklearn.svm import LinearSVC
 from lookahead.categories import category_by_rules, load_category_preferences
 from lookahead.flows import Txn
 from lookahead.merchants import extract_merchant
-from lookahead.resolve import UserDecisions, load_user_decisions, name_infos, resolve
+from lookahead.resolve import UserDecisions, load_user_decisions, name_infos, name_key, resolve
 
 META_COLUMNS = ["channel", "txn_type", "direction", "amount_bucket"]
 FEATURE_COLUMNS = ["name", "group", *META_COLUMNS]
@@ -208,6 +213,91 @@ def reliability_table(confidence: np.ndarray, correct: np.ndarray, bins: int = 5
             }
         )
     return pd.DataFrame(records)
+
+
+# --- The hybrid used by the app (step 5b-ii) ---
+
+
+@dataclass(frozen=True)
+class Prediction:
+    category: str
+    route: str  # "known merchant", "known merchant, labels disagree", "your preference",
+    #             or "new merchant"
+    needs_review: bool
+    confidence: float | None = None  # the model's, for new merchants only
+
+
+class HybridCategorizer:
+    """Known merchant group -> lookup; unseen group -> tuned model + review threshold.
+
+    `params` (model settings) and `threshold` are chosen on the training data in `fit`
+    unless given. `preferences` (merchant name key -> category) win over everything.
+    """
+
+    def __init__(
+        self,
+        make: Callable[[], Pipeline] = make_logreg,
+        params: dict[str, object] | None = None,
+        threshold: float | None = None,
+        preferences: dict[str, str] | None = None,
+        folds: int = 3,
+    ) -> None:
+        self.make, self.params, self.threshold = make, params, threshold
+        self.preferences = preferences or {}
+        self.folds = folds
+
+    def fit(
+        self, x: pd.DataFrame, y: Sequence[str], groups: Sequence[str] | None = None
+    ) -> "HybridCategorizer":
+        labels = list(y)
+        cv_groups = list(x["group"] if groups is None else groups)
+        self.known: dict[str, Counter[str]] = {}
+        for group, label in zip(x["group"], labels, strict=True):
+            self.known.setdefault(group, Counter())[label] += 1
+        self.params_ = self.params or tune(self.make, x, labels, cv_groups, self.folds)[0]
+        self.model_ = self.make().set_params(**self.params_).fit(x, labels)
+        if self.threshold is None:
+            confidence, correct = out_of_fold_confidence(
+                self.make().set_params(**self.params_), x, labels, cv_groups, self.folds
+            )
+            self.threshold_ = choose_review_threshold(confidence, correct)
+        else:
+            self.threshold_ = self.threshold
+        return self
+
+    def _preference(self, name: str, group: str) -> str | None:
+        for key in (name_key(group), name_key(name)):
+            if key in self.preferences:
+                return self.preferences[key]
+        return None
+
+    def predict_rows(self, x: pd.DataFrame) -> list[Prediction]:
+        out: list[Prediction | None] = [None] * len(x)
+        new: list[int] = []
+        for i, (name, group) in enumerate(zip(x["name"], x["group"], strict=True)):
+            preferred = self._preference(name, group)
+            if preferred is not None:
+                out[i] = Prediction(preferred, "your preference", needs_review=False)
+            elif group in self.known:
+                counts = self.known[group]
+                disagree = len(counts) > 1
+                route = "known merchant, labels disagree" if disagree else "known merchant"
+                out[i] = Prediction(_most_common(counts), route, needs_review=disagree)
+            else:
+                new.append(i)
+        if new:
+            proba = self.model_.predict_proba(x.iloc[new])
+            classes = self.model_.classes_
+            for i, p in zip(new, proba, strict=True):
+                confidence = float(p.max())
+                out[i] = Prediction(
+                    str(classes[p.argmax()]), "new merchant",
+                    needs_review=confidence < self.threshold_, confidence=confidence,
+                )  # fmt: skip
+        return [p for p in out if p is not None]
+
+    def predict(self, x: pd.DataFrame) -> np.ndarray:
+        return np.array([p.category for p in self.predict_rows(x)], dtype=object)
 
 
 # --- Counts-only report on a database ---

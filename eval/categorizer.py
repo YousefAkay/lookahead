@@ -28,7 +28,9 @@ from sklearn.model_selection import GroupKFold
 
 from lookahead.categorizer import (
     REVIEW_TARGET,
+    HybridCategorizer,
     MerchantLookup,
+    Prediction,
     choose_review_threshold,
     examples,
     make_logreg,
@@ -169,6 +171,44 @@ def _print_tuned(label: str, y: pd.Series, run: TunedRun) -> None:
         )
 
 
+def hybrid_test_a(df: pd.DataFrame) -> tuple[pd.Series, list[Prediction]]:
+    train = time_split(df)
+    model = HybridCategorizer().fit(df[train], df[train]["label"], df[train]["merchant"])
+    return df[~train]["label"], model.predict_rows(df[~train])
+
+
+def hybrid_test_b(df: pd.DataFrame) -> tuple[pd.Series, list[Prediction]]:
+    out: list[Prediction | None] = [None] * len(df)
+    for train_idx, test_idx in grouped_folds(df):
+        part = df.iloc[train_idx]
+        model = HybridCategorizer().fit(part, part["label"], part["merchant"])
+        for i, p in zip(test_idx, model.predict_rows(df.iloc[test_idx]), strict=True):
+            out[i] = p
+    return df["label"], [p for p in out if p is not None]
+
+
+def _print_hybrid(label: str, y: pd.Series, preds: list[Prediction]) -> None:
+    truth = y.to_numpy()
+    got = np.array([p.category for p in preds], dtype=object)
+    acc, f1 = _scores(y, got)
+    review = np.array([p.needs_review for p in preds])
+    correct = got == truth
+    print(f"  {label}: accuracy {acc:6.1%}   macro-F1 {f1:6.1%}   ({len(preds)} rows)")
+    rest = correct[~review].mean() if (~review).any() else math.nan
+    print(
+        f"    needs review: {review.mean():.1%} of rows; accuracy on the rest {rest:.1%} "
+        f"({(~review).sum()} rows)"
+    )
+    routes = pd.Series([p.route for p in preds])
+    for route in ("known merchant", "known merchant, labels disagree", "your preference",
+                  "new merchant"):  # fmt: skip
+        mask = (routes == route).to_numpy()
+        if mask.any():
+            sent = review[mask].sum()
+            print(f"    route {route:<34} {mask.sum():>4} rows, accuracy "
+                  f"{correct[mask].mean():6.1%}, sent to review {sent}")  # fmt: skip
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.categorizer")
     parser.add_argument("--months", type=int, default=12)
@@ -234,6 +274,10 @@ def main(argv: list[str] | None = None) -> int:
         if r.rows:
             print(f"  {r.bin}: {r.rows:>4} rows, mean confidence {r.mean_confidence:6.1%}, "
                   f"accuracy {r.accuracy:6.1%}")  # fmt: skip
+    print(f"Hybrid (step 5b-ii): lookup for known merchant groups, tuned logistic regression "
+          f"+ review threshold (target {REVIEW_TARGET:.0%}) for unseen ones")  # fmt: skip
+    _print_hybrid("Test A", *hybrid_test_a(df))
+    _print_hybrid("Test B", *hybrid_test_b(df))
     print("Pipeline check only: too few merchants to judge the model. See DECISIONS.md.")
     return 0
 
