@@ -1,4 +1,4 @@
-# Week 1 dependencies.
+# Week 1 and Week 2 dependencies.
 # Exact pins for top-level packages only; see DECISIONS.md.
 pandas==3.0.6
 numpy==2.5.3
@@ -7,3 +7,6 @@ streamlit==1.64.0
 plotly==7.1.0
 pytest==9.1.1
 ruff==0.16.9
+# Week 2: classic ML (categorizer)
+scikit-learn==1.9.1
+joblib==1.6.0
