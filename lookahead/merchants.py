@@ -12,7 +12,9 @@ cities and provinces) make the function usable on other banks' text too.
 
 Counts-only check on a database (prints no names, amounts or text):
     python -m lookahead.merchants report --db data/private/db/lookahead.db
-Brands whose digits belong to the name go in data/private/merchant_allowlist.txt.
+Brands whose digits belong to the name go in data/private/merchant_allowlist.txt;
+leftover names you have looked at and accepted go in
+data/private/merchant_accepted_leftovers.txt (then RESULT says "PASS (N accepted ...)").
 Add --write-leftovers to save the flagged names to data/private/eval/merchant_leftovers.txt
 for the owner to read; they are never printed.
 """
@@ -185,19 +187,25 @@ LEFTOVER_PATTERNS: dict[str, re.Pattern[str]] = {
 DEFAULT_LEFTOVERS_FILE = Path("data/private/eval/merchant_leftovers.txt")
 # Brands whose real name contains digits (e.g. a leading number). Private: comes from real data.
 DEFAULT_BRAND_ALLOWLIST = Path("data/private/merchant_allowlist.txt")
+# Leftover names the owner has looked at and accepted (handed to resolution). Private.
+DEFAULT_ACCEPTED_LEFTOVERS = Path("data/private/merchant_accepted_leftovers.txt")
 
 
 def _normalized(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def load_brand_allowlist(path: Path) -> set[str]:
-    """Brands whose digits are part of the name, one per line (case and spacing ignored;
-    # comments). A missing file is an empty allowlist. The contents are never printed."""
+def load_private_list(path: Path) -> set[str]:
+    """Names, one per line (case and spacing ignored; # comments). Used for the brand
+    allowlist and the accepted leftovers. A missing file is an empty list. The contents
+    come from real data, so they live in data/private/ and are never printed."""
     if not path.exists():
         return set()
     lines = path.read_text(encoding="utf-8").splitlines()
     return {_normalized(ln) for ln in lines if ln.strip() and not ln.strip().startswith("#")}
+
+
+load_brand_allowlist = load_private_list
 
 
 def _without_brands(name: str, brands: set[str]) -> str:
@@ -227,6 +235,8 @@ class ExtractionCounts:
     distinct: int = 0
     leftovers: int = 0  # rows whose name hits at least one leftover pattern
     allowlisted: int = 0  # rows whose only digits belong to an allowlisted brand
+    accepted: int = 0  # leftover rows whose name the owner accepted
+    accepted_names: set[str] = field(default_factory=set)
     leftover_hits: Counter[str] = field(default_factory=Counter)  # rows per pattern
     # Flagged names -> rows. Kept in memory for the private file; never printed.
     leftover_names: Counter[str] = field(default_factory=Counter)
@@ -238,13 +248,17 @@ class ExtractionCounts:
 
 
 def count_extraction(
-    texts: Iterable[str], brand_allowlist: set[str] | None = None
+    texts: Iterable[str],
+    brand_allowlist: set[str] | None = None,
+    accepted: set[str] | None = None,
 ) -> ExtractionCounts:
     """Extract every text and keep only counts (plus the flagged names, for the private file).
 
     Digits inside an allowlisted brand do not count as leftovers; anything else does.
+    Leftover names on the `accepted` list are counted separately and do not fail the check.
     """
     brands = brand_allowlist or set()
+    known = accepted or set()
     result = ExtractionCounts()
     names: set[str] = set()
     for text in texts:
@@ -263,7 +277,10 @@ def count_extraction(
             hits = leftover_patterns(_without_brands(got.merchant, brands))
             if not hits:
                 result.allowlisted += 1
-        if hits:
+        if hits and _normalized(got.merchant) in known:
+            result.accepted += 1
+            result.accepted_names.add(_normalized(got.merchant))
+        elif hits:
             result.leftovers += 1
             result.leftover_hits.update(hits)
             result.leftover_names[got.merchant] += 1
@@ -292,7 +309,13 @@ def write_leftovers(counts: ExtractionCounts, path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _report(db_path: Path, account: str, leftovers_file: Path | None, allowlist_path: Path) -> int:
+def _report(
+    db_path: Path,
+    account: str,
+    leftovers_file: Path | None,
+    allowlist_path: Path,
+    accepted_path: Path,
+) -> int:
     """Print counts only: no merchant names, amounts or bank text."""
     if not db_path.exists():
         print(f"database not found: {db_path}")
@@ -309,7 +332,7 @@ def _report(db_path: Path, account: str, leftovers_file: Path | None, allowlist_
     ]
     conn.close()
 
-    c = count_extraction(texts, load_brand_allowlist(allowlist_path))
+    c = count_extraction(texts, load_private_list(allowlist_path), load_private_list(accepted_path))
     empty, channels = c.empty, c.channels
     print(f"Merchant extraction: {c.rows} rows, account {account}")
     print(f"with a merchant name: {c.named} rows")
@@ -327,10 +350,17 @@ def _report(db_path: Path, account: str, leftovers_file: Path | None, allowlist_
     if c.leftovers:
         by_pattern = ", ".join(f"{label}: {c.leftover_hits[label]}" for label in LEFTOVER_PATTERNS)
         print(f"  rows per pattern (a row can hit more than one): {by_pattern}")
+    print(f"accepted leftovers: {c.accepted} rows from {len(c.accepted_names)} distinct names")
     if leftovers_file is not None:
         write_leftovers(c, leftovers_file)
         print(f"wrote {len(c.leftover_names)} flagged names to {leftovers_file} (not shown here)")
-    print("RESULT: PASS" if c.ok else "RESULT: CHECK")
+    if not c.ok:
+        print("RESULT: CHECK")
+    elif c.accepted:
+        plural = "" if c.accepted == 1 else "s"
+        print(f"RESULT: PASS ({c.accepted} accepted leftover{plural})")
+    else:
+        print("RESULT: PASS")
     return 0 if c.ok else 1
 
 
@@ -358,9 +388,19 @@ def main(argv: list[str] | None = None) -> int:
         help=f"brands whose digits are part of the name (default {DEFAULT_BRAND_ALLOWLIST};"
         " git-ignored, never printed)",
     )
+    rep.add_argument(
+        "--accepted",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=f"leftover names you have accepted (default {DEFAULT_ACCEPTED_LEFTOVERS};"
+        " git-ignored, never printed)",
+    )
     args = parser.parse_args(argv)
+    # Defaults are read here, not at import, so tests can point them at temporary files.
     allowlist = args.allowlist if args.allowlist is not None else DEFAULT_BRAND_ALLOWLIST
-    return _report(args.db, args.account, args.write_leftovers, allowlist)
+    accepted = args.accepted if args.accepted is not None else DEFAULT_ACCEPTED_LEFTOVERS
+    return _report(args.db, args.account, args.write_leftovers, allowlist, accepted)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,9 @@ def no_private_allowlist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(
         "lookahead.merchants.DEFAULT_BRAND_ALLOWLIST", tmp_path / "no_allowlist.txt"
     )
+    monkeypatch.setattr(
+        "lookahead.merchants.DEFAULT_ACCEPTED_LEFTOVERS", tmp_path / "no_accepted.txt"
+    )
 
 
 @pytest.fixture
@@ -261,3 +264,47 @@ def test_report_counts_allowlisted_rows_and_never_prints_the_list(
 
 def card_text(merchant: str) -> str:
     return f"Apos {merchant[:20]:<20}Montr "
+
+
+# --- Private list of leftovers the owner has accepted ---
+
+
+def test_accepted_leftovers_do_not_fail_the_check() -> None:
+    texts = [card_text("Deli505 Ste"), card_text("Deli505 Ste")]
+    assert not count_extraction(texts).ok
+    c = count_extraction(texts, accepted={"deli505 ste"})
+    assert c.ok and c.leftovers == 0 and c.accepted == 2 and len(c.accepted_names) == 1
+
+
+def test_accepting_one_name_does_not_accept_another() -> None:
+    c = count_extraction([card_text("Deli505 Ste"), card_text("Shop 4567 Express")],
+                         accepted={"deli505 ste"})  # fmt: skip
+    assert c.accepted == 1 and c.leftovers == 1 and not c.ok
+
+
+def test_report_says_pass_with_accepted_leftovers(
+    noisy_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    accepted = tmp_path / "accepted.txt"
+    accepted.write_text("Shop 4567 Express\nPay+1 Thing Shop\ncafe*velo\n", encoding="utf-8")
+    code = main(["report", "--db", str(noisy_db), "--account", "acct", "--accepted", str(accepted)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "accepted leftovers: 4 rows from 3 distinct names" in out
+    assert out.rstrip().endswith("RESULT: PASS (4 accepted leftovers)")
+    assert "Shop" not in out and "Cafe" not in out
+
+
+def test_report_singular_wording(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "one.db"
+    conn = connect(path)
+    insert_transactions(
+        conn,
+        [("acct", "2026-09-01", -100, "pos purchase", card_text("Deli505 Ste"), 1, "f", "f", "t")],
+    )
+    conn.commit()
+    conn.close()
+    accepted = tmp_path / "accepted.txt"
+    accepted.write_text("Deli505 Ste\n", encoding="utf-8")
+    main(["report", "--db", str(path), "--account", "acct", "--accepted", str(accepted)])
+    assert capsys.readouterr().out.rstrip().endswith("RESULT: PASS (1 accepted leftover)")
