@@ -8,14 +8,14 @@ for predicting. Features (HANDOFF section 07):
 Models:
 - MerchantLookup (baseline 1): reuse the most common label of a known merchant group;
 - TF-IDF + linear SVM (baseline 2);
-- TF-IDF + logistic regression (main model: it gives probabilities, for "needs review").
+- TF-IDF + logistic regression (main model: it gives probabilities, for "flagged").
 Tuning (step 5b): `tune` picks C and the n-gram range by macro-F1 with grouped
 cross-validation (no merchant group in both parts), on training data only. "Needs review":
-`choose_review_threshold` picks, from out-of-fold probabilities on training data, the lowest
-confidence at which the accepted rows are at least REVIEW_TARGET correct.
+`choose_flag_threshold` picks, from out-of-fold probabilities on training data, the lowest
+confidence at which the accepted rows are at least FLAG_TARGET correct.
 
 The system used (step 5b-ii): `HybridCategorizer`. A merchant group with labels in training
-gets the lookup (its labels disagree -> needs review, unless you stored a preference); an
+gets the lookup (its labels disagree -> flagged, unless you stored a preference); an
 unseen group gets the tuned model, and only those rows use the review threshold.
 
 Counts-only check on a database (no labels exist before step 6, so no accuracy):
@@ -140,13 +140,13 @@ def _most_common(counts: Counter[str]) -> str:
     return min(counts, key=lambda label: (-counts[label], label))
 
 
-# --- Tuning and "needs review" (step 5b) ---
+# --- Tuning and "flagged" (step 5b) ---
 
 PARAM_GRID: dict[str, list[object]] = {
     "model__C": [0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0],
     "features__name__ngram_range": [(2, 4), (2, 5), (3, 5)],
 }
-REVIEW_TARGET = 0.95  # accuracy wanted on rows NOT sent to review (our choice; see DECISIONS)
+FLAG_TARGET = 0.95  # accuracy wanted on rows NOT sent to review (our choice; see DECISIONS)
 
 
 def tune(
@@ -177,8 +177,8 @@ def out_of_fold_confidence(
     return proba.max(axis=1), classes[proba.argmax(axis=1)] == np.array(labels)
 
 
-def choose_review_threshold(
-    confidence: np.ndarray, correct: np.ndarray, target: float = REVIEW_TARGET
+def choose_flag_threshold(
+    confidence: np.ndarray, correct: np.ndarray, target: float = FLAG_TARGET
 ) -> float:
     """Lowest confidence at which rows at or above it are at least `target` correct (so the
     fewest rows go to review). math.inf if no threshold reaches it: review everything."""
@@ -188,13 +188,35 @@ def choose_review_threshold(
     return math.inf
 
 
-def review_stats(
+def flag_stats(
     confidence: np.ndarray, correct: np.ndarray, threshold: float
 ) -> tuple[float, float, int]:
     """(share of rows sent to review, accuracy on the rows kept, number kept)."""
     kept = confidence >= threshold
     accuracy = float(correct[kept].mean()) if kept.any() else math.nan
     return 1.0 - float(kept.mean()), accuracy, int(kept.sum())
+
+
+@dataclass(frozen=True)
+class CoveragePoint:
+    share: float  # share of rows categorized automatically (the most confident ones)
+    rows: int
+    accuracy: float
+
+
+def coverage_curve(
+    confidence: Sequence[float], correct: Sequence[bool],
+    shares: Sequence[float] = (0.90, 0.95, 0.99, 1.0),
+) -> list[CoveragePoint]:  # fmt: skip
+    """Accuracy when only the most confident share of rows is auto-categorized (the rest
+    flagged). Every row gets a category either way; this shows the price of coverage."""
+    order = np.argsort(-np.asarray(confidence, dtype=float), kind="stable")
+    hits = np.asarray(correct, dtype=bool)[order]
+    points = []
+    for share in shares:
+        n = min(len(hits), max(1, math.ceil(share * len(hits) - 1e-9)))
+        points.append(CoveragePoint(share, n, float(hits[:n].mean()) if n else math.nan))
+    return points
 
 
 def reliability_table(confidence: np.ndarray, correct: np.ndarray, bins: int = 5) -> pd.DataFrame:
@@ -223,8 +245,10 @@ class Prediction:
     category: str
     route: str  # "known merchant", "known merchant, labels disagree", "your preference",
     #             or "new merchant"
-    needs_review: bool
-    confidence: float | None = None  # the model's, for new merchants only
+    flagged: bool  # low confidence: marked for an optional check; never blocks
+    # New merchant: the model's probability. Known merchant: the share of its training
+    # labels that agree. Your preference: 1.0.
+    confidence: float | None = None
 
 
 class HybridCategorizer:
@@ -247,22 +271,51 @@ class HybridCategorizer:
         self.folds = folds
 
     def fit(
-        self, x: pd.DataFrame, y: Sequence[str], groups: Sequence[str] | None = None
+        self,
+        x: pd.DataFrame,
+        y: Sequence[str],
+        groups: Sequence[str] | None = None,
+        extra_x: pd.DataFrame | None = None,
+        extra_y: Sequence[str] | None = None,
     ) -> "HybridCategorizer":
+        """`extra_x` / `extra_y` (e.g. synthetic rows) teach the model only: they never
+        enter the lookup, and the flag threshold is measured on the main rows only."""
         labels = list(y)
         cv_groups = list(x["group"] if groups is None else groups)
         self.known: dict[str, Counter[str]] = {}
         for group, label in zip(x["group"], labels, strict=True):
             self.known.setdefault(group, Counter())[label] += 1
-        self.params_ = self.params or tune(self.make, x, labels, cv_groups, self.folds)[0]
-        self.model_ = self.make().set_params(**self.params_).fit(x, labels)
-        if self.threshold is None:
+        if extra_x is not None and extra_y is not None and len(extra_x):
+            model_x = pd.concat([x[FEATURE_COLUMNS], extra_x[FEATURE_COLUMNS]], ignore_index=True)
+            model_y = labels + list(extra_y)
+            model_groups = cv_groups + [f"extra:{g}" for g in extra_x["group"]]
+        else:
+            model_x, model_y, model_groups = x, labels, cv_groups
+        self.params_ = self.params or tune(self.make, model_x, model_y, model_groups, self.folds)[0]
+        self.model_ = self.make().set_params(**self.params_).fit(model_x, model_y)
+        if self.threshold is not None:
+            self.threshold_ = self.threshold
+            return self
+        if model_x is x:
             confidence, correct = out_of_fold_confidence(
                 self.make().set_params(**self.params_), x, labels, cv_groups, self.folds
             )
-            self.threshold_ = choose_review_threshold(confidence, correct)
-        else:
-            self.threshold_ = self.threshold
+        else:  # out of fold on the main rows; the extra rows are always in training
+            confidence = np.zeros(len(x))
+            correct = np.zeros(len(x), dtype=bool)
+            for train_idx, test_idx in GroupKFold(n_splits=self.folds).split(x, labels, cv_groups):
+                fold_x = pd.concat(
+                    [x.iloc[train_idx][FEATURE_COLUMNS], extra_x[FEATURE_COLUMNS]],  # type: ignore[index]
+                    ignore_index=True,
+                )
+                fold_y = [labels[i] for i in train_idx] + list(extra_y)  # type: ignore[arg-type]
+                model = self.make().set_params(**self.params_).fit(fold_x, fold_y)
+                proba = model.predict_proba(x.iloc[test_idx])
+                confidence[test_idx] = proba.max(axis=1)
+                correct[test_idx] = model.classes_[proba.argmax(axis=1)] == np.array(
+                    [labels[i] for i in test_idx]
+                )
+        self.threshold_ = choose_flag_threshold(confidence, correct)
         return self
 
     def _preference(self, name: str, group: str) -> str | None:
@@ -277,12 +330,14 @@ class HybridCategorizer:
         for i, (name, group) in enumerate(zip(x["name"], x["group"], strict=True)):
             preferred = self._preference(name, group)
             if preferred is not None:
-                out[i] = Prediction(preferred, "your preference", needs_review=False)
+                out[i] = Prediction(preferred, "your preference", flagged=False, confidence=1.0)
             elif group in self.known:
                 counts = self.known[group]
                 disagree = len(counts) > 1
                 route = "known merchant, labels disagree" if disagree else "known merchant"
-                out[i] = Prediction(_most_common(counts), route, needs_review=disagree)
+                label = _most_common(counts)
+                share = counts[label] / sum(counts.values())
+                out[i] = Prediction(label, route, flagged=disagree, confidence=share)
             else:
                 new.append(i)
         if new:
@@ -292,7 +347,7 @@ class HybridCategorizer:
                 confidence = float(p.max())
                 out[i] = Prediction(
                     str(classes[p.argmax()]), "new merchant",
-                    needs_review=confidence < self.threshold_, confidence=confidence,
+                    flagged=confidence < self.threshold_, confidence=confidence,
                 )  # fmt: skip
         return [p for p in out if p is not None]
 

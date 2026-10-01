@@ -140,3 +140,12 @@
 
 
 
+
+
+
+
+
+
+
+
+- **2.** A French/English category **keyword lexicon** as extra features (one "name contains a keyword of category X" column per category). Written from general knowledge, **committed and frozen before any run** (a test pins its exact contents). It is written without looking at the holdout or at any real merchant name (no tool ever sees my real data).

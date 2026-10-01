@@ -27,11 +27,11 @@ from sklearn.metrics import accuracy_score, f1_score, recall_score
 from sklearn.model_selection import GroupKFold
 
 from lookahead.categorizer import (
-    REVIEW_TARGET,
+    FLAG_TARGET,
     HybridCategorizer,
     MerchantLookup,
     Prediction,
-    choose_review_threshold,
+    choose_flag_threshold,
     examples,
     make_logreg,
     make_svm,
@@ -124,7 +124,7 @@ def fit_tuned(
     run.predictions[test_idx] = model.predict(test)
     if run.confidence is not None and run.accepted is not None:
         conf, correct = out_of_fold_confidence(make().set_params(**params), train, y, groups)  # type: ignore[attr-defined]
-        threshold = choose_review_threshold(conf, correct)
+        threshold = choose_flag_threshold(conf, correct)
         run.thresholds.append(threshold)
         test_conf = model.predict_proba(test).max(axis=1)
         run.confidence[test_idx] = test_conf
@@ -166,8 +166,8 @@ def _print_tuned(label: str, y: pd.Series, run: TunedRun) -> None:
         rest = correct[kept].mean() if kept.any() else math.nan
         shown = ", ".join("all" if math.isinf(t) else f"{t:.2f}" for t in run.thresholds)
         print(
-            f"    needs review: {rate:.1%} of rows; accuracy on the rest {rest:.1%} "
-            f"({kept.sum()} rows); threshold(s) {shown}; target {REVIEW_TARGET:.0%}"
+            f"    flagged: {rate:.1%} of rows; accuracy on the rest {rest:.1%} "
+            f"({kept.sum()} rows); threshold(s) {shown}; target {FLAG_TARGET:.0%}"
         )
 
 
@@ -191,12 +191,12 @@ def _print_hybrid(label: str, y: pd.Series, preds: list[Prediction]) -> None:
     truth = y.to_numpy()
     got = np.array([p.category for p in preds], dtype=object)
     acc, f1 = _scores(y, got)
-    review = np.array([p.needs_review for p in preds])
+    review = np.array([p.flagged for p in preds])
     correct = got == truth
     print(f"  {label}: accuracy {acc:6.1%}   macro-F1 {f1:6.1%}   ({len(preds)} rows)")
     rest = correct[~review].mean() if (~review).any() else math.nan
     print(
-        f"    needs review: {review.mean():.1%} of rows; accuracy on the rest {rest:.1%} "
+        f"    flagged: {review.mean():.1%} of rows; accuracy on the rest {rest:.1%} "
         f"({(~review).sum()} rows)"
     )
     routes = pd.Series([p.route for p in preds])
@@ -275,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {r.bin}: {r.rows:>4} rows, mean confidence {r.mean_confidence:6.1%}, "
                   f"accuracy {r.accuracy:6.1%}")  # fmt: skip
     print(f"Hybrid (step 5b-ii): lookup for known merchant groups, tuned logistic regression "
-          f"+ review threshold (target {REVIEW_TARGET:.0%}) for unseen ones")  # fmt: skip
+          f"+ review threshold (target {FLAG_TARGET:.0%}) for unseen ones")  # fmt: skip
     _print_hybrid("Test A", *hybrid_test_a(df))
     _print_hybrid("Test B", *hybrid_test_b(df))
     print("Pipeline check only: too few merchants to judge the model. See DECISIONS.md.")

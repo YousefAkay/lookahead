@@ -8,10 +8,10 @@ import pytest
 
 from lookahead.categorizer import (
     PARAM_GRID,
-    choose_review_threshold,
+    choose_flag_threshold,
+    flag_stats,
     make_logreg,
     reliability_table,
-    review_stats,
     tune,
 )
 
@@ -22,25 +22,25 @@ def test_threshold_is_the_lowest_that_meets_the_target() -> None:
     confidence = np.array([0.9, 0.8, 0.7, 0.6])
     correct = np.array([True, True, False, True])
     # At 0.6 accepted rows are 3/4 right, at 0.7 2/3, at 0.8 2/2.
-    assert choose_review_threshold(confidence, correct, target=0.9) == 0.8
-    assert choose_review_threshold(confidence, correct, target=0.75) == 0.6
+    assert choose_flag_threshold(confidence, correct, target=0.9) == 0.8
+    assert choose_flag_threshold(confidence, correct, target=0.75) == 0.6
 
 
 def test_unreachable_target_sends_everything_to_review() -> None:
     confidence = np.array([0.9, 0.8])
     correct = np.array([False, False])
-    assert choose_review_threshold(confidence, correct, target=0.95) == math.inf
+    assert choose_flag_threshold(confidence, correct, target=0.95) == math.inf
 
 
-def test_review_stats() -> None:
+def test_flag_stats() -> None:
     confidence = np.array([0.95, 0.9, 0.5, 0.4])
     correct = np.array([True, False, True, False])
-    rate, accuracy, kept = review_stats(confidence, correct, threshold=0.9)
+    rate, accuracy, kept = flag_stats(confidence, correct, threshold=0.9)
     assert rate == 0.5 and accuracy == 0.5 and kept == 2
 
 
-def test_review_stats_when_everything_is_reviewed() -> None:
-    rate, accuracy, kept = review_stats(np.array([0.5]), np.array([True]), math.inf)
+def test_flag_stats_when_everything_is_reviewed() -> None:
+    rate, accuracy, kept = flag_stats(np.array([0.5]), np.array([True]), math.inf)
     assert rate == 1.0 and kept == 0 and math.isnan(accuracy)
 
 
