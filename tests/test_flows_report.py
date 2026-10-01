@@ -168,3 +168,52 @@ def test_returned_etransfer_whose_original_was_not_an_etransfer_withdrawal() -> 
     assert reasons(rows) == {
         ("returned e-Transfer", "same amount within 30 days, not an e-Transfer withdrawal"): 1
     }
+
+
+# --- Explaining one merchant group's pairing (counts only) ---
+
+HOLDINGS = "Opos Uber Holdings Canada+1800 "
+
+
+def test_explain_a_fully_reversed_hold() -> None:
+    from lookahead.flows import explain_group
+
+    rows = [
+        Txn(1, D, -4_000, "pos purchase", HOLDINGS),
+        Txn(2, D + timedelta(days=2), 4_000, "pos return", HOLDINGS),
+        Txn(3, D, -1_500, "pos purchase", UBER),  # another merchant: not counted
+    ]
+    e = explain_group(rows, "Uber Holdings Canada")
+    assert e.rows == 2 and e.debits == 1 and e.credits == 1
+    assert e.credit_types == {"pos return": 1}
+    assert e.paired == {"return": 1}
+    assert e.fully_reversed == 1 and e.partly_reversed == 0
+    assert e.gap_days == {"2-7": 1}
+    assert e.in_categorizer_queue == 0  # netted: the pair needs no category
+
+
+def test_explain_reports_why_a_credit_did_not_pair() -> None:
+    from lookahead.flows import explain_group
+
+    rows = [
+        Txn(1, D, -4_000, "pos purchase", HOLDINGS),
+        Txn(2, D + timedelta(days=9), 4_000, "correction", HOLDINGS),  # over the 7-day window
+        Txn(3, D, 3_000, "accounts payable", HOLDINGS),  # a type that never pairs
+    ]
+    e = explain_group(rows, "Uber Holdings Canada")
+    assert e.paired == {}
+    assert e.unpaired == {
+        ("pre-auth correction", "purchase over 7 days earlier"): 1,
+        ("accounts payable credit", "this credit type is never paired"): 1,
+    }
+
+
+def test_explain_command_prints_counts_only(
+    db: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    path, export = db
+    code = main(["explain", "--db", str(path), "--account", "synthetic-C", "--group", "Uber Eats"])
+    out = capsys.readouterr().out
+    assert code == 0 and "rows in this merchant group:" in out
+    assert "Uber" not in out  # not even the group name you typed
+    assert not re.search(r"\d+\.\d{2}", out) and "$" not in out

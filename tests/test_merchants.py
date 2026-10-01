@@ -353,3 +353,40 @@ def test_rows_without_a_platform_have_no_restaurant_detail() -> None:
 )
 def test_processor_prefix_is_removed(merchant_field: str, expected: str) -> None:
     assert extract_merchant(card("Apos", merchant_field, "Montr")).merchant == expected
+
+
+# --- Uber service after a star (shape from the owner's real data, made-up details) ---
+
+
+@pytest.mark.parametrize(
+    ("field", "merchant", "restaurant"),
+    [
+        ("Uber* Eats Pending", "Uber Eats", None),  # a hold on a delivery order
+        ("Uber* Eats", "Uber Eats", None),
+        ("Uber *Eats Thaiexpre", "Uber Eats", "Thaiexpre"),
+        ("Uber* Eats Pass", "Uber Eats Pass", None),  # the subscription
+        ("Uber* Pending", "Uber pending, unknown service", None),
+        ("Uber* One", "Uber One", None),
+        ("Uber* Trip", "Uber Trip", None),  # a ride: joins rides through the alias list
+        ("Uber* Help.Uber.Com", "Uber, unknown service", None),
+    ],
+)
+def test_uber_service_after_the_star(field: str, merchant: str, restaurant: str | None) -> None:
+    got = extract_merchant(card("Opos", field, "+1855"))
+    assert (got.merchant, got.via_restaurant) == (merchant, restaurant)
+
+
+def test_bare_uber_has_an_unknown_service() -> None:
+    assert extract_merchant(card("Opos", "Uber", "+1855")).merchant == "Uber, unknown service"
+
+
+@pytest.mark.parametrize(
+    ("field", "merchant"),
+    [
+        ("Uber Canada/Ubertrip", "Uber Canada/Ubertrip"),  # rides, unchanged
+        ("Uber Canada/Ubereats", "Uber Canada/Ubereats"),  # delivery, unchanged
+        ("Uber Freight", "Uber Freight"),  # another business named Uber...
+    ],
+)
+def test_other_uber_texts_are_unchanged(field: str, merchant: str) -> None:
+    assert extract_merchant(card("Opos", field, "toron")).merchant == merchant

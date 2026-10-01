@@ -327,8 +327,32 @@ def _report(db_path: Path, account: str) -> int:
     print(f"merchant groups among them: {len(groups)}")
     print(f"  groups with 1 row: {(groups == 1).sum()}, 2-5 rows: {groups.between(2, 5).sum()}, "
           f"6+ rows: {(groups >= 6).sum()}")  # fmt: skip
-    print("labels stored: 0 (labelling starts in step 6; no accuracy before that)")
+    _print_label_counts(db_path, account)
     return 0
+
+
+def _print_label_counts(db_path: Path, account: str) -> None:
+    """Counts of your stored labels (step 6), read from the database."""
+    from lookahead.labels import label_status_counts  # here: labels imports this module
+
+    conn = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)
+    frozen = (
+        conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'label_split_info'"
+        ).fetchone()[0]
+        and conn.execute("SELECT 1 FROM label_split_info WHERE account = ?", (account,)).fetchone()
+    )
+    if not frozen:
+        conn.close()
+        print("labels: none (splits not frozen yet; see python -m lookahead.labels)")
+        return
+    c = label_status_counts(conn, account)
+    conn.close()
+    print(
+        f"labels: labelled {c['labelled']} rows, skipped {c['skipped']}, cleared {c['cleared']}"
+        f" (not reviewed: {c['not reviewed']}, cleared ones included)"
+    )
+    print(f"merchants done: {c['merchants done']} of {c['merchants']}")
 
 
 def main(argv: list[str] | None = None) -> int:

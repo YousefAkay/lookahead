@@ -73,6 +73,33 @@ CREATE TABLE IF NOT EXISTS category_preferences (
     decided_at   TEXT NOT NULL,
     PRIMARY KEY (merchant_key, decided_at)
 );
+
+-- Label review (step 6). Splits are frozen once per account, before any labelling.
+CREATE TABLE IF NOT EXISTS label_split_info (
+    account     TEXT    PRIMARY KEY,
+    frozen_at   TEXT    NOT NULL,
+    seed        INTEGER NOT NULL,
+    cutoff_date TEXT    NOT NULL,  -- Test A = later rows (outside Test B merchants)
+    test_b_groups TEXT  NOT NULL   -- JSON list of merchant groups held out for Test B
+);
+CREATE TABLE IF NOT EXISTS label_splits (
+    fingerprint TEXT PRIMARY KEY,
+    account     TEXT NOT NULL,
+    split       TEXT NOT NULL CHECK (split IN ('dev', 'test_a', 'test_b'))
+);
+-- Every label decision, dated; a row's current label is its latest single-row decision,
+-- else its latest merchant decision. category is NULL when skipped ("don't know") or
+-- cleared (a reset: the row's earlier decisions no longer count).
+CREATE TABLE IF NOT EXISTS category_labels (
+    label_id    INTEGER PRIMARY KEY,
+    fingerprint TEXT    NOT NULL,
+    account     TEXT    NOT NULL,
+    category    TEXT,
+    status      TEXT    NOT NULL CHECK (status IN ('labelled', 'skipped', 'cleared')),
+    scope       TEXT    NOT NULL CHECK (scope IN ('merchant', 'row')),
+    decided_at  TEXT    NOT NULL,
+    CHECK ((status = 'labelled') = (category IS NOT NULL))
+);
 """
 
 
@@ -84,9 +111,31 @@ def connect(path: Path, today: date | None = None) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
+    _migrate_label_status(conn)
     conn.executescript(SCHEMA)
     migrate_decisions(conn, today or date.today())
     return conn
+
+
+def _migrate_label_status(conn: sqlite3.Connection) -> None:
+    """category_labels made before "cleared" existed: rebuild it with the new CHECK rule
+    (SQLite cannot change a CHECK in place), keeping every row and its id."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'category_labels'"
+    ).fetchone()
+    if row is None or "'cleared'" in row[0]:
+        return
+    # One script with its own BEGIN/COMMIT: all of it happens, or none of it.
+    conn.executescript(
+        "BEGIN;\n"
+        "ALTER TABLE category_labels RENAME TO category_labels_old;\n"
+        + SCHEMA
+        + "\nINSERT INTO category_labels (label_id, fingerprint, account, category, status,"
+        " scope, decided_at) SELECT label_id, fingerprint, account, category, status,"
+        " scope, decided_at FROM category_labels_old;\n"
+        "DROP TABLE category_labels_old;\n"
+        "COMMIT;"
+    )
 
 
 def migrate_decisions(conn: sqlite3.Connection, today: date) -> int:

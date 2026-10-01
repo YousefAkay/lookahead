@@ -1,4 +1,8 @@
-"""The fixed label sets: 15 spending categories and the flow types used by the forecast."""
+"""The fixed label sets: 17 spending categories and the flow types used by the forecast.
+
+"Personal care" (barbers, salons, beauty stores) and "Gifts & donations" (charities,
+foundations, religious donations, gifts) were added during labelling; see DECISIONS.md.
+"""
 
 CATEGORIES: tuple[str, ...] = (
     "Income",
@@ -11,8 +15,10 @@ CATEGORIES: tuple[str, ...] = (
     "Subscriptions",
     "Shopping",
     "Health & pharmacy",
+    "Personal care",
     "Education",
     "Entertainment",
+    "Gifts & donations",
     "Transfers",
     "Fees & interest",
     "Cash",

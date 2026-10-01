@@ -224,3 +224,30 @@ def test_delivery_orders_from_many_restaurants_are_one_merchant() -> None:
     r = resolve(name_infos(texts))
     assert sorted(g.name for g in r.groups) == ["DoorDash", "DoorDash DashPass"]
     assert r.names_before == 2
+
+
+# --- The rides alias only catches ride names ---
+
+
+def test_uber_rides_alias_only_catches_rides() -> None:
+    r = resolve(
+        names(
+            "Uber Canada/Ubertrip", "Uber Trip", "Ubertrip",
+            "Uber pending, unknown service", "Uber, unknown service",
+            "Uber Eats", "Uber Canada/Ubereats", "Uber One",
+        )
+    )  # fmt: skip
+    rides = {n for g in r.groups if g.name == "Uber" for n in g.members}
+    assert rides == {"Uber Canada/Ubertrip", "Uber Trip", "Ubertrip"}
+    assert r.group_of("Uber pending, unknown service") != r.group_of("Uber Eats")
+    assert r.group_of("Uber Canada/Ubereats") == "Uber Eats"
+
+
+def test_two_groups_never_share_a_display_name() -> None:
+    # Your merge named "Maxi" and a separate merchant called "Maxi" must stay two groups
+    # downstream (labels and the lookup use the group's name).
+    mine = UserDecisions(merges={"Maxi": {"iga", "iga extra"}})
+    r = resolve(names("Maxi", "Iga", "Iga Extra"), user=mine)
+    assert len(r.groups) == 2
+    assert len({g.name for g in r.groups}) == 2
+    assert r.group_of("Maxi") != r.group_of("Iga")

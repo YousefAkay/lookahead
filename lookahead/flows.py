@@ -7,7 +7,8 @@ Same merchant = the same resolved merchant group from step 2 (rules + your merge
   the hold posted on the same day or up to 7 days before;
 - return -> its purchase: same merchant, purchase at least the refund, up to 90 days before;
 - returned e-Transfer -> the e-Transfer it returns: same amount, up to 30 days before.
-Each earlier row is used by at most one pair; the nearest one wins.
+Each earlier row is used by at most one pair; the nearest one wins. A pair whose credit
+equals the whole purchase is "netted" (both rows: no spending, no category).
 
 Not decided here (Week 3, recurring rules): card subscriptions and e-Transfer rent start as
 everyday / transfer and are upgraded to recurring_outflow by the recurring detector, which
@@ -22,7 +23,7 @@ import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -69,6 +70,10 @@ class Flow:
     reason: str
     link: int | None = None  # row_id of the paired row
     link_kind: str | None = None  # "preauth", "return" or "etransfer_return"
+    # A fully reversed pair (the credit equals the whole purchase): both rows net to zero,
+    # so they are left out of spending totals, the forecaster's spending history and
+    # categorization. Known only once the credit posts (rule zero).
+    netted: bool = False
 
 
 def _type(t: Txn) -> str:
@@ -145,8 +150,9 @@ def flow_types(txns: Sequence[Txn], user: UserDecisions | None = None) -> dict[i
         )
         used.update((best.row_id, refund.row_id))
         r, b = flows[refund.row_id], flows[best.row_id]
-        flows[refund.row_id] = Flow(r.flow_type, r.reason, best.row_id, kind)
-        flows[best.row_id] = Flow(b.flow_type, b.reason, refund.row_id, kind)
+        netted = -best.amount_cents == refund.amount_cents
+        flows[refund.row_id] = Flow(r.flow_type, r.reason, best.row_id, kind, netted)
+        flows[best.row_id] = Flow(b.flow_type, b.reason, refund.row_id, kind, netted)
 
     names = merchant_groups(ordered, user)  # same group = same merchant
     for t in ordered:
@@ -239,6 +245,7 @@ class FlowCounts:
     refunds: Counter[str]  # reason -> rows that look for a partner
     preauth_gaps: Counter[str]  # "0", "1", "2-3", "4-7" -> pairs
     unpaired: Counter[tuple[str, str]]  # (reason, why it found no partner) -> rows
+    netted: int = 0  # rows in fully reversed pairs (both rows of each pair)
 
     @property
     def ok(self) -> bool:
@@ -255,6 +262,7 @@ def count_flows(txns: Sequence[Txn], user: UserDecisions | None = None) -> FlowC
     for t in txns:
         f = flows[t.row_id]
         c.by_flow[f.flow_type] += 1
+        c.netted += f.netted
         if f.reason.startswith("no rule"):
             c.no_rule[(_type(t), _direction(t))] += 1
         c.fees += f.reason == "bank fee"
@@ -274,10 +282,90 @@ def count_flows(txns: Sequence[Txn], user: UserDecisions | None = None) -> FlowC
     return c
 
 
-def _report(db_path: Path, account: str) -> int:
-    if not db_path.exists():
-        print(f"database not found: {db_path}")
-        return 2
+_PAIRABLE = ("pre-auth correction", "card return", "returned e-Transfer")
+
+
+def _why_correction_unpaired(t: Txn, txns: Sequence[Txn], names: dict[int, str | None]) -> str:
+    same = [
+        c for c in txns
+        if _type(c) == "pos purchase" and c.amount_cents < 0 and c.posted_date <= t.posted_date
+        and names[c.row_id] == names[t.row_id]
+    ]  # fmt: skip
+    if not same:
+        return "no earlier purchase from that merchant"
+    exact = [c for c in same if -c.amount_cents == t.amount_cents]
+    if not exact:
+        return "no purchase of the same amount"
+    if all(_days(c, t) > PREAUTH_DAYS for c in exact):
+        return "purchase over 7 days earlier"
+    return "matching purchases already paired"
+
+
+def _gap_bucket_wide(days: int) -> str:
+    for upper, label in ((0, "0"), (1, "1"), (7, "2-7"), (30, "8-30")):
+        if days <= upper:
+            return label
+    return "31-90"
+
+
+@dataclass
+class GroupExplanation:
+    rows: int = 0
+    debits: int = 0
+    credits: int = 0
+    credit_types: Counter[str] = field(default_factory=Counter)  # bank types (fixed vocabulary)
+    paired: Counter[str] = field(default_factory=Counter)  # link kind -> credits paired
+    fully_reversed: int = 0  # credit = the full amount of its purchase: the pair nets to zero
+    partly_reversed: int = 0
+    gap_days: Counter[str] = field(default_factory=Counter)  # purchase -> credit
+    unpaired: Counter[tuple[str, str]] = field(default_factory=Counter)  # (reason, why)
+    in_categorizer_queue: int = 0  # rows whose category is left to you
+
+
+def explain_group(
+    txns: Sequence[Txn], group: str, user: UserDecisions | None = None
+) -> GroupExplanation:
+    """Counts showing how one merchant group's rows were typed and paired."""
+    from lookahead.categories import category_by_rules  # here: categories imports this module
+
+    flows = flow_types(txns, user)
+    names = merchant_groups(txns, user)
+    by_id = {t.row_id: t for t in txns}
+    decisions = category_by_rules(txns, user)
+    e = GroupExplanation()
+    for t in txns:
+        if names[t.row_id] != group:
+            continue
+        f = flows[t.row_id]
+        e.rows += 1
+        e.in_categorizer_queue += decisions[t.row_id].source == "categorizer"
+        if t.amount_cents <= 0:
+            e.debits += 1
+            continue
+        e.credits += 1
+        e.credit_types[_type(t)] += 1
+        if f.reason not in _PAIRABLE:
+            e.unpaired[(f.reason, "this credit type is never paired")] += 1
+        elif f.link is None:
+            if f.reason == "pre-auth correction":
+                why = _why_correction_unpaired(t, txns, names)
+            elif f.reason == "card return":
+                why = _why_return_unpaired(t, txns, names)
+            else:
+                why = _why_etransfer_unpaired(t, txns)
+            e.unpaired[(f.reason, why)] += 1
+        else:
+            partner = by_id[f.link]
+            e.paired[f.link_kind or ""] += 1
+            if -partner.amount_cents == t.amount_cents:
+                e.fully_reversed += 1
+            else:
+                e.partly_reversed += 1
+            e.gap_days[_gap_bucket_wide(_days(partner, t))] += 1
+    return e
+
+
+def _load(db_path: Path, account: str) -> tuple[list[Txn], UserDecisions]:
     conn = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)
     txns = [
         Txn(row_id, date.fromisoformat(day), cents, kind, text)
@@ -289,12 +377,44 @@ def _report(db_path: Path, account: str) -> int:
     ]
     user = load_user_decisions(conn)  # your merges and splits from step 2
     conn.close()
+    return txns, user
 
+
+def _explain(db_path: Path, account: str, group: str) -> int:
+    """Counts only; the group name is not echoed."""
+    if not db_path.exists():
+        print(f"database not found: {db_path}")
+        return 2
+    txns, user = _load(db_path, account)
+    e = explain_group(txns, group, user)
+    print(f"rows in this merchant group: {e.rows} (debits {e.debits}, credits {e.credits})")
+    if not e.rows:
+        print("  no rows: copy the merchant's name exactly as the Label review page shows it")
+        return 0
+    types = ", ".join(f"{k} {n}" for k, n in sorted(e.credit_types.items())) or "none"
+    print(f"credits by bank type: {types}")
+    paired = ", ".join(f"{k} {n}" for k, n in sorted(e.paired.items())) or "none"
+    print(f"credits paired with an earlier purchase: {sum(e.paired.values())} ({paired})")
+    print(f"  fully reversed (nets to zero): {e.fully_reversed}, partly: {e.partly_reversed}")
+    gaps = ", ".join(f"{b} days {e.gap_days[b]}" for b in ("0", "1", "2-7", "8-30", "31-90"))
+    print(f"  purchase to credit: {gaps}")
+    for (reason, why), n in sorted(e.unpaired.items()):
+        print(f"credits not paired: {reason}: {why} {n}")
+    print(f"rows of this group in the categorizer queue: {e.in_categorizer_queue}")
+    return 0
+
+
+def _report(db_path: Path, account: str) -> int:
+    if not db_path.exists():
+        print(f"database not found: {db_path}")
+        return 2
+    txns, user = _load(db_path, account)
     c = count_flows(txns, user)
     flows = ("income", "recurring_outflow", "everyday", "transfer", "refund")
     print(f"Flow typing: {c.rows} rows, account {account}")
     print("rows per flow type: " + ", ".join(f"{f} {c.by_flow[f]}" for f in flows))
     print(f"bank fees (typed everyday for now): {c.fees} rows")
+    print(f"netted rows (fully reversed pairs: no spending, no category): {c.netted}")
     print(f"bill payment credits (money in, typed refund): {c.bill_credits} rows")
     for reason, label in (
         ("pre-auth correction", "pre-auth corrections paired with their hold"),
@@ -319,9 +439,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m lookahead.flows")
     commands = parser.add_subparsers(dest="command", required=True)
     rep = commands.add_parser("report", help="counts-only check of flow typing")
-    rep.add_argument("--db", type=Path, required=True)
-    rep.add_argument("--account", default="scotia-chequing")
+    exp = commands.add_parser("explain", help="counts: how one merchant group paired")
+    exp.add_argument("--group", required=True, help="the merchant's name as on the page")
+    for sub in (rep, exp):
+        sub.add_argument("--db", type=Path, required=True)
+        sub.add_argument("--account", default="scotia-chequing")
     args = parser.parse_args(argv)
+    if args.command == "explain":
+        return _explain(args.db, args.account, args.group)
     return _report(args.db, args.account)
 
 

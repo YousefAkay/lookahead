@@ -132,3 +132,30 @@ def test_blank_bank_text_shows_a_dash() -> None:
     blank.loc[1, "text"] = " "  # service charges and ABM withdrawals have a single space
     for key in (None, KEY):
         assert display_table(blank, key=key)["Text"].iloc[1] == "—"
+
+
+# --- Label review table ---
+
+
+def test_review_table_shows_split_and_label() -> None:
+    from lookahead.labels import Label
+    from lookahead.ui import review_table
+
+    rows = pd.DataFrame(
+        {
+            "posted_date": [date(2026, 9, 2), date(2026, 9, 1)],
+            "txn_type": ["pos purchase", "credit memo"],
+            "text": ["Apos Maxi #350           Montr ", "1/Nadia Haddad "],
+            "amount_cents": [-648, 300_000],
+            "split": ["dev", "test_b"],
+            "fingerprint": ["f1", "f2"],
+        }
+    )
+    labels = {"f1": Label("Groceries", "labelled")}
+    table = review_table(rows, labels, key=KEY)
+    assert table["Label"].tolist() == ["Groceries", "—"]
+    assert table["Split"].tolist() == ["development", "holdout (Test B)"]
+    assert table["Amount ($)"].tolist() == [-6.48, 3000.0]
+    assert "Nadia" not in table["Text"].iloc[1]  # pseudonymized with a key
+    skipped = review_table(rows, {"f1": Label(None, "skipped")}, key=None)
+    assert skipped["Label"].iloc[0] == "skipped" and "Nadia" in skipped["Text"].iloc[1]

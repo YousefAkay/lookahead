@@ -19,6 +19,7 @@ st.markdown(
 st.markdown(
     "**Pages**\n\n"
     "- **Transactions**: what the importer stored, with search, filters and a balance chart.\n\n"
+    "- **Label review**: confirm categories one merchant at a time (for the categorizer).\n\n"
     "Choose **Synthetic demo** or **My data** in the sidebar of each page. "
     "Everything runs on this computer."
 )

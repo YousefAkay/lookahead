@@ -272,8 +272,15 @@ def test_your_split_keeps_rule_merged_names_apart() -> None:
 
 def test_correction_pairs_across_alias_list_names() -> None:
     hold = txn(1, "pos purchase", -2_500, "Opos Uber Canada/Ubertriptoron ")
-    corr = txn(2, "correction", 2_500, "Opos Uber                     +1855 ")
-    assert flow_types([hold, corr])[2].link == 1  # both are "Uber" on the alias list
+    corr = txn(2, "correction", 2_500, "Opos Uber* Trip          +1855 ")
+    assert flow_types([hold, corr])[2].link == 1  # both are rides on the alias list
+
+
+def test_a_bare_uber_does_not_pair_with_a_ride() -> None:
+    # "Uber" alone names no service (owner's real-data find): it is not a ride.
+    hold = txn(1, "pos purchase", -2_500, "Opos Uber Canada/Ubertriptoron ")
+    corr = txn(2, "correction", 2_500, "Opos Uber                +1855 ")
+    assert flow_types([hold, corr])[2].link is None
 
 
 def test_groups_only_use_rows_given_rule_zero() -> None:
@@ -287,3 +294,45 @@ def test_groups_only_use_rows_given_rule_zero() -> None:
     ]
     early = flow_types([r for r in rows if r.posted_date <= D + timedelta(days=5)], user=mine)
     assert early[2].link == 1 == flow_types(rows, user=mine)[2].link
+
+
+# --- Netting: a fully reversed pair (owner's choice) ---
+
+
+def test_hold_and_its_correction_are_netted() -> None:
+    hold = txn(1, "pos purchase", -2_500, UBER)
+    final = txn(2, "pos purchase", -2_506, UBER)
+    corr = txn(3, "correction", 2_500, UBER)
+    f = flow_types([hold, final, corr])
+    assert f[1].netted and f[3].netted
+    assert not f[2].netted  # the real charge is spending
+    assert f[1].flow_type == "everyday" and f[3].flow_type == "refund"  # kept for the record
+
+
+def test_full_return_is_netted_partial_is_not() -> None:
+    buy = txn(1, "pos purchase", -2_999, SHOP, D)
+    full = txn(2, "pos return", 2_999, SHOP, D + timedelta(days=5))
+    assert flow_types([buy, full])[1].netted and flow_types([buy, full])[2].netted
+    big = txn(3, "pos purchase", -5_000, SHOP, D)
+    part = txn(4, "pos return", 2_000, SHOP, D + timedelta(days=5))
+    f = flow_types([big, part])
+    assert f[4].link == 3 and not f[4].netted and not f[3].netted
+
+
+def test_returned_etransfer_pair_is_netted() -> None:
+    sent = txn(1, "withdrawal", -12_000, ETRANSFER, D)
+    back = txn(2, "deposit", 12_000, RTN, D + timedelta(days=4))
+    f = flow_types([sent, back])
+    assert f[1].netted and f[2].netted
+
+
+def test_unpaired_rows_are_not_netted() -> None:
+    assert not one(txn(1, "pos return", 2_000, SHOP)).netted
+    assert not one(txn(2, "pos purchase", -2_000, SHOP)).netted
+
+
+def test_netting_is_only_known_once_the_credit_posts() -> None:
+    hold = txn(1, "pos purchase", -2_999, SHOP, D)
+    ret = txn(2, "pos return", 2_999, SHOP, D + timedelta(days=5))
+    assert not flow_types([hold])[1].netted  # before the return: it is spending
+    assert flow_types([hold, ret])[1].netted

@@ -1,6 +1,7 @@
 """Category decisions: fixed rules, merchant defaults and your preferences (DECISIONS.md).
 
 Decides the clear cases so the categorizer (step 5) only sees the rest. In order:
+0. a fully reversed pair (flows: netted) -> no category needed (it nets to zero);
 1. transaction type (via the flow-typing reason): ABM -> Cash; bank fees -> Fees & interest;
    own-account transfers and e-Transfers out or returned -> Transfers; credit memos,
    deposits and incoming e-Transfers -> Income;
@@ -81,7 +82,12 @@ def conflicts(flow_type: str, category: str | None) -> bool:
         return True
     if category == "Transfers" and flow_type not in ("transfer", "refund"):
         return True
-    return flow_type == "transfer" and category not in ("Transfers", "Rent & housing")
+    # A transfer (e.g. an e-Transfer) may be confirmed as rent (Week 3) or a gift (your override).
+    return flow_type == "transfer" and category not in (
+        "Transfers",
+        "Rent & housing",
+        "Gifts & donations",
+    )
 
 
 def category_by_rules(
@@ -102,7 +108,9 @@ def category_by_rules(
     for t in txns:
         flow = flows[t.row_id]
         extracted = extract_merchant(t.text).merchant
-        if flow.reason in TYPE_RULES:
+        if flow.netted:  # a fully reversed pair: nothing was spent
+            decision = Decision(None, "netted pair, no category needed")
+        elif flow.reason in TYPE_RULES:
             decision = Decision(TYPE_RULES[flow.reason], f"transaction type: {flow.reason}")
         elif flow.reason in _INHERITS and flow.link is not None:
             decision = Decision(None, "inherits", flow.link)  # filled in below
@@ -205,6 +213,7 @@ _SOURCE_GROUPS = {
     "delivery platform subscription": "delivery platforms",
     "merchant default": "merchant defaults",
     "categorizer": "left for the categorizer",
+    "netted pair, no category needed": "netted pairs (no category needed)",
 }
 
 
@@ -252,6 +261,7 @@ def _report(db_path: Path, account: str) -> int:
     )
     for label in ("your preferences", "delivery platforms", "merchant defaults"):
         print(f"{label}: {c.by_source[label]}")
+    print(f"netted pairs (no category needed): {c.by_source['netted pairs (no category needed)']}")
     print(f"left for the categorizer: {c.by_source['left for the categorizer']}")
     print(f"flow/category conflicts: {c.conflicts}")
     print("RESULT: PASS" if c.ok else "RESULT: CHECK")

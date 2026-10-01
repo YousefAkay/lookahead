@@ -93,6 +93,12 @@ _PLATFORM_PRODUCTS = {
 PLATFORM_MERCHANTS = frozenset(_PLATFORMS.values())
 PLATFORM_SUBSCRIPTIONS = frozenset(n for d in _PLATFORM_PRODUCTS.values() for n in d.values())
 _PLATFORM_PREFIX = re.compile(r"^[A-Za-z]{2,3}/")
+
+# "Uber* <service>": the word after the star says which Uber service it was. Without it the
+# service is unknown, and the row must not join rides or delivery (owner's real-data find).
+UBER_PENDING = "Uber pending, unknown service"
+UBER_UNKNOWN = "Uber, unknown service"
+_NOT_A_RESTAURANT = {"pending"}  # "Uber* Eats Pending" is a hold, not a restaurant
 _PRODUCT_MIN = 4  # a subscription name cut to 4+ letters still counts ("dashp")
 
 # Compared without case or accents; a "?" in bank text matches any one letter.
@@ -174,11 +180,41 @@ def _clean(name: str) -> tuple[str | None, str | None]:
     name = _UNDERSCORE_STORE.sub("", " ".join(name.split()))
     name = " ".join(name.replace("_", " ").split())
     name = _FOREIGN_AMOUNT.sub("", name)
+    uber = _uber_service(name)
+    if uber is not None:
+        return uber
     name = _drop_star_code(name)
     order = _platform_order(name)
     if order is not None:
         return order
-    return _tidy(name), None
+    cleaned = _tidy(name)
+    if cleaned is not None and _key(cleaned) == "uber":  # "Uber" alone: which service?
+        return UBER_UNKNOWN, None
+    return cleaned, None
+
+
+def _uber_service(name: str) -> tuple[str, str | None] | None:
+    """ "Uber* Eats ..." -> Uber Eats (delivery); "Uber* One" -> Uber One; "Uber* Trip" ->
+    Uber Trip (a ride); "Uber* Pending" or anything else -> its own unknown-service merchant.
+    None if the name is not "Uber*"."""
+    before, star, after = name.partition("*")
+    if not star or _key(before.strip()) != "uber":
+        return None
+    words = after.split()
+    service = _key(words[0]) if words else ""
+    rest = " ".join(words[1:])
+    if service == "eats":
+        if _key(rest).replace(" ", "") in ("pass", "eatspass"):
+            return "Uber Eats Pass", None
+        restaurant = None if not rest or _key(rest) in _NOT_A_RESTAURANT else _tidy(rest)
+        return "Uber Eats", restaurant
+    if service == "one":
+        return "Uber One", None
+    if service == "trip":
+        return "Uber Trip", None
+    if service == "pending":
+        return UBER_PENDING, None
+    return UBER_UNKNOWN, None
 
 
 def _tidy(name: str) -> str | None:

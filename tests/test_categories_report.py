@@ -51,6 +51,7 @@ def test_report_counts_add_up_and_pass(
             "your preferences",
             "delivery platforms",
             "merchant defaults",
+            r"netted pairs \(no category needed\)",
             "left for the categorizer",
         )
     ]

@@ -48,8 +48,10 @@ def test_examples_are_only_the_rows_left_for_the_categorizer() -> None:
         Txn(2, D, -1_000, "pos purchase", card("Couche-Tard #496")),  # default: Groceries
         Txn(3, D, -1_200, "pos purchase", card("Cafe Velo")),  # left
         Txn(4, D, -9_500, "bill payment", "Mb-Hydro-Quebec 55231204"),  # left
-        Txn(5, D, -2_999, "pos purchase", card("Winners #9074")),  # left
-        Txn(6, D + timedelta(days=3), 2_999, "pos return", card("Winners #9074")),  # waits
+        Txn(5, D, -5_000, "pos purchase", card("Winners #9074")),  # left
+        Txn(6, D + timedelta(days=3), 2_000, "pos return", card("Winners #9074")),  # waits
+        Txn(7, D, -2_999, "pos purchase", card("Best Buy #12")),  # fully returned: netted
+        Txn(8, D + timedelta(days=3), 2_999, "pos return", card("Best Buy #12")),  # netted
     ]
     df = examples(rows)
     assert list(df["row_id"]) == [3, 4, 5]
@@ -199,3 +201,42 @@ def test_report_prints_counts_only(tmp_path, capsys) -> None:  # type: ignore[no
     for row in parse_export(export):
         if row.sub_description.strip():
             assert row.sub_description.strip() not in out
+
+
+def test_report_reads_the_stored_labels(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    from datetime import datetime
+
+    from lookahead.categorizer import main
+    from lookahead.db import connect
+    from lookahead.generator.personas import PERSONAS
+    from lookahead.generator.writer import write_persona
+    from lookahead.ingest.scotiabank import parse_export
+    from lookahead.ingest.store import store_exports
+    from lookahead.labels import freeze_splits, label_merchant, load_rows
+
+    export, _ = write_persona(
+        PERSONAS["C"], tmp_path / "s", 42, date(2026, 6, 1), date(2026, 9, 30)
+    )
+    path = tmp_path / "t.db"
+    conn = connect(path)
+    store_exports(conn, "synthetic-C", [(export.name, parse_export(export))], datetime(2026, 10, 2))
+    conn.commit()
+    freeze_splits(conn, "synthetic-C", seed=7)
+    group = load_rows(conn, "synthetic-C")["group"].iloc[0]
+    n = label_merchant(conn, "synthetic-C", group, "Groceries")
+    conn.close()
+    main(["report", "--db", str(path), "--account", "synthetic-C"])
+    out = capsys.readouterr().out
+    assert f"labels: labelled {n} rows, skipped 0, cleared 0" in out
+    assert "merchants done: 1 of" in out
+    assert "labels stored: 0" not in out
+
+
+def test_report_before_the_splits_are_frozen(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    from lookahead.categorizer import main
+    from lookahead.db import connect
+
+    path = tmp_path / "empty.db"
+    connect(path).close()
+    main(["report", "--db", str(path), "--account", "x"])
+    assert "splits not frozen yet" in capsys.readouterr().out

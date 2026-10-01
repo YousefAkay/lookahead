@@ -45,7 +45,8 @@ DEFAULT_PROPOSALS_FILE = Path("data/private/eval/merchant_merge_proposals.tsv")
 # Known bank spellings of well-known brands: general knowledge, nothing from real data.
 ALIASES: dict[str, list[str]] = {
     "Uber Eats": ["Uber Canada/Ubereats", "Ubereats", "Uber Eats"],
-    "Uber": ["Uber Canada/Ubertrip", "Ubertrip", "Uber Trip", "Uber"],
+    # Rides only. A bare "Uber" names no service (extraction: "Uber, unknown service").
+    "Uber": ["Uber Canada/Ubertrip", "Ubertrip", "Uber Trip"],
     "STM": ["Stm-Opus", "STM"],
     "Netflix": ["Netflix.Com", "Netflix"],
     "Spotify": ["Spotify"],
@@ -115,6 +116,16 @@ def similarity(a: str, b: str, corpus: Iterable[str] = ()) -> float:
     names = list(dict.fromkeys([a, b, *corpus]))
     vectors = tfidf_vectors(names)
     return _cosine(vectors[0], vectors[names.index(b)])
+
+
+def _unique(name: str, taken: set[str]) -> str:
+    """Group names identify groups downstream (labels, the lookup), so two groups never
+    share one: "Maxi", then "Maxi (2)", ..."""
+    candidate, n = name, 1
+    while candidate in taken:
+        n += 1
+        candidate = f"{name} ({n})"
+    return candidate
 
 
 def _same(a: str, b: str) -> bool:
@@ -318,6 +329,7 @@ def resolve(
             display = max(
                 member_units, key=lambda u: (u.rows, "?" not in u.name, not u.cut, len(u.name))
             ).name
+        display = _unique(display, {g.name for g in groups})
         groups.append(Group(display, [u.name for u in member_units]))
         group_of.update({u.name.casefold(): display for u in member_units})
 

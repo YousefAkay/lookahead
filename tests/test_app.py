@@ -101,3 +101,79 @@ def test_deploy_button_is_hidden() -> None:
 
     config = tomllib.loads((APP.parent / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
     assert config["client"]["toolbarMode"] == "minimal"
+
+
+# --- Label review page ---
+
+REVIEW = APP / "pages" / "2_Label_review.py"
+
+
+def freeze_demo(tmp_path: Path, account: str = "synthetic-A") -> None:
+    from lookahead.db import connect
+    from lookahead.demo import build_demo_db
+    from lookahead.labels import freeze_splits
+
+    db = tmp_path / "demo.db"
+    build_demo_db(db, tmp_path / "synthetic")
+    conn = connect(db)
+    freeze_splits(conn, account, seed=7)
+    conn.close()
+
+
+def metric(at: AppTest, label: str) -> str:
+    return next(str(m.value) for m in at.metric if m.label == label)
+
+
+def button(at: AppTest, start: str):  # type: ignore[no-untyped-def]
+    return next(b for b in at.button if b.label.startswith(start))
+
+
+def test_review_page_asks_to_freeze_the_splits_first() -> None:
+    at = run(REVIEW)
+    assert "python -m lookahead.labels freeze-splits" in page_text(at)
+    assert len(at.dataframe) == 0
+
+
+def test_review_page_labels_a_whole_merchant(isolated: Path) -> None:
+    freeze_demo(isolated)
+    at = run(REVIEW)
+    total = metric(at, "Merchants done").split(" / ")[1]
+    assert metric(at, "Merchants done") == f"0 / {total}"
+    assert len(at.dataframe) == 1
+    at.selectbox(key="category").set_value("Groceries")
+    button(at, "Label all").click().run()
+    assert not at.exception
+    assert metric(at, "Merchants done") == f"1 / {total}"
+    assert int(metric(at, "Labelled rows")) > 0
+
+
+def test_review_page_skip(isolated: Path) -> None:
+    freeze_demo(isolated)
+    at = run(REVIEW)
+    button(at, "Skip").click().run()
+    assert int(metric(at, "Skipped rows")) > 0 and metric(at, "Labelled rows") == "0"
+
+
+def test_review_page_shows_holdout_merchants_blind(isolated: Path) -> None:
+    from lookahead.db import connect
+    from lookahead.labels import review_queue
+
+    freeze_demo(isolated)
+    conn = connect(isolated / "demo.db")
+    tasks = review_queue(conn, "synthetic-A")
+    conn.close()
+    blind = next(t for t in tasks if t.blind)
+    at = run(REVIEW)
+    at.selectbox(key="merchant").set_value(blind).run()
+    assert not at.exception
+    assert "shown blind, no model suggestion" in page_text(at)
+    assert at.selectbox(key="category").value is None  # nothing pre-selected
+
+
+def test_review_page_overrides_one_row(isolated: Path) -> None:
+    freeze_demo(isolated)
+    at = run(REVIEW)
+    at.selectbox(key="row_category").set_value("Subscriptions")
+    button(at, "Save for this row").click().run()
+    assert not at.exception
+    assert metric(at, "Labelled rows") == "1"

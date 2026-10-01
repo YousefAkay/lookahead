@@ -25,6 +25,7 @@ class RuleScore:
     correct: Counter[str] = field(default_factory=Counter)  # source -> correct rows
     rent_gap: int = 0
     waiting: int = 0
+    netted: int = 0  # fully reversed pairs: no category needed
     misses: Counter[tuple[str, str, str]] = field(default_factory=Counter)
 
 
@@ -41,6 +42,7 @@ def score(export: Path, key: Path, s: RuleScore) -> None:
         d = decisions[t.row_id]
         s.rows += 1
         s.waiting += d.source.startswith("inherits;")
+        s.netted += d.source.startswith("netted")
         if d.category is None:
             continue
         source = d.source.split(":")[0]
@@ -67,7 +69,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  correct among decided: {correct}/{decided} = {correct / decided:.1%}")
     print(f"  known Week 3 gap (e-Transfer rent typed Transfers): {s.rent_gap} rows")
     print(f"  inherited, waiting for the categorizer: {s.waiting} rows")
-    print(f"  left for the categorizer: {s.rows - decided} rows")
+    print(f"  netted pairs (no category needed): {s.netted} rows")
+    print(f"  left for the categorizer: {s.rows - decided - s.netted} rows")
     for source, n in s.decided.most_common():
         print(f"    {source:<36} {s.correct[source]}/{n}")
     for (source, truth, got), n in s.misses.most_common():

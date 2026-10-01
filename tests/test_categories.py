@@ -116,23 +116,32 @@ def test_delivery_platforms(field: str, category: str) -> None:
 # --- Corrections and returns inherit the paired purchase's category ---
 
 
-def test_correction_inherits_from_its_hold() -> None:
+def test_a_fully_reversed_pair_needs_no_category() -> None:
     text = card("Uber Canada/Ubereats", "Opos", "toron")
     got = decide(txn(1, "pos purchase", -2_500, text), txn(2, "correction", 2_500, text))
-    assert got[2] == Decision("Food delivery", "inherited from the paired purchase", 1)
+    netted = Decision(None, "netted pair, no category needed")
+    assert got[1] == netted and got[2] == netted
 
 
-def test_return_inherits_from_its_purchase() -> None:
-    text = card("Dollarama #9543")
-    buy = txn(1, "pos purchase", -2_999, text)
-    ret = txn(2, "pos return", 2_999, text, D + timedelta(days=5))
-    assert decide(buy, ret)[2].category == "Shopping"
-
-
-def test_return_of_an_undecided_purchase_waits_for_the_categorizer() -> None:
+def test_full_return_and_its_purchase_need_no_category() -> None:
     text = card("Winners #9074")
     buy = txn(1, "pos purchase", -2_999, text)
     ret = txn(2, "pos return", 2_999, text, D + timedelta(days=5))
+    got = decide(buy, ret)
+    assert got[1].source == got[2].source == "netted pair, no category needed"
+
+
+def test_partial_return_inherits_from_its_purchase() -> None:
+    text = card("Dollarama #9543")
+    buy = txn(1, "pos purchase", -5_000, text)
+    ret = txn(2, "pos return", 2_000, text, D + timedelta(days=5))
+    assert decide(buy, ret)[2] == Decision("Shopping", "inherited from the paired purchase", 1)
+
+
+def test_partial_return_of_an_undecided_purchase_waits_for_the_categorizer() -> None:
+    text = card("Winners #9074")
+    buy = txn(1, "pos purchase", -5_000, text)
+    ret = txn(2, "pos return", 2_000, text, D + timedelta(days=5))
     assert decide(buy, ret)[2] == Decision(None, "inherits; waiting for the categorizer", 1)
 
 
@@ -211,3 +220,20 @@ def test_unknown_category_is_refused(conn: sqlite3.Connection) -> None:
 )
 def test_conflicts(flow: str, category: str | None, bad: bool) -> None:
     assert conflicts(flow, category) is bad
+
+
+# --- Uber services ---
+
+
+@pytest.mark.parametrize(
+    ("field", "category"),
+    [
+        ("Uber* Eats Pending", "Food delivery"),
+        ("Uber* One", "Subscriptions"),
+        ("Uber* Pending", None),  # unknown service: left for the categorizer
+        ("Uber Canada/Ubertrip", None),  # rides: left for the categorizer (Transport)
+    ],
+)
+def test_uber_services(field: str, category: str | None) -> None:
+    got = decide(txn(1, "pos purchase", -2_500, card(field, "Opos", "+1855")))[1]
+    assert got.category == category

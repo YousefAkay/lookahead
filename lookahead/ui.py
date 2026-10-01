@@ -70,3 +70,29 @@ def balance_chart(daily: pd.DataFrame) -> go.Figure:
     figure = px.line(daily, x="date", y="balance ($)", title="End-of-day balance", line_shape="hv")
     figure.add_hline(y=0, line_dash="dot")
     return figure
+
+
+SPLIT_NAMES = {"dev": "development", "test_a": "holdout (Test A)", "test_b": "holdout (Test B)"}
+
+
+def review_table(rows: pd.DataFrame, labels: dict, key: bytes | None) -> pd.DataFrame:  # type: ignore[type-arg]
+    """One merchant's rows on the label review screen: date, type, text (pseudonymized when
+    a key is given), amount, split and current label."""
+    texts = [
+        pseudonymize_sub_description(t, s, key).text if key is not None else s
+        for t, s in zip(rows["txn_type"], rows["text"], strict=True)
+    ]
+    current = []
+    for f in rows["fingerprint"]:
+        label = labels.get(f)
+        current.append(BLANK if label is None else label.category or "skipped")
+    return pd.DataFrame(
+        {
+            "Date": [d.isoformat() for d in rows["posted_date"]],
+            "Type": list(rows["txn_type"]),
+            "Text": [t if t.strip() else BLANK for t in texts],
+            "Amount ($)": [c / 100 for c in rows["amount_cents"]],  # display only
+            "Split": [SPLIT_NAMES[s] for s in rows["split"]],
+            "Label": current,
+        }
+    )
