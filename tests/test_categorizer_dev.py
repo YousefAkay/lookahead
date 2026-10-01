@@ -87,6 +87,9 @@ def test_report_covers_both_protocols_and_the_curve(db: Path) -> None:
         assert r.rows > 0 and 0 <= r.accuracy <= 1 and 0 <= r.macro_f1 <= 1
         assert [p.share for p in r.curve] == [0.90, 0.95, 0.99, 1.0]
     assert report.chosen == "real only"  # no synthetic variant to compare
+    unseen = report.results[("real only", "unseen merchants")]
+    assert sum(n for _, _, n, _ in report.recall) == unseen.rows  # recall table, chosen variant
+    assert {c for c, *_ in report.recall} == set(dev["label"])
     assert report.final_params and (report.final_threshold > 0)
 
 
@@ -105,7 +108,7 @@ def test_command_prints_counts_only_and_saves_the_choice(
     code = main(["--db", str(db), "--account", ACCOUNT, "--out", str(out_file), "--months", "0"])
     out = capsys.readouterr().out
     assert code == 0
-    assert "holdout untouched" in out and "Chosen" in out
+    assert "holdout untouched" in out and "Chosen" in out and "Per-category recall" in out
     assert "$" not in out and not re.search(r"\d+\.\d{2}", out)  # rates print as percents
     for name in ("Iga", "Metro", "Netflix", "Hydro"):
         assert name not in out

@@ -411,3 +411,41 @@ def test_impact_ignores_other_digit_shapes() -> None:
     rows = impact_rows([("Super 8", "dev", "x"), ("Studio 1234", "dev", "x"),
                         ("7-Eleven", "dev", "x"), ("Pizza 2 Go", "dev", "x")])  # fmt: skip
     assert store_number_impact(rows, {}).rows_renamed == 0
+
+
+# --- Which bank transaction types carry a category (counts only, dev rows) ---
+
+
+def test_label_types_counts_rows_groups_and_other_labels() -> None:
+    from lookahead.labels import label_types
+
+    dev = pd.DataFrame(
+        [
+            ("misc payment", "out", "Bank A", "Fees & interest"),
+            ("misc payment", "out", "Bank A", "Fees & interest"),
+            ("misc payment", "out", "Gym", "Health & pharmacy"),
+            ("pos purchase", "out", "Bank B", "Fees & interest"),
+            ("pos purchase", "out", "Maxi", "Groceries"),
+            ("pos purchase", "in", "Maxi", "Groceries"),
+        ],
+        columns=["txn_type", "direction", "group", "label"],
+    )
+    assert label_types(dev, "Fees & interest") == [
+        ("misc payment", "out", 2, 1, 1),
+        ("pos purchase", "out", 1, 1, 1),
+    ]
+    assert label_types(dev, "Education") == []
+
+
+def test_label_types_command_prints_counts_only(
+    frozen: sqlite3.Connection, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dev = load_rows(frozen, ACCOUNT).query("split == 'dev'")
+    group = dev["group"].iloc[0]
+    label_merchant(frozen, ACCOUNT, group, "Groceries")
+    frozen.close()
+    code = main(["label-types", "--db", str(tmp_path / "db" / "t.db"), "--account", ACCOUNT,
+                 "--category", "Groceries"])  # fmt: skip
+    out = capsys.readouterr().out
+    assert code == 0 and "merchant groups" in out and "holdout not read" in out
+    assert group not in out and "$" not in out

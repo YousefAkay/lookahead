@@ -35,7 +35,14 @@ from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import GroupKFold
 
 import lookahead.categorizer as categorizer
-from eval.categorizer_dev import ProtocolResult, _score, _without, future_rows, unseen_merchants
+from eval.categorizer_dev import (
+    ProtocolResult,
+    _score,
+    _without,
+    future_rows,
+    per_category_recall,
+    unseen_merchants,
+)
 from lookahead.categorizer import CoveragePoint, HybridCategorizer, make_logreg, make_svm
 from lookahead.labels import labelled_examples
 from lookahead.merchants import is_private_path
@@ -52,6 +59,8 @@ class Variant:
     average: bool = False
 
 
+# "current" is the model before these experiments (no lexicon), kept as the baseline so a
+# rerun matches the logged results. The winner (lexicon) is now `categorizer.make_current`.
 VARIANTS: dict[str, Variant] = {
     "current": Variant(make_logreg),
     "balanced": Variant(partial(make_logreg, balanced=True)),
@@ -77,18 +86,6 @@ def flag_rule(curve: list[CoveragePoint]) -> str:
     at = {round(p.share, 2): p.accuracy for p in curve}
     rises = at[0.9] - at[1.0] >= CLEAR_RISE - 1e-12
     return "confidence threshold" if rises else "always flag new merchants"
-
-
-def per_category_recall(
-    truth: pd.Series, got: list[str], groups: pd.Series
-) -> list[tuple[str, float, int, int]]:
-    """(category, recall, rows, merchant groups) for each category in `truth`."""
-    df = pd.DataFrame({"truth": truth.to_numpy(), "got": got, "group": groups.to_numpy()})
-    out = []
-    for category, part in df.groupby("truth", sort=True):
-        recall = float((part["got"] == category).mean())
-        out.append((str(category), recall, len(part), part["group"].nunique()))
-    return out
 
 
 def _fitter(variant: Variant) -> Callable[[pd.DataFrame, pd.DataFrame | None], HybridCategorizer]:

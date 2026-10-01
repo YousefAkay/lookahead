@@ -3,7 +3,8 @@
     python -m eval.categorizer_dev --db data/private/db/lookahead.db
 
 Two protocols inside dev, both with the hybrid (lookup for known merchants, tuned logistic
-regression for new ones; tuning nested inside each training part):
+regression + keyword lexicon for new ones, the winner of the pre-declared experiments;
+tuning nested inside each training part):
 - unseen merchants: grouped k-fold over dev merchant groups (like Test B);
 - future rows: train on the earliest 70% of dev rows by date, test on the rest (like Test A).
 Two training variants: real dev labels only, and real + synthetic rows (synthetic rows
@@ -70,6 +71,20 @@ class DevReport:
     final_params: dict[str, object] = field(default_factory=dict)
     final_threshold: float = math.inf
     dropped: dict[tuple[str, str], int] = field(default_factory=dict)  # synthetic rows dropped
+    # chosen variant, unseen merchants: (category, recall, rows, merchant groups)
+    recall: list[tuple[str, float, int, int]] = field(default_factory=list)
+
+
+def per_category_recall(
+    truth: pd.Series, got: list[str], groups: pd.Series
+) -> list[tuple[str, float, int, int]]:
+    """(category, recall, rows, merchant groups) for each category in `truth`."""
+    df = pd.DataFrame({"truth": truth.to_numpy(), "got": got, "group": groups.to_numpy()})
+    out = []
+    for category, part in df.groupby("truth", sort=True):
+        recall = float((part["got"] == category).mean())
+        out.append((str(category), recall, len(part), part["group"].nunique()))
+    return out
 
 
 def _score(truth: pd.Series, preds: list[Prediction], groups: pd.Series) -> ProtocolResult:
@@ -165,12 +180,13 @@ def dev_evaluation(dev: pd.DataFrame, synthetic: pd.DataFrame | None) -> DevRepo
     report = DevReport(len(dev), dev["group"].nunique())
     variants = {"real only": None, **({"real + synthetic": synthetic} if synthetic is not None
                                       else {})}  # fmt: skip
+    recalls: dict[str, list[tuple[str, float, int, int]]] = {}
     for variant, extra in variants.items():
         dropped_unseen: list[int] = []
         dropped_future: list[int] = []
-        report.results[(variant, "unseen merchants")] = _score(
-            *unseen_merchants(dev, extra, dropped=dropped_unseen)
-        )
+        truth, preds, groups = unseen_merchants(dev, extra, dropped=dropped_unseen)
+        recalls[variant] = per_category_recall(truth, [p.category for p in preds], groups)
+        report.results[(variant, "unseen merchants")] = _score(truth, preds, groups)
         report.results[(variant, "future rows")] = _score(
             *future_rows(dev, extra, dropped=dropped_future)
         )
@@ -179,6 +195,7 @@ def dev_evaluation(dev: pd.DataFrame, synthetic: pd.DataFrame | None) -> DevRepo
     report.chosen = choose_training(
         {v: report.results[(v, "unseen merchants")].macro_f1 for v in variants}
     )
+    report.recall = recalls[report.chosen]
     final = _fit(dev, variants[report.chosen])
     report.final_params = final.params_
     report.final_threshold = final.threshold_
@@ -217,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     warnings.filterwarnings("ignore")  # small folds: missing classes, slow convergence
     r = dev_evaluation(dev, synthetic)
     print(f"Step 7a, dev only (holdout untouched): {r.dev_rows} labelled rows, "
-          f"{r.dev_groups} merchant groups")  # fmt: skip
+          f"{r.dev_groups} merchant groups; model: logistic regression + lexicon")  # fmt: skip
     print("  curve = accuracy when only the most confident 90 / 95 / 99 / 100% of rows are")
     print("  categorized without a flag (every row still gets a category)")
     for (variant, protocol), p in r.results.items():
@@ -231,6 +248,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"{r.dropped[(variant, protocol)]} (summed over folds)")  # fmt: skip
     print("Choice rule (fixed in advance): higher macro-F1 on unseen merchants; tie -> real only")
     print(f"Chosen: {r.chosen}")
+    print(f"Per-category recall on unseen merchants, {r.chosen} (recall, rows, groups):")
+    for category, recall, n, groups in r.recall:
+        print(f"   {category:<28} {_pct(recall)}  ({n} rows, {groups} groups)")
     c, grams = r.final_params.get("model__C"), r.final_params.get("features__name__ngram_range")
     threshold = "none reaches the target: every new merchant flagged" if math.isinf(
         r.final_threshold) else f"{r.final_threshold:.0%} model confidence"  # fmt: skip
@@ -240,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     saved = {
         "decided_at": date.today().isoformat(),
         "account": args.account,
+        "model": "logistic regression + lexicon",
         "training": r.chosen,
         "synthetic_months": args.months if r.chosen == "real + synthetic" else 0,
         "params": {k: list(v) if isinstance(v, tuple) else v for k, v in r.final_params.items()},

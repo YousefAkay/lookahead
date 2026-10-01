@@ -240,3 +240,21 @@ def test_averaged_is_declared_as_a_control_not_a_combination_candidate() -> None
     assert VARIANTS["averaged"].average and not VARIANTS["averaged"].calibrate
     assert "averaged" not in COMBINABLE
     assert COMBINABLE == ("balanced", "lexicon", "calibrated")
+
+
+# --- After the real run: the lexicon model is the one in use ---
+
+
+def test_the_model_in_use_is_logistic_regression_with_the_lexicon() -> None:
+    from lookahead.categorizer import make_current
+
+    names = [t[0] for t in make_current().named_steps["features"].transformers]
+    assert "lexicon" in names
+    assert HybridCategorizer().make is make_current
+
+
+def test_the_experiment_baseline_stays_the_model_without_the_lexicon() -> None:
+    from eval.categorizer_experiments import VARIANTS
+
+    baseline = VARIANTS["current"].make()
+    assert "lexicon" not in [t[0] for t in baseline.named_steps["features"].transformers]

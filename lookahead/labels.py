@@ -375,6 +375,19 @@ def store_number_impact(
 # --- Commands ---
 
 
+def label_types(dev: pd.DataFrame, category: str) -> list[tuple[str, str, int, int, int]]:
+    """Which bank transaction types carry `category` among labelled rows: (type, direction,
+    rows with the category, their merchant groups, rows of that type with another label)."""
+    out = []
+    mine = dev[dev["label"] == category]
+    for (kind, direction), part in mine.groupby(["txn_type", "direction"], sort=True):
+        same = dev[(dev["txn_type"] == kind) & (dev["direction"] == direction)]
+        out.append(
+            (str(kind), str(direction), len(part), part["group"].nunique(), len(same) - len(part))
+        )
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m lookahead.labels")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -385,7 +398,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     cl = commands.add_parser("clear", help="reset one merchant group's labels")
     cl.add_argument("--group", required=True, help="the merchant's name as shown on the page")
-    for sub in (fr, ck, cl, si):
+    lt = commands.add_parser(
+        "label-types", help="counts: which bank transaction types carry a category (dev only)"
+    )
+    lt.add_argument("--category", required=True, choices=CATEGORIES)
+    for sub in (fr, ck, cl, si, lt):
         sub.add_argument("--db", type=Path, required=True)
         sub.add_argument("--account", default="scotia-chequing")
     args = parser.parse_args(argv)
@@ -414,6 +431,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  merged groups: {impact.merged_groups} (from {impact.old_groups_merged} groups)")
         print(f"  merged groups mixing Test B with other rows: {impact.mixing_test_b}")
         print(f"  merged groups whose labels disagree: {impact.label_conflicts}")
+        return 0
+    if args.command == "label-types":
+        dev = labelled_examples(conn, args.account, ("dev",))
+        conn.close()
+        print(f"Dev rows labelled {args.category}, by bank transaction type (holdout not read):")
+        for kind, direction, rows, groups, others in label_types(dev, args.category):
+            print(f"  {kind} ({direction}): {rows} rows in {groups} merchant groups; "
+                  f"{others} dev rows of this type have another label")  # fmt: skip
         return 0
     if args.command == "clear":
         n = clear_merchant(conn, args.account, args.group)

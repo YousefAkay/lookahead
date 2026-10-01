@@ -8,7 +8,8 @@ for predicting. Features (HANDOFF section 07):
 Models:
 - MerchantLookup (baseline 1): reuse the most common label of a known merchant group;
 - TF-IDF + linear SVM (baseline 2);
-- TF-IDF + logistic regression (main model: it gives probabilities, for "flagged").
+- TF-IDF + logistic regression (main model: it gives probabilities, for "flagged"), with
+  the frozen keyword lexicon as extra features (`make_current`, chosen on dev labels).
 Tuning (step 5b): `tune` picks C and the n-gram range by macro-F1 with grouped
 cross-validation (no merchant group in both parts), on training data only. "Needs review":
 `choose_flag_threshold` picks, from out-of-fold probabilities on training data, the lowest
@@ -128,6 +129,12 @@ def make_logreg(c: float = 1.0, balanced: bool = False, lexicon: bool = False) -
     """Main model: character TF-IDF + logistic regression (probabilities for flagging)."""
     model = LogisticRegression(C=c, max_iter=5000, class_weight=_weights(balanced))
     return Pipeline([("features", _features(lexicon)), ("model", model)])
+
+
+def make_current() -> Pipeline:
+    """The model in use: logistic regression plus the keyword lexicon. Chosen on dev labels
+    by the pre-declared rule (DECISIONS.md); `make_logreg()` alone is the earlier model."""
+    return make_logreg(lexicon=True)
 
 
 class MerchantLookup:
@@ -295,7 +302,7 @@ class HybridCategorizer:
 
     def __init__(
         self,
-        make: Callable[[], Pipeline] = make_logreg,
+        make: Callable[[], Pipeline] = make_current,
         params: dict[str, object] | None = None,
         threshold: float | None = None,
         preferences: dict[str, str] | None = None,
