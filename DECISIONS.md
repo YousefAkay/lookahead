@@ -158,3 +158,8 @@
 
 
 
+
+
+
+
+- **Not yet verified:** the tests use a small stand-in encoder, so the real model has not been loaded by any test; the first real load is my run. Versions are pinned in `requirements.txt` after my install.

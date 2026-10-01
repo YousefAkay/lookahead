@@ -131,6 +131,17 @@ def make_logreg(c: float = 1.0, balanced: bool = False, lexicon: bool = False) -
     return Pipeline([("features", _features(lexicon)), ("model", model)])
 
 
+def make_embedding(c: float = 1.0, with_current: bool = False) -> Pipeline:
+    """Step 5c candidate: sentence embeddings of the merchant name (a multilingual MiniLM)
+    + the one-hot columns + logistic regression. `with_current` keeps the current model's
+    features (character TF-IDF and lexicon) next to the embeddings."""
+    from lookahead.embeddings import embed_names  # needs sentence-transformers only if used
+
+    parts = _features(lexicon=True).transformers if with_current else _features().transformers[1:]
+    features = ColumnTransformer([*parts, ("embedding", FunctionTransformer(embed_names), "name")])
+    return Pipeline([("features", features), ("model", LogisticRegression(C=c, max_iter=5000))])
+
+
 def make_current() -> Pipeline:
     """The model in use: logistic regression plus the keyword lexicon. Chosen on dev labels
     by the pre-declared rule (DECISIONS.md); `make_logreg()` alone is the earlier model."""
@@ -175,7 +186,10 @@ def tune(
 ) -> tuple[dict[str, object], float]:
     """Best PARAM_GRID setting by macro-F1 over grouped folds (a merchant group is never in
     both the fitting and the scoring part). Call it on training data only."""
-    search = GridSearchCV(make(), PARAM_GRID, scoring="f1_macro", cv=GroupKFold(n_splits=folds))
+    model = make()
+    # A model without a name TF-IDF (embeddings only) has no n-gram range to tune.
+    grid = {k: v for k, v in PARAM_GRID.items() if k in model.get_params()}
+    search = GridSearchCV(model, grid, scoring="f1_macro", cv=GroupKFold(n_splits=folds))
     search.fit(x, list(y), groups=list(groups))
     return dict(search.best_params_), float(search.best_score_)
 
