@@ -363,7 +363,7 @@ def main(argv: list[str] | None = None) -> int:
     if s.model_file is not None:
         print("model saved in data/private/models/")
     print(f"corrected rows: {s.corrections_trained} used for training, "
-          f"{s.corrections_shown_only} shown only (holdout rows, or decided by a rule)")  # fmt: skip
+          f"{s.corrections_shown_only} shown only (holdout rows, or set by a rule)")  # fmt: skip
     return 0
 
 
