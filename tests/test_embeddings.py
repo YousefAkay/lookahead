@@ -13,7 +13,6 @@ import pytest
 import lookahead.categorizer as categorizer
 import lookahead.embeddings as embeddings
 from lookahead.categorizer import HybridCategorizer, make_embedding
-from tests.test_categorizer_experiments import db  # noqa: F401  (shared synthetic database)
 
 
 @pytest.fixture(autouse=True)
@@ -115,7 +114,7 @@ def test_the_minilm_rule_is_fixed_in_advance(
 
 @pytest.mark.slow
 def test_command_runs_the_declared_variants_counts_only(
-    db: Path,  # noqa: F811
+    db: Path,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,

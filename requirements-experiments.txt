@@ -12,3 +12,10 @@
 sentence-transformers==6.1.0
 transformers==5.18.0
 # torch==2.14.1+cpu  (installed by the first command above; pip cannot find "+cpu" on PyPI)
+
+# Point 4a: the LLM benchmark (Claude Haiku 4.5). Needs ANTHROPIC_API_KEY in .env.
+#   pip install anthropic==1.11.0
+# Run (the first command sends nothing and shows how many names would be sent):
+#   python -m eval.categorizer_llm --db data/private/db/lookahead.db --dry-run
+#   python -m eval.categorizer_llm --db data/private/db/lookahead.db
+anthropic==1.11.0

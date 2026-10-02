@@ -1,10 +1,8 @@
 """Tests for the pre-declared categorizer experiments (dev only). Made-up and synthetic rows."""
 
-import csv
 import json
 import math
 import re
-from datetime import date, datetime
 from functools import partial
 from pathlib import Path
 
@@ -123,34 +121,6 @@ def test_per_category_recall() -> None:
 
 
 # --- End to end on a synthetic stand-in ---
-
-
-@pytest.fixture(scope="module")
-def db(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    from lookahead.db import connect
-    from lookahead.generator.personas import PERSONAS
-    from lookahead.generator.writer import write_persona
-    from lookahead.ingest.scotiabank import parse_export
-    from lookahead.ingest.store import store_exports
-    from lookahead.labels import freeze_splits, label_row, load_rows
-
-    tmp = tmp_path_factory.mktemp("exp")
-    export, key = write_persona(PERSONAS["C"], tmp / "s", 42, date(2025, 10, 1), date(2026, 9, 30))
-    conn = connect(tmp / "t.db")
-    store_exports(conn, "scotia-chequing", [(export.name, parse_export(export))],
-                  datetime(2026, 10, 2))  # fmt: skip
-    conn.commit()
-    freeze_splits(conn, "scotia-chequing", seed=3)
-    parsed = parse_export(export)
-    with key.open(encoding="utf-8", newline="") as f:
-        truth = list(csv.DictReader(line for line in f if not line.startswith("#")))
-    category = {(r.posted_date, r.amount_cents, r.sub_description): t["category"]
-                for r, t in zip(parsed, truth, strict=True)}  # fmt: skip
-    for r in load_rows(conn, "scotia-chequing").itertuples():
-        label_row(conn, "scotia-chequing", r.fingerprint,
-                  category[(r.posted_date, r.amount_cents, r.text)])  # fmt: skip
-    conn.close()
-    return tmp / "t.db"
 
 
 @pytest.mark.slow

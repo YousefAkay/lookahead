@@ -270,6 +270,11 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Why: a tie does not justify a 1 GB dependency. The model runs locally; the cache stays in `data/private/`.
 - Result: embeddings alone 64.7% accuracy, 32.1% macro-F1 (-6.7 points vs current); added to the current features 81.7% / 37.5% (-1.4). Neither passes the rule, so the lexicon model stays. I moved torch and sentence-transformers to `requirements-experiments.txt`; the app does not need them.
 
+### 2026-10-01: LLM as a measured candidate (point 4a, declared before the run)
+- Decision: I benchmark Claude Haiku 4.5 (`claude-haiku-4-5-20251001`, temperature 0) on the same dev protocol, zero-shot, as a fallback for new merchants: for all of them, and for flagged ones only. Lost: Opus 5.5 (its API rejects a temperature setting, and it costs more).
+- Rule: it becomes a fallback candidate only with at least +1 point of macro-F1 on unseen merchants. In the app it would be opt-in, off by default; the headline result stays the trained model.
+- Enforced in code, with tests: only the extracted name of a card row is sent (no amount, date, location or type); rows a person rule or the name scan would catch are dropped; one call per name, cached in `data/private/cache/`; the answer must be one of the 17 categories; nothing writes labels; 4a sends dev names only.
+- This is a narrow exception to my rule that real data never goes to a cloud LLM. Reported with accuracy and macro-F1: cost per 1,000 merchants and median latency.
 
 ## Tests
 
