@@ -333,6 +333,17 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - A row answered by the LLM shows "LLM" as its source and keeps its flag, because nobody has checked it. Turning the setting off restores the trained model's own answers.
 - Why: the app stays local-first, and I can always see what left the machine.
 
+## Recurring payments (week 3, step 3a)
+
+### 2026-10-02: Calendar-aware detection by rules (3a-i)
+- Decision: for each merchant I try weekly, biweekly, semimonthly, monthly (same day, clamped to the month length) and yearly patterns, shift the due date like the bank does (income earlier, payments later) and match rows within 3 business days. A series needs 3 payments (2 for yearly), 75% of its due dates paid and 80% of the group's rows explained. Lost: fixed gaps between payments (a month is 28 to 31 days and weekends move dates).
+- Amounts: fixed if all are within 3% or $1 of the median (the same threshold as the amount-changed alert); otherwise variable, with the 10th to 90th percentile as the normal range, at least +/- 10% while there are fewer than 6 payments. Lost: median +/- 2 standard deviations.
+- e-Transfers have no merchant, so they are grouped by recipient (when the bank prints one) and amount. They stay candidates and never change flow type until I confirm them. Regular transfers to my own accounts are found the same way and stay transfers.
+- Fees, refunds and fully reversed pairs are left out. Irregular income and semester payments are not detected; I add them by hand.
+- Detection never rewrites the per-row flow types. An override layer makes a detected card subscription a recurring outflow and a bill payment to a payee paid once a one-off.
+- Found on the synthetic personas before any tuning: habits passed as schedules (a weekly grocery trip, three same-price coffees that line up). I added two rules: card purchases need amounts within 10% of the median and 75% of payments within a day of the due date; a series found among other rows of its merchant needs 4 payments, not 3. Semimonthly pay was also missing from the plan's cadence list.
+- Result (pipeline check, 3 personas, 4 months): 13 of 15 planted series found, 1 false series (4 same-price purchases a week apart). The 2 missed are the irregular income and the semester payment, which I chose not to detect. Proper evaluation is 3a-ii.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
