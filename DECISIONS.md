@@ -288,6 +288,12 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - How I read it: the macro-F1 gain is inflated by tiny categories (several go from 0% to 100% recall on 1 to 3 rows of a single merchant). The accuracy gain is +2.5 points, and future-row accuracy drops 3 points for the full-LLM variant. Shopping is the solid gain (25% to 100%, 8 rows, 6 merchants). Personal care stays at 0%: it follows my own labelling rule, which an outside model cannot know.
 - Product decision unchanged: the trained hybrid is the default and the headline result. The LLM is an opt-in fallback, off by default, reported as a separate line.
 
+### 2026-10-01: Holdout protocol (step 7b, declared before the run)
+- Decision: I train once on all dev labels with the settings saved by 7a (real + synthetic, C 100, n-grams 2-4, flag threshold 97%) and score Test A and Test B once. Candidates: the trained hybrid (default, headline) and the hybrid with the LLM for every new merchant. The flagged-only LLM variant is printed as an extra line, not a candidate.
+- Test B is reported in two parts: merchants in the synthetic list (pre-taught, not generalization) and merchants not in it. Skipped rows are not scored. Every figure has n.
+- The script refuses a second run unless I pass `--again`, which it records. A dry run sends and scores nothing. Holdout card-merchant names go to the LLM once, under the 4a rules.
+- Why: every choice was made on dev, so the holdout number is an honest estimate only if nothing is changed after seeing it.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
