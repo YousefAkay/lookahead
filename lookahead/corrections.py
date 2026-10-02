@@ -25,7 +25,7 @@ from lookahead.categories import conflicts
 from lookahead.taxonomy import CATEGORIES
 
 NO_MERCHANT = "(no merchant name)"
-_MODEL_SOURCES = ("your label", "known merchant", "model", "none")  # not rule, not netted
+_MODEL_SOURCES = ("your label", "known merchant", "model", "LLM", "none")  # not rule, not netted
 
 
 def _has_table(conn: sqlite3.Connection) -> bool:

@@ -109,7 +109,8 @@ CREATE TABLE IF NOT EXISTS category_predictions (
     merchant      TEXT,
     flow_type     TEXT    NOT NULL,
     category      TEXT,             -- NULL: netted pair, or nothing to go on
-    source        TEXT    NOT NULL, -- rule / your label / known merchant / model / netted / none
+    -- rule / your label / known merchant / model / LLM / netted / none
+    source        TEXT    NOT NULL,
     detail        TEXT    NOT NULL,
     flagged       INTEGER NOT NULL,
     confidence    REAL,
@@ -125,6 +126,11 @@ CREATE TABLE IF NOT EXISTS category_corrections (
     category      TEXT    NOT NULL,
     scope         TEXT    NOT NULL CHECK (scope IN ('merchant', 'row')),
     decided_at    TEXT    NOT NULL
+);
+-- App settings (step 8d). A missing row means the default; the LLM fallback defaults to off.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS categorizer_runs (
     run_id        INTEGER PRIMARY KEY,

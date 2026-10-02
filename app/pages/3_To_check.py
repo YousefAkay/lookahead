@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # make `lookahead`
 
 import streamlit as st  # noqa: E402
 
+import lookahead.llm_fallback as llm_fallback  # noqa: E402
 from lookahead.categorize import categorize, load_settings, model_dir_for  # noqa: E402
 from lookahead.corrections import (  # noqa: E402
     NO_MERCHANT,
@@ -75,7 +76,17 @@ if not has_categories(conn, account):
     st.stop()
 
 # --- Retrain ---
-settings = DEMO_SETTINGS if source == "Synthetic demo" else load_settings()
+private_dir = db_path.parent.parent  # data/private/ for "My data"
+llm_cache = private_dir / "cache" / "llm_categories.json"
+try:
+    fallback_key: bytes | None = pseudonym_key()  # needed whatever the display toggle says
+except PseudonymKeyError:
+    fallback_key = None
+settings = (
+    DEMO_SETTINGS
+    if source == "Synthetic demo"
+    else load_settings(private_dir / "eval" / "categorizer_choice.json")
+)
 if st.sidebar.button(
     "Retrain the model",
     help="Learns from your corrections with the saved settings, then refreshes every "
@@ -83,14 +94,68 @@ if st.sidebar.button(
 ):
     with st.spinner("Retraining..."):
         done = categorize(conn, account, settings, model_dir=model_dir_for(db_path))
+    reused = ""
+    if llm_fallback.is_on(conn) and fallback_key is not None:  # saved answers only
+        again = llm_fallback.apply(conn, account, fallback_key, llm_cache)
+        reused = f" {again.rows} rows use saved LLM answers again (nothing was sent)."
     st.session_state["retrained"] = (
         f"Retrained on {done.training_rows} of your rows (before: {done.training_before}). "
         f"{done.changed} rows changed category; rows to check: {done.flagged_before} before, "
-        f"{done.flagged} now."
+        f"{done.flagged} now.{reused}"
     )
     st.rerun()
 if "retrained" in st.session_state:
     st.success(st.session_state.pop("retrained"))
+
+# --- LLM fallback: opt-in, off by default ---
+st.sidebar.divider()
+if source == "Synthetic demo":
+    st.sidebar.caption("LLM fallback: not offered for the synthetic demo.")
+else:
+    on = llm_fallback.is_on(conn)
+    has_key = llm_fallback.has_api_key()
+    wanted = st.sidebar.toggle(
+        "LLM fallback for new merchants",
+        value=on,
+        disabled=not (on or (has_key and fallback_key is not None)),
+        help="Off by default. When on, Claude can suggest a category for new merchants the "
+        "model is unsure about. Only the merchant name of a card purchase is sent: never "
+        "amounts, dates or people's names. Nothing is sent until you click the send button.",
+        key="llm_fallback",
+    )
+    if not has_key:
+        st.sidebar.caption("To use it, add ANTHROPIC_API_KEY to your .env file.")
+    elif fallback_key is None:
+        st.sidebar.caption("It needs PSEUDONYM_KEY (to decide which names may be sent).")
+    if wanted != on:
+        llm_fallback.set_on(conn, wanted)
+        if not wanted:  # back to the trained model's own answers
+            categorize(conn, account, settings, model_dir=model_dir_for(db_path))
+        st.rerun()
+    if on and fallback_key is not None:
+        waiting = llm_fallback.not_asked_yet(conn, account, fallback_key, llm_cache)
+        asked = len(llm_fallback.candidates(conn, account, fallback_key)) - len(waiting)
+        st.sidebar.caption(
+            f"{len(waiting)} merchant names would be sent; {asked} already have a saved answer."
+        )
+        if waiting:
+            with st.sidebar.expander("Names that would be sent (shown only here)"):
+                st.write(waiting)
+            if st.sidebar.button(f"Send {len(waiting)} names to Claude", disabled=not has_key):
+                try:
+                    result = llm_fallback.apply(conn, account, fallback_key, llm_cache, send=True)
+                except Exception as e:  # show the kind of error only: a message may quote a name
+                    st.session_state["llm_note"] = f"Stopped: {type(e).__name__}. Nothing lost."
+                else:
+                    st.session_state["llm_note"] = (
+                        f"Sent {result.sent} names; {result.rows} rows now show an estimated "
+                        "category from the LLM. They stay on the list to check."
+                    )
+                st.rerun()
+        elif asked:
+            llm_fallback.apply(conn, account, fallback_key, llm_cache)  # saved answers only
+    if "llm_note" in st.session_state:
+        st.sidebar.info(st.session_state.pop("llm_note"))
 
 show_all = st.sidebar.toggle(
     "Show every merchant", value=False,

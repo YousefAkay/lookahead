@@ -327,6 +327,12 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Why: re-tuning on every click would change the model in ways I never evaluated. The holdout stays out of training, which a test checks.
 - The trained model is saved, dated, under `data/private/models/` (it holds merchant names). The demo model is not kept.
 
+### 2026-10-01: LLM fallback setting, off by default (8d)
+- Decision: a stored setting, off unless I turn it on, and not offered for the synthetic demo. When on, it covers only flagged rows of new merchants, under the 4a rules (card-merchant names only, one cached call per name).
+- Nothing is sent until I click the send button, which first shows how many names would go and lists them on screen. Retraining and the categorize command reuse saved answers and never send anything; a test fails if they try.
+- A row answered by the LLM shows "LLM" as its source and keeps its flag, because nobody has checked it. Turning the setting off restores the trained model's own answers.
+- Why: the app stays local-first, and I can always see what left the machine.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

@@ -7,6 +7,9 @@ Each row gets a merchant, a flow type, a category, where the category came from 
 - "your label":      a category you confirmed or corrected;
 - "known merchant":  a merchant with labels in training reuses its label;
 - "model":           a new merchant, decided by the trained model (flagged when unsure);
+- "LLM":             only if you turned the LLM fallback on: a flagged new merchant answered
+                     by Claude from the merchant name alone (saved answers; nothing is sent
+                     by this command);
 - "netted":          a fully reversed pair, which needs no category;
 - "none":            nothing to go on (no merchant name).
 Results are stored in `category_predictions`, so the app pages only read them. The model
@@ -28,16 +31,18 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+import lookahead.llm_fallback as llm_fallback
 from lookahead.categories import category_by_rules, load_category_preferences
 from lookahead.categorizer import HybridCategorizer, examples
 from lookahead.db import connect
 from lookahead.flows import Txn, flow_types
 from lookahead.merchants import extract_merchant, is_private_path
+from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key
 from lookahead.resolve import load_user_decisions, name_infos, resolve
 from lookahead.synthetic_training import synthetic_examples
 
 DEFAULT_CHOICE = Path("data/private/eval/categorizer_choice.json")
-SOURCES = ("rule", "your label", "known merchant", "model", "netted", "none")
+SOURCES = ("rule", "your label", "known merchant", "model", "LLM", "netted", "none")
 _ROUTES = {
     "your preference": "rule",
     "known merchant": "known merchant",
@@ -322,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--account", default="scotia-chequing")
     parser.add_argument("--choice", type=Path, default=DEFAULT_CHOICE)
+    parser.add_argument("--env", type=Path, default=Path(".env"))
     args = parser.parse_args(argv)
     if not args.db.exists():
         print(f"database not found: {args.db}")
@@ -329,6 +335,12 @@ def main(argv: list[str] | None = None) -> int:
     settings = load_settings(args.choice)
     conn = connect(args.db)
     s = categorize(conn, args.account, settings, model_dir=model_dir_for(args.db))
+    from_llm = None
+    if llm_fallback.is_on(conn):  # saved answers only: this command never sends anything
+        try:
+            from_llm = llm_fallback.apply(conn, args.account, pseudonym_key(args.env)).rows
+        except PseudonymKeyError:
+            print("LLM fallback is on but PSEUDONYM_KEY is missing: saved answers not applied")
     conn.close()
     saved = "saved by step 7a" if args.choice.exists() else "defaults (no saved choice)"
     print(f"Categorized {s.rows} rows, account {args.account}; settings: {saved}")
@@ -336,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
           f"({settings.synthetic_months} months)")  # fmt: skip
     for source in SOURCES:
         print(f"  {source}: {s.by_source.get(source, 0)}")
+    if from_llm is not None:
+        print(f"  of the model's rows, now from saved LLM answers (fallback is on): {from_llm}")
     print(f"flagged (worth a look, never blocking): {s.flagged}")
     if s.changed is not None:
         print(f"rows whose category changed since the last run: {s.changed} "

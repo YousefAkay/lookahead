@@ -259,3 +259,65 @@ def test_retrain_button_reports_what_changed(isolated: Path) -> None:
     button(at, "Retrain the model").click().run()
     assert "Retrained on" in page_text(at) and "rows changed category" in page_text(at)
     assert not list(isolated.glob("**/*.joblib"))  # the demo model is not kept
+
+
+# --- Step 8d: the LLM fallback setting ---
+
+
+def test_llm_fallback_is_not_offered_for_the_demo() -> None:
+    at = run(TO_CHECK)
+    assert "not offered for the synthetic demo" in page_text(at)
+    assert not [t for t in at.toggle if t.key == "llm_fallback"]
+
+
+def test_llm_fallback_is_off_by_default_and_sends_only_on_click(
+    db: Path, isolated: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    import lookahead.llm_categorizer as llm
+    import lookahead.llm_fallback as fallback
+    from lookahead.categorize import Settings, categorize
+    from lookahead.db import connect
+    from lookahead.labels import load_rows
+    from tests.test_llm_categorizer import FakeClient
+
+    private = isolated / "data" / "private"
+    (private / "db").mkdir(parents=True)
+    path = Path(shutil.copy(db, private / "db" / "lookahead.db"))
+    conn = connect(path)
+    rows = load_rows(conn, "scotia-chequing")
+    with conn:  # unreviewed new merchants, all flagged
+        conn.executemany(
+            "DELETE FROM category_labels WHERE fingerprint = ?",
+            [(f,) for f in rows.query("split == 'test_b'")["fingerprint"]],
+        )
+    categorize(conn, "scotia-chequing", Settings(threshold=1.1, synthetic_months=4))
+    conn.close()
+    monkeypatch.setenv("LOOKAHEAD_PRIVATE_DB", str(path))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    client = FakeClient("Entertainment")
+    monkeypatch.setattr(llm, "make_client", lambda *_: client)
+
+    at = AppTest.from_file(str(TO_CHECK), default_timeout=60).run()
+    at.sidebar.radio[0].set_value("My data").run()
+    assert not at.exception, at.exception
+    toggle = at.toggle(key="llm_fallback")
+    assert toggle.value is False and client.requests == []  # off by default
+    toggle.set_value(True).run()
+    assert "merchant names would be sent" in page_text(at)
+    assert client.requests == []  # turning it on sends nothing
+    button(at, "Send ").click().run()
+    assert not at.exception, at.exception
+    assert client.requests and all(set(r) == {"model", "max_tokens", "system", "messages",
+                                              "extra_body"} for r in client.requests)  # fmt: skip
+    check = connect(path)
+    assert fallback.is_on(check)
+    assert (
+        check.execute(
+            "SELECT COUNT(*) FROM category_predictions WHERE source = 'LLM' AND flagged = 1"
+        ).fetchone()[0]
+        > 0
+    )
+    check.close()
+    assert (private / "cache" / "llm_categories.json").exists()
