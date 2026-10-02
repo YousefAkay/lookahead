@@ -19,25 +19,40 @@ happen to line up, would pass the rules above, so two stricter rules apply:
 - a series found among other rows of the same group needs MIN_PAYMENTS_PART payments.
 
 Left out: fully reversed pairs, refunds and bank fees (fees follow events, not dates).
-e-Transfers have no merchant: they are grouped by recipient (when the bank gives one) and
-amount, and stay candidates until you confirm them; they are never called rent here.
+e-Transfers have no merchant: they are grouped by recipient (when the bank gives one; as
+the pseudonymizer's keyed PERSON token, never the name or a plain hash of it) and amount,
+and stay candidates until you confirm them; they are never called rent here. One price
+change (stable before, stable after) keeps a fixed series in one piece.
 Transfers between your own accounts (a monthly move to savings) are found the same way, by
 amount and date.
 Rule zero: `detect(..., as_of=t)` uses only rows posted on or before t.
+
+Counts-only check on a database (no names, no amounts):
+    python -m lookahead.recurring report --db data/private/db/lookahead.db
 """
 
-import hashlib
+import argparse
+import sqlite3
+import sys
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 from statistics import median
 from typing import Literal
 
 import numpy as np
 
-from lookahead.calendar_rules import is_business_day, monthly_date, shift_to_business_day
+from lookahead.calendar_rules import (
+    is_business_day,
+    monthly_date,
+    next_card_posting_day,
+    shift_to_business_day,
+)
 from lookahead.flows import Txn, flow_types, merchant_groups
-from lookahead.resolve import UserDecisions
+from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key, token
+from lookahead.resolve import UserDecisions, load_user_decisions
 
 Cadence = Literal["weekly", "biweekly", "semimonthly", "monthly", "yearly"]
 CADENCES: tuple[Cadence, ...] = ("weekly", "biweekly", "semimonthly", "monthly", "yearly")
@@ -72,6 +87,10 @@ class Series:
     rows: tuple[int, ...]  # the payments found, oldest first (the evidence)
     next_expected: date  # first expected date after the last payment found
     active: bool  # False: ended (ENDED_AFTER due dates passed without a payment)
+    # A fixed amount that changed once (a price change): the amount before, and the first
+    # payment at the new amount. `expected_cents` is then the new amount.
+    previous_cents: int | None = None
+    changed_row: int | None = None
 
 
 @dataclass(frozen=True)
@@ -113,12 +132,16 @@ def _due_dates(cadence: str, anchor: date, start: date, end: date) -> list[date]
 
 
 def expected_dates(
-    cadence: str, anchor: date, start: date, end: date, direction: str
+    cadence: str, anchor: date, start: date, end: date, direction: str, card: bool = False
 ) -> list[date]:
     """Expected posting dates for due dates in [start, end]: income moves to the business
-    day before a weekend or holiday, payments to the one after."""
+    day before a weekend or holiday, payments to the one after. `card`: card purchases and
+    e-Transfers post Monday to Saturday, so only Sundays and holidays move them (later)."""
+    dues = _due_dates(cadence, anchor, start, end)
+    if card and direction == "out":
+        return [next_card_posting_day(d) for d in dues]
     shift = "earlier" if direction == "in" else "later"
-    return [shift_to_business_day(d, shift) for d in _due_dates(cadence, anchor, start, end)]  # type: ignore[arg-type]
+    return [shift_to_business_day(d, shift) for d in dues]  # type: ignore[arg-type]
 
 
 def _anchors(cadence: str, days: list[date]) -> list[date]:
@@ -152,8 +175,9 @@ def _needed(cadence: str, part: bool) -> int:
 
 
 def _best_fit(
-    days: list[date], direction: str, as_of: date, part: bool = False, exact: bool = False
-) -> _Fit | None:
+    days: list[date], direction: str, as_of: date, part: bool = False, exact: bool = False,
+    card_days: bool = False,
+) -> _Fit | None:  # fmt: skip
     """The best pattern for these posting dates (sorted), or None if none is good enough.
     `part`: the rows are only some of their group's. `exact`: timing must be machine-like."""
     best: _Fit | None = None
@@ -163,7 +187,7 @@ def _best_fit(
         if len(days) < needed:
             continue
         for anchor in _anchors(cadence, days):
-            expected = expected_dates(cadence, anchor, start, end, direction)
+            expected = expected_dates(cadence, anchor, start, end, direction, card_days)
             matched: list[tuple[date, int]] = []
             used: set[int] = set()
             gaps: list[int] = []
@@ -201,20 +225,40 @@ def _rank(fit: _Fit) -> tuple[float, int, int]:
     return (round(fit.hit_ratio * fit.coverage, 6), len(fit.matched), -fit.deviation)
 
 
-def _amounts(cents: list[int]) -> tuple[str, int, tuple[int, int]]:
-    """(fixed or variable, median, normal range) for a series' amounts (all one sign)."""
+def _is_fixed(sizes: list[int]) -> bool:
+    middle = median(sizes)
+    return all(abs(s - middle) <= max(FIXED_SHARE * middle, FIXED_CENTS) for s in sizes)
+
+
+def _step(sizes: list[int]) -> int | None:
+    """Index where a fixed amount changes ONCE to another fixed amount (a price change):
+    stable before, stable after. None if there is no such single step."""
+    for k in range(1, len(sizes)):
+        if _is_fixed(sizes[:k]) and _is_fixed(sizes[k:]) and not _is_fixed(sizes):
+            return k
+    return None
+
+
+def _amounts(cents: list[int]) -> tuple[str, int, tuple[int, int], int | None, int | None]:
+    """(fixed or variable, expected amount, normal range, amount before a price change,
+    index of the first payment at the new price) for a series' amounts, oldest first.
+    After one price change the series is still fixed, at the new amount."""
     sign = -1 if cents[0] < 0 else 1
     sizes = [abs(c) for c in cents]
     middle = median(sizes)
-    if all(abs(s - middle) <= max(FIXED_SHARE * middle, FIXED_CENTS) for s in sizes):
+    if _is_fixed(sizes):
         value = sign * round(middle)
-        return "fixed", value, (value, value)
+        return "fixed", value, (value, value), None, None
+    step = _step(sizes)
+    if step is not None:
+        value = sign * round(median(sizes[step:]))
+        return "fixed", value, (value, value), sign * round(median(sizes[:step])), step
     low, high = (float(v) for v in np.percentile(sizes, [10, 90]))
     if len(sizes) < FEW_PAYMENTS:
         low = min(low, middle * (1 - MIN_RANGE_SHARE))
         high = max(high, middle * (1 + MIN_RANGE_SHARE))
     bounds = sorted((sign * round(low), sign * round(high)))
-    return "variable", sign * round(middle), (bounds[0], bounds[1])
+    return "variable", sign * round(middle), (bounds[0], bounds[1]), None, None
 
 
 def _clusters(rows: list[Txn]) -> list[list[Txn]]:
@@ -234,14 +278,21 @@ def _series(
     part: bool = False, card: bool = False,
 ) -> Series | None:  # fmt: skip
     days = [t.posted_date for t in rows]
-    fit = _best_fit(days, direction, as_of, part=part, exact=card)
+    fit = _best_fit(days, direction, as_of, part=part, exact=card,
+                    card_days=card or kind == "e-transfer")  # fmt: skip
     if fit is None:
         return None
     paid = [rows[i] for _, i in fit.matched]
-    amount_type, expected_cents, amount_range = _amounts([t.amount_cents for t in paid])
-    if card and any(
-        abs(abs(t.amount_cents) - abs(expected_cents)) > CARD_AMOUNT_SHARE * abs(expected_cents)
-        for t in paid
+    amount_type, expected_cents, amount_range, previous, step = _amounts(
+        [t.amount_cents for t in paid]
+    )
+    if (
+        card
+        and step is None
+        and any(
+            abs(abs(t.amount_cents) - abs(expected_cents)) > CARD_AMOUNT_SHARE * abs(expected_cents)
+            for t in paid
+        )
     ):
         return None  # a shopping habit, not a bill: the amounts move too much
     last_due = fit.matched[-1][0]
@@ -255,6 +306,7 @@ def _series(
         amount_type=amount_type, expected_cents=expected_cents,  # type: ignore[arg-type]
         range_cents=amount_range, rows=tuple(t.row_id for t in paid),
         next_expected=later[0], active=missed < ENDED_AFTER,
+        previous_cents=previous, changed_row=None if step is None else paid[step].row_id,
     )  # fmt: skip
 
 
@@ -265,7 +317,7 @@ def _recipient(text: str) -> str:
 
 
 def _groups(
-    txns: Sequence[Txn], user: UserDecisions | None
+    txns: Sequence[Txn], user: UserDecisions | None, key: bytes | None = None
 ) -> tuple[dict[tuple[str, str | None, str, str], list[Txn]], set[int]]:
     """(key, merchant, kind, direction) -> rows that may form a series; and the row ids
     that are card purchases."""
@@ -280,8 +332,10 @@ def _groups(
         direction = "in" if t.amount_cents > 0 else "out"
         if flow.reason in _ETRANSFER:
             who = _recipient(t.text)
-            # A short hash, so a person's name is never part of a stored key.
-            tag = hashlib.sha256(who.encode()).hexdigest()[:12] if who else "unnamed"
+            if who and key is None:
+                continue  # a named recipient is only ever grouped under its keyed token
+            # The pseudonymizer's keyed token: no name, and no guessable hash, in a series key.
+            tag = token("PERSON", who, key) if who and key is not None else "unnamed"
             group = (f"e-transfer|{direction}|{tag}", None, "e-transfer", direction)
         elif flow.reason == "own-account transfer":
             group = (f"own transfer|{direction}", None, "own transfer", direction)
@@ -295,15 +349,19 @@ def _groups(
 
 
 def detect(
-    txns: Sequence[Txn], user: UserDecisions | None = None, as_of: date | None = None
+    txns: Sequence[Txn],
+    user: UserDecisions | None = None,
+    as_of: date | None = None,
+    key: bytes | None = None,
 ) -> list[Series]:
     """Every recurring series visible on `as_of` (default: the last posting date), using
-    only rows posted on or before it. Sorted by key."""
+    only rows posted on or before it. Sorted by key. `key` is the pseudonym key: e-Transfers
+    that name a recipient are grouped under its keyed token, and are skipped without it."""
     if as_of is None:
         as_of = max((t.posted_date for t in txns), default=date.min)
     past = [t for t in txns if t.posted_date <= as_of]
     found: list[Series] = []
-    groups, card_rows = _groups(past, user)
+    groups, card_rows = _groups(past, user, key)
     for (key, merchant, kind, direction), rows in groups.items():
         rows = sorted(rows, key=lambda t: (t.posted_date, t.row_id))
         card = all(t.row_id in card_rows for t in rows)
@@ -355,3 +413,103 @@ def flow_overrides(
         if payee is not None and len(row_ids) == 1 and row_ids[0] not in out:
             out[row_ids[0]] = Override("everyday", one_off=True)
     return out
+
+
+# --- Counts-only report on a database ---
+
+
+@dataclass
+class RecurringCounts:
+    rows: int
+    series: int
+    by_kind: Counter[str]
+    by_cadence: Counter[str]
+    by_direction: Counter[str]
+    by_amount: Counter[str]
+    active: int
+    price_changed: int
+    rows_in_series: int
+    upgraded_rows: int  # card purchases that become recurring outflows
+    one_off_bills: int  # bill payments to a payee paid once
+    candidates: int  # e-Transfer series waiting for confirmation
+    named_recipients_skipped: bool  # e-Transfers name a recipient but no key was given
+
+
+def count_recurring(
+    txns: Sequence[Txn], user: UserDecisions | None = None, key: bytes | None = None
+) -> RecurringCounts:
+    series = detect(txns, user, key=key)
+    overrides = flow_overrides(txns, series, user=user)
+    flows = flow_types(txns, user)
+    named = any(flows[t.row_id].reason in _ETRANSFER and _recipient(t.text) for t in txns)
+    return RecurringCounts(
+        rows=len(txns),
+        series=len(series),
+        by_kind=Counter(s.kind for s in series),
+        by_cadence=Counter(s.cadence for s in series),
+        by_direction=Counter("money in" if s.direction == "in" else "money out" for s in series),
+        by_amount=Counter(s.amount_type for s in series),
+        active=sum(s.active for s in series),
+        price_changed=sum(s.previous_cents is not None for s in series),
+        rows_in_series=sum(len(s.rows) for s in series),
+        upgraded_rows=sum(o.flow_type == "recurring_outflow" for o in overrides.values()),
+        one_off_bills=sum(o.one_off for o in overrides.values()),
+        candidates=sum(s.kind == "e-transfer" for s in series),
+        named_recipients_skipped=named and key is None,
+    )
+
+
+def _line(counts: Counter[str], order: Sequence[str]) -> str:
+    return ", ".join(f"{name} {counts.get(name, 0)}" for name in order)
+
+
+def _report(db_path: Path, account: str, env_path: Path) -> int:
+    if not db_path.exists():
+        print(f"database not found: {db_path}")
+        return 2
+    conn = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)
+    txns = [
+        Txn(row_id, date.fromisoformat(day), cents, kind, text)
+        for row_id, day, cents, kind, text in conn.execute(
+            "SELECT id, posted_date, amount_cents, description, sub_description"
+            " FROM transactions WHERE account = ?",
+            (account,),
+        )
+    ]
+    user = load_user_decisions(conn)
+    conn.close()
+    try:
+        key: bytes | None = pseudonym_key(env_path)
+    except PseudonymKeyError:
+        key = None
+    c = count_recurring(txns, user, key)
+    print(f"Recurring payments: {c.rows} rows, account {account}")
+    print(f"series detected: {c.series} (still active {c.active}, ended {c.series - c.active})")
+    print(f"  by kind: {_line(c.by_kind, ('merchant', 'e-transfer', 'own transfer'))}")
+    print(f"  by cadence: {_line(c.by_cadence, CADENCES)}")
+    print(f"  by direction: {_line(c.by_direction, ('money in', 'money out'))}")
+    print(f"  by amount: {_line(c.by_amount, ('fixed', 'variable'))}; with one price change "
+          f"{c.price_changed}")  # fmt: skip
+    print(f"rows inside a series: {c.rows_in_series}")
+    print(f"card purchases that become recurring outflows: {c.upgraded_rows} rows")
+    print(f"bill payments to a payee paid once (one-offs): {c.one_off_bills}")
+    print(f"e-Transfer series waiting for your confirmation: {c.candidates}")
+    if c.named_recipients_skipped:
+        print("e-Transfers that name a recipient were skipped: PSEUDONYM_KEY is missing")
+    print("Nothing is stored yet: the Recurring page (next step) is where you confirm or reject.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m lookahead.recurring")
+    commands = parser.add_subparsers(dest="command", required=True)
+    rep = commands.add_parser("report", help="counts-only: recurring series found")
+    rep.add_argument("--db", type=Path, required=True)
+    rep.add_argument("--account", default="scotia-chequing")
+    rep.add_argument("--env", type=Path, default=Path(".env"))
+    args = parser.parse_args(argv)
+    return _report(args.db, args.account, args.env)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

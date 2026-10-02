@@ -344,6 +344,18 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Found on the synthetic personas before any tuning: habits passed as schedules (a weekly grocery trip, three same-price coffees that line up). I added two rules: card purchases need amounts within 10% of the median and 75% of payments within a day of the due date; a series found among other rows of its merchant needs 4 payments, not 3. Semimonthly pay was also missing from the plan's cadence list.
 - Result (pipeline check, 3 personas, 4 months): 13 of 15 planted series found, 1 false series (4 same-price purchases a week apart). The 2 missed are the irregular income and the semester payment, which I chose not to detect. Proper evaluation is 3a-ii.
 
+### 2026-10-02: Price changes, recipient tokens, card posting days (3a-i, after review)
+- Decision: a fixed series whose amount changes once (stable before, stable after) stays one fixed series at the new amount, and remembers the old amount and the first payment at the new one. Why: otherwise a +15% subscription increase failed the 10% card rule and the series vanished, so "amount changed" could never fire.
+- Decision: an e-Transfer recipient enters a series key only as the pseudonymizer's keyed token. Without the key, named recipients are not grouped at all. Lost: a plain hash of the name (guessable from a list of names).
+- Decision: card purchases and e-Transfers are expected on card posting days (Monday to Saturday), not business days. Found by the evaluation: a subscription due on a Saturday was detected a day off.
+
+### 2026-10-02: Evaluation against the generator's schedules (3a-ii)
+- Decision: the answer is the generator's schedule objects (rows, cadence, next due date), never the detection rules. A detected series is true if most of its rows come from one planted schedule.
+- Result (3 personas, 12 months, seed 42): 13 of 13 detected series are planted; 13 of 13 fixed-cadence series found, cadence right on 13, next date right on 13; rows 62 of 62 correct, 62 of 63 found. The 2 irregular series are not targeted.
+- Too good to mean much: clean schedules, the same calendar rules on both sides, and I tuned two rules on these personas. The schedules also start in June 2026, so a longer window adds no payments.
+- Other seeds are less clean: 4 months gives 1 false series (13 of 14); 24 months with another seed misses 1 subscription because a letters-only reference code left in the name split the merchant into three groups. That is a week 2 extraction limit, not fixed here.
+- The real check is my confirmed list. `python -m lookahead.recurring report` prints counts only.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

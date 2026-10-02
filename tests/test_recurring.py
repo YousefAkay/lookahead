@@ -18,6 +18,7 @@ from lookahead.recurring import (
 )
 
 CARD = "Opos {:<20}toron "
+KEY = bytes.fromhex("ab" * 32)
 
 
 class Rows:
@@ -241,12 +242,30 @@ def test_etransfers_to_different_recipients_are_separate_groups() -> None:
     for m in range(1, 7):  # alternating recipients: neither has a monthly series of its own
         to = "Alex Roy" if m % 2 else "Sam Lee"
         rows.etransfer(shift_to_business_day(date(2026, m, 1), "later"), -75000, to)
-    assert detect(rows.txns, as_of=date(2026, 6, 20)) == []
+    assert detect(rows.txns, as_of=date(2026, 6, 20), key=KEY) == []
     for m in range(1, 7):
         rows.etransfer(shift_to_business_day(date(2026, m, 15), "later"), -30000, "Sam Lee")
-    s = only(detect(rows.txns, as_of=date(2026, 6, 20)))
+    s = only(detect(rows.txns, as_of=date(2026, 6, 20), key=KEY))
     assert s.kind == "e-transfer" and s.expected_cents == -30000
-    assert "Sam Lee" not in repr(s.key) or s.key.startswith("e-transfer|")
+
+
+def test_a_recipient_appears_in_a_key_only_as_the_keyed_token() -> None:
+    import hashlib
+
+    from lookahead.pseudonymize import token
+
+    rows = Rows()
+    for m in range(1, 7):
+        rows.etransfer(shift_to_business_day(date(2026, m, 15), "later"), -30000, "Sam Lee")
+    s = only(detect(rows.txns, as_of=date(2026, 6, 20), key=KEY))
+    assert s.key == f"e-transfer|out|{token('PERSON', 'sam lee', KEY)}|30000"
+    assert "sam" not in s.key.casefold() and "lee" not in s.key.casefold()
+    for plain in ("sam lee", "Sam Lee"):  # no unkeyed hash of the name either
+        assert hashlib.sha256(plain.encode()).hexdigest()[:12] not in s.key
+    other = only(detect(rows.txns, as_of=date(2026, 6, 20), key=bytes(range(32))))
+    assert other.key != s.key and other.rows == s.rows  # another key, another token
+    # without the key, a named recipient is not grouped at all (never under a plain hash)
+    assert detect(rows.txns, as_of=date(2026, 6, 20)) == []
 
 
 # --- Active or ended, and the next expected date ---
@@ -379,3 +398,111 @@ def test_a_regular_transfer_to_my_own_savings_is_found_by_amount() -> None:
     assert (s.cadence, s.anchor_day, s.expected_cents) == ("monthly", 3, -20000)
     # it already is a transfer: detection does not change its flow type
     assert not set(saving) & set(flow_overrides(rows.txns, [s]))
+
+
+# --- One price change keeps the series (so "amount changed" can fire) ---
+
+
+def test_a_subscription_with_one_price_increase_stays_one_series() -> None:
+    rows = Rows()
+    old = monthly(rows, "Netflix.Com", 12, range(1, 9), cents=-1599)
+    new = monthly(rows, "Netflix.Com", 12, range(9, 12), cents=-1839)  # +15% from September
+    s = only(detect(rows.txns, as_of=date(2026, 11, 30)))
+    assert s.rows == (*old, *new) and s.amount_type == "fixed"
+    assert (s.expected_cents, s.previous_cents, s.changed_row) == (-1839, -1599, new[0])
+    assert s.range_cents == (-1839, -1839)
+
+
+def test_the_price_change_is_visible_from_its_first_payment() -> None:
+    rows = Rows()
+    old = monthly(rows, "Netflix.Com", 12, range(1, 9), cents=-1599)
+    new = monthly(rows, "Netflix.Com", 12, range(9, 10), cents=-1839)
+    s = only(detect(rows.txns, as_of=date(2026, 9, 30)))
+    assert s.rows == (*old, *new)
+    assert (s.expected_cents, s.previous_cents, s.changed_row) == (-1839, -1599, new[0])
+    before = only(detect(rows.txns, as_of=date(2026, 8, 31)))  # rule zero: not known earlier
+    assert (before.expected_cents, before.previous_cents, before.changed_row) == (-1599, None, None)
+
+
+def test_amounts_that_keep_moving_are_not_a_price_change() -> None:
+    rows = Rows()
+    for m, cents in zip(range(1, 9), [-1500, -1900, -1450, -2100, -1600, -2300, -1700, -1950],
+                        strict=True):  # fmt: skip
+        rows.card(shift_to_business_day(date(2026, m, 12), "later"), cents, "Corner Store")
+    assert detect(rows.txns, as_of=date(2026, 8, 31)) == []  # a card habit, not a bill
+
+
+def test_a_fixed_bill_with_one_price_change_is_still_fixed() -> None:
+    rows = Rows()
+    monthly(rows, "Phone Co", 10, range(1, 7), cents=-6500, bill=True)
+    monthly(rows, "Phone Co", 10, range(7, 10), cents=-7200, bill=True)
+    s = only(detect(rows.txns, as_of=date(2026, 9, 30)))
+    assert s.amount_type == "fixed" and (s.expected_cents, s.previous_cents) == (-7200, -6500)
+
+
+# --- Card rows post Monday to Saturday (found by the synthetic evaluation) ---
+
+
+def test_a_card_subscription_due_on_a_saturday_posts_that_saturday() -> None:
+    from lookahead.calendar_rules import next_card_posting_day
+
+    rows = Rows()
+    for m in range(6, 10):  # due the 20th: a Saturday in June, a Sunday in September
+        rows.card(next_card_posting_day(date(2026, m, 20)), -1299, "Music Box")
+    s = only(detect(rows.txns, as_of=date(2026, 9, 30)))
+    assert (s.cadence, s.anchor_day) == ("monthly", 20)  # not the 19th
+    assert s.next_expected == date(2026, 10, 20)
+    card = expected_dates("monthly", date(2026, 6, 20), date(2026, 6, 1), date(2026, 9, 30),
+                          "out", card=True)  # fmt: skip
+    assert card == [date(2026, 6, 20), date(2026, 7, 20), date(2026, 8, 20), date(2026, 9, 21)]
+
+
+# --- Evaluation against the generator's schedules, and the counts-only report ---
+
+
+def test_evaluation_counts_planted_series_from_the_generator_not_from_the_rules() -> None:
+    from eval.recurring import evaluate
+
+    r = evaluate("B", months=4)
+    assert (r.planted, r.planted_fixed) == (6, 6)
+    assert r.found_fixed == 6 and r.cadence_right == 6 and r.true <= r.detected
+    assert r.rows_right <= r.rows_detected and r.rows_right <= r.rows_planted_fixed
+    c = evaluate("C", months=4)
+    assert (c.planted, c.planted_fixed) == (5, 3)
+    assert c.missed == {"irregular (not targeted)": 2}  # by choice: I add those by hand
+
+
+def test_evaluation_command_prints_the_caveat(capsys: pytest.CaptureFixture[str]) -> None:
+    from eval.recurring import main as eval_main
+
+    assert eval_main(["--months", "4"]) == 0
+    out = capsys.readouterr().out
+    assert "PIPELINE CHECK, NOT EVIDENCE" in out and "all 3 personas" in out
+    assert "precision" in out and "recall" in out
+
+
+def test_report_prints_counts_only(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:  # type: ignore[no-untyped-def]
+    from datetime import datetime
+
+    from lookahead.db import connect
+    from lookahead.generator.personas import PERSONAS
+    from lookahead.generator.writer import write_persona
+    from lookahead.ingest.scotiabank import parse_export
+    from lookahead.ingest.store import store_exports
+    from lookahead.recurring import main
+
+    export, _ = write_persona(PERSONAS["B"], tmp_path / "s", 42, date(2026, 6, 1),
+                              date(2026, 9, 30))  # fmt: skip
+    conn = connect(tmp_path / "t.db")
+    store_exports(conn, "scotia-chequing", [(export.name, parse_export(export))],
+                  datetime(2026, 10, 2))  # fmt: skip
+    conn.commit()
+    conn.close()
+    args = ["report", "--db", str(tmp_path / "t.db"), "--env", str(tmp_path / "none.env")]
+    assert main(args) == 0
+    out = capsys.readouterr().out
+    assert "series detected: 6" in out and "semimonthly 1" in out and "own transfer 1" in out
+    assert "$" not in out
+    for text in ("Netflix", "Videotron", "Hydro", "Globex", "1150", "115000", "PERSON_"):
+        assert text not in out  # no names, no amounts, no tokens
+    assert main(["report", "--db", str(tmp_path / "missing.db")]) == 2
