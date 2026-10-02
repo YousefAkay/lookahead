@@ -248,3 +248,14 @@ def test_to_check_page_refuses_a_category_that_contradicts_the_flow(isolated: Pa
     button(at, "Save for this row").click().run()
     assert any("does not fit" in str(e.value) for e in at.error)
     assert demo_categories(isolated) == before
+
+
+# --- Step 8c: the Retrain button ---
+
+
+def test_retrain_button_reports_what_changed(isolated: Path) -> None:
+    at = run(TO_CHECK)
+    at.sidebar.toggle[1].set_value(True).run()
+    button(at, "Retrain the model").click().run()
+    assert "Retrained on" in page_text(at) and "rows changed category" in page_text(at)
+    assert not list(isolated.glob("**/*.joblib"))  # the demo model is not kept

@@ -322,6 +322,11 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - A single-row correction also works on rows a rule decided (an e-Transfer that was a gift). A category that contradicts the flow type is refused (Income on spending).
 - The "To check" page lists merchants with a low-confidence category, least confident first. Checking is optional; every row already has a category.
 
+### 2026-10-01: Retrain uses the saved settings and tunes nothing (8c)
+- Decision: the Retrain button (and `python -m lookahead.categorize`) trains on my development rows, my corrections on eligible rows and the synthetic rows, with the C, n-grams and flag threshold saved by 7a, then refreshes every stored category. It reports rows used before and after, rows whose category changed, and rows to check before and after.
+- Why: re-tuning on every click would change the model in ways I never evaluated. The holdout stays out of training, which a test checks.
+- The trained model is saved, dated, under `data/private/models/` (it holds merchant names). The demo model is not kept.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

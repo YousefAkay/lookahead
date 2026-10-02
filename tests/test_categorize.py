@@ -155,3 +155,69 @@ def test_table_is_unchanged_before_categorize_runs(conn: sqlite3.Connection) -> 
     table = display_table(transactions(conn, ACCOUNT), None)
     assert list(table.columns) == ["Date", "Type", "Text", "Amount ($)", "Balance ($)"]
     assert isinstance(table, pd.DataFrame)
+
+
+# --- Step 8c: retraining ---
+
+
+def test_retraining_learns_a_development_correction_for_the_whole_merchant(
+    conn: sqlite3.Connection,
+) -> None:
+    from lookahead.corrections import correct_row
+
+    categorize(conn, ACCOUNT, SETTINGS, TODAY)
+    rows = load_rows(conn, ACCOUNT)
+    dev = rows.query("split == 'dev'")
+    group = dev["group"].value_counts().index[0]  # a merchant with several dev rows
+    mine = dev.loc[dev["group"] == group, "fingerprint"].tolist()
+    with conn:  # forget its review labels, so only corrections can teach the model
+        conn.executemany("DELETE FROM category_labels WHERE fingerprint = ?", [(f,) for f in mine])
+    correct_row(conn, ACCOUNT, mine[0], "Education", TODAY)
+    done = categorize(conn, ACCOUNT, SETTINGS, TODAY)
+    stored = dict(conn.execute("SELECT fingerprint, category FROM category_predictions").fetchall())
+    source = dict(conn.execute("SELECT fingerprint, source FROM category_predictions").fetchall())
+    assert stored[mine[0]] == "Education" and source[mine[0]] == "your label"
+    for f in mine[1:]:  # the merchant's other rows follow, through the lookup
+        assert stored[f] == "Education" and source[f] == "known merchant"
+    assert done.changed and done.changed >= len(mine) - 1
+    assert done.training_before is not None and done.flagged_before is not None
+
+
+def test_retraining_never_trains_on_holdout_rows_even_when_corrected(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import lookahead.categorizer as categorizer
+    from lookahead.corrections import correct_merchant
+
+    categorize(conn, ACCOUNT, SETTINGS, TODAY)
+    rows = load_rows(conn, ACCOUNT)
+    holdout = set(rows.query("split != 'dev'")["fingerprint"])
+    correct_merchant(conn, ACCOUNT, rows.query("split == 'test_b'")["group"].iloc[0], "Education")
+    seen: list[set[str]] = []
+    real_fit = categorizer.HybridCategorizer.fit
+
+    def spy(self, x, y, groups=None, extra_x=None, extra_y=None):  # type: ignore[no-untyped-def]
+        seen.append(set(x["fingerprint"]))
+        assert self.params == SETTINGS.params and self.threshold == 0.5  # nothing tuned
+        return real_fit(self, x, y, groups, extra_x, extra_y)
+
+    monkeypatch.setattr(categorizer.HybridCategorizer, "fit", spy)
+    categorize(conn, ACCOUNT, SETTINGS, TODAY)
+    assert len(seen) == 1 and not seen[0] & holdout
+
+
+def test_the_model_file_is_saved_only_inside_data_private(
+    conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    import joblib
+
+    from lookahead.categorize import model_dir_for
+
+    with pytest.raises(ValueError, match="data/private"):
+        categorize(conn, ACCOUNT, SETTINGS, TODAY, model_dir=tmp_path / "models")
+    private = tmp_path / "data" / "private"
+    assert model_dir_for(tmp_path / "demo.db") is None
+    assert model_dir_for(private / "db" / "lookahead.db") == (private / "models").resolve()
+    done = categorize(conn, ACCOUNT, SETTINGS, TODAY, model_dir=private / "models")
+    assert done.model_file == private / "models" / f"categorizer_{ACCOUNT}_2026-10-02.joblib"
+    assert set(joblib.load(done.model_file).known)  # a usable model

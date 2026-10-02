@@ -25,13 +25,14 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+import joblib
 import pandas as pd
 
 from lookahead.categories import category_by_rules, load_category_preferences
 from lookahead.categorizer import HybridCategorizer, examples
 from lookahead.db import connect
 from lookahead.flows import Txn, flow_types
-from lookahead.merchants import extract_merchant
+from lookahead.merchants import extract_merchant, is_private_path
 from lookahead.resolve import load_user_decisions, name_infos, resolve
 from lookahead.synthetic_training import synthetic_examples
 
@@ -214,6 +215,9 @@ class Summary:
     flagged: int
     changed: int | None  # rows whose category differs from the stored one (None: first run)
     model_version: str
+    flagged_before: int | None = None  # None: first run
+    training_before: int | None = None  # your rows used by the previous run
+    model_file: Path | None = None  # where the trained model was saved, if anywhere
 
 
 def stored_categories(conn: sqlite3.Connection, account: str) -> dict[str, str | None]:
@@ -233,15 +237,37 @@ def categorize(
     today: date | None = None,
     model: HybridCategorizer | None = None,
     training: int = 0,
+    model_dir: Path | None = None,
 ) -> Summary:
     """Train (unless a model is given), predict every row and store the results, replacing
-    the account's earlier ones, in one database transaction."""
+    the account's earlier ones, in one database transaction. This is also "Retrain": the
+    settings are the saved ones, nothing is tuned, and holdout rows are never trained on.
+    With `model_dir` (inside data/private/ only) the trained model is saved there, dated."""
     settings = settings or Settings()
     day = (today or date.today()).isoformat()
     if model is None:
         model, training = train(conn, account, settings)
     version = f"{day}, {training} labelled rows"
     before = stored_categories(conn, account)
+    flagged_before = (
+        conn.execute(
+            "SELECT COALESCE(SUM(flagged), 0) FROM category_predictions WHERE account = ?",
+            (account,),
+        ).fetchone()[0]
+        if before
+        else None
+    )
+    last = conn.execute(
+        "SELECT training_rows FROM categorizer_runs WHERE account = ? ORDER BY run_id DESC LIMIT 1",
+        (account,),
+    ).fetchone()
+    model_file = None
+    if model_dir is not None:
+        if not is_private_path(model_dir):
+            raise ValueError("a trained model holds merchant names: keep it in data/private/")
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model_file = model_dir / f"categorizer_{account}_{day}.joblib"
+        joblib.dump(model, model_file)
     df = predict(conn, account, model)
     # pandas shows a missing category as NaN; the database and comparisons want None
     df["category"] = df["category"].astype("object").where(df["category"].notna(), None)
@@ -275,8 +301,20 @@ def categorize(
                          "synthetic_months": settings.synthetic_months}),
              len(df), int(df["flagged"].sum())),
         )  # fmt: skip
-    return Summary(len(df), training, Counter(df["source"]), int(df["flagged"].sum()), changed,
-                   version)  # fmt: skip
+    return Summary(
+        len(df), training, Counter(df["source"]), int(df["flagged"].sum()), changed, version,
+        flagged_before, last[0] if last else None, model_file,
+    )  # fmt: skip
+
+
+def model_dir_for(db_path: Path) -> Path | None:
+    """data/private/models/ for a database kept in data/private/; None otherwise (the
+    synthetic demo's model is not worth keeping)."""
+    if not is_private_path(db_path):
+        return None
+    parts = db_path.resolve().parts
+    index = max(i for i in range(len(parts) - 1) if parts[i : i + 2] == ("data", "private"))
+    return Path(*parts[: index + 2]) / "models"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -290,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     settings = load_settings(args.choice)
     conn = connect(args.db)
-    s = categorize(conn, args.account, settings)
+    s = categorize(conn, args.account, settings, model_dir=model_dir_for(args.db))
     conn.close()
     saved = "saved by step 7a" if args.choice.exists() else "defaults (no saved choice)"
     print(f"Categorized {s.rows} rows, account {args.account}; settings: {saved}")
@@ -300,7 +338,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {source}: {s.by_source.get(source, 0)}")
     print(f"flagged (worth a look, never blocking): {s.flagged}")
     if s.changed is not None:
-        print(f"rows whose category changed since the last run: {s.changed}")
+        print(f"rows whose category changed since the last run: {s.changed} "
+              f"(flagged before: {s.flagged_before})")  # fmt: skip
+    if s.model_file is not None:
+        print("model saved in data/private/models/")
     return 0
 
 

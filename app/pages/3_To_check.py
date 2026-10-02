@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # make `lookahead`
 
 import streamlit as st  # noqa: E402
 
+from lookahead.categorize import categorize, load_settings, model_dir_for  # noqa: E402
 from lookahead.corrections import (  # noqa: E402
     NO_MERCHANT,
     correct_merchant,
@@ -19,7 +20,7 @@ from lookahead.corrections import (  # noqa: E402
     to_check,
 )
 from lookahead.db import connect  # noqa: E402
-from lookahead.demo import build_demo_db  # noqa: E402
+from lookahead.demo import DEMO_SETTINGS, build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.taxonomy import CATEGORIES  # noqa: E402
@@ -72,6 +73,24 @@ if not has_categories(conn, account):
         f"`python -m lookahead.categorize --db {db_path} --account {account}`"
     )
     st.stop()
+
+# --- Retrain ---
+settings = DEMO_SETTINGS if source == "Synthetic demo" else load_settings()
+if st.sidebar.button(
+    "Retrain the model",
+    help="Learns from your corrections with the saved settings, then refreshes every "
+    "category. Rows held out for evaluation are never used.",
+):
+    with st.spinner("Retraining..."):
+        done = categorize(conn, account, settings, model_dir=model_dir_for(db_path))
+    st.session_state["retrained"] = (
+        f"Retrained on {done.training_rows} of your rows (before: {done.training_before}). "
+        f"{done.changed} rows changed category; rows to check: {done.flagged_before} before, "
+        f"{done.flagged} now."
+    )
+    st.rerun()
+if "retrained" in st.session_state:
+    st.success(st.session_state.pop("retrained"))
 
 show_all = st.sidebar.toggle(
     "Show every merchant", value=False,
