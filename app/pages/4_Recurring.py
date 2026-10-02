@@ -120,6 +120,15 @@ if listed:
             )  # fmt: skip
         else:
             st.caption("No payments in the data yet for this series.")
+        if chosen.loose and chosen.offsets:
+            spread = sorted(abs(d) for d in chosen.offsets)
+            st.caption(
+                "A candidate: same amount, about once a month, on varying days. Nothing uses "
+                "it until you confirm it. Once confirmed it is expected around day "
+                f"{chosen.anchor_day} of the month; past payments were a median of "
+                f"{spread[len(spread) // 2]} days from that date, at most {spread[-1]}, and "
+                "the forecast lets the date vary by that much."
+            )
         if chosen.previous_cents is not None:
             st.caption(
                 f"The amount changed once: {abs(chosen.previous_cents) / 100:.2f} before, "

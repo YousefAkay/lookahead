@@ -51,6 +51,8 @@ class Stored:
     edited: bool = False  # your next date or amount is in use
     detected_now: bool = True  # False: not found by detection (added by hand, or lost)
     paid_after_end: bool = False  # you ended it, and a payment has posted since
+    offsets: tuple[int, ...] = ()  # days each payment was from its expected date (- early)
+    loose: bool = False  # e-Transfers sent by hand: about monthly, the day varies
 
 
 @dataclass(frozen=True)
@@ -179,7 +181,7 @@ def _from_detected(s: Series, fingerprint: dict[int, str], posted: dict[int, dat
         next_expected=s.next_expected, status="detected", active=s.active,
         evidence=tuple(fingerprint[r] for r in s.rows), previous_cents=s.previous_cents,
         changed_fingerprint=None if s.changed_row is None else fingerprint[s.changed_row],
-        last_paid=posted[s.rows[-1]],
+        last_paid=posted[s.rows[-1]], offsets=s.offsets, loose=s.loose,
     )  # fmt: skip
 
 
@@ -251,6 +253,8 @@ def _from_snapshot(d: Decision, as_of: date) -> Stored:
         next_expected=_next_from(cadence, anchor, direction, as_of),
         status="confirmed", active=True, detected_now=False,
         previous_cents=saved.get("previous_cents"),  # type: ignore[arg-type]
+        offsets=tuple(saved.get("offsets", ())),  # type: ignore[arg-type]
+        loose=bool(saved.get("loose", False)),
     )  # fmt: skip
 
 
@@ -262,6 +266,7 @@ def _to_json(s: Stored) -> dict[str, object]:
     for name in ("anchor", "next_expected", "last_paid"):
         data[name] = None if data[name] is None else data[name].isoformat()
     data["range_cents"], data["evidence"] = list(s.range_cents), list(s.evidence)
+    data["offsets"] = list(s.offsets)
     return data
 
 
@@ -317,5 +322,6 @@ def load_series(conn: sqlite3.Connection, account: str) -> list[Stored]:
         for name in ("anchor", "next_expected", "last_paid"):
             d[name] = None if d[name] is None else date.fromisoformat(d[name])
         d["range_cents"], d["evidence"] = tuple(d["range_cents"]), tuple(d["evidence"])
+        d["offsets"] = tuple(d.get("offsets", ()))
         out.append(Stored(**d))
     return out

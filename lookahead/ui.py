@@ -129,7 +129,8 @@ def series_label(series: object, hide: bool = False) -> str:
     name = getattr(series, "name", None)
     if hide:
         return HIDDEN
-    return name or _KIND_NAMES.get(getattr(series, "kind", ""), BLANK)
+    label = name or _KIND_NAMES.get(getattr(series, "kind", ""), BLANK)
+    return f"{label} (sent by hand, the day varies)" if getattr(series, "loose", False) else label
 
 
 def recurring_table(series: list, hidden: set[str]) -> pd.DataFrame:  # type: ignore[type-arg]

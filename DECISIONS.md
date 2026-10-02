@@ -376,6 +376,14 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Decision: a series I ended stays ended. A payment posting later is flagged for an alert, not used to switch the series back on. A confirmed series that detection no longer finds is kept and marked, so it can raise "expected payment not observed".
 - Measurement rule: my confirm, reject and add counts on real data are the measurement for this step. If I change the detector after seeing them, scoring it again on the same data is development, not evaluation.
 
+### 2026-10-02: Rent sent by hand: a loose-timing e-Transfer candidate (changed after the real-data measurement)
+- This is development, not evaluation. My real counts for 3a (4 of 4 detected series real, 3 of 4 regular bills found) were taken before it and stay the measurement.
+- Found: rent sent by hand as e-Transfers can fall more than 3 business days from any pattern.
+- Decision: I did not widen the date tolerance for all series. A set of 4 or more same-amount outgoing e-Transfers with a monthly median gap that fails only on timing becomes a candidate on the Recurring page, matched with a 7 business day tolerance. It is never confirmed automatically and changes nothing until I confirm it. Lost: a wider tolerance everywhere (habits would pass as schedules again).
+- Once confirmed it is a monthly series anchored on its typical day of the month. Every series now stores how many days early or late each past payment was, so the forecast can move the date by that spread in its simulated paths.
+- Not offered for bill payments, card purchases, incoming e-Transfers, fewer than 4 payments, or gaps that are not about a month.
+- Fixed in the report: the "why not a series" lines put amounts of different payees together and said "fewer than 4" without saying when 4 applies. Payments are now grouped per payee. The rule itself is unchanged: a payee always paid about the same amount needs 3 payments; one amount among others at a payee, or among e-Transfers, needs 4.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

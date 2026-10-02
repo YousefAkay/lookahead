@@ -628,7 +628,7 @@ def test_own_account_command_prints_counts_only(
 
 
 def test_missed_regular_payments_are_explained_without_names_or_amounts() -> None:
-    from lookahead.recurring import AmountGroup, explain_amount_groups
+    from lookahead.recurring import WHY_NO_SERIES, AmountGroup, explain_amount_groups
 
     rows = Rows()
     for m in range(1, 7):  # a clean monthly e-Transfer: a series
@@ -644,22 +644,33 @@ def test_missed_regular_payments_are_explained_without_names_or_amounts() -> Non
         rows.bill(shift_to_business_day(date(2026, m, 25), "later"), cents, "Landlord Inc")
     rows.etransfer(date(2026, 4, 9), -1500)  # a one-off: not listed
     got = explain_amount_groups(rows.txns, as_of=date(2026, 11, 30))
-    why = {(g.flow, g.payments): g.why for g in got}
-    assert why[("outgoing e-Transfers", 6)] in {
-        "is a series", "timing: payments more than 3 business days from any pattern",
-        "gaps: too many expected dates without a payment",
-    }  # fmt: skip
-    assert sorted(g.why for g in got if g.flow == "outgoing e-Transfers") == sorted([
-        "is a series",
-        "timing: payments more than 3 business days from any pattern",
-        "gaps: too many expected dates without a payment",
-        "fewer than 4 payments of one amount",
-    ])  # fmt: skip
+    series, _named, few, timing, gaps, _amount, _none = WHY_NO_SERIES
+    assert sorted(g.why for g in got if g.flow == "outgoing e-Transfers") == sorted(
+        [series, timing, gaps, few]
+    )
+    # one payee whose amount changed twice: the payee as a whole is a series (variable)
+    assert [(g.payments, g.why) for g in got if g.flow == "bill payments"] == [(8, series)]
     assert all(isinstance(g, AmountGroup) for g in got)
-    assert not any(ch.isdigit() for g in got for ch in g.why.replace("3 business", "")
-                   .replace("4 payments", "").replace("10%", ""))  # fmt: skip
-    for text in ("Landlord", "750", "420", "300"):
+    for text in ("Landlord", "750", "420", "300", "600", "685"):
         assert text not in repr(got)
+
+
+def test_amounts_of_different_payees_are_never_put_together() -> None:
+    from lookahead.recurring import WHY_NO_SERIES, explain_amount_groups
+
+    rows = Rows()
+    for m in range(1, 4):  # three payees, each paid the same amount once
+        rows.bill(date(2026, m, 12), -5000, f"Payee {'ABC'[m - 1]}")
+    assert explain_amount_groups(rows.txns, as_of=date(2026, 6, 30)) == []
+    for m in range(1, 4):  # one payee, paid one amount three times: a series at 3 payments
+        rows.bill(shift_to_business_day(date(2026, m, 20), "later"), -8000, "Internet Co")
+    for m in range(1, 4):  # one amount among others at a payee: that needs 4
+        rows.bill(shift_to_business_day(date(2026, m, 5), "later"), -3000, "Mixed Co")
+    for k, cents in enumerate([-1100, -2650, -4480, -990]):
+        rows.bill(date(2026, 1, 14) + timedelta(days=19 * k), cents, "Mixed Co")
+    got = {(g.payments, g.why) for g in explain_amount_groups(rows.txns, as_of=date(2026, 3, 31))}
+    assert got == {(3, WHY_NO_SERIES[0]), (3, WHY_NO_SERIES[2])}
+    assert "needs 4" in WHY_NO_SERIES[2] and "needs 3" in WHY_NO_SERIES[2]
 
 
 def test_a_named_recipient_without_the_key_is_reported_as_such() -> None:
@@ -673,3 +684,100 @@ def test_a_named_recipient_without_the_key_is_reported_as_such() -> None:
     with_key = explain_amount_groups(rows.txns, key=KEY, as_of=date(2026, 6, 30))
     assert [g.why for g in with_key] == ["is a series"]
     assert "alex" not in repr(got).casefold()
+
+
+# --- Rent sent by hand: a loose-timing e-Transfer candidate (after the real-data check) ---
+
+RENT_DAYS = (date(2026, 1, 24), date(2026, 3, 6), date(2026, 3, 27), date(2026, 5, 8),
+             date(2026, 5, 26), date(2026, 7, 9), date(2026, 8, 5), date(2026, 8, 28))  # fmt: skip
+
+
+def test_same_amount_monthly_etransfers_on_varying_days_are_a_loose_candidate() -> None:
+    rows = Rows()
+    rent = [rows.etransfer(day, -82000) for day in RENT_DAYS]
+    for k, cents in enumerate([-2000, -4500, -1500, -6000, -3300]):
+        rows.etransfer(date(2026, 1, 14) + timedelta(days=41 * k), cents)
+    s = only(detect(rows.txns, as_of=date(2026, 9, 20)))
+    assert s.loose and s.kind == "e-transfer" and s.rows == tuple(rent)
+    assert (s.cadence, s.amount_type, s.expected_cents) == ("monthly", "fixed", -82000)
+    assert s.anchor_day in (28, 29, 30, 31, 1, 2, 3, 4)  # its typical day: around the 1st
+    assert len(s.offsets) == len(rent) and 6 <= max(abs(d) for d in s.offsets) <= 11
+    assert min(s.offsets) < 0 < max(s.offsets)  # early some months, late in others
+    assert s.active and date(2026, 9, 25) <= s.next_expected <= date(2026, 10, 6)
+    # a candidate only: nothing changes flow type until it is confirmed
+    assert not set(rent) & set(flow_overrides(rows.txns, [s]))
+    assert set(flow_overrides(rows.txns, [s], confirmed={s.key})) == set(rent)
+
+
+def test_loose_timing_is_not_offered_outside_its_narrow_case() -> None:
+    rows = Rows()
+    for day in RENT_DAYS[:3]:  # only three payments
+        rows.etransfer(day, -82000)
+    assert detect(rows.txns, as_of=date(2026, 4, 15)) == []
+
+    bills = Rows()  # a bill payee with the same loose timing: the date rule is not widened
+    for day in RENT_DAYS:
+        bills.bill(day, -82000, "Landlord Inc")
+    assert detect(bills.txns, as_of=date(2026, 9, 20)) == []
+
+    cards = Rows()  # nor for card purchases
+    for day in RENT_DAYS:
+        cards.card(day, -8200, "Barber Shop")
+    assert detect(cards.txns, as_of=date(2026, 9, 20)) == []
+
+    sparse = Rows()  # same amount, but months apart: not "about monthly"
+    for day in (date(2026, 1, 5), date(2026, 3, 20), date(2026, 6, 2), date(2026, 8, 25),
+                date(2026, 11, 9)):  # fmt: skip
+        sparse.etransfer(day, -82000)
+    assert detect(sparse.txns, as_of=date(2026, 11, 30)) == []
+
+    money_in = Rows()  # incoming e-Transfers are income: never a loose candidate
+    for day in RENT_DAYS:
+        money_in.add(day, 82000, "deposit", "Free Interac E-Transfer ")
+    assert detect(money_in.txns, as_of=date(2026, 9, 20)) == []
+
+
+def test_a_regular_series_keeps_strict_timing_and_records_its_offsets() -> None:
+    rows = Rows()
+    monthly(rows, "Phone Co", 10, range(1, 6), cents=-6500, bill=True)
+    rows.bill(date(2026, 6, 15), -6500, "Phone Co")  # due Wed Jun 10: 5 days late
+    s = only(detect(rows.txns, as_of=date(2026, 6, 30)))
+    assert not s.loose and s.offsets == (0, 0, 0, 0, 0, 5)
+    rows_strict = Rows()
+    for m in range(1, 7):
+        rows_strict.etransfer(shift_to_business_day(date(2026, m, 1), "later"), -75000)
+    assert not only(detect(rows_strict.txns, as_of=date(2026, 6, 20))).loose
+
+
+def test_report_prints_the_spread_of_a_loose_candidate_in_days_only(
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],  # type: ignore[no-untyped-def]
+) -> None:
+    from lookahead.db import connect
+    from lookahead.recurring import count_recurring, main
+
+    rows = Rows()
+    for day in RENT_DAYS:
+        rows.etransfer(day, -82000)
+    c = count_recurring(rows.txns)
+    assert c.candidates == 1 and len(c.loose) == 1
+    payments, typical, most = c.loose[0]
+    assert payments == 8 and 3 <= typical <= most <= 11
+    conn = connect(tmp_path / "t.db")
+    for n, t in enumerate(rows.txns):
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES ('scotia-chequing', ?, ?, ?, ?, 0, ?, 'f', 'x')",
+            (t.posted_date.isoformat(), t.amount_cents, t.txn_type, t.text, f"fp{n}"),
+        )
+    conn.commit()
+    conn.close()
+    assert main(["report", "--db", str(tmp_path / "t.db"), "--env", str(tmp_path / "x")]) == 0
+    out = capsys.readouterr().out
+    assert "waiting for your confirmation: 1 (1 with loose timing)" in out
+    assert (
+        f"8 payments; days off its typical day of the month: median {typical}, maximum {most}"
+        in out
+    )
+    assert "820" not in out and "$" not in out

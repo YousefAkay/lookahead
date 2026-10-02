@@ -60,6 +60,7 @@ TOLERANCE = 3  # business days between the expected and the actual posting date
 MIN_PAYMENTS = 3  # payments before a series counts as detected ...
 MIN_PAYMENTS_YEARLY = 2  # ... except yearly: two years of data hold 2 or 3 at most
 MIN_PAYMENTS_PART = 4  # ... and a series found among other rows of its group (yearly: 3)
+LOOSE_TOLERANCE = 7  # business days: only for same-amount, about-monthly e-Transfers
 CARD_AMOUNT_SHARE = 0.10  # card purchases: amounts within 10% of the median
 EXACT_DAYS, MIN_EXACT_SHARE = 1, 0.75  # card purchases: 75% within a day of the due date
 MIN_HIT_RATIO = 0.75  # share of the due dates in the series' span that were paid
@@ -91,6 +92,12 @@ class Series:
     # payment at the new amount. `expected_cents` is then the new amount.
     previous_cents: int | None = None
     changed_row: int | None = None
+    # Days between each payment and its expected date (negative = early), oldest first.
+    # The forecast uses this spread to move the date around in its simulated paths.
+    offsets: tuple[int, ...] = ()
+    # True: e-Transfers of one amount, about monthly, sent by hand on varying days. Found
+    # with LOOSE_TOLERANCE on the date; a candidate only, never used until you confirm it.
+    loose: bool = False
 
 
 @dataclass(frozen=True)
@@ -177,14 +184,14 @@ def _needed(cadence: str, part: bool) -> int:
 def _best_fit(
     days: list[date], direction: str, as_of: date, part: bool = False, exact: bool = False,
     card_days: bool = False, tolerance: int = TOLERANCE, min_hit: float = MIN_HIT_RATIO,
-    min_payments: int | None = None,
+    min_payments: int | None = None, cadences: Sequence[Cadence] = CADENCES,
 ) -> _Fit | None:  # fmt: skip
     """The best pattern for these posting dates (sorted), or None if none is good enough.
     `part`: the rows are only some of their group's. `exact`: timing must be machine-like.
     `tolerance`, `min_hit` and `min_payments` are only loosened by the "why" diagnostic."""
     best: _Fit | None = None
     start, end = days[0] - timedelta(days=10), as_of + timedelta(days=400)
-    for cadence in CADENCES:
+    for cadence in cadences:
         needed = min_payments or _needed(cadence, part)
         if len(days) < needed:
             continue
@@ -200,7 +207,6 @@ def _best_fit(
                     (abs((d - due).days), i)
                     for i, d in enumerate(days)
                     if i not in used
-                    and abs((d - due).days) <= 7
                     and abs((d - due).days) <= 2 * tolerance + 1
                     and business_days_apart(d, due) <= tolerance
                 ]
@@ -278,11 +284,15 @@ def _clusters(rows: list[Txn]) -> list[list[Txn]]:
 
 def _series(
     key: str, merchant: str | None, kind: str, direction: str, rows: list[Txn], as_of: date,
-    part: bool = False, card: bool = False,
+    part: bool = False, card: bool = False, loose: bool = False,
 ) -> Series | None:  # fmt: skip
     days = [t.posted_date for t in rows]
+    tolerance = LOOSE_TOLERANCE if loose else TOLERANCE
+    if loose and (len(days) < MIN_PAYMENTS_PART or _gap(days) != GAPS[2]):
+        return None  # loose timing is only for 4+ payments about a month apart
     fit = _best_fit(days, direction, as_of, part=part, exact=card,
-                    card_days=card or kind == "e-transfer")  # fmt: skip
+                    card_days=card or kind == "e-transfer", tolerance=tolerance,
+                    cadences=("monthly",) if loose else CADENCES)  # fmt: skip
     if fit is None:
         return None
     paid = [rows[i] for _, i in fit.matched]
@@ -301,7 +311,7 @@ def _series(
     last_due = fit.matched[-1][0]
     later = [e for e in fit.expected if e > last_due]
     # A due date counts as missed once its tolerance window is over.
-    missed = sum(e < as_of and business_days_apart(e, as_of) > TOLERANCE for e in later)
+    missed = sum(e < as_of and business_days_apart(e, as_of) > tolerance for e in later)
     return Series(
         key=key, merchant=merchant, kind=kind, direction=direction,  # type: ignore[arg-type]
         cadence=fit.cadence, anchor=fit.anchor,
@@ -310,6 +320,7 @@ def _series(
         range_cents=amount_range, rows=tuple(t.row_id for t in paid),
         next_expected=later[0], active=missed < ENDED_AFTER,
         previous_cents=previous, changed_row=None if step is None else paid[step].row_id,
+        offsets=tuple((days[i] - due).days for due, i in fit.matched), loose=loose,
     )  # fmt: skip
 
 
@@ -380,6 +391,11 @@ def detect(
             centre = round(median(abs(t.amount_cents) for t in cluster))
             part = _series(f"{key}|{centre}", merchant, kind, direction, cluster, as_of,
                            part=True, card=card)  # fmt: skip
+            if part is None and kind == "e-transfer" and direction == "out":
+                # Sent by hand, so the day moves: same amount, about monthly, failing only
+                # on timing. A candidate for the Recurring page; nothing uses it unconfirmed.
+                part = _series(f"{key}|{centre}", merchant, kind, direction, cluster, as_of,
+                               part=True, loose=True)  # fmt: skip
             if part is not None:
                 found.append(part)
     return sorted(found, key=lambda s: s.key)
@@ -442,6 +458,8 @@ class RecurringCounts:
     upgraded_rows: int  # card purchases that become recurring outflows
     one_off_bills: int  # bill payments to a payee paid once
     candidates: int  # e-Transfer series waiting for confirmation
+    # for each loose-timing candidate: (payments, median days off, most days off)
+    loose: tuple[tuple[int, int, int], ...]
     named_recipients_skipped: bool  # e-Transfers name a recipient but no key was given
 
 
@@ -483,6 +501,11 @@ def count_recurring(
         upgraded_rows=sum(o.flow_type == "recurring_outflow" for o in overrides.values()),
         one_off_bills=sum(o.one_off for o in overrides.values()),
         candidates=sum(s.kind == "e-transfer" for s in series),
+        loose=tuple(
+            (len(s.rows), round(median(abs(d) for d in s.offsets)), max(abs(d) for d in s.offsets))
+            for s in series
+            if s.loose
+        ),
         named_recipients_skipped=named and key is None,
     )
 
@@ -492,8 +515,10 @@ def count_recurring(
 WHY_NO_SERIES = (
     "is a series",
     "named recipient, no pseudonym key",
-    "fewer than 4 payments of one amount",
-    "timing: payments more than 3 business days from any pattern",
+    "fewer than 4 payments of this amount (one amount among others needs 4; a payee "
+    "always paid about the same amount needs 3)",
+    "timing: payments more than 3 business days from any pattern (a loose-timing "
+    "candidate if these are e-Transfers about a month apart)",
     "gaps: too many expected dates without a payment",
     "amount changed: fits once amounts within 10% are taken together",
     "no calendar pattern even with looser rules",
@@ -540,13 +565,21 @@ def explain_amount_groups(
         as_of = max((t.posted_date for t in txns), default=date.min)
     past = [t for t in txns if t.posted_date <= as_of]
     flows = flow_types(past, user)
-    by_flow: dict[str, list[Txn]] = {}
+    payees = merchant_groups(past, user)
+    by_flow: dict[tuple[str, str | None], list[Txn]] = {}
     for t in past:
         flow = flows[t.row_id]
         if t.amount_cents < 0 and not flow.netted and flow.reason in _FLOWS_TO_EXPLAIN:
-            by_flow.setdefault(flow.reason, []).append(t)
+            # one payee at a time: amounts of different payees are never put together
+            by_flow.setdefault((flow.reason, payees[t.row_id]), []).append(t)
     out: list[AmountGroup] = []
-    for reason, rows in by_flow.items():
+    for (reason, payee), rows in by_flow.items():
+        rows = sorted(rows, key=lambda t: (t.posted_date, t.row_id))
+        if payee is not None and _series("", payee, "merchant", "out", rows, as_of) is not None:
+            if len(rows) >= min_rows:  # the whole payee is one series (needs 3 payments)
+                gap = _gap([t.posted_date for t in rows])
+                out.append(AmountGroup(_FLOWS_TO_EXPLAIN[reason], len(rows), gap, WHY_NO_SERIES[0]))
+            continue
         card_days = reason == "outgoing e-Transfer"
         named = card_days and key is None
 
@@ -683,7 +716,11 @@ def _report(db_path: Path, account: str, env_path: Path) -> int:
           "(bill payments already are)")  # fmt: skip
     print(f"bill payments to my own accounts (transfers, not spending): {c.own_account_rows}")
     print(f"bill payments to a payee paid once (one-offs): {c.one_off_bills}")
-    print(f"e-Transfer series waiting for your confirmation: {c.candidates}")
+    print(f"e-Transfer series waiting for your confirmation: {c.candidates} "
+          f"({len(c.loose)} with loose timing)")  # fmt: skip
+    for payments, typical, most in c.loose:
+        print(f"  loose-timing candidate: {payments} payments; days off its typical day of "
+              f"the month: median {typical}, maximum {most}")  # fmt: skip
     bills = bill_payment_groups(txns, user)
     sizes = Counter(
         "1 payment" if g.payments == 1 else "2 payments" if g.payments == 2

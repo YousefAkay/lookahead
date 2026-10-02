@@ -196,3 +196,23 @@ def test_series_as_of_reads_rows_and_decisions_up_to_the_date(conn: sqlite3.Conn
     latest, day = series_as_of(conn, ACCOUNT)
     assert day == date(2026, 6, 20)  # no date given: the last posting date
     assert load_series(conn, ACCOUNT) == cache_before  # reading never touches the cache
+
+
+def test_a_loose_candidate_keeps_its_spread_when_confirmed(tmp_path: Path) -> None:
+    c = connect(tmp_path / "rent.db")
+    days = (date(2026, 1, 24), date(2026, 3, 6), date(2026, 3, 27), date(2026, 5, 8),
+            date(2026, 5, 26), date(2026, 7, 9), date(2026, 8, 5), date(2026, 8, 28))  # fmt: skip
+    for day in days:
+        insert(c, day, -82000, "withdrawal", "Free Interac E-Transfer ")
+    (rent,) = refresh(c, ACCOUNT)
+    assert rent.loose and rent.status == "detected" and len(rent.offsets) == 8
+    assert load_series(c, ACCOUNT) == [rent]  # the spread survives the cache
+    confirm(c, ACCOUNT, rent, date(2026, 9, 5))
+    (confirmed,) = refresh(c, ACCOUNT)
+    assert confirmed.status == "confirmed" and confirmed.loose
+    assert confirmed.offsets == rent.offsets and confirmed.anchor_day == rent.anchor_day
+    with c:  # even if detection later loses it, the confirmed series keeps its spread
+        c.execute("DELETE FROM transactions WHERE posted_date < '2026-07-01'")
+    (kept,) = refresh(c, ACCOUNT)
+    assert (kept.status, kept.loose, kept.detected_now) == ("confirmed", True, False)
+    assert kept.offsets == rent.offsets
