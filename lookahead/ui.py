@@ -18,6 +18,11 @@ FLAG = "to check"  # marks a low-confidence category; it never blocks anything
 BLANK = "—"  # shown instead of the bank's single-space text
 
 
+def count(n: int, word: str) -> str:
+    """ "1 row", "2 rows": a number with its noun in the right form."""
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
 def synthetic_dir() -> Path:
     return Path(os.environ.get("LOOKAHEAD_SYNTHETIC_DIR", "data/synthetic"))
 

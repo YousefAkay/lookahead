@@ -48,3 +48,11 @@ py -3.13 -m venv .venv
 pip install -r requirements.txt
 pytest -m "not slow"
 ```
+
+## Run the app
+
+```powershell
+streamlit run app/Home.py
+```
+
+The app opens with a synthetic demo account. After changing or updating the code, stop the app (Ctrl+C) and start it again: Streamlit reloads a page when it changes, but keeps the already loaded `lookahead` modules, so new features may not show until a restart.

@@ -159,3 +159,9 @@ def test_review_table_shows_split_and_label() -> None:
     assert "Nadia" not in table["Text"].iloc[1]  # pseudonymized with a key
     skipped = review_table(rows, {"f1": Label(None, "skipped")}, key=None)
     assert skipped["Label"].iloc[0] == "skipped" and "Nadia" in skipped["Text"].iloc[1]
+
+
+def test_counts_use_the_singular_for_one() -> None:
+    from lookahead.ui import count
+
+    assert [count(n, "row") for n in (0, 1, 2)] == ["0 rows", "1 row", "2 rows"]

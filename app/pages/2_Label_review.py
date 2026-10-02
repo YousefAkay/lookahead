@@ -24,7 +24,13 @@ from lookahead.labels import (  # noqa: E402
 )
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.taxonomy import CATEGORIES  # noqa: E402
-from lookahead.ui import demo_db_path, private_db_path, review_table, synthetic_dir  # noqa: E402
+from lookahead.ui import (  # noqa: E402
+    count,
+    demo_db_path,
+    private_db_path,
+    review_table,
+    synthetic_dir,
+)
 from lookahead.views import accounts  # noqa: E402
 
 SKIP = "Skip / don't know"
@@ -88,7 +94,7 @@ if not open_tasks:
 
 
 def describe(t) -> str:  # type: ignore[no-untyped-def]
-    return f"{'✓ ' if t.done else ''}{t.group} ({t.rows} rows)"
+    return f"{'✓ ' if t.done else ''}{t.group} ({count(t.rows, 'row')})"
 
 
 chosen = st.selectbox(
@@ -121,7 +127,7 @@ with st.form("merchant_form"):
     default = None if chosen.suggestion is None else CATEGORIES.index(chosen.suggestion)
     category = st.selectbox("Category for all rows", CATEGORIES, index=default,
                             placeholder="Choose a category", key="category")  # fmt: skip
-    label_all = st.form_submit_button(f"Label all {len(part)} rows")
+    label_all = st.form_submit_button(f"Label all {count(len(part), 'row')}")
     skip_all = st.form_submit_button(SKIP)
 if label_all:
     if category is None:

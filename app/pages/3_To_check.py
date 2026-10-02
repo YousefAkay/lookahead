@@ -28,6 +28,7 @@ from lookahead.taxonomy import CATEGORIES  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
     HIDDEN,
+    count,
     demo_db_path,
     display_table,
     private_db_path,
@@ -97,10 +98,11 @@ if st.sidebar.button(
     reused = ""
     if llm_fallback.is_on(conn) and fallback_key is not None:  # saved answers only
         again = llm_fallback.apply(conn, account, fallback_key, llm_cache)
-        reused = f" {again.rows} rows use saved LLM answers again (nothing was sent)."
+        reused = f" {count(again.rows, 'row')} now from saved LLM answers again (nothing was sent)."
     st.session_state["retrained"] = (
         f"Retrained on {done.training_rows} of your rows (before: {done.training_before}). "
-        f"{done.changed} rows changed category; rows to check: {done.flagged_before} before, "
+        f"{count(done.changed or 0, 'row')} changed category; rows to check: "
+        f"{done.flagged_before} before, "
         f"{done.flagged} now.{reused}"
     )
     st.rerun()
@@ -136,20 +138,24 @@ else:
         waiting = llm_fallback.not_asked_yet(conn, account, fallback_key, llm_cache)
         asked = len(llm_fallback.candidates(conn, account, fallback_key)) - len(waiting)
         st.sidebar.caption(
-            f"{len(waiting)} merchant names would be sent; {asked} already have a saved answer."
+            f"{count(len(waiting), 'merchant name')} would be sent; "
+            f"{asked} already answered and saved."
         )
         if waiting:
             with st.sidebar.expander("Names that would be sent (shown only here)"):
                 st.write(waiting)
-            if st.sidebar.button(f"Send {len(waiting)} names to Claude", disabled=not has_key):
+            if st.sidebar.button(
+                f"Send {count(len(waiting), 'name')} to Claude", disabled=not has_key
+            ):
                 try:
                     result = llm_fallback.apply(conn, account, fallback_key, llm_cache, send=True)
                 except Exception as e:  # show the kind of error only: a message may quote a name
                     st.session_state["llm_note"] = f"Stopped: {type(e).__name__}. Nothing lost."
                 else:
                     st.session_state["llm_note"] = (
-                        f"Sent {result.sent} names; {result.rows} rows now show an estimated "
-                        "category from the LLM. They stay on the list to check."
+                        f"Sent {count(result.sent, 'name')}; "
+                        f"{count(result.rows, 'row')} now with an estimated category from "
+                        "the LLM. They stay on the list to check."
                     )
                 st.rerun()
         elif asked:
@@ -183,7 +189,8 @@ info = queue.set_index("merchant")
 
 def describe(merchant: str) -> str:
     line = info.loc[merchant]
-    return f"{label_of.get(merchant, merchant)} ({line['rows']} rows, {line['to_check']} to check)"
+    rows = count(int(line["rows"]), "row")
+    return f"{label_of.get(merchant, merchant)} ({rows}, {line['to_check']} to check)"
 
 
 merchant = st.selectbox(
@@ -212,13 +219,15 @@ if merchant != NO_MERCHANT:
                 "Category for this merchant", CATEGORIES, index=None,
                 placeholder="Choose a category", key="category",
             )  # fmt: skip
-            confirm = st.checkbox(f"This changes {len(covered)} rows. I confirm.", key="confirm")
+            confirm = st.checkbox(
+                f"This changes {count(len(covered), 'row')}. I confirm.", key="confirm"
+            )
             apply_all = st.form_submit_button("Apply to the merchant")
         if apply_all:
             if category is None:
                 st.warning("Choose a category first.")
             elif not confirm:
-                st.warning(f"Tick the box to confirm: this changes {len(covered)} rows.")
+                st.warning(f"Tick the box to confirm: this changes {count(len(covered), 'row')}.")
             else:
                 correct_merchant(conn, account, merchant, category)
                 st.rerun()
