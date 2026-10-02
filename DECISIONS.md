@@ -293,6 +293,19 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Test B is reported in two parts: merchants in the synthetic list (pre-taught, not generalization) and merchants not in it. Skipped rows are not scored. Every figure has n.
 - The script refuses a second run unless I pass `--again`, which it records. A dry run sends and scores nothing. Holdout card-merchant names go to the LLM once, under the 4a rules.
 - Why: every choice was made on dev, so the holdout number is an honest estimate only if nothing is changed after seeing it.
+- Result (run 1, final; dev 447 rows, 62 holdout names sent, 0 invalid answers):
+
+| Test set | n | Trained hybrid: accuracy / macro-F1 | With LLM fallback |
+|---|---|---|---|
+| Test A | 114 rows, 35 groups | 91.2% / 69.6% | 96.5% / 87.8% |
+| Test B, all | 107 rows, 27 groups | 87.9% / 52.6% | 92.5% / 67.7% |
+| Test B, pre-taught | 59 rows, 1 group | 100% / 100% | 100% / 100% |
+| Test B, not pre-taught | 48 rows, 26 groups | 72.9% / 49.8% | 83.3% / 67.7% |
+
+- "Test B, all" is inflated: one pre-taught chain has 59 of its 107 rows. My generalization number is Test B not pre-taught: 72.9% / 49.8%.
+- Accuracy on unflagged rows: 98.1% on Test A (8.8% flagged), 94.4% on new merchants (62.5% flagged, so 18 rows).
+- LLM cost: $0.014, $0.224 per 1,000 merchants, median 516 ms. The flagged-only variant gave the same accuracy as the candidate on both sets.
+- Small n everywhere. I made no choice from these numbers.
 
 ## Tests
 
