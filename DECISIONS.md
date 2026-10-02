@@ -316,6 +316,12 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - With "Pseudonymize text" on, the merchant column is hidden on rows where a name or reference was replaced, since the merchant of such a row can be a person.
 - The demo model is trained on the generator's answer keys, so demo categories are nearly always right; the page says this is not evidence.
 
+### 2026-10-01: Corrections are separate from evaluation labels (8b)
+- Decision: a correction made in the app is a dated row in its own table. It changes what the app shows at once. It trains the model only for development rows and rows imported after the freeze; holdout rows change on screen only. Lost: writing corrections into the label table (a correction on a holdout row would have changed the answer key).
+- Decision: a whole-merchant correction asks once ("this changes N rows") and is not stored as a category preference. Lost: a preference, which would make a rule decide the merchant and take its rows out of the frozen splits. Future rows of the merchant are covered once the model is retrained, because it reuses the merchant's label.
+- A single-row correction also works on rows a rule decided (an e-Transfer that was a gift). A category that contradicts the flow type is refused (Income on spending).
+- The "To check" page lists merchants with a low-confidence category, least confident first. Checking is optional; every row already has a category.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

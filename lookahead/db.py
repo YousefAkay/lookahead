@@ -116,6 +116,16 @@ CREATE TABLE IF NOT EXISTS category_predictions (
     model_version TEXT    NOT NULL,
     predicted_at  TEXT    NOT NULL
 );
+-- Corrections made in the app (step 8b), dated. Kept apart from category_labels, which
+-- is the answer key of the evaluation and must not change because of a correction.
+CREATE TABLE IF NOT EXISTS category_corrections (
+    correction_id INTEGER PRIMARY KEY,
+    fingerprint   TEXT    NOT NULL,
+    account       TEXT    NOT NULL,
+    category      TEXT    NOT NULL,
+    scope         TEXT    NOT NULL CHECK (scope IN ('merchant', 'row')),
+    decided_at    TEXT    NOT NULL
+);
 CREATE TABLE IF NOT EXISTS categorizer_runs (
     run_id        INTEGER PRIMARY KEY,
     account       TEXT    NOT NULL,

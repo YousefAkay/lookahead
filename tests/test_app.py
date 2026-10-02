@@ -195,3 +195,56 @@ def test_transactions_page_shows_categories_flow_types_and_flags() -> None:
     at.sidebar.multiselect[1].set_value(["Groceries"]).run()
     filtered = at.dataframe[0].value
     assert 0 < len(filtered) < everything and set(filtered["Category"]) == {"Groceries"}
+
+
+# --- Step 8b: the "To check" page ---
+
+TO_CHECK = APP / "pages" / "3_To_check.py"
+
+
+def demo_categories(tmp_path: Path, account: str = "synthetic-A") -> dict[str, str]:
+    from lookahead.db import connect_readonly
+
+    conn = connect_readonly(tmp_path / "demo.db")
+    rows = conn.execute(
+        "SELECT fingerprint, category FROM category_predictions WHERE account = ?", (account,)
+    ).fetchall()
+    conn.close()
+    return dict(rows)
+
+
+def test_to_check_page_says_so_when_nothing_is_flagged() -> None:
+    at = run(TO_CHECK)
+    assert "Nothing to check" in page_text(at) or len(at.selectbox) >= 1
+    assert "optional" in page_text(at)
+
+
+def test_to_check_page_needs_a_confirmation_for_a_whole_merchant(isolated: Path) -> None:
+    at = run(TO_CHECK)
+    at.sidebar.toggle[1].set_value(True).run()  # show every merchant
+    merchants = [o for o in at.selectbox(key="merchant").options if "no merchant" not in o]
+    pick = next(o for o in merchants if o.startswith("Maxi"))
+    at.selectbox(key="merchant").select(pick).run()
+    before = demo_categories(isolated)
+    at.selectbox(key="category").select("Shopping")
+    button(at, "Apply to the merchant").click().run()
+    assert "Tick the box to confirm" in page_text(at)
+    assert demo_categories(isolated) == before  # nothing stored without the confirmation
+    at.selectbox(key="category").select("Shopping")
+    at.checkbox(key="confirm").check()
+    button(at, "Apply to the merchant").click().run()
+    after = demo_categories(isolated)
+    changed = {f for f in after if after[f] != before[f]}
+    assert changed and {after[f] for f in changed} == {"Shopping"}
+
+
+def test_to_check_page_refuses_a_category_that_contradicts_the_flow(isolated: Path) -> None:
+    at = run(TO_CHECK)
+    at.sidebar.toggle[1].set_value(True).run()
+    pick = next(o for o in at.selectbox(key="merchant").options if o.startswith("Maxi"))
+    at.selectbox(key="merchant").select(pick).run()
+    before = demo_categories(isolated)
+    at.selectbox(key="row_category").select("Income")
+    button(at, "Save for this row").click().run()
+    assert any("does not fit" in str(e.value) for e in at.error)
+    assert demo_categories(isolated) == before

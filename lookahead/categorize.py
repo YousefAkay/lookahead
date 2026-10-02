@@ -79,12 +79,33 @@ def _has_table(conn: sqlite3.Connection, name: str) -> bool:
 
 
 def training_rows(conn: sqlite3.Connection, account: str) -> pd.DataFrame:
-    """Your labelled rows the model may learn from: development rows only (never holdout)."""
-    from lookahead.labels import labelled_examples  # here: labels imports the categorizer
+    """Your rows the model may learn from: development rows, and rows without a split
+    (imported after the splits were frozen, so they can never be holdout rows). The label
+    is your correction if there is one, else your label from the review page.
+    Holdout rows (Test A, Test B) are never included, whatever was corrected."""
+    from lookahead.corrections import corrections
+    from lookahead.labels import _categorizer_rows, current_labels  # labels imports us
 
-    if not _has_table(conn, "label_splits"):
+    if not _has_table(conn, "category_labels"):
         return pd.DataFrame()
-    return labelled_examples(conn, account, ("dev",))
+    rows = _categorizer_rows(conn, account)
+    split = dict(
+        conn.execute(
+            "SELECT fingerprint, split FROM label_splits WHERE account = ?", (account,)
+        ).fetchall()
+    )
+    labels = current_labels(conn, account)
+    corrected = corrections(conn, account)
+
+    def label(fingerprint: str) -> str | None:
+        if split.get(fingerprint, "dev") != "dev":
+            return None
+        if fingerprint in corrected:
+            return corrected[fingerprint][0]
+        return labels[fingerprint].category if fingerprint in labels else None
+
+    rows["label"] = [label(f) for f in rows["fingerprint"]]
+    return rows[rows["label"].notna()].reset_index(drop=True)
 
 
 def train(
@@ -111,6 +132,7 @@ def train(
 def predict(conn: sqlite3.Connection, account: str, model: HybridCategorizer) -> pd.DataFrame:
     """One row per stored transaction: fingerprint, merchant, flow_type, category, source,
     detail, flagged, confidence."""
+    from lookahead.corrections import corrections
     from lookahead.labels import current_labels
 
     raw = conn.execute(
@@ -126,6 +148,7 @@ def predict(conn: sqlite3.Connection, account: str, model: HybridCategorizer) ->
     flows = flow_types(txns, user)
     resolution = resolve(name_infos(t.text for t in txns), user)
     labels = current_labels(conn, account) if _has_table(conn, "category_labels") else {}
+    corrected = corrections(conn, account)
 
     # row_id -> (category, source, detail, flagged, confidence)
     out: dict[int, tuple[str | None, str, str, bool, float | None]] = {}
@@ -133,7 +156,10 @@ def predict(conn: sqlite3.Connection, account: str, model: HybridCategorizer) ->
     predictions = model.predict_rows(features) if len(features) else []
     for row_id, p in zip(features["row_id"], predictions, strict=True):
         label = labels.get(fingerprint[row_id])
-        if label is not None and label.category is not None:
+        if fingerprint[row_id] in corrected:
+            category = corrected[fingerprint[row_id]][0]
+            out[row_id] = (category, "your label", "corrected by you", False, 1.0)
+        elif label is not None and label.category is not None:
             out[row_id] = (label.category, "your label", "confirmed by you", False, 1.0)
         else:
             out[row_id] = (p.category, _ROUTES[p.route], p.route, p.flagged, p.confidence)
@@ -142,7 +168,10 @@ def predict(conn: sqlite3.Connection, account: str, model: HybridCategorizer) ->
         d = decisions[t.row_id]
         if t.row_id in out:
             continue
-        if flows[t.row_id].netted:
+        category, scope = corrected.get(fingerprint[t.row_id], (None, None))
+        if scope == "row":  # a row a rule decided, corrected by you (single rows only)
+            out[t.row_id] = (category, "your label", "corrected by you", False, 1.0)
+        elif flows[t.row_id].netted:
             out[t.row_id] = (None, "netted", "fully reversed pair", False, None)
         elif d.category is not None:
             out[t.row_id] = (d.category, "rule", d.source, False, 1.0)
