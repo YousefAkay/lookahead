@@ -276,6 +276,17 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Enforced in code, with tests: only the extracted name of a card row is sent (no amount, date, location or type); rows a person rule or the name scan would catch are dropped; one call per name, cached in `data/private/cache/`; the answer must be one of the 17 categories; nothing writes labels; 4a sends dev names only.
 - This is a narrow exception to my rule that real data never goes to a cloud LLM. Reported with accuracy and macro-F1: cost per 1,000 merchants and median latency.
 - Bug fixed: the first real run stopped with a TypeError before sending anything, because the SDK (1.x) no longer has a `temperature` argument; my fake test client accepted any argument and hid it. Temperature now goes in the request body, tests check the request against the real SDK with the HTTP layer replaced, and a smoke command sends one made-up name first.
+- Result (dev, 83 names sent, 0 invalid answers, $0.018 in total, $0.22 per 1,000 merchants, median 521 ms):
+
+| Variant | Unseen merchants: accuracy / macro-F1 | Future rows: accuracy / macro-F1 |
+|---|---|---|
+| current | 83.2% / 38.8% | 94.0% / 89.6% |
+| LLM for new merchants | 85.7% / 63.1% | 91.0% / 89.5% |
+| LLM for flagged new merchants | 83.0% / 58.1% | 92.5% / 92.1% |
+
+- By the rule, the fallback candidate is "LLM for new merchants" (+24.2 points of macro-F1).
+- How I read it: the macro-F1 gain is inflated by tiny categories (several go from 0% to 100% recall on 1 to 3 rows of a single merchant). The accuracy gain is +2.5 points, and future-row accuracy drops 3 points for the full-LLM variant. Shopping is the solid gain (25% to 100%, 8 rows, 6 merchants). Personal care stays at 0%: it follows my own labelling rule, which an outside model cannot know.
+- Product decision unchanged: the trained hybrid is the default and the headline result. The LLM is an opt-in fallback, off by default, reported as a separate line.
 
 ## Tests
 
