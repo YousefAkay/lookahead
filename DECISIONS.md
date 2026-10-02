@@ -268,6 +268,7 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Decision: `paraphrase-multilingual-MiniLM-L12-v2`, alone and added to the current features, on the same dev protocol. Lost: the English-only model.
 - Rule: it becomes the candidate only with at least +1 point of macro-F1 on unseen merchants, and enters the app only if it also wins on Test B.
 - Why: a tie does not justify a 1 GB dependency. The model runs locally; the cache stays in `data/private/`.
+- Result: embeddings alone 64.7% accuracy, 32.1% macro-F1 (-6.7 points vs current); added to the current features 81.7% / 37.5% (-1.4). Neither passes the rule, so the lexicon model stays. I moved torch and sentence-transformers to `requirements-experiments.txt`; the app does not need them.
 
 
 ## Tests

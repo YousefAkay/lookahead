@@ -1,0 +1,14 @@
+# Experiments only (step 5c, MiniLM embeddings). The app does not need these.
+# Not chosen on dev, so they stay out of requirements.txt; see DECISIONS.md.
+#
+# Install (Windows, venv active; about 1-1.5 GB on disk):
+#   pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements-experiments.txt
+# The first line gets the CPU-only build of torch; the default build bundles GPU files.
+# First run downloads the model (about 470 MB) to the Hugging Face cache in your user folder.
+#
+# Run:
+#   python -m eval.categorizer_minilm --db data/private/db/lookahead.db
+sentence-transformers==6.1.0
+transformers==5.18.0
+# torch==2.14.1+cpu  (installed by the first command above; pip cannot find "+cpu" on PyPI)

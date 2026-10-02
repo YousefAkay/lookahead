@@ -31,7 +31,7 @@ def _encode(names: list[str]) -> np.ndarray:
             from sentence_transformers import SentenceTransformer
         except ImportError as e:
             raise RuntimeError(
-                "step 5c needs sentence-transformers: see the install steps in DECISIONS.md"
+                "step 5c needs sentence-transformers: see requirements-experiments.txt"
             ) from e
         _model = SentenceTransformer(MODEL_NAME, device="cpu")
     vectors = _model.encode(  # type: ignore[attr-defined]
