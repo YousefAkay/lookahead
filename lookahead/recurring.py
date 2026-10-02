@@ -459,6 +459,73 @@ def count_recurring(
     )
 
 
+WHY_NOT = (
+    "is a series",
+    "some of its payments form a series",
+    "too few payments",
+    "irregular timing",
+    "no payee name",
+)
+GAPS = ("one payment", "under 20 days", "20-45 days", "46-120 days", "over 120 days")
+
+
+@dataclass(frozen=True)
+class BillGroup:
+    """One bill-payment payee, described without its name or amounts."""
+
+    payments: int
+    why: str  # one of WHY_NOT
+    gap: str  # one of GAPS: the median number of days between payments
+
+
+def _gap(days: list[date]) -> str:
+    if len(days) < 2:
+        return GAPS[0]
+    middle = median((b - a).days for a, b in zip(days, days[1:], strict=False))
+    return (
+        GAPS[1]
+        if middle < 20
+        else GAPS[2]
+        if middle <= 45
+        else GAPS[3]
+        if middle <= 120
+        else GAPS[4]
+    )
+
+
+def bill_payment_groups(
+    txns: Sequence[Txn], user: UserDecisions | None = None, as_of: date | None = None
+) -> list[BillGroup]:
+    """Every bill-payment payee (money out), and why it is or is not a recurring series.
+    Bill payments have no amount rule: only the number of payments and the timing count."""
+    if as_of is None:
+        as_of = max((t.posted_date for t in txns), default=date.min)
+    past = [t for t in txns if t.posted_date <= as_of]
+    flows = flow_types(past, user)
+    merchants = merchant_groups(past, user)
+    by_payee: dict[str | None, list[Txn]] = {}
+    for t in past:
+        if flows[t.row_id].reason == "bill payment" and not flows[t.row_id].netted:
+            by_payee.setdefault(merchants[t.row_id], []).append(t)
+    out = []
+    for payee, rows in by_payee.items():
+        rows = sorted(rows, key=lambda t: (t.posted_date, t.row_id))
+        days = [t.posted_date for t in rows]
+        if payee is None:
+            why = "no payee name"
+        elif _series("", payee, "merchant", "out", rows, as_of) is not None:
+            why = "is a series"
+        elif any(_series("", payee, "merchant", "out", c, as_of, part=True) is not None
+                 for c in _clusters(rows)):  # fmt: skip
+            why = "some of its payments form a series"
+        elif len(rows) < MIN_PAYMENTS:
+            why = "too few payments"
+        else:
+            why = "irregular timing"
+        out.append(BillGroup(len(rows), why, _gap(days)))
+    return sorted(out, key=lambda g: (-g.payments, g.why, g.gap))
+
+
 def _line(counts: Counter[str], order: Sequence[str]) -> str:
     return ", ".join(f"{name} {counts.get(name, 0)}" for name in order)
 
@@ -494,6 +561,22 @@ def _report(db_path: Path, account: str, env_path: Path) -> int:
     print(f"card purchases that become recurring outflows: {c.upgraded_rows} rows")
     print(f"bill payments to a payee paid once (one-offs): {c.one_off_bills}")
     print(f"e-Transfer series waiting for your confirmation: {c.candidates}")
+    bills = bill_payment_groups(txns, user)
+    sizes = Counter(
+        "1 payment" if g.payments == 1 else "2 payments" if g.payments == 2
+        else "3-5 payments" if g.payments <= 5 else "6+ payments"
+        for g in bills
+    )  # fmt: skip
+    print(f"bill payments: {sum(g.payments for g in bills)} rows to {len(bills)} payees")
+    order = ("1 payment", "2 payments", "3-5 payments", "6+ payments")
+    print(f"  payees by number of payments: {_line(sizes, order)}")
+    for why in WHY_NOT:
+        part = [g for g in bills if g.why == why]
+        if part:
+            gaps = Counter(g.gap for g in part)
+            print(f"  {why}: {len(part)} payees, {sum(g.payments for g in part)} rows; "
+                  f"median gap between payments: "
+                  f"{', '.join(f'{gap} {gaps[gap]}' for gap in GAPS if gaps[gap])}")  # fmt: skip
     if c.named_recipients_skipped:
         print("e-Transfers that name a recipient were skipped: PSEUDONYM_KEY is missing")
     print("Nothing is stored yet: the Recurring page (next step) is where you confirm or reject.")

@@ -506,3 +506,27 @@ def test_report_prints_counts_only(tmp_path, capsys: pytest.CaptureFixture[str])
     for text in ("Netflix", "Videotron", "Hydro", "Globex", "1150", "115000", "PERSON_"):
         assert text not in out  # no names, no amounts, no tokens
     assert main(["report", "--db", str(tmp_path / "missing.db")]) == 2
+
+
+# --- Bill payments: why a payee is or is not a series (counts only) ---
+
+
+def test_bill_payment_payees_are_explained_without_names_or_amounts() -> None:
+    from lookahead.recurring import BillGroup, bill_payment_groups
+
+    rows = Rows()
+    monthly(rows, "Phone Co", 10, range(1, 8), cents=-6500, bill=True)  # a series
+    rows.bill(date(2026, 4, 17), -120000, "City Of Montreal")  # once
+    rows.bill(date(2026, 5, 4), -9000, "Dentist")
+    rows.bill(date(2026, 6, 4), -9000, "Dentist")  # twice
+    for day in (date(2026, 2, 3), date(2026, 5, 20), date(2026, 9, 8), date(2026, 9, 25)):
+        rows.bill(day, -250000, "University")  # four payments, no calendar pattern
+    rows.card(date(2026, 3, 3), -2500, "Bookshop")  # not a bill payment
+    got = bill_payment_groups(rows.txns, as_of=date(2026, 9, 30))
+    assert got == [
+        BillGroup(7, "is a series", "20-45 days"),
+        BillGroup(4, "irregular timing", "46-120 days"),
+        BillGroup(2, "too few payments", "20-45 days"),
+        BillGroup(1, "too few payments", "one payment"),
+    ]
+    assert all("Phone" not in repr(g) and "65" not in repr(g) for g in got)
