@@ -127,6 +127,24 @@ CREATE TABLE IF NOT EXISTS category_corrections (
     scope         TEXT    NOT NULL CHECK (scope IN ('merchant', 'row')),
     decided_at    TEXT    NOT NULL
 );
+-- Recurring series (week 3). `recurring_series` is what the app shows now: detection plus
+-- your decisions, rewritten on every refresh (one JSON object per series).
+-- `recurring_decisions` is the dated log of what you decided, replayed up to a date.
+CREATE TABLE IF NOT EXISTS recurring_series (
+    account    TEXT NOT NULL,
+    series_key TEXT NOT NULL,
+    data       TEXT NOT NULL,  -- JSON
+    as_of      TEXT NOT NULL,  -- the last posting date the detection used
+    PRIMARY KEY (account, series_key)
+);
+CREATE TABLE IF NOT EXISTS recurring_decisions (
+    decision_id INTEGER PRIMARY KEY,
+    account     TEXT    NOT NULL,
+    series_key  TEXT    NOT NULL,
+    action      TEXT    NOT NULL CHECK (action IN ('confirm', 'reject', 'end', 'edit', 'add')),
+    details     TEXT    NOT NULL,  -- JSON
+    decided_at  TEXT    NOT NULL
+);
 -- App settings (step 8d). A missing row means the default; the LLM fallback defaults to off.
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,

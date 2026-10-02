@@ -321,3 +321,78 @@ def test_llm_fallback_is_off_by_default_and_sends_only_on_click(
     )
     check.close()
     assert (private / "cache" / "llm_categories.json").exists()
+
+
+# --- Step 3a-iii: the Recurring page ---
+
+RECURRING = APP / "pages" / "4_Recurring.py"
+
+
+def stored_series(tmp_path: Path, account: str) -> dict:  # type: ignore[type-arg]
+    from lookahead.db import connect_readonly
+    from lookahead.recurring_store import load_series
+
+    conn = connect_readonly(tmp_path / "demo.db")
+    series = {s.name or s.kind: s for s in load_series(conn, account)}
+    conn.close()
+    return series
+
+
+def test_recurring_page_lists_detected_series_with_their_evidence(isolated: Path) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    table = at.dataframe[0].value
+    assert set(table["Status"]) == {"detected"} and len(table) == 6
+    assert {"semimonthly", "monthly"} <= set(table["How often"])
+    assert "Transfer to my own account" in set(table["Name"])
+    assert "estimates" in page_text(at) and "Not financial advice" in page_text(at)
+    assert len(at.dataframe[1].value) >= 3  # the payments behind the first series
+
+
+def test_recurring_page_confirms_rejects_and_adds(isolated: Path) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    first = at.selectbox(key="series").value
+    button(at, "Confirm").click().run()
+    assert not at.exception, at.exception
+    after = stored_series(isolated, "synthetic-B")
+    assert after[first.name or first.kind].status == "confirmed"
+    button(at, "Not recurring").click().run()
+    assert stored_series(isolated, "synthetic-B")[first.name or first.kind].status == "rejected"
+    assert len(at.dataframe[0].value) == 5  # rejected ones are hidden by default
+
+    at.text_input(key="add_name").set_value("Bursary")
+    at.radio(key="add_direction").set_value("Money in")
+    at.number_input(key="add_amount").set_value(1200.0)
+    button(at, "Add").click().run()
+    assert not at.exception, at.exception
+    added = stored_series(isolated, "synthetic-B")["Bursary"]
+    assert (added.status, added.direction, added.expected_cents) == ("user-added", "in", 120000)
+
+
+def test_recurring_page_hides_a_persons_name_when_pseudonymizing(isolated: Path) -> None:
+    from lookahead.db import connect
+    from lookahead.demo import build_demo_db
+    from lookahead.recurring_store import add_series, refresh
+
+    build_demo_db(isolated / "demo.db", isolated / "synthetic")
+    conn = connect(isolated / "demo.db")
+    for month in range(1, 7):  # made-up monthly credit memos from one person
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES ('synthetic-B', ?, 50000, 'credit memo', '1/Jane Doe ', 0, ?, 'f', 'x')",
+            (f"2026-{month:02d}-07", f"memo{month}"),
+        )
+    conn.commit()
+    add_series(conn, "synthetic-B", "Rent share", "in", "monthly", date(2026, 7, 1), 40000)
+    refresh(conn, "synthetic-B", bytes(range(32)))
+    conn.close()
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    names = set(at.dataframe[0].value["Name"])
+    assert "(hidden)" in names and not any("Jane" in str(n) for n in names)
+    assert "Rent share" in names  # a name I typed myself stays
+    at.sidebar.toggle[0].set_value(False).run()
+    assert any("Jane Doe" in str(n) for n in at.dataframe[0].value["Name"])

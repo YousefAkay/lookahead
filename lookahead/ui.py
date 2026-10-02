@@ -114,3 +114,39 @@ def review_table(rows: pd.DataFrame, labels: dict, key: bytes | None) -> pd.Data
             "Label": current,
         }
     )
+
+
+# --- Recurring page ---
+
+_KIND_NAMES = {
+    "e-transfer": "e-Transfers of one amount",
+    "own transfer": "Transfer to my own account",
+}
+
+
+def series_label(series: object, hide: bool = False) -> str:
+    """What to call a series on screen: its merchant, your name for it, or what it is."""
+    name = getattr(series, "name", None)
+    if hide:
+        return HIDDEN
+    return name or _KIND_NAMES.get(getattr(series, "kind", ""), BLANK)
+
+
+def recurring_table(series: list, hidden: set[str]) -> pd.DataFrame:  # type: ignore[type-arg]
+    """Recurring series as shown on screen. Amounts in dollars (display only), as sizes:
+    the direction column says whether money comes in or goes out."""
+    return pd.DataFrame(
+        {
+            "Name": [series_label(s, s.key in hidden) for s in series],
+            "Direction": ["money in" if s.direction == "in" else "money out" for s in series],
+            "How often": [s.cadence for s in series],
+            "Expected ($)": [abs(s.expected_cents) / 100 for s in series],
+            "Usual low ($)": [min(abs(c) for c in s.range_cents) / 100 for s in series],
+            "Usual high ($)": [max(abs(c) for c in s.range_cents) / 100 for s in series],
+            "Amount": [s.amount_type for s in series],
+            "Next expected": [s.next_expected.isoformat() for s in series],
+            "Status": [s.status for s in series],
+            "Active": ["yes" if s.active else "ended" for s in series],
+            "Payments": [len(s.evidence) for s in series],
+        }
+    )

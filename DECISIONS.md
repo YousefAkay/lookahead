@@ -356,6 +356,18 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Other seeds are less clean: 4 months gives 1 false series (13 of 14); 24 months with another seed misses 1 subscription because a letters-only reference code left in the name split the merchant into three groups. That is a week 2 extraction limit, not fixed here.
 - The real check is my confirmed list. `python -m lookahead.recurring report` prints counts only.
 
+### 2026-10-02: First real run of the detector, and bill payments
+- Result (my account, counts only): 4 series, all monthly card charges (3 fixed, 1 variable, 1 with a price change, 3 active); 0 e-Transfer candidates; no bill payment in any series. I expected 4 to 5 monthly charges.
+- Decision: the report now breaks bill payments down by payee: number of payments, why it is not a series (too few payments, irregular timing, part of them form a series, no payee name) and the typical gap between payments. Counts only.
+- Why: bill payments that follow no calendar pattern still move the balance, so the forecast has to handle them some other way (entered by hand, or a planned item).
+
+### 2026-10-02: Stored series and a dated decision log (3a-iii)
+- Decision: detection is recomputed from the transactions; what I decide (confirm, not recurring, ended, a changed date or amount, a series added by hand) is a dated log replayed on top. Lost: editing a stored series row in place (a replay at an earlier date would use later decisions).
+- An edit holds until the next payment posts, then the detected values take over. "Ended" holds until a later payment. A confirmed series keeps a snapshot of its pattern, so it stays if detection later loses it.
+- Evidence is stored as transaction fingerprints. Detection runs as of the last posting date in the data, not today, so stale data does not make every series look ended.
+- The stored table holds one JSON object per series, not one column per field as first planned: only the app reads it, and the fields are still changing.
+- On the Recurring page a series whose payments show a replaced name keeps its own name hidden while pseudonymizing; a name I typed myself is shown.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
