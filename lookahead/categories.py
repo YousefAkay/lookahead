@@ -18,6 +18,7 @@ Counts-only check on a database:
 """
 
 import argparse
+import re
 import sqlite3
 import sys
 from collections import Counter
@@ -68,7 +69,12 @@ class Decision:
     inherit_from: int | None = None  # row_id of the paired purchase
 
 
+# "Amazon.Ca Prime Memb": the bank puts the site's domain between the two words.
+_AMAZON_DOMAIN = re.compile(r"^amazon (?:ca|com|fr|de|co uk|co jp) (?=prime\b)")
+
+
 def _default_for(keys: list[str]) -> str | None:
+    keys = [_AMAZON_DOMAIN.sub("amazon ", k) for k in keys]
     for prefix in sorted(MERCHANT_DEFAULTS, key=len, reverse=True):
         if any(k == prefix or k.startswith(prefix + " ") for k in keys):
             return MERCHANT_DEFAULTS[prefix]

@@ -141,7 +141,8 @@ CREATE TABLE IF NOT EXISTS recurring_decisions (
     decision_id INTEGER PRIMARY KEY,
     account     TEXT    NOT NULL,
     series_key  TEXT    NOT NULL,
-    action      TEXT    NOT NULL CHECK (action IN ('confirm', 'reject', 'end', 'edit', 'add')),
+    action      TEXT    NOT NULL CHECK (action IN
+                    ('confirm', 'reject', 'end', 'edit', 'add', 'category', 'continue')),
     details     TEXT    NOT NULL,  -- JSON
     decided_at  TEXT    NOT NULL
 );
@@ -180,6 +181,7 @@ def connect(path: Path, today: date | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     _migrate_label_status(conn)
+    _migrate_recurring_actions(conn)
     conn.executescript(SCHEMA)
     migrate_decisions(conn, today or date.today())
     return conn
@@ -202,6 +204,26 @@ def _migrate_label_status(conn: sqlite3.Connection) -> None:
         " scope, decided_at) SELECT label_id, fingerprint, account, category, status,"
         " scope, decided_at FROM category_labels_old;\n"
         "DROP TABLE category_labels_old;\n"
+        "COMMIT;"
+    )
+
+
+def _migrate_recurring_actions(conn: sqlite3.Connection) -> None:
+    """recurring_decisions made before "category" and "continue" existed: rebuild it with
+    the new CHECK rule (SQLite cannot change a CHECK in place), keeping every row and id."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recurring_decisions'"
+    ).fetchone()
+    if row is None or "'continue'" in row[0]:
+        return
+    conn.executescript(
+        "BEGIN;\n"
+        "ALTER TABLE recurring_decisions RENAME TO recurring_decisions_old;\n"
+        + SCHEMA
+        + "\nINSERT INTO recurring_decisions (decision_id, account, series_key, action,"
+        " details, decided_at) SELECT decision_id, account, series_key, action, details,"
+        " decided_at FROM recurring_decisions_old;\n"
+        "DROP TABLE recurring_decisions_old;\n"
         "COMMIT;"
     )
 

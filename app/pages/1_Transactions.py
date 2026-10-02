@@ -137,6 +137,9 @@ st.dataframe(
     hide_index=True,
     width="stretch",
     column_config={
+        # Wide enough for the bank's 31-character text; double-click a cell for all of it.
+        "Text": st.column_config.TextColumn(width="large"),
+        "Merchant": st.column_config.TextColumn(width="medium"),
         "Amount ($)": st.column_config.NumberColumn(format="%.2f"),
         "Balance ($)": st.column_config.NumberColumn(format="%.2f"),
     },

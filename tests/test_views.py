@@ -157,3 +157,37 @@ def test_import_status_of_an_empty_account(db: sqlite3.Connection) -> None:
 def test_like_wildcards_are_searched_literally(db: sqlite3.Connection, wildcard: str) -> None:
     # Unescaped, "%" would match every row and "_" any single character.
     assert transactions(db, "synthetic-C", text=wildcard).empty
+
+
+# --- What recurring series change on the Transactions page ---
+
+
+def test_series_rows_show_recurring_outflow_and_the_series_category(db: sqlite3.Connection) -> None:
+    from lookahead.categorize import Settings, categorize
+    from lookahead.recurring_store import confirm, refresh, set_category
+
+    account = "synthetic-A"
+    categorize(db, account, Settings(threshold=0.5, synthetic_months=4))
+    before = transactions(db, account).set_index("fingerprint")
+    series = refresh(db, account)
+    card = next(s for s in series if s.kind == "merchant" and s.direction == "out"
+                and before.loc[s.evidence[0], "flow_type"] == "everyday")  # fmt: skip
+    after = transactions(db, account).set_index("fingerprint")
+    assert set(after.loc[list(card.evidence), "flow_type"]) == {"recurring_outflow"}
+    others = [f for f in before.index if f not in {e for s in series for e in s.evidence}]
+    assert after.loc[others, "flow_type"].equals(before.loc[others, "flow_type"])
+    assert after.loc[others, "category"].equals(before.loc[others, "category"])
+    rent = next(s for s in series if s.kind == "e-transfer")  # a candidate: nothing changes
+    assert set(after.loc[list(rent.evidence), "flow_type"]) == {"transfer"}
+
+    confirm(db, account, card)
+    set_category(db, account, card.key, "Entertainment")
+    confirm(db, account, rent)
+    refresh(db, account)
+    shown = transactions(db, account).set_index("fingerprint")
+    assert set(shown.loc[list(card.evidence), "category"]) == {"Entertainment"}
+    assert set(shown.loc[list(card.evidence), "source"]) == {"series"}
+    assert set(shown.loc[list(rent.evidence), "flow_type"]) == {"recurring_outflow"}  # confirmed
+    only = transactions(db, account, categories=["Entertainment"])
+    assert set(card.evidence) <= set(only["fingerprint"])  # the filter sees what is shown
+    assert set(only["category"]) == {"Entertainment"}

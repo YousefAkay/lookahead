@@ -384,6 +384,18 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Not offered for bill payments, card purchases, incoming e-Transfers, fewer than 4 payments, or gaps that are not about a month.
 - Fixed in the report: the "why not a series" lines put amounts of different payees together and said "fewer than 4" without saying when 4 applies. Payments are now grouped per payee. The rule itself is unchanged: a payee always paid about the same amount needs 3 payments; one amount among others at a payee, or among e-Transfers, needs 4.
 
+### 2026-10-02: Real-data result for recurring detection (one person)
+- Measured before any detector change: 4 series detected, all real recurring payments. One subscription was split across a merchant rename, so 3 distinct series. Rent was not detected. Income was not detected, by design. This is one person's account, a case study.
+- The loose-timing e-Transfer rule was added after this measurement. It found nearly all of the same-amount payments. That is development, not a second evaluation.
+
+### 2026-10-02: Series category, continuation links, and what the pages show
+- Decision: a confirmed fixed-amount series can carry a category, stored in the dated log. Every payment of the series shows it; other purchases at the same merchant keep their own. Why: a membership billed by a store where I also shop is a subscription, my shopping there is not.
+- Decision: "this series continues an ended one" is a link in the dated log. The two series show as one, with one history, one category and the price change between them. Lost: merging the two merchant names, which would have put all my shopping at that store into the subscription. An automatic suggestion can come later.
+- Decision: the Transactions page shows what series change: a card purchase in a series is a recurring outflow; an e-Transfer only once its series is confirmed. The category filter runs after these changes.
+- Rule extended: a Prime name with a site domain between the two words counts as Prime (Subscriptions).
+- Bug fixed: after confirming a series the Recurring page jumped to another one, because the selection held the series object, which changes when confirmed. It now holds the series key. The edit form is keyed by series, so it shows the selected series' own values.
+- Editor setting: my editor tools are denied Read and Edit on `data/private/**`. Shell commands are left allowed, so append-only notes still work.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

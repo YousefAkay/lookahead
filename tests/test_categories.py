@@ -237,3 +237,17 @@ def test_conflicts(flow: str, category: str | None, bad: bool) -> None:
 def test_uber_services(field: str, category: str | None) -> None:
     got = decide(txn(1, "pos purchase", -2_500, card(field, "Opos", "+1855")))[1]
     assert got.category == category
+
+
+def test_prime_billed_with_a_domain_between_amazon_and_prime_is_a_subscription() -> None:
+    """Shape reported from a real export: "Amazon" + a domain suffix + "Prime ..."."""
+    from lookahead.categories import _default_for
+    from lookahead.merchants import extract_merchant
+    from lookahead.resolve import name_key
+
+    name = extract_merchant("Opos Amazon.Ca Prime Membtoron ").merchant
+    assert name is not None and _default_for([name_key(name)]) == "Subscriptions"
+    assert _default_for([name_key("Amazon.Com Prime Video")]) == "Subscriptions"
+    assert _default_for([name_key("Amazon.Ca")]) == "Shopping"  # ordinary purchases
+    assert _default_for([name_key("Amazon.Ca Primer Paint")]) == "Shopping"  # not "prime"
+    assert _default_for([name_key("Amazon Prime")]) == "Subscriptions"  # as before

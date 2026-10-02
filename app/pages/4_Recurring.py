@@ -22,10 +22,13 @@ from lookahead.recurring_store import (  # noqa: E402
     confirm,
     edit,
     end,
+    link_continuation,
     load_series,
     refresh,
     reject,
+    set_category,
 )
+from lookahead.taxonomy import CATEGORIES  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
     demo_db_path,
@@ -36,6 +39,8 @@ from lookahead.ui import (  # noqa: E402
     synthetic_dir,
 )
 from lookahead.views import accounts, transactions  # noqa: E402
+
+OWN_CATEGORY = "Each payment's own category"
 
 st.set_page_config(page_title="Recurring · Lookahead", layout="wide")
 st.title("Recurring")
@@ -104,9 +109,14 @@ else:
 
 # --- One series: its evidence, and what you can change ---
 if listed:
-    chosen = st.selectbox(
-        "Series", listed, format_func=lambda s: series_label(s, s.key in hidden), key="series"
-    )
+    # The options are the series keys, not the series themselves: a key stays the same
+    # when the series changes (confirmed, edited), so the selection stays where it was.
+    by_key = {s.key: s for s in listed}
+    chosen_key = st.selectbox(
+        "Series", list(by_key), key="series",
+        format_func=lambda k: series_label(by_key[k], k in hidden),
+    )  # fmt: skip
+    chosen = by_key.get(chosen_key)
     if chosen is not None:
         evidence = rows["fingerprint"].isin(chosen.evidence).to_numpy()
         if evidence.any():
@@ -114,6 +124,8 @@ if listed:
             st.dataframe(
                 shown_rows[evidence], hide_index=True, width="stretch",
                 column_config={
+                    "Text": st.column_config.TextColumn(width="large"),
+                    "Merchant": st.column_config.TextColumn(width="medium"),
                     "Amount ($)": st.column_config.NumberColumn(format="%.2f"),
                     "Balance ($)": st.column_config.NumberColumn(format="%.2f"),
                 },
@@ -149,11 +161,12 @@ if listed:
             st.rerun()
         with st.form("edit_form"):
             st.markdown("**Change the next expected payment**")
+            # Keyed by the series, so switching series shows that series' own values.
             next_date = st.date_input("Next expected date", value=chosen.next_expected,
-                                      key="next_date")  # fmt: skip
+                                      key=f"next_date|{chosen.key}")  # fmt: skip
             amount = st.number_input(
                 "Expected amount ($)", min_value=0.0, step=1.0,
-                value=abs(chosen.expected_cents) / 100, key="amount",
+                value=abs(chosen.expected_cents) / 100, key=f"amount|{chosen.key}",
             )  # fmt: skip
             save = st.form_submit_button("Save")
         if save and isinstance(next_date, date):
@@ -169,6 +182,40 @@ if listed:
             "Your date or amount is used until the next payment posts; then the detected "
             "values take over again."
         )
+        if chosen.status == "confirmed" and chosen.amount_type == "fixed":
+            with st.form("category_form"):
+                st.markdown("**Category of this series**")
+                options = [OWN_CATEGORY, *CATEGORIES]
+                current = options.index(chosen.category) if chosen.category else 0
+                picked = st.selectbox(
+                    "Every payment in the series gets it; your other purchases at the same "
+                    "merchant keep their own.",
+                    options, index=current, key=f"series_category|{chosen.key}",
+                )  # fmt: skip
+                save_category = st.form_submit_button("Save category")
+            if save_category:
+                set_category(conn, account, chosen.key,
+                             None if picked == OWN_CATEGORY else picked)  # fmt: skip
+                refresh(conn, account, stored_key)
+                st.rerun()
+        ended = [s for s in listed if not s.active and s.key != chosen.key]
+        if ended:
+            with st.form("continue_form"):
+                st.markdown("**This series continues an ended one**")
+                previous = st.selectbox(
+                    "For example the same subscription under a new merchant name. The two "
+                    "are then shown as one series with one history. No merchant is merged.",
+                    ended, index=None, placeholder="Choose the ended series",
+                    format_func=lambda s: series_label(s, s.key in hidden),
+                    key=f"continues|{chosen.key}",
+                )  # fmt: skip
+                link = st.form_submit_button("Link them")
+            if link and previous is not None:
+                link_continuation(conn, account, chosen.key, previous.key)
+                refresh(conn, account, stored_key)
+                st.rerun()
+        if chosen.continues:
+            st.caption(f"Continues {len(chosen.continues)} earlier series (one history).")
 
 # --- Add one by hand ---
 with st.expander("Add a series by hand (for example income that has no fixed schedule)"):

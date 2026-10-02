@@ -9,7 +9,11 @@ date:
   to quietly switch it back on;
 - edit: your next date and/or amount, until a payment posts after that day (then the
   detected values take over again);
-- add: a series you enter by hand (status "user-added"), e.g. irregular income.
+- add: a series you enter by hand (status "user-added"), e.g. irregular income;
+- category: the category of every payment in the series (a subscription billed by a store
+  where you also shop: the series is Subscriptions, your other purchases there are not);
+- continue: this series carries on an ended one (the same subscription under a new merchant
+  name). The two are shown as one series with one history; no merchant is merged.
 Status: detected / confirmed / user-added / rejected. Evidence is stored as transaction
 fingerprints, which survive re-imports. The result is saved in `recurring_series`, so the
 pages and the forecast only read it.
@@ -24,8 +28,9 @@ from datetime import date, timedelta
 from lookahead.flows import Txn
 from lookahead.recurring import CADENCES, Series, detect, expected_dates
 from lookahead.resolve import UserDecisions, load_user_decisions
+from lookahead.taxonomy import CATEGORIES
 
-ACTIONS = ("confirm", "reject", "end", "edit", "add")
+ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 
 
@@ -53,6 +58,18 @@ class Stored:
     paid_after_end: bool = False  # you ended it, and a payment has posted since
     offsets: tuple[int, ...] = ()  # days each payment was from its expected date (- early)
     loose: bool = False  # e-Transfers sent by hand: about monthly, the day varies
+    category: str | None = None  # your category for every payment of this series
+    continues: tuple[str, ...] = ()  # keys of the ended series this one carries on
+
+
+@dataclass(frozen=True)
+class RowOverride:
+    """What a series changes for one of its payments, on screen and in the forecast."""
+
+    series_key: str
+    flow_type: str | None  # "recurring_outflow", applied only if the row's own flow type is ...
+    only_if_flow: str | None  # ... this one ("everyday" card purchase, confirmed "transfer")
+    category: str | None
 
 
 @dataclass(frozen=True)
@@ -100,9 +117,31 @@ def confirm(
             "changed_fingerprint",
             "detected_now",
             "paid_after_end",
+            "category",
+            "continues",
         )  # fmt: skip
     }
     decide(conn, account, series.key, "confirm", snapshot, when)
+
+
+def set_category(
+    conn: sqlite3.Connection, account: str, key: str, category: str | None,
+    when: date | None = None,
+) -> None:  # fmt: skip
+    """Give every payment of a series one category (None: back to each row's own)."""
+    if category is not None and category not in CATEGORIES:
+        raise ValueError(f"unknown category {category!r}")
+    decide(conn, account, key, "category", {"category": category}, when)
+
+
+def link_continuation(
+    conn: sqlite3.Connection, account: str, key: str, previous_key: str,
+    when: date | None = None,
+) -> None:  # fmt: skip
+    """Say that series `key` carries on the ended series `previous_key`."""
+    if key == previous_key:
+        raise ValueError("a series cannot continue itself")
+    decide(conn, account, key, "continue", {"previous": previous_key}, when)
 
 
 def reject(conn: sqlite3.Connection, account: str, key: str, when: date | None = None) -> None:
@@ -200,7 +239,11 @@ def current_series(
         s.key: _from_detected(s, fingerprint, posted)
         for s in detect(txns, user, as_of=as_of, key=key)
     }
+    links: list[tuple[str, str]] = []  # (series, the ended one it continues), in log order
     for d in decisions:
+        if d.action == "continue":
+            links.append((d.key, str(d.details["previous"])))
+            continue
         if d.action == "add":
             cadence, direction = str(d.details["cadence"]), str(d.details["direction"])
             anchor = date.fromisoformat(str(d.details["anchor"]))
@@ -225,6 +268,8 @@ def current_series(
             series[d.key] = replace(s, status="confirmed")
         elif d.action == "reject":
             series[d.key] = replace(s, status="rejected")
+        elif d.action == "category":
+            series[d.key] = replace(s, category=d.details.get("category"))  # type: ignore[arg-type]
         elif d.action == "end":  # stays ended; a later payment is flagged, for an alert
             series[d.key] = replace(s, active=False, paid_after_end=paid_since)
         elif d.action == "edit" and not paid_since:
@@ -235,7 +280,46 @@ def current_series(
                 amount = int(d.details["amount_cents"])  # type: ignore[call-overload]
                 changes |= {"expected_cents": amount, "range_cents": (amount, amount)}
             series[d.key] = replace(s, **changes)  # type: ignore[arg-type]
+    for new_key, old_key in links:  # after everything else, so both sides are up to date
+        if new_key in series and old_key in series:
+            series[new_key] = _joined(series[new_key], series.pop(old_key))
     return sorted(series.values(), key=lambda s: s.key)
+
+
+def _joined(new: Stored, old: Stored) -> Stored:
+    """`new` carrying on `old`: one history, the newer pattern, either one's category."""
+    changed = old.expected_cents != new.expected_cents
+    return replace(
+        new,
+        evidence=old.evidence + new.evidence,
+        offsets=old.offsets + new.offsets,
+        previous_cents=new.previous_cents
+        if new.previous_cents is not None
+        else (old.expected_cents if changed else None),
+        changed_fingerprint=new.changed_fingerprint
+        or (new.evidence[0] if changed and new.evidence else None),
+        category=new.category or old.category,
+        status="confirmed" if "confirmed" in (new.status, old.status) else new.status,
+        continues=(*old.continues, old.key, *new.continues),
+    )
+
+
+def row_overrides(series: Sequence[Stored]) -> dict[str, RowOverride]:
+    """fingerprint -> what its series changes for that payment. Rejected series change
+    nothing. A card purchase in a series becomes a recurring outflow; an e-Transfer only
+    once you confirmed its series; a series category applies to its payments only."""
+    out: dict[str, RowOverride] = {}
+    for s in series:
+        if s.status == "rejected":
+            continue
+        flow = only_if = None
+        if s.direction == "out" and s.kind == "merchant":
+            flow, only_if = "recurring_outflow", "everyday"
+        elif s.direction == "out" and s.kind == "e-transfer" and s.status == "confirmed":
+            flow, only_if = "recurring_outflow", "transfer"
+        for fingerprint in s.evidence:
+            out[fingerprint] = RowOverride(s.key, flow, only_if, s.category)
+    return out
 
 
 def _from_snapshot(d: Decision, as_of: date) -> Stored:
@@ -266,7 +350,7 @@ def _to_json(s: Stored) -> dict[str, object]:
     for name in ("anchor", "next_expected", "last_paid"):
         data[name] = None if data[name] is None else data[name].isoformat()
     data["range_cents"], data["evidence"] = list(s.range_cents), list(s.evidence)
-    data["offsets"] = list(s.offsets)
+    data["offsets"], data["continues"] = list(s.offsets), list(s.continues)
     return data
 
 
@@ -322,6 +406,6 @@ def load_series(conn: sqlite3.Connection, account: str) -> list[Stored]:
         for name in ("anchor", "next_expected", "last_paid"):
             d[name] = None if d[name] is None else date.fromisoformat(d[name])
         d["range_cents"], d["evidence"] = tuple(d["range_cents"]), tuple(d["evidence"])
-        d["offsets"] = tuple(d.get("offsets", ()))
+        d["offsets"], d["continues"] = tuple(d.get("offsets", ())), tuple(d.get("continues", ()))
         out.append(Stored(**d))
     return out

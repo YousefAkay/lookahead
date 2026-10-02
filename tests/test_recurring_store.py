@@ -216,3 +216,110 @@ def test_a_loose_candidate_keeps_its_spread_when_confirmed(tmp_path: Path) -> No
     (kept,) = refresh(c, ACCOUNT)
     assert (kept.status, kept.loose, kept.detected_now) == ("confirmed", True, False)
     assert kept.offsets == rent.offsets
+
+
+# --- A series category, and one subscription under two merchant names ---
+
+
+def subscription_db(tmp_path: Path) -> sqlite3.Connection:
+    """A store where I shop, which billed a membership under an old name, then a new one."""
+    c = connect(tmp_path / "sub.db")
+    for m in range(1, 7):  # the old name, until June
+        insert(c, shift_to_business_day(monthly_date(2026, m, 8), "later"), -999,
+               "pos purchase", CARD.format("Bigstore Member"))  # fmt: skip
+    for m in range(7, 12):  # the new name, from July, at a new price
+        insert(c, shift_to_business_day(monthly_date(2026, m, 8), "later"), -1099,
+               "pos purchase", CARD.format("Bigstore.Ca Club"))  # fmt: skip
+    for k, cents in enumerate([-2350, -4710, -1288, -6040, -3115]):  # ordinary shopping
+        insert(c, date(2026, 2, 3 + 4 * k), cents, "pos purchase", CARD.format("Bigstore.Ca Club"))
+    return c
+
+
+def test_a_series_category_applies_to_its_payments_only(tmp_path: Path) -> None:
+    from lookahead.recurring_store import row_overrides, set_category
+
+    c = subscription_db(tmp_path)
+    series = {s.name: s for s in refresh(c, ACCOUNT)}
+    club = series["Bigstore.Ca Club"]
+    assert len(club.evidence) == 5  # the monthly charges, not the shopping
+    confirm(c, ACCOUNT, club, date(2026, 11, 20))
+    set_category(c, ACCOUNT, club.key, "Subscriptions", date(2026, 11, 20))
+    club = {s.name: s for s in refresh(c, ACCOUNT)}["Bigstore.Ca Club"]
+    assert club.category == "Subscriptions" and club.status == "confirmed"
+    changes = row_overrides(refresh(c, ACCOUNT))
+    assert {f for f, o in changes.items() if o.category == "Subscriptions"} == set(club.evidence)
+    assert all(o.flow_type == "recurring_outflow" and o.only_if_flow == "everyday"
+               for o in changes.values())  # fmt: skip
+    shopping = {f"fp{n:03d}" for n in range(12, 17)}
+    assert not shopping & set(changes)  # my other purchases there: untouched
+    set_category(c, ACCOUNT, club.key, None, date(2026, 11, 25))  # back to each row's own
+    assert {s.name: s for s in refresh(c, ACCOUNT)}["Bigstore.Ca Club"].category is None
+    with pytest.raises(ValueError, match="unknown category"):
+        set_category(c, ACCOUNT, club.key, "Fun")
+
+
+def test_linking_a_continuation_shows_one_series_with_one_history(tmp_path: Path) -> None:
+    from lookahead.recurring_store import link_continuation, row_overrides, set_category
+
+    c = subscription_db(tmp_path)
+    before = {s.name: s for s in refresh(c, ACCOUNT)}
+    old, new = before["Bigstore Member"], before["Bigstore.Ca Club"]
+    assert not old.active and new.active and len(before) == 2
+    confirm(c, ACCOUNT, old, date(2026, 11, 20))
+    set_category(c, ACCOUNT, old.key, "Subscriptions", date(2026, 11, 20))
+    link_continuation(c, ACCOUNT, new.key, old.key, date(2026, 11, 21))
+    (one,) = refresh(c, ACCOUNT)
+    assert one.key == new.key and one.name == "Bigstore.Ca Club" and one.active
+    assert one.evidence == old.evidence + new.evidence and len(one.evidence) == 11
+    assert one.continues == (old.key,) and len(one.offsets) == 11
+    assert (one.expected_cents, one.previous_cents) == (-1099, -999)  # the price change
+    assert one.changed_fingerprint == new.evidence[0]
+    assert one.category == "Subscriptions" and one.status == "confirmed"  # carried over
+    assert load_series(c, ACCOUNT) == [one]
+    changes = row_overrides([one])
+    assert set(changes) == set(one.evidence)  # only the 11 membership payments
+    assert not {f"fp{n:03d}" for n in range(12, 17)} & set(changes)
+    # no merchant was merged: the two names are still two merchant groups
+    from lookahead.flows import Txn, merchant_groups
+
+    raw = c.execute("SELECT id, posted_date, amount_cents, description, sub_description"
+                    " FROM transactions").fetchall()  # fmt: skip
+    txns = [Txn(r[0], date.fromisoformat(r[1]), r[2], r[3], r[4]) for r in raw]
+    assert len({g for g in merchant_groups(txns).values() if g}) == 2
+    with pytest.raises(ValueError, match="itself"):
+        link_continuation(c, ACCOUNT, new.key, new.key)
+
+
+def test_a_link_is_replayed_only_from_its_date(tmp_path: Path) -> None:
+    from lookahead.recurring_store import link_continuation, series_as_of
+
+    c = subscription_db(tmp_path)
+    before = {s.name: s for s in refresh(c, ACCOUNT)}
+    link_continuation(c, ACCOUNT, before["Bigstore.Ca Club"].key, before["Bigstore Member"].key,
+                      date(2026, 11, 21))  # fmt: skip
+    earlier, _ = series_as_of(c, ACCOUNT, date(2026, 11, 15))
+    assert len(earlier) == 2  # the link did not exist yet
+    later, _ = series_as_of(c, ACCOUNT, date(2026, 11, 25))
+    assert len(later) == 1
+
+
+def test_an_older_decision_table_is_migrated_keeping_every_decision(tmp_path: Path) -> None:
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE recurring_decisions (decision_id INTEGER PRIMARY KEY, account TEXT NOT"
+        " NULL, series_key TEXT NOT NULL, action TEXT NOT NULL CHECK (action IN ('confirm',"
+        " 'reject', 'end', 'edit', 'add')), details TEXT NOT NULL, decided_at TEXT NOT NULL);"
+        "INSERT INTO recurring_decisions VALUES (7, 'test', 'k1', 'confirm', '{}', '2026-10-02');"
+        "INSERT INTO recurring_decisions VALUES (9, 'test', 'k2', 'reject', '{}', '2026-10-02');"
+    )
+    old.close()
+    c = connect(path)  # migrates
+    rows = c.execute("SELECT decision_id, series_key, action FROM recurring_decisions").fetchall()
+    assert [tuple(r) for r in rows] == [(7, "k1", "confirm"), (9, "k2", "reject")]
+    from lookahead.recurring_store import decide
+
+    decide(c, "test", "k1", "category", {"category": "Subscriptions"})  # now allowed
+    decide(c, "test", "k1", "continue", {"previous": "k2"})
+    c.close()
+    assert connect(path).execute("SELECT COUNT(*) FROM recurring_decisions").fetchone()[0] == 4

@@ -146,6 +146,7 @@ def recurring_table(series: list, hidden: set[str]) -> pd.DataFrame:  # type: ig
             "Usual high ($)": [max(abs(c) for c in s.range_cents) / 100 for s in series],
             "Amount": [s.amount_type for s in series],
             "Next expected": [s.next_expected.isoformat() for s in series],
+            "Category": [s.category or BLANK for s in series],
             "Status": [s.status for s in series],
             "Active": ["yes" if s.active else "ended" for s in series],
             "Payments": [len(s.evidence) for s in series],

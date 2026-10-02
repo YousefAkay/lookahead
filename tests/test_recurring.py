@@ -781,3 +781,26 @@ def test_report_prints_the_spread_of_a_loose_candidate_in_days_only(
         in out
     )
     assert "820" not in out and "$" not in out
+
+
+def test_a_same_amount_payment_left_out_of_a_loose_candidate_is_described() -> None:
+    from lookahead.recurring import count_recurring
+
+    second = Rows()  # every month paid, plus a second payment four days before the May one
+    for day in RENT_DAYS:
+        second.etransfer(day, -82000)
+    second.etransfer(date(2026, 5, 4), -82000)
+    c = count_recurring(second.txns)
+    assert c.candidates == 1 and c.loose[0][0] == 8
+    ((days, shared),) = c.left_out
+    assert shared and abs(days) <= 15  # which of the two close ones is kept can vary
+
+    late = Rows()  # the July payment was sent much later instead: alone, too far off
+    for day in RENT_DAYS:
+        if day != date(2026, 7, 9):
+            late.etransfer(day, -82000)
+    late.etransfer(date(2026, 7, 21), -82000)
+    c = count_recurring(late.txns)
+    assert c.candidates == 1 and c.loose[0][0] == 7
+    ((days, shared),) = c.left_out
+    assert not shared and abs(days) > 7

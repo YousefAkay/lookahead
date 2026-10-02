@@ -353,13 +353,24 @@ def test_recurring_page_lists_detected_series_with_their_evidence(isolated: Path
 def test_recurring_page_confirms_rejects_and_adds(isolated: Path) -> None:
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
-    first = at.selectbox(key="series").value
+    first_key = at.selectbox(key="series").value
+
+    def status() -> str:
+        from lookahead.db import connect_readonly
+        from lookahead.recurring_store import load_series
+
+        conn = connect_readonly(isolated / "demo.db")
+        found = {s.key: s.status for s in load_series(conn, "synthetic-B")}
+        conn.close()
+        return found[first_key]
+
     button(at, "Confirm").click().run()
     assert not at.exception, at.exception
     after = stored_series(isolated, "synthetic-B")
-    assert after[first.name or first.kind].status == "confirmed"
+    assert after and status() == "confirmed"
+    assert at.selectbox(key="series").value == first_key  # the selection stays put
     button(at, "Not recurring").click().run()
-    assert stored_series(isolated, "synthetic-B")[first.name or first.kind].status == "rejected"
+    assert status() == "rejected"
     assert len(at.dataframe[0].value) == 5  # rejected ones are hidden by default
 
     at.text_input(key="add_name").set_value("Bursary")
@@ -396,3 +407,41 @@ def test_recurring_page_hides_a_persons_name_when_pseudonymizing(isolated: Path)
     assert "Rent share" in names  # a name I typed myself stays
     at.sidebar.toggle[0].set_value(False).run()
     assert any("Jane Doe" in str(n) for n in at.dataframe[0].value["Name"])
+
+
+# --- Recurring page: the edit form follows the series; category; continuation ---
+
+
+def test_edit_form_shows_the_selected_series_values(isolated: Path) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    options = at.selectbox(key="series").options
+    series = stored_series(isolated, "synthetic-B")
+    by_label = {str(o): s for o in options for s in series.values()
+                if (s.name or "") and (s.name or "") in str(o)}  # fmt: skip
+    seen = set()
+    for label in list(by_label)[:3]:
+        at.selectbox(key="series").select(label).run()
+        chosen = next(s for s in series.values()
+                      if s.key == at.selectbox(key="series").value)  # fmt: skip
+        shown_date = at.date_input(key=f"next_date|{chosen.key}").value
+        shown_amount = at.number_input(key=f"amount|{chosen.key}").value
+        assert shown_date == chosen.next_expected
+        assert shown_amount == abs(chosen.expected_cents) / 100
+        seen.add((shown_date, shown_amount))
+    assert len(seen) >= 2  # the form really changed with the series
+
+
+def test_a_confirmed_fixed_series_can_get_a_category(isolated: Path) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    pick = next(o for o in at.selectbox(key="series").options if "Netflix" in str(o))
+    at.selectbox(key="series").select(pick).run()
+    key = at.selectbox(key="series").value
+    assert not [s for s in at.selectbox if s.key == f"series_category|{key}"]  # not confirmed yet
+    button(at, "Confirm").click().run()
+    at.selectbox(key=f"series_category|{key}").select("Entertainment")
+    button(at, "Save category").click().run()
+    assert not at.exception, at.exception
+    assert stored_series(isolated, "synthetic-B")["Netflix"].category == "Entertainment"
+    assert "Entertainment" in set(at.dataframe[0].value["Category"])

@@ -460,6 +460,9 @@ class RecurringCounts:
     candidates: int  # e-Transfer series waiting for confirmation
     # for each loose-timing candidate: (payments, median days off, most days off)
     loose: tuple[tuple[int, int, int], ...]
+    # same-amount payments left out of a loose candidate: (days from the nearest expected
+    # date, True if a payment of the set posted in the same calendar month)
+    left_out: tuple[tuple[int, bool], ...]
     named_recipients_skipped: bool  # e-Transfers name a recipient but no key was given
 
 
@@ -507,7 +510,30 @@ def count_recurring(
             if s.loose
         ),
         named_recipients_skipped=named and key is None,
+        left_out=tuple(pair for s in series if s.loose for pair in _left_out(txns, s, flows)),
     )
+
+
+def _left_out(txns: Sequence[Txn], s: Series, flows: dict[int, object]) -> list[tuple[int, bool]]:
+    """Outgoing e-Transfers of the series' amount that are not among its payments: how far
+    each is from the nearest expected date, and whether a payment of the series posted in
+    the same calendar month (a second payment that month) or not (alone in its month)."""
+    by_id = {t.row_id: t for t in txns}
+    paid = [by_id[r] for r in s.rows]
+    centre = abs(s.expected_cents)
+    start, end = paid[0].posted_date - timedelta(days=45), paid[-1].posted_date + timedelta(days=45)
+    expected = expected_dates(s.cadence, s.anchor, start, end, s.direction, card=True)
+    out = []
+    for t in txns:
+        reason = getattr(flows[t.row_id], "reason", "")
+        same = abs(abs(t.amount_cents) - centre) <= max(FIXED_SHARE * centre, FIXED_CENTS)
+        if t.row_id in s.rows or reason != "outgoing e-Transfer" or not same or not expected:
+            continue
+        nearest = min(expected, key=lambda e: abs((t.posted_date - e).days))
+        month = (t.posted_date.year, t.posted_date.month)
+        near = any((p.posted_date.year, p.posted_date.month) == month for p in paid)
+        out.append(((t.posted_date - nearest).days, near))
+    return out
 
 
 # --- Why a regular-looking group is not a series (counts only) ---
@@ -721,6 +747,15 @@ def _report(db_path: Path, account: str, env_path: Path) -> int:
     for payments, typical, most in c.loose:
         print(f"  loose-timing candidate: {payments} payments; days off its typical day of "
               f"the month: median {typical}, maximum {most}")  # fmt: skip
+    for days_off, shared in c.left_out:
+        where = (
+            "another payment of the set posted in the same month (a second one)"
+            if shared
+            else "no other payment of the set that month (alone in its month, too far off)"
+        )
+        side = "before" if days_off < 0 else "after"
+        print(f"  same amount, left out: {abs(days_off)} days {side} the nearest expected "
+              f"date; {where}")  # fmt: skip
     bills = bill_payment_groups(txns, user)
     sizes = Counter(
         "1 payment" if g.payments == 1 else "2 payments" if g.payments == 2

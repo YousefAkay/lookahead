@@ -12,6 +12,7 @@ from datetime import date
 import pandas as pd
 
 from lookahead.ingest.reconcile import reconcile
+from lookahead.recurring_store import RowOverride, load_series, row_overrides
 
 COLUMNS = ["date", "type", "text", "amount_cents", "balance_cents", "source_file"]
 # From lookahead.categorize (empty until it has run): merchant, flow type, category, where
@@ -77,9 +78,6 @@ def transactions(
     if types:
         where.append(f"description IN ({', '.join('?' for _ in types)})")
         params.extend(types)
-    if joined and categories:
-        where.append(f"p.category IN ({', '.join('?' for _ in categories)})")
-        params.extend(categories)
     if joined and flagged_only:
         where.append("p.flagged = 1")
     extra = (
@@ -99,7 +97,30 @@ def transactions(
     df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d")
     df["flagged"] = df["flagged"].fillna(0).astype(bool)
     df = df.astype({"amount_cents": "int64", "balance_cents": "int64"})
+    if joined:
+        df = _with_series(df, row_overrides(load_series(conn, account)))
+        if categories:  # after the series categories, so the filter sees what is shown
+            df = df[df["category"].isin(categories)].reset_index(drop=True)
     return df[COLUMNS + CATEGORY_COLUMNS]
+
+
+def _with_series(df: pd.DataFrame, overrides: dict[str, RowOverride]) -> pd.DataFrame:
+    """Apply what recurring series change: a payment in a series is a recurring outflow, and
+    takes the series' category if you gave it one. Other rows of the merchant are untouched."""
+    if not overrides or df.empty:
+        return df
+    flow, category, source = (df[c].astype("object").tolist() for c in
+                              ("flow_type", "category", "source"))  # fmt: skip
+    flagged = df["flagged"].tolist()
+    for i, fingerprint in enumerate(df["fingerprint"]):
+        change = overrides.get(fingerprint)
+        if change is None:
+            continue
+        if change.flow_type is not None and flow[i] == change.only_if_flow:
+            flow[i] = change.flow_type
+        if change.category is not None:
+            category[i], source[i], flagged[i] = change.category, "series", False
+    return df.assign(flow_type=flow, category=category, source=source, flagged=flagged)
 
 
 @dataclass
