@@ -28,7 +28,16 @@ from datetime import date
 from pathlib import Path
 
 from lookahead.merchants import extract_merchant
-from lookahead.resolve import UserDecisions, load_user_decisions, name_infos, resolve
+from lookahead.resolve import (
+    UserDecisions,
+    load_user_decisions,
+    mark_own_account,
+    name_infos,
+    name_key,
+    resolve,
+)
+
+OWN_ACCOUNT = "payment to my own account"  # a flow-typing reason
 
 PREAUTH_DAYS = 7
 RETURN_DAYS = 90
@@ -155,6 +164,16 @@ def flow_types(txns: Sequence[Txn], user: UserDecisions | None = None) -> dict[i
         flows[best.row_id] = Flow(b.flow_type, b.reason, refund.row_id, kind, netted)
 
     names = merchant_groups(ordered, user)  # same group = same merchant
+    own = user.own_payees if user is not None else set()
+    for t in ordered if own else ():
+        # A bill payment to my own card or credit line moves money between my accounts:
+        # it lowers this balance but is not spending (HANDOFF section 05).
+        if flows[t.row_id].reason != "bill payment":
+            continue
+        name = extract_merchant(t.text).merchant
+        keys = {name_key(n) for n in (name, names[t.row_id]) if n}
+        if keys & own:
+            flows[t.row_id] = Flow("transfer", OWN_ACCOUNT)
     for t in ordered:
         reason = flows[t.row_id].reason
         if reason not in ("pre-auth correction", "card return", "returned e-Transfer"):
@@ -435,18 +454,60 @@ def _report(db_path: Path, account: str) -> int:
     return 0 if c.ok else 1
 
 
+def _own_account(db_path: Path, account: str, payee: str, is_own: bool) -> int:
+    """Mark a payee and print how many rows changed. Counts only: the name is not echoed."""
+    from lookahead.db import connect
+
+    if not db_path.exists():
+        print(f"database not found: {db_path}")
+        return 2
+    conn = connect(db_path)
+    txns = [
+        Txn(row_id, date.fromisoformat(day), cents, kind, text)
+        for row_id, day, cents, kind, text in conn.execute(
+            "SELECT id, posted_date, amount_cents, description, sub_description"
+            " FROM transactions WHERE account = ?",
+            (account,),
+        )
+    ]
+
+    def own_rows() -> int:
+        flows = flow_types(txns, load_user_decisions(conn))
+        return sum(f.reason == OWN_ACCOUNT for f in flows.values())
+
+    before = own_rows()
+    mark_own_account(conn, payee, is_own)
+    after = own_rows()
+    conn.close()
+    print(f"bill payments typed as a transfer to my own account: {before} rows before, "
+          f"{after} now")  # fmt: skip
+    if after == before:
+        print("nothing changed: no bill payment has that payee name (check the Merchant "
+              "column on the Transactions page), or it was already marked this way")  # fmt: skip
+        return 1
+    print("next: python -m lookahead.labels check-splits, then python -m lookahead.categorize")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m lookahead.flows")
     commands = parser.add_subparsers(dest="command", required=True)
     rep = commands.add_parser("report", help="counts-only check of flow typing")
     exp = commands.add_parser("explain", help="counts: how one merchant group paired")
     exp.add_argument("--group", required=True, help="the merchant's name as on the page")
-    for sub in (rep, exp):
+    own = commands.add_parser(
+        "own-account", help="mark a bill payee as one of my own accounts (a card, a credit line)"
+    )
+    own.add_argument("--payee", required=True, help="its name in the Merchant column")
+    own.add_argument("--undo", action="store_true", help="it is not my own account after all")
+    for sub in (rep, exp, own):
         sub.add_argument("--db", type=Path, required=True)
         sub.add_argument("--account", default="scotia-chequing")
     args = parser.parse_args(argv)
     if args.command == "explain":
         return _explain(args.db, args.account, args.group)
+    if args.command == "own-account":
+        return _own_account(args.db, args.account, args.payee, not args.undo)
     return _report(args.db, args.account)
 
 

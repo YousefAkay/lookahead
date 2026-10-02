@@ -37,6 +37,7 @@ TYPE_RULES: dict[str, str] = {
     "bank fee": "Fees & interest",
     "fee reversal": "Fees & interest",
     "own-account transfer": "Transfers",
+    "payment to my own account": "Transfers",  # a bill payment to my own card or credit line
     "outgoing e-Transfer": "Transfers",
     "withdrawal": "Transfers",
     "returned e-Transfer": "Transfers",

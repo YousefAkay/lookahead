@@ -5,7 +5,8 @@ dated log, replayed on top, so a later Time Machine can use only the decisions m
 date:
 - confirm / reject ("not recurring"): the latest one wins. A confirmed series keeps a
   snapshot of its pattern, so it stays even if detection later loses it;
-- end: no longer expected, until a payment posts after that day;
+- end: no longer expected. It stays ended; a payment posting later is flagged, not used
+  to quietly switch it back on;
 - edit: your next date and/or amount, until a payment posts after that day (then the
   detected values take over again);
 - add: a series you enter by hand (status "user-added"), e.g. irregular income.
@@ -48,6 +49,8 @@ class Stored:
     changed_fingerprint: str | None = None  # first payment at the new amount
     last_paid: date | None = None
     edited: bool = False  # your next date or amount is in use
+    detected_now: bool = True  # False: not found by detection (added by hand, or lost)
+    paid_after_end: bool = False  # you ended it, and a payment has posted since
 
 
 @dataclass(frozen=True)
@@ -85,7 +88,17 @@ def confirm(
     snapshot = {
         k: v
         for k, v in _to_json(series).items()
-        if k not in ("evidence", "status", "active", "edited", "last_paid", "changed_fingerprint")
+        if k
+        not in (
+            "evidence",
+            "status",
+            "active",
+            "edited",
+            "last_paid",
+            "changed_fingerprint",
+            "detected_now",
+            "paid_after_end",
+        )  # fmt: skip
     }
     decide(conn, account, series.key, "confirm", snapshot, when)
 
@@ -196,7 +209,7 @@ def current_series(
                 anchor_day=None if cadence in ("weekly", "biweekly") else anchor.day,
                 amount_type="fixed", expected_cents=amount, range_cents=(amount, amount),
                 next_expected=_next_from(cadence, anchor, direction, max(as_of, anchor)),
-                status="user-added", active=True,
+                status="user-added", active=True, detected_now=False,
             )  # fmt: skip
             continue
         if d.key not in series:
@@ -210,8 +223,8 @@ def current_series(
             series[d.key] = replace(s, status="confirmed")
         elif d.action == "reject":
             series[d.key] = replace(s, status="rejected")
-        elif d.action == "end" and not paid_since:
-            series[d.key] = replace(s, active=False)
+        elif d.action == "end":  # stays ended; a later payment is flagged, for an alert
+            series[d.key] = replace(s, active=False, paid_after_end=paid_since)
         elif d.action == "edit" and not paid_since:
             changes: dict[str, object] = {"edited": True}
             if "next_date" in d.details:
@@ -236,7 +249,7 @@ def _from_snapshot(d: Decision, as_of: date) -> Stored:
         expected_cents=int(saved["expected_cents"]),  # type: ignore[call-overload]
         range_cents=(int(low), int(high)),
         next_expected=_next_from(cadence, anchor, direction, as_of),
-        status="confirmed", active=True,
+        status="confirmed", active=True, detected_now=False,
         previous_cents=saved.get("previous_cents"),  # type: ignore[arg-type]
     )  # fmt: skip
 
@@ -252,22 +265,35 @@ def _to_json(s: Stored) -> dict[str, object]:
     return data
 
 
-def refresh(conn: sqlite3.Connection, account: str, key: bytes | None = None) -> list[Stored]:
-    """Detect again as of the account's last posting date, replay every decision, and
-    replace the stored series, in one database transaction."""
+def series_as_of(
+    conn: sqlite3.Connection, account: str, as_of: date | None = None, key: bytes | None = None
+) -> tuple[list[Stored], date | None]:
+    """The series as they stood on `as_of`, from the source: rows posted by then, merchant
+    decisions and recurring decisions made by then. This is what the forecast and the Time
+    Machine read (rule zero); the `recurring_series` table is only a cache for the pages.
+    `as_of=None` means the account's last posting date. Returns (series, the date used)."""
     raw = conn.execute(
         "SELECT id, posted_date, amount_cents, description, sub_description, fingerprint"
-        " FROM transactions WHERE account = ?",
-        (account,),
+        " FROM transactions WHERE account = ? AND posted_date <= ?",
+        (account, (as_of or date.max).isoformat()),
     ).fetchall()
     txns = [Txn(r[0], date.fromisoformat(r[1]), r[2], r[3], r[4]) for r in raw]
     if not txns:
-        return []
-    as_of = max(t.posted_date for t in txns)
+        return [], as_of
+    day = as_of or max(t.posted_date for t in txns)
     series = current_series(
-        txns, {r[0]: r[5] for r in raw}, load_decisions(conn, account), as_of,
-        load_user_decisions(conn), key,
+        txns, {r[0]: r[5] for r in raw}, load_decisions(conn, account, as_of), day,
+        load_user_decisions(conn, as_of), key,
     )  # fmt: skip
+    return series, day
+
+
+def refresh(conn: sqlite3.Connection, account: str, key: bytes | None = None) -> list[Stored]:
+    """Detect again as of the account's last posting date, replay every decision, and
+    replace the stored series (the pages' cache), in one database transaction."""
+    series, as_of = series_as_of(conn, account, None, key)
+    if as_of is None:
+        return []
     with conn:
         conn.execute("DELETE FROM recurring_series WHERE account = ?", (account,))
         conn.executemany(

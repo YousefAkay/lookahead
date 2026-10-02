@@ -530,3 +530,95 @@ def test_bill_payment_payees_are_explained_without_names_or_amounts() -> None:
         BillGroup(1, "too few payments", "one payment"),
     ]
     assert all("Phone" not in repr(g) and "65" not in repr(g) for g in got)
+
+
+# --- Found on real data: a bill-payment series was counted as "card purchases upgraded" ---
+
+
+def test_only_card_purchases_are_upgraded_a_bill_series_is_left_as_it_is() -> None:
+    from lookahead.recurring import count_recurring
+
+    rows = Rows()
+    card = monthly(rows, "Music Box", 12, range(1, 7))
+    bill = monthly(rows, "Phone Co", 10, range(1, 7), cents=-6500, bill=True)
+    series = detect(rows.txns, as_of=date(2026, 6, 30))
+    assert {s.merchant for s in series} == {"Music Box", "Phone Co"}
+    got = flow_overrides(rows.txns, series)
+    assert set(got) == set(card)  # the bill payments already are recurring outflows
+    assert not set(bill) & set(got)
+    c = count_recurring(rows.txns)
+    assert c.series == 2 and c.rows_in_series == 12 and c.upgraded_rows == 6
+    assert c.by_payment == {"card": 1, "bill payment": 1}
+    assert c.by_kind == {"merchant": 2}  # "merchant" covers card merchants and bill payees
+
+
+# --- A bill payment to my own card or credit line is a transfer, not spending ---
+
+
+def test_a_bill_payment_to_my_own_account_is_a_transfer() -> None:
+    from lookahead.categories import category_by_rules
+    from lookahead.flows import flow_types
+    from lookahead.resolve import UserDecisions, name_key
+
+    rows = Rows()
+    card_payments = [rows.bill(day, cents, "Big Bank Visa") for day, cents in (
+        (date(2026, 2, 3), -41200), (date(2026, 3, 19), -8850), (date(2026, 5, 6), -63010),
+        (date(2026, 6, 24), -12000))]  # fmt: skip
+    phone = monthly(rows, "Phone Co", 10, range(1, 7), cents=-6500, bill=True)
+    before = flow_types(rows.txns)
+    assert {before[i].flow_type for i in card_payments} == {"recurring_outflow"}
+
+    mine = UserDecisions(own_payees={name_key("Big Bank Visa")})
+    flows = flow_types(rows.txns, mine)
+    assert {(flows[i].flow_type, flows[i].reason) for i in card_payments} == {
+        ("transfer", "payment to my own account")
+    }
+    assert {flows[i].flow_type for i in phone} == {"recurring_outflow"}  # other payees: as before
+    decided = category_by_rules(rows.txns, mine)
+    assert {decided[i].category for i in card_payments} == {"Transfers"}
+    # irregular, so no series; and never "upgraded" to a recurring outflow or a one-off
+    series = detect(rows.txns, mine, as_of=date(2026, 6, 30))
+    assert {s.merchant for s in series} == {"Phone Co"}
+    assert not set(card_payments) & set(flow_overrides(rows.txns, series, user=mine))
+
+
+def test_marking_an_own_account_is_dated_and_can_be_undone(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from lookahead.db import connect
+    from lookahead.resolve import load_user_decisions, mark_own_account, name_key
+
+    conn = connect(tmp_path / "t.db")
+    key = mark_own_account(conn, "Big Bank  VISA", True, date(2026, 6, 10))
+    assert key == name_key("Big Bank Visa")
+    assert load_user_decisions(conn).own_payees == {key}
+    assert load_user_decisions(conn, as_of=date(2026, 6, 9)).own_payees == set()  # not yet
+    mark_own_account(conn, "Big Bank Visa", False, date(2026, 6, 20))
+    assert load_user_decisions(conn).own_payees == set()
+    assert load_user_decisions(conn, as_of=date(2026, 6, 15)).own_payees == {key}
+    with pytest.raises(ValueError):
+        mark_own_account(conn, "  ")
+
+
+def test_own_account_command_prints_counts_only(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:  # type: ignore[no-untyped-def]
+    from lookahead.db import connect
+    from lookahead.flows import main
+
+    conn = connect(tmp_path / "t.db")
+    for n, (day, cents) in enumerate([("2026-02-03", -41200), ("2026-03-19", -8850)]):
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES ('scotia-chequing', ?, ?, 'bill payment', 'Big Bank Visa ', 0, ?, 'f', 'x')",
+            (day, cents, f"fp{n}"),
+        )
+    conn.commit()
+    conn.close()
+    db = str(tmp_path / "t.db")
+    assert main(["own-account", "--db", db, "--payee", "Big Bank Visa"]) == 0
+    out = capsys.readouterr().out
+    assert "0 rows before, 2 now" in out and "Big Bank" not in out and "412" not in out
+    assert main(["own-account", "--db", db, "--payee", "No Such Payee"]) == 1
+    assert "nothing changed" in capsys.readouterr().out
+    assert main(["own-account", "--db", db, "--payee", "Big Bank Visa", "--undo"]) == 0
+    assert "2 rows before, 0 now" in capsys.readouterr().out

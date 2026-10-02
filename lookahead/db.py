@@ -145,6 +145,14 @@ CREATE TABLE IF NOT EXISTS recurring_decisions (
     details     TEXT    NOT NULL,  -- JSON
     decided_at  TEXT    NOT NULL
 );
+-- Payees that are my own accounts (a credit card, a line of credit), dated. A bill
+-- payment to one is a transfer, not spending. The latest row for a payee wins.
+CREATE TABLE IF NOT EXISTS own_account_payees (
+    decision_id  INTEGER PRIMARY KEY,
+    merchant_key TEXT    NOT NULL,  -- normalized name (resolve.name_key)
+    is_own       INTEGER NOT NULL,
+    decided_at   TEXT    NOT NULL
+);
 -- App settings (step 8d). A missing row means the default; the LLM fallback defaults to off.
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,

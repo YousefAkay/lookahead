@@ -101,12 +101,15 @@ def test_an_edit_holds_until_the_next_payment_posts(conn: sqlite3.Connection) ->
         edit(conn, ACCOUNT, phone.key)
 
 
-def test_ended_until_a_later_payment(conn: sqlite3.Connection) -> None:
+def test_an_ended_series_stays_ended_and_flags_a_later_payment(conn: sqlite3.Connection) -> None:
     gym = by_name(refresh(conn, ACCOUNT))["Gym Club"]
     end(conn, ACCOUNT, gym.key, date(2026, 6, 21))
-    assert not by_name(refresh(conn, ACCOUNT))["Gym Club"].active
+    ended = by_name(refresh(conn, ACCOUNT))["Gym Club"]
+    assert not ended.active and not ended.paid_after_end
     insert(conn, date(2026, 7, 6), -4000, "bill payment", "Gym Club ")
-    assert by_name(refresh(conn, ACCOUNT))["Gym Club"].active
+    after = by_name(refresh(conn, ACCOUNT))["Gym Club"]
+    # not switched back on quietly: it stays ended, and the payment is flagged for an alert
+    assert not after.active and after.paid_after_end
 
 
 def test_a_series_added_by_hand(conn: sqlite3.Connection) -> None:
@@ -134,6 +137,8 @@ def test_a_confirmed_series_stays_if_detection_loses_it(conn: sqlite3.Connection
     kept = by_name(refresh(conn, ACCOUNT))["Gym Club"]
     assert (kept.status, kept.cadence, kept.expected_cents) == ("confirmed", "monthly", -4000)
     assert kept.evidence == () and kept.next_expected >= date(2026, 6, 20)
+    assert kept.detected_now is False  # for "expected payment not observed"
+    assert by_name(refresh(conn, ACCOUNT))["Phone Co"].detected_now is True
 
 
 def test_replay_uses_only_decisions_made_by_the_date(conn: sqlite3.Connection) -> None:
@@ -167,3 +172,27 @@ def test_an_older_database_has_no_series(tmp_path: Path, conn: sqlite3.Connectio
     conn.commit()
     conn.close()
     assert load_series(connect_readonly(tmp_path / "t.db"), ACCOUNT) == []
+
+
+def test_series_as_of_reads_rows_and_decisions_up_to_the_date(conn: sqlite3.Connection) -> None:
+    from lookahead.recurring_store import series_as_of
+
+    series = by_name(refresh(conn, ACCOUNT))
+    confirm(conn, ACCOUNT, series["Phone Co"], date(2026, 6, 25))
+    add_series(conn, ACCOUNT, "Family support", "in", "monthly", date(2026, 7, 3), 150000,
+               when=date(2026, 6, 28))  # fmt: skip
+    cache_before = load_series(conn, ACCOUNT)
+
+    early, day = series_as_of(conn, ACCOUNT, date(2026, 4, 20))
+    assert day == date(2026, 4, 20)
+    got = by_name(early)
+    assert got["Phone Co"].status == "detected" and "Family support" not in got
+    assert len(got["Phone Co"].evidence) == 4  # January to April only
+    assert got["Phone Co"].next_expected == date(2026, 5, 11)  # May 10 is a Sunday
+
+    late, day = series_as_of(conn, ACCOUNT, date(2026, 6, 30))
+    assert by_name(late)["Phone Co"].status == "confirmed"
+    assert by_name(late)["Family support"].status == "user-added"
+    latest, day = series_as_of(conn, ACCOUNT)
+    assert day == date(2026, 6, 20)  # no date given: the last posting date
+    assert load_series(conn, ACCOUNT) == cache_before  # reading never touches the cache

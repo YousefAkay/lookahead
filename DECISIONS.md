@@ -368,6 +368,14 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - The stored table holds one JSON object per series, not one column per field as first planned: only the app reads it, and the fields are still changing.
 - On the Recurring page a series whose payments show a replaced name keeps its own name hidden while pseudonymizing; a name I typed myself is shown.
 
+### 2026-10-02: After the first real report (review)
+- Bug fixed: the report's "card purchases that become recurring outflows" counted every row of every merchant series, bill payments included (41 rows; one of my 4 series is a bill payee with 11 rows). An override is now written only where the flow type really changes: an everyday card purchase, or a confirmed e-Transfer. The report also says what each series is paid by.
+- Decision: no semester cadence. Two irregular payees are not a pattern.
+- Decision: a bill payment to one of my own accounts (a credit card, a line of credit) is a transfer, not a recurring outflow. Before this, every outgoing bill payment was typed as a recurring outflow. I mark such a payee with `python -m lookahead.flows own-account`; the marking is dated, can be undone, and is part of the merchant decisions that flow typing already reads. Its category becomes Transfers.
+- Decision: the forecast and the Time Machine read series through `series_as_of(date)`, which replays rows and decisions up to that date. The stored table is only a cache for the pages, so it stays one JSON object per series.
+- Decision: a series I ended stays ended. A payment posting later is flagged for an alert, not used to switch the series back on. A confirmed series that detection no longer finds is kept and marked, so it can raise "expected payment not observed".
+- Measurement rule: my confirm, reject and add counts on real data are the measurement for this step. If I change the detector after seeing them, scoring it again on the same data is development, not evaluation.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

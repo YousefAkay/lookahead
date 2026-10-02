@@ -396,14 +396,19 @@ def flow_overrides(
     A regular transfer to your own account stays a transfer: it is scheduled, not spending.
     """
     out: dict[int, Override] = {}
+    flows = flow_types(txns, user)
     for s in series:
         if s.direction != "out" or s.kind == "own transfer":
             continue
         if s.kind == "e-transfer" and s.key not in confirmed:
             continue
         for row_id in s.rows:
-            out[row_id] = Override("recurring_outflow", series_key=s.key)
-    flows = flow_types(txns, user)
+            # Only rows whose type changes: an everyday card purchase, or a confirmed
+            # e-Transfer. A bill payment already is a recurring outflow, and a payment to
+            # my own account stays a transfer.
+            base = flows[row_id].flow_type if row_id in flows else None
+            if base == "everyday" or (s.kind == "e-transfer" and base == "transfer"):
+                out[row_id] = Override("recurring_outflow", series_key=s.key)
     merchants = merchant_groups(txns, user)
     bills: dict[str | None, list[int]] = {}
     for t in txns:
@@ -423,6 +428,8 @@ class RecurringCounts:
     rows: int
     series: int
     by_kind: Counter[str]
+    by_payment: Counter[str]  # what a series is paid by: card, bill payment, ...
+    own_account_rows: int  # bill payments to my own accounts (transfers)
     by_cadence: Counter[str]
     by_direction: Counter[str]
     by_amount: Counter[str]
@@ -433,6 +440,22 @@ class RecurringCounts:
     one_off_bills: int  # bill payments to a payee paid once
     candidates: int  # e-Transfer series waiting for confirmation
     named_recipients_skipped: bool  # e-Transfers name a recipient but no key was given
+
+
+PAID_BY = ("card", "bill payment", "e-Transfer", "transfer to my own account", "deposit",
+           "other")  # fmt: skip
+
+
+def _paid_by(reason: str) -> str:
+    if reason == "card purchase":
+        return "card"
+    if reason == "bill payment":
+        return "bill payment"
+    if reason in _ETRANSFER:
+        return "e-Transfer"
+    if reason in ("own-account transfer", "payment to my own account"):
+        return "transfer to my own account"
+    return "deposit" if reason in ("deposit", "credit memo") else "other"
 
 
 def count_recurring(
@@ -446,6 +469,8 @@ def count_recurring(
         rows=len(txns),
         series=len(series),
         by_kind=Counter(s.kind for s in series),
+        by_payment=Counter(_paid_by(flows[s.rows[0]].reason) for s in series),
+        own_account_rows=sum(f.reason == "payment to my own account" for f in flows.values()),
         by_cadence=Counter(s.cadence for s in series),
         by_direction=Counter("money in" if s.direction == "in" else "money out" for s in series),
         by_amount=Counter(s.amount_type for s in series),
@@ -553,12 +578,15 @@ def _report(db_path: Path, account: str, env_path: Path) -> int:
     print(f"Recurring payments: {c.rows} rows, account {account}")
     print(f"series detected: {c.series} (still active {c.active}, ended {c.series - c.active})")
     print(f"  by kind: {_line(c.by_kind, ('merchant', 'e-transfer', 'own transfer'))}")
+    print(f"  paid by: {_line(c.by_payment, PAID_BY)}")
     print(f"  by cadence: {_line(c.by_cadence, CADENCES)}")
     print(f"  by direction: {_line(c.by_direction, ('money in', 'money out'))}")
     print(f"  by amount: {_line(c.by_amount, ('fixed', 'variable'))}; with one price change "
           f"{c.price_changed}")  # fmt: skip
     print(f"rows inside a series: {c.rows_in_series}")
-    print(f"card purchases that become recurring outflows: {c.upgraded_rows} rows")
+    print(f"card purchases that become recurring outflows: {c.upgraded_rows} rows "
+          "(bill payments already are)")  # fmt: skip
+    print(f"bill payments to my own accounts (transfers, not spending): {c.own_account_rows}")
     print(f"bill payments to a payee paid once (one-offs): {c.one_off_bills}")
     print(f"e-Transfer series waiting for your confirmation: {c.candidates}")
     bills = bill_payment_groups(txns, user)

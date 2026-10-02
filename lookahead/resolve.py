@@ -148,6 +148,9 @@ class NameInfo:
 class UserDecisions:
     merges: dict[str, set[str]] = field(default_factory=dict)  # merchant name -> name keys
     splits: set[frozenset[str]] = field(default_factory=set)  # pairs of name keys
+    # Name keys of payees that are my own accounts (a card, a credit line): flow typing
+    # treats a bill payment to one as a transfer.
+    own_payees: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -436,13 +439,45 @@ def load_user_decisions(
         if as_of is not None:
             sql += " WHERE decided_at <= ?"
             params = (as_of.isoformat(),)
-        return replay(conn.execute(sql + " ORDER BY decided_at, decision_id", params))
+        state = replay(conn.execute(sql + " ORDER BY decided_at, decision_id", params))
+        state.own_payees = own_account_payees(conn, as_of)
+        return state
     state = _from_tables(conn)
     if as_of is not None and (state.merges or state.splits):
         raise ValueError(
             "these decisions have no dates yet; run: python -m lookahead.db migrate --db <db>"
         )
+    state.own_payees = own_account_payees(conn, as_of)
     return state
+
+
+def own_account_payees(conn: sqlite3.Connection, as_of: date | None = None) -> set[str]:
+    """Name keys of the payees you marked as your own accounts, as decided by `as_of`."""
+    if not _table_exists(conn, "own_account_payees"):
+        return set()
+    own: set[str] = set()
+    for key, is_own in conn.execute(
+        "SELECT merchant_key, is_own FROM own_account_payees WHERE decided_at <= ?"
+        " ORDER BY decided_at, decision_id",
+        ((as_of or date.max).isoformat(),),
+    ):
+        own.add(key) if is_own else own.discard(key)
+    return own
+
+
+def mark_own_account(
+    conn: sqlite3.Connection, payee: str, is_own: bool = True, when: date | None = None
+) -> str:
+    """Record (dated) that a payee is, or is not, one of your own accounts. Returns its key."""
+    key = name_key(payee)
+    if not key:
+        raise ValueError("a payee name is needed")
+    with conn:
+        conn.execute(
+            "INSERT INTO own_account_payees (merchant_key, is_own, decided_at) VALUES (?, ?, ?)",
+            (key, int(is_own), (when or date.today()).isoformat()),
+        )
+    return key
 
 
 def _merchant_id(conn: sqlite3.Connection, key: str) -> int | None:
