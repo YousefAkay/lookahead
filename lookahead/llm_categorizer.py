@@ -13,8 +13,10 @@ are enforced here, in code:
 Needs the optional `anthropic` library and ANTHROPIC_API_KEY in .env.
 """
 
+import argparse
 import json
 import os
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -75,13 +77,15 @@ def sendable_name(txn_type: str, text: str, key: bytes) -> str | None:
 
 
 def build_request(name: str) -> dict[str, object]:
-    """The whole request for one name. Nothing else is ever sent."""
+    """The whole request for one name, as arguments of the SDK's `messages.create`.
+    Nothing else is ever sent. The SDK (1.x) has no `temperature` argument any more, but
+    the API still accepts it for this model, so it goes in the request body directly."""
     return {
         "model": MODEL,
         "max_tokens": MAX_TOKENS,
-        "temperature": TEMPERATURE,
         "system": SYSTEM_PROMPT,
         "messages": [{"role": "user", "content": f"<merchant_name>{name}</merchant_name>"}],
+        "extra_body": {"temperature": TEMPERATURE},
     }
 
 
@@ -144,3 +148,29 @@ def classify(
         answers[name] = ask(client, name)
         save_cache(cache_path, answers)
     return {n: answers[n] for n in names}, len(missing)
+
+
+SMOKE_NAME = "Cafe Velo Test"  # made up: not from anyone's data
+
+
+def main(argv: list[str] | None = None, client: object | None = None) -> int:
+    """`smoke`: one real call with a made-up name, to check the key, the library and the
+    request shape before any real name is sent. Nothing is cached. A failure prints the
+    full traceback, which is safe here because the name is invented."""
+    parser = argparse.ArgumentParser(prog="python -m lookahead.llm_categorizer")
+    commands = parser.add_subparsers(dest="command", required=True)
+    smoke = commands.add_parser("smoke", help="send one made-up merchant name")
+    smoke.add_argument("--env", type=Path, default=Path(".env"))
+    args = parser.parse_args(argv)
+    print(f"Smoke test: sending the made-up name {SMOKE_NAME!r} to {MODEL}")
+    answer = ask(client or make_client(args.env), SMOKE_NAME)  # errors: full traceback
+    print(f"raw answer: {answer.raw!r}")
+    print(f"category: {answer.category or 'NOT A CATEGORY'}")
+    print(f"tokens: {answer.input_tokens} in, {answer.output_tokens} out; "
+          f"cost {answer.cost_usd:.5f} USD; latency {answer.latency_s * 1000:.0f} ms")  # fmt: skip
+    print("RESULT: PASS" if answer.category else "RESULT: CHECK (the answer is not a category)")
+    return 0 if answer.category else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

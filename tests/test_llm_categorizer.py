@@ -61,8 +61,9 @@ def test_everything_else_is_never_sent(txn_type: str, text: str) -> None:
 
 def test_the_request_holds_the_name_the_categories_and_nothing_else() -> None:
     request = llm.build_request("Cafe Velo")
-    assert set(request) == {"model", "max_tokens", "temperature", "system", "messages"}
-    assert request["model"] == "claude-haiku-4-5-20251001" and request["temperature"] == 0.0
+    assert set(request) == {"model", "max_tokens", "system", "messages", "extra_body"}
+    assert request["model"] == "claude-haiku-4-5-20251001"
+    assert request["extra_body"] == {"temperature": 0.0}
     assert request["messages"] == [
         {"role": "user", "content": "<merchant_name>Cafe Velo</merchant_name>"}
     ]
@@ -208,7 +209,7 @@ def test_command_sends_dev_card_names_only_and_never_writes_labels(
     assert names and names <= dev_names - {None}  # dev card names, each exactly once
     assert len(sent) == len(names)
     for request in client.requests:  # no amounts or dates anywhere in a request
-        assert set(request) == {"model", "max_tokens", "temperature", "system", "messages"}
+        assert set(request) == {"model", "max_tokens", "system", "messages", "extra_body"}
         assert not re.search(r"\d+\.\d{2}|\d{4}-\d{2}-\d{2}", json.dumps(request))
     assert label_rows() == before  # LLM output never enters the answer key
 
@@ -228,3 +229,59 @@ def test_command_refuses_paths_outside_data_private(db: Path, tmp_path: Path) ->
     from eval.categorizer_llm import main
 
     assert main(["--db", str(db), "--out", str(tmp_path / "x.json")]) == 2
+
+
+# --- Against the real anthropic library (no network: the HTTP layer is replaced) ---
+# The fake client above accepts anything, which hid a real bug: SDK 1.x has no
+# `temperature` argument, so the first real call raised TypeError.
+
+
+def test_the_request_fits_the_real_sdk_signature() -> None:
+    import inspect
+
+    anthropic = pytest.importorskip("anthropic")
+    create = anthropic.Anthropic(api_key="test").messages.create
+    inspect.signature(create).bind(**llm.build_request("Cafe Velo"))  # TypeError if not
+
+
+def test_a_real_client_sends_temperature_zero_and_parses_a_real_response() -> None:
+    anthropic = pytest.importorskip("anthropic")
+    httpx2 = pytest.importorskip("httpx2")
+    bodies: list[dict] = []
+
+    def handler(request: object) -> object:
+        bodies.append(json.loads(request.content))  # type: ignore[attr-defined]
+        return httpx2.Response(
+            200,
+            json={
+                "id": "msg_test", "type": "message", "role": "assistant",
+                "model": llm.MODEL, "stop_reason": "end_turn", "stop_sequence": None,
+                "content": [{"type": "text", "text": "Restaurants & cafés"}],
+                "usage": {"input_tokens": 210, "output_tokens": 7},
+            },
+        )  # fmt: skip
+
+    client = anthropic.Anthropic(
+        api_key="test", max_retries=0,
+        http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(handler)),
+    )  # fmt: skip
+    answer = llm.ask(client, "Cafe Velo")
+    assert answer.category == "Restaurants & cafés"
+    assert (answer.input_tokens, answer.output_tokens) == (210, 7)
+    (body,) = bodies  # what actually goes over the wire
+    assert body == {
+        "model": "claude-haiku-4-5-20251001", "max_tokens": llm.MAX_TOKENS,
+        "temperature": 0.0, "system": llm.SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": "<merchant_name>Cafe Velo</merchant_name>"}],
+    }  # fmt: skip
+
+
+def test_smoke_command_sends_only_the_made_up_name(capsys: pytest.CaptureFixture[str]) -> None:
+    client = FakeClient()
+    assert llm.main(["smoke"], client) == 0
+    out = capsys.readouterr().out
+    assert [r["messages"][0]["content"] for r in client.requests] == [
+        "<merchant_name>Cafe Velo Test</merchant_name>"
+    ]
+    assert "RESULT: PASS" in out and "Restaurants & cafés" in out
+    assert llm.main(["smoke"], FakeClient("no idea")) == 1

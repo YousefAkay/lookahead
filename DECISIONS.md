@@ -275,6 +275,7 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Rule: it becomes a fallback candidate only with at least +1 point of macro-F1 on unseen merchants. In the app it would be opt-in, off by default; the headline result stays the trained model.
 - Enforced in code, with tests: only the extracted name of a card row is sent (no amount, date, location or type); rows a person rule or the name scan would catch are dropped; one call per name, cached in `data/private/cache/`; the answer must be one of the 17 categories; nothing writes labels; 4a sends dev names only.
 - This is a narrow exception to my rule that real data never goes to a cloud LLM. Reported with accuracy and macro-F1: cost per 1,000 merchants and median latency.
+- Bug fixed: the first real run stopped with a TypeError before sending anything, because the SDK (1.x) no longer has a `temperature` argument; my fake test client accepted any argument and hid it. Temperature now goes in the request body, tests check the request against the real SDK with the HTTP layer replaced, and a smoke command sends one made-up name first.
 
 ## Tests
 
