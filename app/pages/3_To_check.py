@@ -99,11 +99,16 @@ if st.sidebar.button(
     if llm_fallback.is_on(conn) and fallback_key is not None:  # saved answers only
         again = llm_fallback.apply(conn, account, fallback_key, llm_cache)
         reused = f" {count(again.rows, 'row')} now from saved LLM answers again (nothing was sent)."
+    used = (
+        f" Corrected rows: {done.corrections_trained} used for training, "
+        f"{done.corrections_shown_only} shown only (held out for evaluation, or decided "
+        "by a rule)."
+    )
     st.session_state["retrained"] = (
         f"Retrained on {done.training_rows} of your rows (before: {done.training_before}). "
         f"{count(done.changed or 0, 'row')} changed category; rows to check: "
         f"{done.flagged_before} before, "
-        f"{done.flagged} now.{reused}"
+        f"{done.flagged} now.{used}{reused}"
     )
     st.rerun()
 if "retrained" in st.session_state:

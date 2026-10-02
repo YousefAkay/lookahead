@@ -221,3 +221,20 @@ def test_the_model_file_is_saved_only_inside_data_private(
     done = categorize(conn, ACCOUNT, SETTINGS, TODAY, model_dir=private / "models")
     assert done.model_file == private / "models" / f"categorizer_{ACCOUNT}_2026-10-02.joblib"
     assert set(joblib.load(done.model_file).known)  # a usable model
+
+
+def test_retrain_reports_corrections_used_and_shown_only(conn: sqlite3.Connection) -> None:
+    from lookahead.corrections import correct_row
+
+    first = categorize(conn, ACCOUNT, SETTINGS, TODAY)
+    assert (first.corrections_trained, first.corrections_shown_only) == (0, 0)
+    rows = load_rows(conn, ACCOUNT)
+    correct_row(conn, ACCOUNT, rows.query("split == 'dev'")["fingerprint"].iloc[0], "Shopping")
+    correct_row(conn, ACCOUNT, rows.query("split == 'test_b'")["fingerprint"].iloc[0], "Shopping")
+    rule_row = conn.execute(
+        "SELECT fingerprint FROM category_predictions WHERE flow_type = 'transfer'"
+        " AND source = 'rule' LIMIT 1"
+    ).fetchone()[0]
+    correct_row(conn, ACCOUNT, rule_row, "Gifts & donations")
+    done = categorize(conn, ACCOUNT, SETTINGS, TODAY)
+    assert (done.corrections_trained, done.corrections_shown_only) == (1, 2)

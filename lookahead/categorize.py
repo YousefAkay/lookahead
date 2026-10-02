@@ -34,6 +34,7 @@ import pandas as pd
 import lookahead.llm_fallback as llm_fallback
 from lookahead.categories import category_by_rules, load_category_preferences
 from lookahead.categorizer import HybridCategorizer, examples
+from lookahead.corrections import corrections
 from lookahead.db import connect
 from lookahead.flows import Txn, flow_types
 from lookahead.merchants import extract_merchant, is_private_path
@@ -223,6 +224,8 @@ class Summary:
     flagged_before: int | None = None  # None: first run
     training_before: int | None = None  # your rows used by the previous run
     model_file: Path | None = None  # where the trained model was saved, if anywhere
+    corrections_trained: int = 0  # corrected rows the model learned from
+    corrections_shown_only: int = 0  # corrected rows that only change the display
 
 
 def stored_categories(conn: sqlite3.Connection, account: str) -> dict[str, str | None]:
@@ -306,9 +309,12 @@ def categorize(
                          "synthetic_months": settings.synthetic_months}),
              len(df), int(df["flagged"].sum())),
         )  # fmt: skip
+    corrected = set(corrections(conn, account))
+    learned = corrected & set(training_rows(conn, account)["fingerprint"]) if corrected else set()
     return Summary(
         len(df), training, Counter(df["source"]), int(df["flagged"].sum()), changed, version,
         flagged_before, last[0] if last else None, model_file,
+        len(learned), len(corrected) - len(learned),
     )  # fmt: skip
 
 
@@ -356,6 +362,8 @@ def main(argv: list[str] | None = None) -> int:
               f"(flagged before: {s.flagged_before})")  # fmt: skip
     if s.model_file is not None:
         print("model saved in data/private/models/")
+    print(f"corrected rows: {s.corrections_trained} used for training, "
+          f"{s.corrections_shown_only} shown only (holdout rows, or decided by a rule)")  # fmt: skip
     return 0
 
 
