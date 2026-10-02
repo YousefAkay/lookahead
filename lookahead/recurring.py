@@ -176,14 +176,16 @@ def _needed(cadence: str, part: bool) -> int:
 
 def _best_fit(
     days: list[date], direction: str, as_of: date, part: bool = False, exact: bool = False,
-    card_days: bool = False,
+    card_days: bool = False, tolerance: int = TOLERANCE, min_hit: float = MIN_HIT_RATIO,
+    min_payments: int | None = None,
 ) -> _Fit | None:  # fmt: skip
     """The best pattern for these posting dates (sorted), or None if none is good enough.
-    `part`: the rows are only some of their group's. `exact`: timing must be machine-like."""
+    `part`: the rows are only some of their group's. `exact`: timing must be machine-like.
+    `tolerance`, `min_hit` and `min_payments` are only loosened by the "why" diagnostic."""
     best: _Fit | None = None
     start, end = days[0] - timedelta(days=10), as_of + timedelta(days=400)
     for cadence in CADENCES:
-        needed = _needed(cadence, part)
+        needed = min_payments or _needed(cadence, part)
         if len(days) < needed:
             continue
         for anchor in _anchors(cadence, days):
@@ -199,7 +201,8 @@ def _best_fit(
                     for i, d in enumerate(days)
                     if i not in used
                     and abs((d - due).days) <= 7
-                    and business_days_apart(d, due) <= TOLERANCE
+                    and abs((d - due).days) <= 2 * tolerance + 1
+                    and business_days_apart(d, due) <= tolerance
                 ]
                 if near:
                     gap, i = min(near)
@@ -212,7 +215,7 @@ def _best_fit(
             fit = _Fit(cadence, anchor, tuple(matched), len(matched) / len(span),
                        len(matched) / len(days), sum(gaps),
                        sum(g <= EXACT_DAYS for g in gaps) / len(gaps), tuple(expected))  # fmt: skip
-            if fit.hit_ratio < MIN_HIT_RATIO or fit.coverage < MIN_COVERAGE:
+            if fit.hit_ratio < min_hit or fit.coverage < MIN_COVERAGE:
                 continue
             if exact and fit.exact_share < MIN_EXACT_SHARE:
                 continue
@@ -484,6 +487,98 @@ def count_recurring(
     )
 
 
+# --- Why a regular-looking group is not a series (counts only) ---
+
+WHY_NO_SERIES = (
+    "is a series",
+    "named recipient, no pseudonym key",
+    "fewer than 4 payments of one amount",
+    "timing: payments more than 3 business days from any pattern",
+    "gaps: too many expected dates without a payment",
+    "amount changed: fits once amounts within 10% are taken together",
+    "no calendar pattern even with looser rules",
+)
+_FLOWS_TO_EXPLAIN = {
+    "outgoing e-Transfer": "outgoing e-Transfers",
+    "bill payment": "bill payments",
+    "withdrawal": "other withdrawals",
+    "no rule (fallback)": "rows with no flow rule",
+    "own-account transfer": "transfers to my own accounts",
+}
+
+
+@dataclass(frozen=True)
+class AmountGroup:
+    """Rows of one flow type and (nearly) one amount, described without names or amounts."""
+
+    flow: str  # one of the _FLOWS_TO_EXPLAIN labels
+    payments: int
+    gap: str  # one of GAPS
+    why: str  # one of WHY_NO_SERIES
+
+
+def _loose_clusters(rows: list[Txn], share: float) -> list[list[Txn]]:
+    out: list[list[Txn]] = []
+    for t in sorted(rows, key=lambda t: abs(t.amount_cents)):
+        first = abs(out[-1][0].amount_cents) if out else None
+        if first is not None and abs(t.amount_cents) - first <= share * first:
+            out[-1].append(t)
+        else:
+            out.append([t])
+    return [sorted(c, key=lambda t: (t.posted_date, t.row_id)) for c in out]
+
+
+def explain_amount_groups(
+    txns: Sequence[Txn], user: UserDecisions | None = None, key: bytes | None = None,
+    as_of: date | None = None, min_rows: int = 3,
+) -> list[AmountGroup]:  # fmt: skip
+    """For money going out without a merchant-level series: every set of `min_rows`+ rows of
+    one flow type and one amount, and the first reason it is not a series. This is how a
+    regular payment the detector missed (rent by e-Transfer, say) can be explained without
+    showing it. The detector itself is not changed by anything here."""
+    if as_of is None:
+        as_of = max((t.posted_date for t in txns), default=date.min)
+    past = [t for t in txns if t.posted_date <= as_of]
+    flows = flow_types(past, user)
+    by_flow: dict[str, list[Txn]] = {}
+    for t in past:
+        flow = flows[t.row_id]
+        if t.amount_cents < 0 and not flow.netted and flow.reason in _FLOWS_TO_EXPLAIN:
+            by_flow.setdefault(flow.reason, []).append(t)
+    out: list[AmountGroup] = []
+    for reason, rows in by_flow.items():
+        card_days = reason == "outgoing e-Transfer"
+        named = card_days and key is None
+
+        def fits(group: list[Txn], card_days: bool = card_days, **loosen: object) -> bool:
+            days = [t.posted_date for t in group]
+            return _best_fit(days, "out", as_of, part=True, card_days=card_days,
+                             **loosen) is not None  # type: ignore[arg-type]  # fmt: skip
+
+        for cluster in _clusters(rows):
+            if len(cluster) < min_rows:
+                continue
+            wider = next(c for c in _loose_clusters(rows, CARD_AMOUNT_SHARE)
+                         if cluster[0] in c)  # fmt: skip
+            if named and any(_recipient(t.text) for t in cluster):
+                why = WHY_NO_SERIES[1]
+            elif fits(cluster):
+                why = WHY_NO_SERIES[0]
+            elif len(cluster) < MIN_PAYMENTS_PART:
+                why = WHY_NO_SERIES[2]
+            elif fits(cluster, tolerance=7):
+                why = WHY_NO_SERIES[3]
+            elif fits(cluster, min_hit=0.5) or fits(cluster, tolerance=7, min_hit=0.5):
+                why = WHY_NO_SERIES[4]
+            elif len(wider) > len(cluster) and fits(wider, tolerance=7, min_hit=0.5):
+                why = WHY_NO_SERIES[5]
+            else:
+                why = WHY_NO_SERIES[6]
+            out.append(AmountGroup(_FLOWS_TO_EXPLAIN[reason], len(cluster),
+                                   _gap([t.posted_date for t in cluster]), why))  # fmt: skip
+    return sorted(out, key=lambda g: (g.flow, -g.payments, g.why))
+
+
 WHY_NOT = (
     "is a series",
     "some of its payments form a series",
@@ -607,7 +702,14 @@ def _report(db_path: Path, account: str, env_path: Path) -> int:
                   f"{', '.join(f'{gap} {gaps[gap]}' for gap in GAPS if gaps[gap])}")  # fmt: skip
     if c.named_recipients_skipped:
         print("e-Transfers that name a recipient were skipped: PSEUDONYM_KEY is missing")
-    print("Nothing is stored yet: the Recurring page (next step) is where you confirm or reject.")
+    groups = explain_amount_groups(txns, user, key)
+    print("money out, by flow type: sets of 3+ payments of one amount, and why each is or is "
+          "not a series")  # fmt: skip
+    if not groups:
+        print("  none")
+    for g in groups:
+        print(f"  {g.flow}: {g.payments} payments, median gap {g.gap}: {g.why}")
+    print("Stored series and your decisions are on the Recurring page.")
     return 0
 
 

@@ -622,3 +622,54 @@ def test_own_account_command_prints_counts_only(
     assert "nothing changed" in capsys.readouterr().out
     assert main(["own-account", "--db", db, "--payee", "Big Bank Visa", "--undo"]) == 0
     assert "2 rows before, 0 now" in capsys.readouterr().out
+
+
+# --- Why a regular payment was missed (counts only; found on real data: rent) ---
+
+
+def test_missed_regular_payments_are_explained_without_names_or_amounts() -> None:
+    from lookahead.recurring import AmountGroup, explain_amount_groups
+
+    rows = Rows()
+    for m in range(1, 7):  # a clean monthly e-Transfer: a series
+        rows.etransfer(shift_to_business_day(date(2026, m, 1), "later"), -75000)
+    for day in (date(2026, 1, 28), date(2026, 3, 6), date(2026, 3, 30), date(2026, 5, 7),
+                date(2026, 5, 28), date(2026, 7, 8)):  # fmt: skip
+        rows.etransfer(day, -42000)  # about monthly, but up to a week off the 1st
+    for m in (1, 2, 6, 9, 10, 11):  # the 15th, with long stretches away
+        rows.etransfer(shift_to_business_day(date(2026, m, 15), "later"), -30000)
+    for m in range(1, 4):  # only three so far
+        rows.etransfer(shift_to_business_day(date(2026, m, 20), "later"), -9900)
+    for m, cents in zip(range(1, 9), [-60000] * 3 + [-64000] * 3 + [-68500] * 2, strict=True):
+        rows.bill(shift_to_business_day(date(2026, m, 25), "later"), cents, "Landlord Inc")
+    rows.etransfer(date(2026, 4, 9), -1500)  # a one-off: not listed
+    got = explain_amount_groups(rows.txns, as_of=date(2026, 11, 30))
+    why = {(g.flow, g.payments): g.why for g in got}
+    assert why[("outgoing e-Transfers", 6)] in {
+        "is a series", "timing: payments more than 3 business days from any pattern",
+        "gaps: too many expected dates without a payment",
+    }  # fmt: skip
+    assert sorted(g.why for g in got if g.flow == "outgoing e-Transfers") == sorted([
+        "is a series",
+        "timing: payments more than 3 business days from any pattern",
+        "gaps: too many expected dates without a payment",
+        "fewer than 4 payments of one amount",
+    ])  # fmt: skip
+    assert all(isinstance(g, AmountGroup) for g in got)
+    assert not any(ch.isdigit() for g in got for ch in g.why.replace("3 business", "")
+                   .replace("4 payments", "").replace("10%", ""))  # fmt: skip
+    for text in ("Landlord", "750", "420", "300"):
+        assert text not in repr(got)
+
+
+def test_a_named_recipient_without_the_key_is_reported_as_such() -> None:
+    from lookahead.recurring import explain_amount_groups
+
+    rows = Rows()
+    for m in range(1, 7):
+        rows.etransfer(shift_to_business_day(date(2026, m, 1), "later"), -75000, "Alex Roy")
+    got = explain_amount_groups(rows.txns, as_of=date(2026, 6, 30))
+    assert [g.why for g in got] == ["named recipient, no pseudonym key"]
+    with_key = explain_amount_groups(rows.txns, key=KEY, as_of=date(2026, 6, 30))
+    assert [g.why for g in with_key] == ["is a series"]
+    assert "alex" not in repr(got).casefold()
