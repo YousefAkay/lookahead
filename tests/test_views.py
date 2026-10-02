@@ -63,7 +63,14 @@ def test_all_rows_newest_first(db: sqlite3.Connection) -> None:
         "amount_cents",
         "balance_cents",
         "source_file",
+        "merchant",
+        "flow_type",
+        "category",
+        "source",
+        "flagged",
+        "fingerprint",
     ]
+    assert df["category"].isna().all() and not df["flagged"].any()  # not categorized yet
     assert df["date"].is_monotonic_decreasing
 
 

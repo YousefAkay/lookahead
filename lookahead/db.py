@@ -100,6 +100,32 @@ CREATE TABLE IF NOT EXISTS category_labels (
     decided_at  TEXT    NOT NULL,
     CHECK ((status = 'labelled') = (category IS NOT NULL))
 );
+
+-- Step 8: what the app shows for each row (written by lookahead.categorize, replaced on
+-- every run), and one dated record per run so a later replay knows which model was used.
+CREATE TABLE IF NOT EXISTS category_predictions (
+    fingerprint   TEXT    PRIMARY KEY,
+    account       TEXT    NOT NULL,
+    merchant      TEXT,
+    flow_type     TEXT    NOT NULL,
+    category      TEXT,             -- NULL: netted pair, or nothing to go on
+    source        TEXT    NOT NULL, -- rule / your label / known merchant / model / netted / none
+    detail        TEXT    NOT NULL,
+    flagged       INTEGER NOT NULL,
+    confidence    REAL,
+    model_version TEXT    NOT NULL,
+    predicted_at  TEXT    NOT NULL
+);
+CREATE TABLE IF NOT EXISTS categorizer_runs (
+    run_id        INTEGER PRIMARY KEY,
+    account       TEXT    NOT NULL,
+    run_at        TEXT    NOT NULL,
+    model_version TEXT    NOT NULL,
+    training_rows INTEGER NOT NULL,
+    settings      TEXT    NOT NULL,  -- JSON
+    rows          INTEGER NOT NULL,
+    flagged       INTEGER NOT NULL
+);
 """
 
 

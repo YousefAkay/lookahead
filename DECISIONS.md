@@ -307,6 +307,15 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - LLM cost: $0.014, $0.224 per 1,000 merchants, median 516 ms. The flagged-only variant gave the same accuracy as the candidate on both sets.
 - Small n everywhere. I made no choice from these numbers.
 
+## Categories in the app (week 2, step 8)
+
+### 2026-10-01: Predictions are stored, pages only read them (8a)
+- Decision: `python -m lookahead.categorize` trains the model with the saved 7a settings, categorizes every row and stores the result (merchant, flow type, category, source, flag, confidence) in `category_predictions`. Each run is recorded with its date, model version and settings. Lost: predicting inside the page (slow, and the pages open the database read-only).
+- Why: the Transactions page stays fast, and a later Time Machine replay can tell which model produced what.
+- A confirmed label is shown as is, for holdout rows too, but only development labels train the model.
+- With "Pseudonymize text" on, the merchant column is hidden on rows where a name or reference was replaced, since the merchant of such a row can be a person.
+- The demo model is trained on the generator's answer keys, so demo categories are nearly always right; the page says this is not evidence.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

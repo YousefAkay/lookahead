@@ -19,7 +19,6 @@ import math
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -32,50 +31,19 @@ from lookahead.categorizer import (
     MerchantLookup,
     Prediction,
     choose_flag_threshold,
-    examples,
     make_logreg,
     make_svm,
     out_of_fold_confidence,
     reliability_table,
     tune,
 )
-from lookahead.flows import Txn
-from lookahead.generator.personas import PERSONAS
-from lookahead.generator.writer import export_rows
+from lookahead.synthetic_training import EXPORT_DATE, _start, synthetic_examples  # noqa: F401
 
-EXPORT_DATE = date(2026, 9, 30)
 MODELS: dict[str, Callable[[], object]] = {
     "merchant lookup": MerchantLookup,
     "TF-IDF + linear SVM": make_svm,
     "TF-IDF + logistic regression": make_logreg,
 }
-
-
-def _start(months: int) -> date:
-    """First day of the month `months - 1` months before EXPORT_DATE's month."""
-    index = EXPORT_DATE.year * 12 + EXPORT_DATE.month - 1 - (months - 1)
-    return date(index // 12, index % 12 + 1, 1)
-
-
-def synthetic_examples(months: int = 12, seed: int = 42) -> pd.DataFrame:
-    """Rows the rules leave for the categorizer, from each persona (a separate account),
-    with the answer key's category (`label`) and merchant (`merchant`)."""
-    frames = []
-    offset = 0
-    for pid in "ABC":
-        rows = export_rows(PERSONAS[pid], _start(months), EXPORT_DATE, seed)
-        txns = [
-            Txn(offset + i, t.posted_date, t.amount_cents, t.description, t.sub_description)
-            for i, t in enumerate(rows)
-        ]
-        df = examples(txns)
-        truth = {offset + i: t for i, t in enumerate(rows)}
-        df["label"] = [truth[r].category for r in df["row_id"]]
-        df["merchant"] = [truth[r].merchant for r in df["row_id"]]
-        df["persona"] = pid
-        frames.append(df)
-        offset += len(rows)
-    return pd.concat(frames, ignore_index=True)
 
 
 def time_split(df: pd.DataFrame, share: float = 0.7) -> pd.Series:

@@ -9,7 +9,9 @@ import streamlit as st  # noqa: E402
 
 from lookahead.db import connect_readonly  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
+from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
+from lookahead.taxonomy import CATEGORIES  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
     balance_chart,
@@ -19,7 +21,13 @@ from lookahead.ui import (  # noqa: E402
     private_db_path,
     synthetic_dir,
 )
-from lookahead.views import accounts, import_status, transaction_types, transactions  # noqa: E402
+from lookahead.views import (  # noqa: E402
+    accounts,
+    has_categories,
+    import_status,
+    transaction_types,
+    transactions,
+)
 
 st.set_page_config(page_title="Transactions · Lookahead", layout="wide")
 st.title("Transactions")
@@ -28,7 +36,7 @@ st.title("Transactions")
 source = st.sidebar.radio("Data", ["Synthetic demo", "My data"])
 if source == "Synthetic demo":
     db_path = demo_db_path()
-    if not db_path.exists():
+    if not db_path.exists() or not demo_has_categories(db_path):
         with st.spinner("Building the synthetic demo database..."):
             build_demo_db(db_path, synthetic_dir())
 else:
@@ -75,6 +83,16 @@ picked = st.sidebar.date_input(
 start, end = (picked[0], picked[-1]) if isinstance(picked, tuple) and picked else (None, None)
 search = st.sidebar.text_input("Search merchant text")
 types = st.sidebar.multiselect("Transaction types", transaction_types(conn, account))
+categorized = has_categories(conn, account)
+categories: list[str] = []
+flagged_only = False
+if categorized:
+    categories = st.sidebar.multiselect("Categories", CATEGORIES)
+    flagged_only = st.sidebar.toggle(
+        "Only rows to check",
+        value=False,
+        help="Rows whose category the model is unsure about. They still have a category.",
+    )
 
 # --- Import status ---
 st.caption(
@@ -93,12 +111,27 @@ if not in_range.empty:
     st.plotly_chart(balance_chart(daily_balance(in_range)), width="stretch")
 
 # --- Table ---
-rows = transactions(conn, account, start=start, end=end, text=search or None, types=types or None)
+rows = transactions(
+    conn, account, start=start, end=end, text=search or None, types=types or None,
+    categories=categories or None, flagged_only=flagged_only,
+)  # fmt: skip
 conn.close()
+if not categorized:
+    st.info(
+        "No categories yet for this account. To add them, run:\n\n"
+        f"`python -m lookahead.categorize --db {db_path} --account {account}`"
+    )
+elif source == "Synthetic demo":
+    st.caption(
+        "Demo categories come from a model trained on the generator's own answer keys, so "
+        "they are nearly always right here. That says nothing about real accuracy."
+    )
 table = display_table(rows, key)
 if hide_text:
     table["Text"] = "(hidden)"
-st.markdown(f"**{len(table)} transactions**")
+to_check = int(rows["flagged"].sum())
+note = f" · {to_check} to check (estimated categories, low confidence)" if categorized else ""
+st.markdown(f"**{len(table)} transactions**{note}")
 st.dataframe(
     table,
     hide_index=True,

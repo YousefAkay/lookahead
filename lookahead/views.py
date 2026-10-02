@@ -14,6 +14,22 @@ import pandas as pd
 from lookahead.ingest.reconcile import reconcile
 
 COLUMNS = ["date", "type", "text", "amount_cents", "balance_cents", "source_file"]
+# From lookahead.categorize (empty until it has run): merchant, flow type, category, where
+# the category came from, and the flag.
+CATEGORY_COLUMNS = ["merchant", "flow_type", "category", "source", "flagged", "fingerprint"]
+
+
+def has_categories(conn: sqlite3.Connection, account: str) -> bool:
+    """True once lookahead.categorize has stored results for this account."""
+    table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'category_predictions'"
+    ).fetchone()
+    return bool(
+        table
+        and conn.execute(
+            "SELECT 1 FROM category_predictions WHERE account = ? LIMIT 1", (account,)
+        ).fetchone()
+    )
 
 
 def accounts(conn: sqlite3.Connection) -> list[str]:
@@ -37,13 +53,17 @@ def transactions(
     end: date | None = None,
     text: str | None = None,
     types: list[str] | None = None,
+    categories: list[str] | None = None,
+    flagged_only: bool = False,
 ) -> pd.DataFrame:
     """One row per transaction, newest first. Filters: inclusive date range, a
-    case-insensitive search in the merchant text, and transaction types.
+    case-insensitive search in the merchant text, transaction types, categories and
+    flagged rows (the last two need lookahead.categorize to have run).
 
     Within a day, rows keep the export's order (newest first) for a single export.
     """
-    where, params = ["account = ?"], [account]
+    where, params = ["t.account = ?"], [account]
+    joined = has_categories(conn, account)
     if start:
         where.append("posted_date >= ?")
         params.append(start.isoformat())
@@ -57,15 +77,29 @@ def transactions(
     if types:
         where.append(f"description IN ({', '.join('?' for _ in types)})")
         params.extend(types)
+    if joined and categories:
+        where.append(f"p.category IN ({', '.join('?' for _ in categories)})")
+        params.extend(categories)
+    if joined and flagged_only:
+        where.append("p.flagged = 1")
+    extra = (
+        ", p.merchant, p.flow_type, p.category, p.source, p.flagged"
+        if joined
+        else ", NULL AS merchant, NULL AS flow_type, NULL AS category, NULL AS source,"
+        " NULL AS flagged"
+    )
+    join = " LEFT JOIN category_predictions p ON p.fingerprint = t.fingerprint" if joined else ""
     sql = (
         "SELECT posted_date AS date, description AS type, sub_description AS text,"
-        " amount_cents, balance_after_cents AS balance_cents, source_file"
-        f" FROM transactions WHERE {' AND '.join(where)}"
-        " ORDER BY posted_date DESC, id ASC"
+        f" amount_cents, balance_after_cents AS balance_cents, source_file{extra},"
+        f" t.fingerprint FROM transactions t{join} WHERE {' AND '.join(where)}"
+        " ORDER BY posted_date DESC, t.id ASC"
     )
     df = pd.read_sql_query(sql, conn, params=params)
     df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d")
-    return df.astype({"amount_cents": "int64", "balance_cents": "int64"})[COLUMNS]
+    df["flagged"] = df["flagged"].fillna(0).astype(bool)
+    df = df.astype({"amount_cents": "int64", "balance_cents": "int64"})
+    return df[COLUMNS + CATEGORY_COLUMNS]
 
 
 @dataclass

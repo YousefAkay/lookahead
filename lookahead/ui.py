@@ -13,6 +13,8 @@ import plotly.graph_objects as go
 from lookahead.pseudonymize import pseudonymize_sub_description
 
 DISCLAIMER = "Estimates for personal budgeting. Not financial advice."
+HIDDEN = "(hidden)"
+FLAG = "to check"  # marks a low-confidence category; it never blocks anything
 BLANK = "—"  # shown instead of the bank's single-space text
 
 
@@ -41,8 +43,9 @@ def display_table(df: pd.DataFrame, key: bytes | None) -> pd.DataFrame:
             index=df.index,
             dtype="str",
         )
+    hidden = text != df["text"]  # a name or a reference was replaced in this row
     text = text.where(text.str.strip() != "", BLANK)  # service charges, ABM withdrawals
-    return pd.DataFrame(
+    table = pd.DataFrame(
         {
             "Date": df["date"].dt.strftime("%Y-%m-%d"),
             "Type": df["type"],
@@ -51,6 +54,16 @@ def display_table(df: pd.DataFrame, key: bytes | None) -> pd.DataFrame:
             "Balance ($)": df["balance_cents"] / 100,
         }
     )
+    if "source" not in df.columns or df["source"].isna().all():
+        return table  # lookahead.categorize has not run for this account
+    # The merchant of such a row could be a person's name: show it only when not hidden.
+    merchant = df["merchant"].astype("object").where(~hidden, HIDDEN)
+    table.insert(3, "Merchant", merchant.fillna(BLANK))
+    table.insert(4, "Category", df["category"].astype("object").fillna(BLANK))
+    table.insert(5, "Flow", df["flow_type"].astype("object").fillna(BLANK))
+    table.insert(6, "Flag", df["flagged"].map({True: FLAG, False: ""}))
+    table.insert(7, "From", df["source"].astype("object").fillna(BLANK))
+    return table
 
 
 def daily_balance(df: pd.DataFrame) -> pd.DataFrame:

@@ -179,3 +179,19 @@ def test_review_page_overrides_one_row(isolated: Path) -> None:
     button(at, "Save for this row").click().run()
     assert not at.exception
     assert metric(at, "Labelled rows") == "1"
+
+
+# --- Step 8a: categories on the Transactions page ---
+
+
+def test_transactions_page_shows_categories_flow_types_and_flags() -> None:
+    at = run(TRANSACTIONS)
+    table = at.dataframe[0].value
+    for column in ("Merchant", "Category", "Flow", "Flag", "From"):
+        assert column in table.columns
+    assert (table["Category"] == "Groceries").any()
+    assert "says nothing about real accuracy" in page_text(at)
+    everything = len(table)
+    at.sidebar.multiselect[1].set_value(["Groceries"]).run()
+    filtered = at.dataframe[0].value
+    assert 0 < len(filtered) < everything and set(filtered["Category"]) == {"Groceries"}
