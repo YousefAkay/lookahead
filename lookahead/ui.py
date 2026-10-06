@@ -162,3 +162,47 @@ def recurring_table(  # type: ignore[type-arg]
             "Payments": [len(s.evidence) for s in series],
         }
     )
+
+
+# --- Forecast page ---
+
+
+def hidden_series(rows: pd.DataFrame, series: list, key: bytes | None) -> set[str]:  # type: ignore[type-arg]
+    """Keys of the series whose own name must not show: pseudonymizing replaced a name in one
+    of its payments (a person), and the name is not one I typed myself."""
+    if key is None or rows.empty:
+        return set()
+    shown = display_table(rows, key)
+    changed = set(rows.loc[(shown["Text"] != rows["text"]).to_numpy(), "fingerprint"])
+    return {s.key for s in series if changed & set(s.evidence) and not s.named_by_me}
+
+
+def forecast_table(items: list, by_key: dict, hidden: set[str]) -> pd.DataFrame:  # type: ignore[type-arg]
+    """The recurring payments placed on the forecast days, one row each, with what each rests
+    on. Amounts in dollars (display only): money in is positive, money out is negative."""
+    return pd.DataFrame(
+        {
+            "Date": [i.day.isoformat() for i in items],
+            "Name": [series_label(by_key[i.series_key], i.series_key in hidden) for i in items],
+            "Amount ($)": [i.cents / 100 for i in items],
+            "Based on": [i.basis for i in items],
+            "Why": [i.note for i in items],
+        }
+    )
+
+
+def forecast_chart(actual: pd.DataFrame, forecast: object, buffer_cents: int) -> go.Figure:
+    """Recent end-of-day balances, then the projected ones (dashed), with zero and the buffer."""
+    days = forecast.days  # type: ignore[attr-defined]
+    figure = go.Figure()
+    if not actual.empty:
+        figure.add_scatter(x=actual["date"], y=actual["balance ($)"], mode="lines",
+                           line_shape="hv", name="Recent balance")  # fmt: skip
+    figure.add_scatter(
+        x=[d.day for d in days], y=[d.balance_cents / 100 for d in days], mode="lines",
+        line={"dash": "dash"}, line_shape="hv", name="Forecast (an estimate)",
+    )  # fmt: skip
+    figure.add_hline(y=0, line_dash="dot")
+    figure.add_hline(y=buffer_cents / 100, line_dash="dash", annotation_text="safety buffer")
+    figure.update_layout(title="Projected end-of-day balance", yaxis_title="balance ($)")
+    return figure

@@ -37,6 +37,7 @@ from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
     demo_db_path,
     display_table,
+    hidden_series,
     private_db_path,
     recurring_table,
     series_label,
@@ -90,12 +91,7 @@ show_rejected = st.sidebar.toggle("Show the ones I rejected", value=False)
 rows = transactions(conn, account)
 shown_rows = display_table(rows, display_key)
 # A series whose payments show a replaced name (a person) keeps its own name hidden too.
-changed = set(rows.loc[(shown_rows["Text"] != rows["text"]).to_numpy(), "fingerprint"])
-hidden = {
-    s.key for s in series
-    if display_key is not None and changed & set(s.evidence) and not s.named_by_me
-}  # fmt: skip
-
+hidden = hidden_series(rows, series, display_key)
 listed = [s for s in series if show_rejected or s.status != "rejected"]
 waiting = sum(s.status == "detected" for s in listed)
 last_date = rows["date"].max().date() if not rows.empty else None

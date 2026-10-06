@@ -453,6 +453,14 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Also left out: payments of any recurring series (they are placed on their own dates, so counting them again would double them), fully reversed pairs, income and incoming transfers (no income is assumed). Card returns and corrections that are not fully reversed lower the stream; other credits do not.
 - Baselines (rule zero: only rows posted by the forecast date): (1) the average of the last 28 days times the days ahead; (2) the average for each weekday over the last 8 weeks, added up over the weekdays of the forecast days. A short history is averaged over the days it has; a weekday never seen uses the overall average. An average below zero (more returns than spending) is treated as zero. The paths are cumulative D(t, h), rounded to whole cents after summing.
 
+### 2026-10-06: 3b step 4: the balance path and the Forecast page
+- Decision: balance(day) = the balance when the data ends + recurring money placed through that day - cumulative everyday spending through that day. One path, an estimate; ranges from simulated spending paths are the next step and are not shown yet.
+- A live forecast reads every stored row and every decision made so far (a confirmation I made today counts, even though the data ends earlier). A replay as of a date reads only rows and decisions made by then (rule zero); a test checks that a later row does not change an earlier replay.
+- The page shows, before anything else, when the data was last updated and the day the forecast starts; if today is later it says the days in between are forecast, not observed. It lists every assumption: the starting point, how many recurring payments rest on detected, confirmed or entered series, how everyday spending was estimated (including transfers and large one-offs, and that bank fees are not forecast yet), income ("no regular income found; none assumed" when there is no income series), and each rent rule (the larger amount, somewhere in the window).
+- The shortfall wording is "possible shortfall" and "this estimate", measured against the safety buffer (default $200, saved in settings). No alert record is stored yet; the alert comes with the simulated paths.
+- Choosing between the two baselines is a control on the page (the weekday average is the default). Neither is evaluated yet: the backtest waits for the replay in week 4. A look at three synthetic personas showed plausible numbers only; it is not a result.
+- Streamlit renders `$...$` in text as a formula, so dollar amounts in captions and warnings are escaped; tables and metrics show them plainly.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

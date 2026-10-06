@@ -484,3 +484,63 @@ def test_the_page_refreshes_an_older_saved_copy_by_itself(isolated: Path) -> Non
     conn = connect(isolated / "demo.db")
     assert cache_current(conn, "synthetic-B")
     conn.close()
+
+
+# --- Step 3b-iv: the Forecast page ---
+
+FORECAST = APP / "pages" / "5_Forecast.py"
+
+
+def test_forecast_page_shows_the_start_the_assumptions_and_the_placed_payments(
+    isolated: Path,
+) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    text = page_text(at)
+    assert "Data last updated:" in text and "the day after the data ends" in text
+    assert "Starting point:" in text and "Everyday spending:" in text  # the assumptions
+    assert "Bank fees are not forecast yet" in text
+    assert "Not financial advice" in text
+    assert metric(at, "Balance when the data ends").startswith("$")
+    assert metric(at, "Safety buffer") == "$200.00"  # the default buffer
+    placed = at.dataframe[0].value
+    assert list(placed.columns) == ["Date", "Name", "Amount ($)", "Based on", "Why"]
+    assert set(placed["Based on"]) <= {"detected", "confirmed", "entered"}
+
+
+def test_forecast_page_says_so_when_no_income_is_assumed(isolated: Path) -> None:
+    from lookahead.db import connect
+    from lookahead.recurring_store import ensure_current, reject
+
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    conn = connect(isolated / "demo.db")
+    for s in ensure_current(conn, "synthetic-B"):
+        if s.direction == "in":
+            reject(conn, "synthetic-B", s.key)  # no income series left
+    conn.close()
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert "no regular income found; none assumed" in page_text(at)
+
+
+def test_the_safety_buffer_can_be_changed_and_is_kept(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.number_input(key="buffer").set_value(500.0)
+    at.sidebar.button[0].click().run()  # "Save buffer"
+    assert not at.exception, at.exception
+    assert metric(at, "Safety buffer") == "$500.00"
+    again = run(FORECAST)
+    again.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert metric(again, "Safety buffer") == "$500.00"
+
+
+def test_forecast_page_can_switch_the_spending_baseline(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert "average for each weekday" in page_text(at)
+    at.sidebar.selectbox[1].set_value("recent").run()
+    assert not at.exception, at.exception
+    assert "average of the last 28 days" in page_text(at)

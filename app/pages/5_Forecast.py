@@ -1,0 +1,184 @@
+"""Forecast: the balance for the next 30 days, from the data's last date, with every assumption.
+
+This is a point forecast (one estimated path). It needs no confirmations: recurring payments are
+used as the app found them unless you changed them on the Recurring page. Ranges from simulated
+spending paths come later.
+"""
+
+import sys
+from datetime import date
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # make `lookahead` importable
+
+import pandas as pd  # noqa: E402
+import streamlit as st  # noqa: E402
+
+from lookahead.db import connect  # noqa: E402
+from lookahead.demo import build_demo_db  # noqa: E402
+from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
+from lookahead.forecast.path import BASELINES, build_forecast  # noqa: E402
+from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
+from lookahead.recurring_store import rent_rule_of  # noqa: E402
+from lookahead.rent import rent_cents  # noqa: E402
+from lookahead.settings import safety_buffer_cents, set_safety_buffer_cents  # noqa: E402
+from lookahead.ui import (  # noqa: E402
+    DISCLAIMER,
+    daily_balance,
+    demo_db_path,
+    forecast_chart,
+    forecast_table,
+    hidden_series,
+    private_db_path,
+    series_label,
+    synthetic_dir,
+)
+from lookahead.views import accounts, import_status, transactions  # noqa: E402
+
+
+def dollars(cents: int) -> str:
+    """Money for text that Streamlit renders as markdown (a bare $ would start a formula)."""
+    return f"\\${cents / 100:,.2f}"
+
+
+st.set_page_config(page_title="Forecast · Lookahead", layout="wide")
+st.title("Forecast")
+
+# --- Which database ---
+source = st.sidebar.radio("Data", ["Synthetic demo", "My data"])
+if source == "Synthetic demo":
+    db_path = demo_db_path()
+    if not db_path.exists() or not demo_has_categories(db_path):
+        with st.spinner("Building the synthetic demo database..."):
+            build_demo_db(db_path, synthetic_dir())
+else:
+    db_path = private_db_path()
+    if not db_path.exists():
+        st.info(f"No database found at `{db_path}`. Import your exports first.")
+        st.stop()
+
+pseudonymize = st.sidebar.toggle(
+    "Pseudonymize text", value=True,
+    help="Hides people's names and reference numbers; business names stay readable.",
+)  # fmt: skip
+try:
+    stored_key: bytes | None = pseudonym_key()
+except PseudonymKeyError:
+    stored_key = None
+display_key = stored_key if pseudonymize else None
+if pseudonymize and stored_key is None:
+    st.warning("No PSEUDONYM_KEY: showing raw text.")
+
+conn = connect(db_path)  # this page saves one setting: the safety buffer
+names = accounts(conn)
+if not names:
+    st.info("This database has no transactions yet.")
+    st.stop()
+account = st.sidebar.selectbox("Account", names)
+
+method = st.sidebar.selectbox(
+    "Everyday spending is estimated as the", list(BASELINES), format_func=BASELINES.get,
+    index=list(BASELINES).index("weekday"),
+)  # fmt: skip
+with st.sidebar.form("buffer_form"):
+    buffer_dollars = st.number_input(
+        "Safety buffer ($)", min_value=0.0, step=50.0,
+        value=safety_buffer_cents(conn) / 100, key="buffer",
+    )  # fmt: skip
+    if st.form_submit_button("Save buffer"):
+        set_safety_buffer_cents(conn, round(buffer_dollars * 100))  # dollars only on screen
+        st.rerun()
+
+forecast = build_forecast(conn, account, method, None, stored_key)
+if forecast is None:
+    st.info("This account has no transactions yet.")
+    st.stop()
+
+start = forecast.start
+status = import_status(conn, account)
+if not status.reconciled:
+    st.warning("Balances do not add up for this account (see the Transactions page). "
+               "The starting balance may be wrong.")  # fmt: skip
+
+# --- Where the forecast starts ---
+today = date.today()
+st.caption(
+    f"Data last updated: {start.data_last_updated}. The forecast starts on {start.first_day}, "
+    f"the day after the data ends, and runs {len(forecast.days)} days."
+)
+if today > start.first_day:
+    st.caption(
+        f"Today is {today}: the days from {start.first_day} up to today are forecast too, "
+        "not observed. Import newer data to replace them."
+    )
+
+low_day, low_cents = forecast.lowest
+first_below = forecast.first_below_buffer
+metrics = st.columns(3)
+metrics[0].metric("Balance when the data ends", f"${start.balance_cents / 100:,.2f}")
+metrics[1].metric(
+    "Lowest projected balance", f"${low_cents / 100:,.2f}", str(low_day), delta_color="off"
+)
+metrics[2].metric("Safety buffer", f"${forecast.buffer_cents / 100:,.2f}")
+if first_below is not None:
+    st.warning(
+        "Possible shortfall: this estimate puts the balance below your "
+        f"{dollars(forecast.buffer_cents)} buffer from {first_below}. "
+        "It depends on the assumptions listed below."
+    )
+else:
+    st.info("This estimate keeps the balance above your buffer for the whole period.")
+
+# --- The chart: recent balance, then the forecast ---
+rows = transactions(conn, account)
+latest = rows["date"].max()
+recent = rows[rows["date"] >= latest - pd.Timedelta(days=30)]
+st.plotly_chart(
+    forecast_chart(daily_balance(recent), forecast, forecast.buffer_cents), width="stretch"
+)
+
+# --- Every assumption ---
+by_key = {s.key: s for s in forecast.series}
+hidden = hidden_series(rows, list(forecast.series), display_key)
+with st.expander("Assumptions behind this forecast", expanded=True):
+    counts = {
+        b: sum(i.basis == b for i in forecast.items) for b in ("detected", "confirmed", "entered")
+    }
+    st.markdown(
+        f"- **Starting point:** the balance after the last posting on {start.data_last_updated}. "
+        f"Only data posted on or before that date is used.\n"
+        f"- **Recurring payments:** {len(forecast.items)} placed in the period "
+        f"({counts['detected']} detected, {counts['confirmed']} confirmed, "
+        f"{counts['entered']} entered by me). Detected ones are used as found; you can "
+        "confirm or change them on the Recurring page.\n"
+        f"- **Everyday spending:** the {forecast.method}. It includes transfers to people and to "
+        "savings that are not part of a recurring series, and large one-off purchases. "
+        "Bank fees are not forecast yet."
+    )
+    if forecast.has_income:
+        st.markdown(
+            "- **Income:** only the income series on the Recurring page, on their expected dates."
+        )
+    else:
+        st.markdown("- **Income:** no regular income found; none assumed.")
+    for s in forecast.series:
+        rule = rent_rule_of(s)
+        if rule is not None and s.active and s.status != "rejected":
+            st.markdown(
+                f"- **{series_label(s, s.key in hidden)}:** assumed at the larger allowed amount "
+                f"({dollars(rent_cents(rule))}), somewhere in its window (day {rule.from_day} to "
+                f"day {rule.to_day}). The forecast places it on the earliest day of the window "
+                "still ahead; a window that ended with no payment is expected on the first "
+                "forecast day."
+            )
+
+st.subheader("Recurring payments placed in this period")
+if forecast.items:
+    st.dataframe(
+        forecast_table(forecast.items, by_key, hidden), hide_index=True, width="stretch",
+        column_config={"Amount ($)": st.column_config.NumberColumn(format="%.2f")},
+    )  # fmt: skip
+else:
+    st.caption("None: no active recurring series has a payment in this period.")
+
+st.caption(DISCLAIMER)
