@@ -323,3 +323,128 @@ def test_an_older_decision_table_is_migrated_keeping_every_decision(tmp_path: Pa
     decide(c, "test", "k1", "continue", {"previous": "k2"})
     c.close()
     assert connect(path).execute("SELECT COUNT(*) FROM recurring_decisions").fetchone()[0] == 4
+
+
+# --- Rent: allowed amounts and a window of days ---
+
+
+def rent_db(tmp_path: Path) -> tuple[sqlite3.Connection, str, dict[str, str]]:
+    """Rent by e-Transfer in one of two amounts, between the 30th and the 7th, plus rows that
+    must not count. Returns the database, the hand-added series' key and fingerprints by name."""
+    c = connect(tmp_path / "rent.db")
+    fingerprints: dict[str, str] = {}
+
+    def put(name: str, day: date, cents: int, kind: str = "withdrawal",
+            text: str = "Free Interac E-Transfer ") -> None:  # fmt: skip
+        insert(c, day, cents, kind, text)
+        fingerprints[name] = c.execute(
+            "SELECT fingerprint FROM transactions ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+
+    put("jan", date(2026, 1, 31), -82000)
+    put("mar", date(2026, 3, 1), -79500)  # the window that starts on Feb 28
+    put("apr", date(2026, 3, 31), -82000)
+    put("jun", date(2026, 5, 2), -82000)
+    put("jul", date(2026, 6, 30), -79500)
+    put("aug", date(2026, 8, 1), -82000)
+    put("too_early", date(2026, 7, 15), -82000)  # right amount, outside the window
+    put("other_amount", date(2026, 4, 1), -50000)  # inside the window, not an allowed amount
+    put("not_etransfer", date(2026, 2, 2), -82000, "bill payment", "Landlord Inc ")
+    key = add_series(c, ACCOUNT, "Rent", "out", "monthly", date(2026, 8, 1), 82000,
+                     date(2026, 1, 1))  # fmt: skip
+    return c, key, fingerprints
+
+
+def test_a_rent_rule_uses_the_larger_amount_and_finds_both_amounts(tmp_path: Path) -> None:
+    from lookahead.recurring_store import set_rent_rule
+    from lookahead.rent import RentRule
+
+    c, key, fp = rent_db(tmp_path)
+    set_rent_rule(c, ACCOUNT, key, RentRule((79500, 82000), 30, 7), date(2026, 9, 5))
+    series = {s.key: s for s in refresh(c, ACCOUNT)}
+    rent = series[key]
+    assert rent.expected_cents == -82000  # the larger one, always
+    assert rent.allowed_cents == (79500, 82000) and rent.window == (30, 7)
+    assert set(rent.evidence) == {fp[n] for n in ("jan", "mar", "apr", "jun", "jul", "aug")}
+    assert rent.last_paid == date(2026, 8, 1)
+    assert rent.next_expected == date(2026, 8, 30)  # the earliest day of the next window
+
+
+def test_a_rent_rule_survives_the_cache(tmp_path: Path) -> None:
+    from lookahead.recurring_store import set_rent_rule
+    from lookahead.rent import RentRule
+
+    c, key, _ = rent_db(tmp_path)
+    set_rent_rule(c, ACCOUNT, key, RentRule((79500, 82000), 30, 7), date(2026, 9, 5))
+    refreshed = {s.key: s for s in refresh(c, ACCOUNT)}[key]
+    stored = {s.key: s for s in load_series(c, ACCOUNT)}[key]
+    assert stored == refreshed and isinstance(stored.allowed_cents, tuple)
+    assert isinstance(stored.window, tuple)
+
+
+def test_a_rent_rule_applies_only_from_the_day_it_was_decided(tmp_path: Path) -> None:
+    from lookahead.recurring_store import series_as_of, set_rent_rule
+    from lookahead.rent import RentRule
+
+    c, key, _ = rent_db(tmp_path)
+    set_rent_rule(c, ACCOUNT, key, RentRule((79500, 82000), 30, 7), date(2026, 9, 5))
+    before, _ = series_as_of(c, ACCOUNT, date(2026, 9, 4))
+    after, _ = series_as_of(c, ACCOUNT, date(2026, 9, 6))
+    assert {s.key: s for s in before}[key].allowed_cents == ()
+    assert {s.key: s for s in after}[key].allowed_cents == (79500, 82000)
+
+
+def test_rent_rows_posted_after_the_forecast_date_are_not_evidence(tmp_path: Path) -> None:
+    from lookahead.recurring_store import series_as_of, set_rent_rule
+    from lookahead.rent import RentRule
+
+    c, key, fp = rent_db(tmp_path)
+    set_rent_rule(c, ACCOUNT, key, RentRule((79500, 82000), 30, 7), date(2026, 1, 1))
+    early, _ = series_as_of(c, ACCOUNT, date(2026, 4, 15))
+    rent = {s.key: s for s in early}[key]
+    assert set(rent.evidence) == {fp[n] for n in ("jan", "mar", "apr")}
+    assert rent.last_paid == date(2026, 3, 31)
+
+
+def test_the_latest_rent_rule_wins_and_it_can_be_removed(tmp_path: Path) -> None:
+    from lookahead.recurring_store import set_rent_rule
+    from lookahead.rent import RentRule
+
+    c, key, _ = rent_db(tmp_path)
+    set_rent_rule(c, ACCOUNT, key, RentRule((79500, 82000), 30, 7), date(2026, 9, 5))
+    set_rent_rule(c, ACCOUNT, key, RentRule((84000,), 3, 8), date(2026, 9, 6))
+    rent = {s.key: s for s in refresh(c, ACCOUNT)}[key]
+    assert (rent.allowed_cents, rent.window, rent.expected_cents) == ((84000,), (3, 8), -84000)
+    set_rent_rule(c, ACCOUNT, key, None, date(2026, 9, 7))
+    plain = {s.key: s for s in refresh(c, ACCOUNT)}[key]
+    assert (plain.allowed_cents, plain.window) == ((), None)
+
+
+def test_my_edited_date_is_kept_but_the_amount_stays_the_larger(tmp_path: Path) -> None:
+    from lookahead.recurring_store import set_rent_rule
+    from lookahead.rent import RentRule
+
+    c, key, _ = rent_db(tmp_path)
+    set_rent_rule(c, ACCOUNT, key, RentRule((79500, 82000), 30, 7), date(2026, 9, 5))
+    edit(c, ACCOUNT, key, next_date=date(2026, 9, 3), amount_cents=-60000, when=date(2026, 9, 6))
+    rent = {s.key: s for s in refresh(c, ACCOUNT)}[key]
+    assert rent.next_expected == date(2026, 9, 3) and rent.expected_cents == -82000
+
+
+def test_the_decision_table_accepts_rent_after_migrating_an_old_one(tmp_path: Path) -> None:
+    from lookahead.recurring_store import decide
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE recurring_decisions (decision_id INTEGER PRIMARY KEY, account TEXT NOT"
+        " NULL, series_key TEXT NOT NULL, action TEXT NOT NULL CHECK (action IN ('confirm',"
+        " 'reject', 'end', 'edit', 'add', 'category', 'continue')), details TEXT NOT NULL,"
+        " decided_at TEXT NOT NULL);"
+        "INSERT INTO recurring_decisions VALUES (3, 'test', 'k1', 'continue', '{}', '2026-10-02');"
+    )
+    old.close()
+    c = connect(path)  # migrates a table that has category and continue but not rent
+    decide(c, "test", "k1", "rent", {"amounts_cents": [1], "from_day": 30, "to_day": 7})
+    ids = [r[0] for r in c.execute("SELECT decision_id FROM recurring_decisions ORDER BY 1")]
+    assert ids[0] == 3 and len(ids) == 2

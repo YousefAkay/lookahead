@@ -13,7 +13,9 @@ date:
 - category: the category of every payment in the series (a subscription billed by a store
   where you also shop: the series is Subscriptions, your other purchases there are not);
 - continue: this series carries on an ended one (the same subscription under a new merchant
-  name). The two are shown as one series with one history; no merchant is merged.
+  name). The two are shown as one series with one history; no merchant is merged;
+- rent: for a series paid by hand (rent by e-Transfer), the allowed amounts and the window of
+  days of the month it is sent in (lookahead.rent). The latest one wins; None removes it.
 Status: detected / confirmed / user-added / rejected. Evidence is stored as transaction
 fingerprints, which survive re-imports. The result is saved in `recurring_series`, so the
 pages and the forecast only read it.
@@ -25,12 +27,13 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, timedelta
 
-from lookahead.flows import Txn
+from lookahead.flows import Flow, Txn, flow_types
 from lookahead.recurring import CADENCES, Series, detect, expected_dates
+from lookahead.rent import RentRule, next_window_day, rent_cents, window_containing
 from lookahead.resolve import UserDecisions, load_user_decisions
 from lookahead.taxonomy import CATEGORIES
 
-ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue")
+ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 
 
@@ -60,6 +63,8 @@ class Stored:
     loose: bool = False  # e-Transfers sent by hand: about monthly, the day varies
     category: str | None = None  # your category for every payment of this series
     continues: tuple[str, ...] = ()  # keys of the ended series this one carries on
+    allowed_cents: tuple[int, ...] = ()  # rent rule: the amounts it may be paid in (sizes)
+    window: tuple[int, int] | None = None  # rent rule: from-day and to-day of the month
 
 
 @dataclass(frozen=True)
@@ -119,6 +124,8 @@ def confirm(
             "paid_after_end",
             "category",
             "continues",
+            "allowed_cents",
+            "window",
         )  # fmt: skip
     }
     decide(conn, account, series.key, "confirm", snapshot, when)
@@ -142,6 +149,25 @@ def link_continuation(
     if key == previous_key:
         raise ValueError("a series cannot continue itself")
     decide(conn, account, key, "continue", {"previous": previous_key}, when)
+
+
+def set_rent_rule(
+    conn: sqlite3.Connection, account: str, key: str, rule: RentRule | None,
+    when: date | None = None,
+) -> None:  # fmt: skip
+    """Say which amounts and which days of the month a series is paid in (None: remove it)."""
+    details: dict[str, object] = {} if rule is None else {
+        "amounts_cents": list(rule.amounts_cents), "from_day": rule.from_day,
+        "to_day": rule.to_day,
+    }  # fmt: skip
+    decide(conn, account, key, "rent", details, when)
+
+
+def rent_rule_of(s: Stored) -> RentRule | None:
+    """The rent rule a stored series carries, if any."""
+    if not s.allowed_cents or s.window is None:
+        return None
+    return RentRule(s.allowed_cents, s.window[0], s.window[1])
 
 
 def reject(conn: sqlite3.Connection, account: str, key: str, when: date | None = None) -> None:
@@ -240,7 +266,11 @@ def current_series(
         for s in detect(txns, user, as_of=as_of, key=key)
     }
     links: list[tuple[str, str]] = []  # (series, the ended one it continues), in log order
+    rules: dict[str, RentRule | None] = {}  # the latest rent rule of each series
     for d in decisions:
+        if d.action == "rent":
+            rules[d.key] = _rule_from(d.details)
+            continue
         if d.action == "continue":
             links.append((d.key, str(d.details["previous"])))
             continue
@@ -280,10 +310,55 @@ def current_series(
                 amount = int(d.details["amount_cents"])  # type: ignore[call-overload]
                 changes |= {"expected_cents": amount, "range_cents": (amount, amount)}
             series[d.key] = replace(s, **changes)  # type: ignore[arg-type]
+    rented = [(k, r) for k, r in rules.items() if r is not None and k in series]
+    if rented:  # after every edit, so the rule's amount and window win
+        flows = flow_types(txns, user)
+        for k, rule in rented:
+            if series[k].direction == "out" and series[k].status != "rejected":
+                series[k] = _with_rent_rule(series[k], rule, txns, fingerprint, flows, as_of)
     for new_key, old_key in links:  # after everything else, so both sides are up to date
         if new_key in series and old_key in series:
             series[new_key] = _joined(series[new_key], series.pop(old_key))
     return sorted(series.values(), key=lambda s: s.key)
+
+
+def _rule_from(details: dict[str, object]) -> RentRule | None:
+    if not details:
+        return None
+    amounts = details["amounts_cents"]
+    return RentRule(
+        tuple(int(a) for a in amounts),  # type: ignore[attr-defined]
+        int(details["from_day"]), int(details["to_day"]),  # type: ignore[call-overload]
+    )  # fmt: skip
+
+
+def _with_rent_rule(
+    s: Stored, rule: RentRule, txns: Sequence[Txn], fingerprint: dict[int, str],
+    flows: dict[int, Flow], as_of: date,
+) -> Stored:  # fmt: skip
+    """Apply a rent rule: the larger amount, and every outgoing e-Transfer of an allowed
+    amount posted inside a window (by `as_of`) counts as a payment of this series."""
+    posted = {fingerprint[t.row_id]: t.posted_date for t in txns}
+    paid = {fp: posted[fp] for fp in s.evidence if fp in posted}
+    for t in txns:
+        if (
+            t.posted_date <= as_of
+            and -t.amount_cents in rule.amounts_cents
+            and flows[t.row_id].reason == "outgoing e-Transfer"
+            and not flows[t.row_id].netted
+            and window_containing(rule, t.posted_date) is not None
+        ):  # fmt: skip
+            paid[fingerprint[t.row_id]] = t.posted_date
+    last_paid = max(paid.values(), default=s.last_paid)
+    larger, smaller = rent_cents(rule), rule.amounts_cents[0]
+    changes: dict[str, object] = {
+        "allowed_cents": rule.amounts_cents, "window": (rule.from_day, rule.to_day),
+        "expected_cents": -larger, "range_cents": (-larger, -smaller), "amount_type": "fixed",
+        "evidence": tuple(sorted(paid, key=lambda fp: (paid[fp], fp))), "last_paid": last_paid,
+    }  # fmt: skip
+    if not s.edited:  # your own date, if you set one, stays
+        changes["next_expected"] = next_window_day(rule, as_of, last_paid)
+    return replace(s, **changes)  # type: ignore[arg-type]
 
 
 def _joined(new: Stored, old: Stored) -> Stored:
@@ -351,6 +426,8 @@ def _to_json(s: Stored) -> dict[str, object]:
         data[name] = None if data[name] is None else data[name].isoformat()
     data["range_cents"], data["evidence"] = list(s.range_cents), list(s.evidence)
     data["offsets"], data["continues"] = list(s.offsets), list(s.continues)
+    data["allowed_cents"] = list(s.allowed_cents)
+    data["window"] = None if s.window is None else list(s.window)
     return data
 
 
@@ -407,5 +484,7 @@ def load_series(conn: sqlite3.Connection, account: str) -> list[Stored]:
             d[name] = None if d[name] is None else date.fromisoformat(d[name])
         d["range_cents"], d["evidence"] = tuple(d["range_cents"]), tuple(d["evidence"])
         d["offsets"], d["continues"] = tuple(d.get("offsets", ())), tuple(d.get("continues", ()))
+        d["allowed_cents"] = tuple(d.get("allowed_cents", ()))
+        d["window"] = None if d.get("window") is None else tuple(d["window"])
         out.append(Stored(**d))
     return out

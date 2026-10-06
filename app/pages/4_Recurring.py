@@ -26,8 +26,11 @@ from lookahead.recurring_store import (  # noqa: E402
     load_series,
     refresh,
     reject,
+    rent_rule_of,
     set_category,
+    set_rent_rule,
 )
+from lookahead.rent import RentRule, parse_dollars, rent_cents  # noqa: E402
 from lookahead.taxonomy import CATEGORIES  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
@@ -132,7 +135,15 @@ if listed:
             )  # fmt: skip
         else:
             st.caption("No payments in the data yet for this series.")
-        if chosen.loose and chosen.offsets:
+        rule = rent_rule_of(chosen)
+        if rule is not None:
+            amounts = " or ".join(f"{a / 100:.2f}" for a in rule.amounts_cents)
+            st.caption(
+                f"Rent rule: {amounts} dollars, sent between day {rule.from_day} of a month "
+                f"and day {rule.to_day} of the next. Rent is assumed at the larger amount "
+                f"({rent_cents(rule) / 100:.2f}), somewhere in that window."
+            )
+        elif chosen.loose and chosen.offsets:
             spread = sorted(abs(d) for d in chosen.offsets)
             st.caption(
                 "A candidate: same amount, about once a month, on varying days. Nothing uses "
@@ -196,6 +207,44 @@ if listed:
             if save_category:
                 set_category(conn, account, chosen.key,
                              None if picked == OWN_CATEGORY else picked)  # fmt: skip
+                refresh(conn, account, stored_key)
+                st.rerun()
+        if chosen.status in ("confirmed", "user-added") and chosen.direction == "out":
+            with st.form("rent_form"):
+                st.markdown("**Rent rule (payments sent by hand in one of a few amounts)**")
+                amounts_text = st.text_input(
+                    "Allowed amounts in dollars, separated by commas",
+                    value=", ".join(f"{a / 100:.2f}" for a in chosen.allowed_cents),
+                    key=f"rent_amounts|{chosen.key}",
+                )  # fmt: skip
+                days = st.columns(2)
+                first_day = days[0].number_input(
+                    "From day of the month", 1, 31, chosen.window[0] if chosen.window else 30,
+                    key=f"rent_from|{chosen.key}",
+                )  # fmt: skip
+                last_day = days[1].number_input(
+                    "To day (next month if smaller)", 1, 31,
+                    chosen.window[1] if chosen.window else 7, key=f"rent_to|{chosen.key}",
+                )  # fmt: skip
+                st.caption(
+                    "Payments of an allowed amount inside the window count as this series. "
+                    "The forecast assumes the larger amount, somewhere in the window, and "
+                    "never uses anything posted after the forecast date."
+                )
+                save_rent = st.form_submit_button("Save rent rule")
+                clear_rent = st.form_submit_button("Remove rent rule", disabled=rule is None)
+            if save_rent:
+                try:
+                    set_rent_rule(conn, account, chosen.key,
+                                  RentRule(parse_dollars(amounts_text), int(first_day),
+                                           int(last_day)))  # fmt: skip
+                except ValueError as problem:
+                    st.warning(f"Could not save: {problem}")
+                else:
+                    refresh(conn, account, stored_key)
+                    st.rerun()
+            if clear_rent:
+                set_rent_rule(conn, account, chosen.key, None)
                 refresh(conn, account, stored_key)
                 st.rerun()
         ended = [s for s in listed if not s.active and s.key != chosen.key]

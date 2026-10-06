@@ -396,6 +396,21 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Bug fixed: after confirming a series the Recurring page jumped to another one, because the selection held the series object, which changes when confirmed. It now holds the series key. The edit form is keyed by series, so it shows the selected series' own values.
 - Editor setting: my editor tools are denied Read and Edit on `data/private/**`. Shell commands are left allowed, so append-only notes still work.
 
+### 2026-10-06: Rent rule: allowed amounts and a window of days (entered by me)
+- Found while reviewing my own data: rent is sent by hand, in more than one fixed amount and over a spread of days around the turn of the month. One median day (the loose-timing candidate) and one amount cannot describe that.
+- Decision: a confirmed or hand-added outgoing series can carry a rent rule: a list of allowed amounts and a from-day and to-day, typed in the app and stored in the dated log (the latest rule wins; it can be removed). The window is named by the month it starts in; from-day greater than to-day wraps into the next month (and year). A from-day the month lacks (the 30th in February) is clamped to the last day of that month. Lost: treating the window as "the 30th plus a spread" (it cannot say "never on the 15th"), and detecting the amounts automatically (the amounts are my decision, so the app does not guess them).
+- Evidence: outgoing e-Transfers of an allowed amount posted inside a window now count as payments of the series, so the second amount is found too. Rows posted after the date being replayed never count (rule zero), and a rule applies only from the day it was decided.
+- Forecast rules (functions and tests exist; the forecaster itself is not built yet): the amount is always the larger allowed one (cautious, and said on screen); where one date is needed, the earliest day of the window that is still ahead; in simulated paths the date is drawn inside the window, each day weighing 1 plus my past rent payments on that day of the month (only those posted on or before the forecast date). The 1 keeps days I never paid on possible. A payment on the clamped last day of February counts as a 30th.
+- Not done yet: a missed-month check for rent (that belongs to the recurring alerts, 3a-iv).
+- The decision table gained a `rent` action; an older database is rebuilt on first connect, keeping every row and id.
+
+### 2026-10-06: Real-data review of the Recurring page (3a-iii), one person
+- Counted by hand before confirming anything and before any detector change: 5 regular payments, all bills or subscriptions. This is a case study of one account.
+- The detector found 4 of the 5, with 0 false series. The fifth has only 2 charges so far, so it is below the detector's minimum and was added by hand.
+- Rent: outgoing e-Transfers, all in the rule; once it was saved, the rule added no payment the series did not already show, because it matched only payments inside its window.
+- Two gaps found by using it: a hand-added series does not pick up its own past charges (shows none), and a series has no name of my own for display.
+- Consequence for the rent rule: matching must not depend on the day (late payers exist). Design change planned next, see the next entry.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

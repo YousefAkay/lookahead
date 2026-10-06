@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS recurring_decisions (
     account     TEXT    NOT NULL,
     series_key  TEXT    NOT NULL,
     action      TEXT    NOT NULL CHECK (action IN
-                    ('confirm', 'reject', 'end', 'edit', 'add', 'category', 'continue')),
+                    ('confirm', 'reject', 'end', 'edit', 'add', 'category', 'continue', 'rent')),
     details     TEXT    NOT NULL,  -- JSON
     decided_at  TEXT    NOT NULL
 );
@@ -209,12 +209,12 @@ def _migrate_label_status(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_recurring_actions(conn: sqlite3.Connection) -> None:
-    """recurring_decisions made before "category" and "continue" existed: rebuild it with
+    """recurring_decisions made before "category", "continue" and "rent" existed: rebuild it with
     the new CHECK rule (SQLite cannot change a CHECK in place), keeping every row and id."""
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recurring_decisions'"
     ).fetchone()
-    if row is None or "'continue'" in row[0]:
+    if row is None or "'rent'" in row[0]:
         return
     conn.executescript(
         "BEGIN;\n"
