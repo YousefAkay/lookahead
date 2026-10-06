@@ -446,6 +446,13 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Known limitation: a stored series does not say whether it is paid by card, so later dates of an e-Transfer series use the card-posting-day rule and every other series uses the business-day rule. The difference is at most a day or two around Sundays and holidays.
 - Income: only series that exist. If there are none, none is assumed, and the page says so.
 
+### 2026-10-06: 3b step 3: the everyday-spending stream and two baselines
+- Decision: transfers out that belong to no recurring series (e-Transfers to people, money to savings) stay in the spending stream, in the same bootstrap as card purchases and cash. They lower the balance, so dropping them would make the forecast optimistic. Lost: a separate stream for transfers. It adds a second method before any evidence that one is needed; it can be a declared experiment later (compare error with and without it).
+- Decision: large one-offs are not excluded. They really happen, and leaving them out makes the forecast optimistic, the risky direction for a shortfall warning. Excluding them can be a declared experiment later.
+- Fees stay out of the stream, as planned: they follow events (an overdraft, an incoming transfer, a statement date) and get their own model. Until that model exists the forecast does not include fees, and the page says so.
+- Also left out: payments of any recurring series (they are placed on their own dates, so counting them again would double them), fully reversed pairs, income and incoming transfers (no income is assumed). Card returns and corrections that are not fully reversed lower the stream; other credits do not.
+- Baselines (rule zero: only rows posted by the forecast date): (1) the average of the last 28 days times the days ahead; (2) the average for each weekday over the last 8 weeks, added up over the weekdays of the forecast days. A short history is averaged over the days it has; a weekday never seen uses the overall average. An average below zero (more returns than spending) is treated as zero. The paths are cumulative D(t, h), rounded to whole cents after summing.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
