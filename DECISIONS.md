@@ -407,6 +407,7 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 ### 2026-10-06: Real-data review of the Recurring page (3a-iii), one person
 - Counted by hand before confirming anything and before any detector change: 5 regular payments, all bills or subscriptions. This is a case study of one account.
 - The detector found 4 of the 5, with 0 false series. The fifth has only 2 charges so far, so it is below the detector's minimum and was added by hand.
+- My decisions in the log: 5 confirms, 0 rejects, 1 add, 1 continuation link (one subscription under two merchant names), several rent-rule saves.
 - Rent: outgoing e-Transfers, all in the rule; once it was saved, the rule added no payment the series did not already show, because it matched only payments inside its window.
 - Two gaps found by using it: a hand-added series does not pick up its own past charges (shows none), and a series has no name of my own for display.
 - Consequence for the rent rule: matching must not depend on the day (late payers exist). Design change planned next, see the next entry.
@@ -417,6 +418,13 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - The window is for prediction only: where the forecast places rent. A cycle whose window ended with no payment is skipped when choosing the next date; that case is for the recurring alerts (3a-iv), which should wait for the window to end plus a grace period.
 - A series added by hand now finds its own past payments by name: a whole-word, any-case match on the transaction text, in the series' direction, the amount not needed (a price can change). Rows posted after the date being replayed are never used. Lost: matching on the amount too (a subscription changes price), and substring matching ("Rent" would match "Current").
 - A series can be given a name of my own (a dated entry in the log). It changes the label only; the matching never reads it, and hand-added matching uses the name typed at the time. A name I typed is my own text, so it stays visible when text is pseudonymized.
+
+### 2026-10-06: Product direction: nothing to configure; my manual entries are the answer key
+- Direction: the user should never have to configure anything for the forecast to work. The forecast runs on what the app detects, with zero confirmations. Every setting I entered by hand during the review (the rent amounts and window, the link between two merchant names for one subscription, the hand-added subscription) should become something the app proposes, prefilled from history, with one "Looks right" button, and editing only when it is wrong. Nothing is ever applied without that click.
+- To propose: allowed rent amounts from the clusters of amounts (the latest one used going forward) and the window from the day range that covers most past payments, with late payments matched by amount; a link for one subscription under two names; a subscription with only 2 charges shown as "possible", with lower confidence.
+- To evaluate: forecast accuracy with zero confirmations against accuracy after the one-click review.
+- My manual entries are the answer key for these proposals. I design them while looking at my own data, so a score on my data is development, not evaluation. The real test is on held-out synthetic personas that the proposal code never saw (planted late payers, renamed subscriptions, rent increases). Real and synthetic results stay in separate columns.
+- Not built. Placement and size are proposed in the session; this entry records the direction only.
 
 ## Tests
 
