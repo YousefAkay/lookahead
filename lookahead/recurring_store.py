@@ -39,6 +39,9 @@ from lookahead.rent import RentRule, assign_cycles, next_window_day, rent_cents
 from lookahead.resolve import UserDecisions, load_user_decisions
 from lookahead.taxonomy import CATEGORIES
 
+# Bump when detection or the replay of decisions changes what a stored series holds; the
+# pages then rebuild the saved copy by themselves instead of showing an older one.
+LOGIC_VERSION = 1
 ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent", "rename")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 
@@ -506,14 +509,48 @@ def refresh(conn: sqlite3.Connection, account: str, key: bytes | None = None) ->
     replace the stored series (the pages' cache), in one database transaction."""
     series, as_of = series_as_of(conn, account, None, key)
     if as_of is None:
+        with conn:
+            conn.execute("DELETE FROM recurring_series WHERE account = ?", (account,))
+            conn.execute(
+                "INSERT OR REPLACE INTO recurring_cache_info (account, version, as_of)"
+                " VALUES (?, ?, '')", (account, LOGIC_VERSION),
+            )  # fmt: skip
         return []
     with conn:
         conn.execute("DELETE FROM recurring_series WHERE account = ?", (account,))
+        conn.execute(
+            "INSERT OR REPLACE INTO recurring_cache_info (account, version, as_of)"
+            " VALUES (?, ?, ?)", (account, LOGIC_VERSION, as_of.isoformat()),
+        )  # fmt: skip
         conn.executemany(
             "INSERT INTO recurring_series (account, series_key, data, as_of) VALUES (?, ?, ?, ?)",
             [(account, s.key, json.dumps(_to_json(s)), as_of.isoformat()) for s in series],
         )
     return series
+
+
+def cache_current(conn: sqlite3.Connection, account: str) -> bool:
+    """True if the saved series were made by this version of the code from all the rows now
+    stored (the same last posting date)."""
+    try:
+        saved = conn.execute(
+            "SELECT version, as_of FROM recurring_cache_info WHERE account = ?", (account,)
+        ).fetchone()
+        last = conn.execute(
+            "SELECT MAX(posted_date) FROM transactions WHERE account = ?", (account,)
+        ).fetchone()[0]
+    except sqlite3.OperationalError:  # an older database without these tables
+        return False
+    return saved is not None and saved[0] == LOGIC_VERSION and saved[1] == (last or "")
+
+
+def ensure_current(
+    conn: sqlite3.Connection, account: str, key: bytes | None = None
+) -> list[Stored]:
+    """The saved series, rebuilt first if they are from older code or older data."""
+    if cache_current(conn, account):
+        return load_series(conn, account)
+    return refresh(conn, account, key)
 
 
 def load_series(conn: sqlite3.Connection, account: str) -> list[Stored]:

@@ -22,8 +22,8 @@ from lookahead.recurring_store import (  # noqa: E402
     confirm,
     edit,
     end,
+    ensure_current,
     link_continuation,
-    load_series,
     refresh,
     reject,
     rent_rule_of,
@@ -42,7 +42,7 @@ from lookahead.ui import (  # noqa: E402
     series_label,
     synthetic_dir,
 )
-from lookahead.views import accounts, transactions  # noqa: E402
+from lookahead.views import accounts, series_categories, transactions  # noqa: E402
 
 OWN_CATEGORY = "Each payment's own category"
 
@@ -84,7 +84,7 @@ account = st.sidebar.selectbox("Account", names)
 if st.sidebar.button("Detect again", help="Run the detection on the stored transactions."):
     refresh(conn, account, stored_key)
     st.rerun()
-series = load_series(conn, account) or refresh(conn, account, stored_key)
+series = ensure_current(conn, account, stored_key)  # rebuilt first if older code or data
 show_rejected = st.sidebar.toggle("Show the ones I rejected", value=False)
 
 rows = transactions(conn, account)
@@ -98,13 +98,20 @@ hidden = {
 
 listed = [s for s in series if show_rejected or s.status != "rejected"]
 waiting = sum(s.status == "detected" for s in listed)
+last_date = rows["date"].max().date() if not rows.empty else None
 st.caption(
-    f"{len(listed)} series · {waiting} detected and not "
+    f"Data last updated: {last_date} · {len(listed)} series · {waiting} detected and not "
     "confirmed yet. Expected dates and amounts are estimates from past payments."
 )
+if last_date is not None and any(last_date < s.next_expected < date.today() for s in listed):
+    st.caption(
+        "A next expected date after the data ends but before today is a payment due since "
+        "then that has not been seen yet; it may already have posted."
+    )
+categories = series_categories(rows, listed)
 if listed:
     st.dataframe(
-        recurring_table(listed, hidden), hide_index=True, width="stretch",
+        recurring_table(listed, hidden, categories), hide_index=True, width="stretch",
         column_config={
             "Expected ($)": st.column_config.NumberColumn(format="%.2f"),
             "Usual low ($)": st.column_config.NumberColumn(format="%.2f"),
@@ -199,7 +206,12 @@ if listed:
             "Your date or amount is used until the next payment posts; then the detected "
             "values take over again."
         )
-        if chosen.status == "confirmed" and chosen.amount_type == "fixed":
+        if chosen.status in ("confirmed", "user-added") and chosen.amount_type == "fixed":
+            estimate, is_estimate = categories[chosen.key]
+            if estimate and is_estimate:
+                st.caption(
+                    f"Estimated from its payments: {estimate}. Your choice below overrides it."
+                )
             with st.form("category_form"):
                 st.markdown("**Category of this series**")
                 options = [OWN_CATEGORY, *CATEGORIES]

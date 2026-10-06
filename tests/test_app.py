@@ -445,3 +445,42 @@ def test_a_confirmed_fixed_series_can_get_a_category(isolated: Path) -> None:
     assert not at.exception, at.exception
     assert stored_series(isolated, "synthetic-B")["Netflix"].category == "Entertainment"
     assert "Entertainment" in set(at.dataframe[0].value["Category"])
+
+
+# --- Recurring page: estimated categories, data date, saved copy, rent form ---
+
+
+def test_a_series_shows_an_estimated_category_until_i_choose_one(isolated: Path) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    categories = list(at.dataframe[0].value["Category"])
+    assert any(str(c).endswith("(estimate)") for c in categories)
+    assert "Data last updated: " in page_text(at)
+
+
+def test_a_confirmed_series_can_get_a_rent_rule_form_and_a_category(isolated: Path) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    pick = next(o for o in at.selectbox(key="series").options if "Netflix" in str(o))
+    at.selectbox(key="series").select(pick).run()
+    key = at.selectbox(key="series").value
+    assert not [t for t in at.text_input if t.key == f"rent_amounts|{key}"]  # not confirmed yet
+    button(at, "Confirm").click().run()
+    assert [t for t in at.text_input if t.key == f"rent_amounts|{key}"]
+
+
+def test_the_page_refreshes_an_older_saved_copy_by_itself(isolated: Path) -> None:
+    from lookahead.db import connect
+    from lookahead.recurring_store import cache_current
+
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    conn = connect(isolated / "demo.db")
+    with conn:  # as if the saved copy came from an older version of the code
+        conn.execute("UPDATE recurring_cache_info SET version = -1")
+    assert not cache_current(conn, "synthetic-B")
+    conn.close()
+    run(RECURRING).sidebar.selectbox[0].set_value("synthetic-B").run()
+    conn = connect(isolated / "demo.db")
+    assert cache_current(conn, "synthetic-B")
+    conn.close()

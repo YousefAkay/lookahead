@@ -547,3 +547,46 @@ def test_a_rename_applies_only_from_the_day_it_was_made(conn: sqlite3.Connection
     after, _ = series_as_of(conn, ACCOUNT, date(2026, 9, 2))
     assert {s.key: s for s in before}[phone.key].name == "Phone Co"
     assert {s.key: s for s in after}[phone.key].name == "Mobile"
+
+
+# --- The saved series refresh themselves when the logic or the data has changed ---
+
+
+def test_a_saved_copy_from_an_older_logic_version_is_refreshed(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lookahead import recurring_store
+    from lookahead.recurring_store import cache_current, ensure_current
+
+    assert not cache_current(conn, ACCOUNT)  # nothing saved yet
+    first = ensure_current(conn, ACCOUNT)
+    assert len(first) == 3 and cache_current(conn, ACCOUNT)
+    assert ensure_current(conn, ACCOUNT) == first  # current: read as saved
+    monkeypatch.setattr(recurring_store, "LOGIC_VERSION", recurring_store.LOGIC_VERSION + 1)
+    assert not cache_current(conn, ACCOUNT)  # the code changed what a series holds
+    ensure_current(conn, ACCOUNT)
+    assert cache_current(conn, ACCOUNT)
+
+
+def test_a_saved_copy_is_refreshed_after_newer_rows_are_imported(conn: sqlite3.Connection) -> None:
+    from lookahead.recurring_store import cache_current, ensure_current
+
+    ensure_current(conn, ACCOUNT)
+    monthly(conn, "Phone Co", 10, range(7, 8), -6500)  # July: a newer payment
+    assert not cache_current(conn, ACCOUNT)
+    phone = by_name(ensure_current(conn, ACCOUNT))["Phone Co"]
+    assert len(phone.evidence) == 7 and cache_current(conn, ACCOUNT)
+
+
+def test_an_account_with_no_rows_is_not_refreshed_over_and_over(tmp_path: Path) -> None:
+    from lookahead.recurring_store import cache_current, ensure_current
+
+    c = connect(tmp_path / "empty.db")
+    assert ensure_current(c, ACCOUNT) == [] and cache_current(c, ACCOUNT)
+
+
+def test_a_database_without_the_info_table_counts_as_not_current(tmp_path: Path) -> None:
+    from lookahead.recurring_store import cache_current
+
+    old = sqlite3.connect(tmp_path / "old.db")  # no tables at all
+    assert not cache_current(old, ACCOUNT)

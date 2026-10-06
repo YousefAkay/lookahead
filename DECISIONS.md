@@ -426,6 +426,11 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - My manual entries are the answer key for these proposals. I design them while looking at my own data, so a score on my data is development, not evaluation. The real test is on held-out synthetic personas that the proposal code never saw (planted late payers, renamed subscriptions, rent increases). Real and synthetic results stay in separate columns.
 - Not built. Placement and size are proposed in the session; this entry records the direction only.
 
+### 2026-10-06: Saved series refresh themselves; series categories; data date on the page
+- Found by using it: after the code changed, the Recurring page still showed the series saved by the older code (rent and a hand-added series among them) until I clicked "Detect again". The saved series are a cache, and nothing said when it was out of date.
+- A series' category is mine if I gave one; otherwise the most common category among its payments (the latest payment wins a tie), shown as "(estimate)". Why: 3b and the alerts need a category per series, and nobody should have to set one. A hand-added or confirmed fixed series (rent included) can be given one on the page.
+- "Next expected" is relative to the last posting date in the data, not to today or the import date. The page now shows "Data last updated: <date>" and says what an expected date between the data's end and today means (due since then, not yet seen).
+
 ## Tests
 
 ### 2026-10-01: Slow marker

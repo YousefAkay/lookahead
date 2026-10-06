@@ -6,13 +6,15 @@ Money stays in integer cents; conversion to dollars happens only when displaying
 """
 
 import sqlite3
+from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
 import pandas as pd
 
 from lookahead.ingest.reconcile import reconcile
-from lookahead.recurring_store import RowOverride, load_series, row_overrides
+from lookahead.recurring_store import RowOverride, Stored, load_series, row_overrides
 
 COLUMNS = ["date", "type", "text", "amount_cents", "balance_cents", "source_file"]
 # From lookahead.categorize (empty until it has run): merchant, flow type, category, where
@@ -121,6 +123,32 @@ def _with_series(df: pd.DataFrame, overrides: dict[str, RowOverride]) -> pd.Data
         if change.category is not None:
             category[i], source[i], flagged[i] = change.category, "series", False
     return df.assign(flow_type=flow, category=category, source=source, flagged=flagged)
+
+
+def series_categories(
+    rows: pd.DataFrame, series: Sequence[Stored]
+) -> dict[str, tuple[str | None, bool]]:
+    """key -> (category, is_estimate) for each series. Your own category for a series wins
+    (not an estimate). Otherwise the most common category among its payments, the latest
+    payment's winning a tie, marked as an estimate; (None, False) if no payment has one."""
+    found = {
+        fingerprint: (category, day)
+        for fingerprint, category, day in zip(
+            rows["fingerprint"], rows["category"], rows["date"], strict=True
+        )
+        if isinstance(category, str)
+    }
+    out: dict[str, tuple[str | None, bool]] = {}
+    for s in series:
+        if s.category:
+            out[s.key] = (s.category, False)
+            continue
+        paid = [found[f] for f in s.evidence if f in found]
+        counts = Counter(c for c, _ in paid)
+        latest = {c: max(d for cat, d in paid if cat == c) for c in counts}
+        best = max(counts, key=lambda c: (counts[c], latest[c]), default=None)
+        out[s.key] = (best, best is not None)
+    return out
 
 
 @dataclass

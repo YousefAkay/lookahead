@@ -133,9 +133,19 @@ def series_label(series: object, hide: bool = False) -> str:
     return f"{label} (sent by hand, the day varies)" if getattr(series, "loose", False) else label
 
 
-def recurring_table(series: list, hidden: set[str]) -> pd.DataFrame:  # type: ignore[type-arg]
+def recurring_table(  # type: ignore[type-arg]
+    series: list, hidden: set[str],
+    categories: dict[str, tuple[str | None, bool]] | None = None,
+) -> pd.DataFrame:  # fmt: skip
     """Recurring series as shown on screen. Amounts in dollars (display only), as sizes:
-    the direction column says whether money comes in or goes out."""
+    the direction column says whether money comes in or goes out. A category that is only
+    an estimate from the series' payments says so."""
+    shown = categories or {}
+
+    def category(s: object) -> str:
+        name, estimate = shown.get(s.key, (getattr(s, "category", None), False))  # type: ignore[attr-defined]
+        return BLANK if not name else f"{name} (estimate)" if estimate else name
+
     return pd.DataFrame(
         {
             "Name": [series_label(s, s.key in hidden) for s in series],
@@ -146,7 +156,7 @@ def recurring_table(series: list, hidden: set[str]) -> pd.DataFrame:  # type: ig
             "Usual high ($)": [max(abs(c) for c in s.range_cents) / 100 for s in series],
             "Amount": [s.amount_type for s in series],
             "Next expected": [s.next_expected.isoformat() for s in series],
-            "Category": [s.category or BLANK for s in series],
+            "Category": [category(s) for s in series],
             "Status": [s.status for s in series],
             "Active": ["yes" if s.active else "ended" for s in series],
             "Payments": [len(s.evidence) for s in series],

@@ -137,6 +137,12 @@ CREATE TABLE IF NOT EXISTS recurring_series (
     as_of      TEXT NOT NULL,  -- the last posting date the detection used
     PRIMARY KEY (account, series_key)
 );
+-- Which version of the code, and which last posting date, the saved series were made from.
+CREATE TABLE IF NOT EXISTS recurring_cache_info (
+    account TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    as_of   TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS recurring_decisions (
     decision_id INTEGER PRIMARY KEY,
     account     TEXT    NOT NULL,
