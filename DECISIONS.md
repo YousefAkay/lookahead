@@ -431,6 +431,14 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - A series' category is mine if I gave one; otherwise the most common category among its payments (the latest payment wins a tie), shown as "(estimate)". Why: 3b and the alerts need a category per series, and nobody should have to set one. A hand-added or confirmed fixed series (rent included) can be given one on the page.
 - "Next expected" is relative to the last posting date in the data, not to today or the import date. The page now shows "Data last updated: <date>" and says what an expected date between the data's end and today means (due since then, not yet seen).
 
+## Forecast (week 3b)
+
+### 2026-10-06: 3b step 1: where a forecast starts
+- Decision: a live forecast starts the day after the last posting date in the data, not today, from the closing balance of that day. The days between the data's end and today are forecast, and the page says when the data was last updated. Horizon: 30 days (no income is assumed, so there is no earlier "next payday").
+- A replay as of a date (for backtests and the Time Machine) has the data complete through that date, so it starts the day after that date, with the balance of the last row posted by then. Nothing posted later is read (rule zero).
+- Closing balance of a day = the balance on the first row stored for that day, because an export lists a day's postings newest first (the balance chart uses the same rule). This holds for a single export; the importer's reconciliation check still warns on the page if balances do not add up.
+- The safety buffer is a setting (`app_settings`), default $200, editable on the Forecast page.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
