@@ -347,7 +347,7 @@ def rent_db(tmp_path: Path) -> tuple[sqlite3.Connection, str, dict[str, str]]:
     put("jun", date(2026, 5, 2), -82000)
     put("jul", date(2026, 6, 30), -79500)
     put("aug", date(2026, 8, 1), -82000)
-    put("too_early", date(2026, 7, 15), -82000)  # right amount, outside the window
+    put("late", date(2026, 7, 15), -82000)  # right amount, mid-month: rent paid late
     put("other_amount", date(2026, 4, 1), -50000)  # inside the window, not an allowed amount
     put("not_etransfer", date(2026, 2, 2), -82000, "bill payment", "Landlord Inc ")
     key = add_series(c, ACCOUNT, "Rent", "out", "monthly", date(2026, 8, 1), 82000,
@@ -365,7 +365,8 @@ def test_a_rent_rule_uses_the_larger_amount_and_finds_both_amounts(tmp_path: Pat
     rent = series[key]
     assert rent.expected_cents == -82000  # the larger one, always
     assert rent.allowed_cents == (79500, 82000) and rent.window == (30, 7)
-    assert set(rent.evidence) == {fp[n] for n in ("jan", "mar", "apr", "jun", "jul", "aug")}
+    # any day counts, so the mid-month payment is rent too; the decoys are not
+    assert set(rent.evidence) == {fp[n] for n in ("jan", "mar", "apr", "jun", "jul", "late", "aug")}
     assert rent.last_paid == date(2026, 8, 1)
     assert rent.next_expected == date(2026, 8, 30)  # the earliest day of the next window
 
@@ -444,7 +445,105 @@ def test_the_decision_table_accepts_rent_after_migrating_an_old_one(tmp_path: Pa
         "INSERT INTO recurring_decisions VALUES (3, 'test', 'k1', 'continue', '{}', '2026-10-02');"
     )
     old.close()
-    c = connect(path)  # migrates a table that has category and continue but not rent
+    c = connect(path)  # migrates a table that has category and continue but not rent or rename
     decide(c, "test", "k1", "rent", {"amounts_cents": [1], "from_day": 30, "to_day": 7})
+    decide(c, "test", "k1", "rename", {"name": "Mobile"})
     ids = [r[0] for r in c.execute("SELECT decision_id FROM recurring_decisions ORDER BY 1")]
-    assert ids[0] == 3 and len(ids) == 2
+    assert ids[0] == 3 and len(ids) == 3
+
+
+def test_the_window_does_not_decide_which_payments_are_rent(tmp_path: Path) -> None:
+    from lookahead.recurring_store import set_rent_rule
+    from lookahead.rent import RentRule
+
+    c, key, fp = rent_db(tmp_path)
+    narrow = RentRule((79500, 82000), 1, 2)  # a window none of the payments fall in
+    set_rent_rule(c, ACCOUNT, key, narrow, date(2026, 9, 5))
+    rent = {s.key: s for s in refresh(c, ACCOUNT)}[key]
+    assert len(rent.evidence) == 7 and fp["late"] in rent.evidence
+
+
+# --- A series added by hand finds its own past payments, by name only ---
+
+
+def corvalink_db(tmp_path: Path) -> tuple[sqlite3.Connection, str, dict[str, str]]:
+    c = connect(tmp_path / "hand.db")
+    fp: dict[str, str] = {}
+
+    def put(name: str, day: date, cents: int, text: str) -> None:
+        insert(c, day, cents, "pos purchase", CARD.format(text))
+        fp[name] = c.execute(
+            "SELECT fingerprint FROM transactions ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+
+    put("first", date(2026, 8, 12), -2800, "Corvalink")
+    put("second", date(2026, 9, 12), -2850, "CORVALINK")  # another amount, another case
+    put("refund", date(2026, 9, 20), 2800, "Corvalink")  # money in: not a payment
+    put("other_word", date(2026, 9, 3), -900, "Corvalinks Shop")  # a different name
+    put("other_shop", date(2026, 9, 5), -2800, "Bookshop")
+    put("later", date(2026, 11, 12), -2850, "Corvalink")
+    key = add_series(c, ACCOUNT, "Corvalink", "out", "monthly", date(2026, 9, 12), 2800,
+                     date(2026, 9, 14))  # fmt: skip
+    return c, key, fp
+
+
+def test_a_hand_added_series_picks_up_matching_past_charges_by_name(tmp_path: Path) -> None:
+    c, key, fp = corvalink_db(tmp_path)
+    series = {s.key: s for s in refresh(c, ACCOUNT)}
+    hand = series[key]
+    assert hand.status == "user-added" and hand.expected_cents == -2800  # amount is mine
+    assert hand.evidence == (fp["first"], fp["second"], fp["later"])  # oldest first
+    assert hand.last_paid == date(2026, 11, 12)
+
+
+def test_a_hand_added_series_uses_only_rows_posted_by_the_date(tmp_path: Path) -> None:
+    from lookahead.recurring_store import series_as_of
+
+    c, key, fp = corvalink_db(tmp_path)
+    early, _ = series_as_of(c, ACCOUNT, date(2026, 10, 1))
+    assert {s.key: s for s in early}[key].evidence == (fp["first"], fp["second"])
+
+
+def test_a_series_added_by_hand_with_no_charges_still_shows_none(tmp_path: Path) -> None:
+    c = connect(tmp_path / "none.db")
+    insert(c, date(2026, 9, 1), -100, "pos purchase", CARD.format("Bookshop"))
+    key = add_series(c, ACCOUNT, "Corvalink", "out", "monthly", date(2026, 9, 12), 2800,
+                     date(2026, 9, 14))  # fmt: skip
+    assert {s.key: s for s in refresh(c, ACCOUNT)}[key].evidence == ()
+
+
+# --- A name of my own for a series (the label only) ---
+
+
+def test_a_series_can_be_given_a_name_of_my_own(tmp_path: Path) -> None:
+    from lookahead.recurring_store import set_name
+
+    c, key, fp = corvalink_db(tmp_path)
+    set_name(c, ACCOUNT, key, "AI subscription", date(2026, 9, 15))
+    hand = {s.key: s for s in refresh(c, ACCOUNT)}[key]
+    assert hand.name == "AI subscription" and hand.named_by_me
+    assert hand.evidence == (fp["first"], fp["second"], fp["later"])  # matching is unchanged
+
+
+def test_a_detected_series_can_be_renamed_and_the_name_taken_back(conn: sqlite3.Connection) -> None:
+    from lookahead.recurring_store import set_name
+
+    phone = by_name(refresh(conn, ACCOUNT))["Phone Co"]
+    set_name(conn, ACCOUNT, phone.key, "Mobile", date(2026, 9, 1))
+    renamed = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
+    assert (renamed.name, renamed.named_by_me) == ("Mobile", True)
+    assert renamed.evidence == phone.evidence and renamed.expected_cents == phone.expected_cents
+    set_name(conn, ACCOUNT, phone.key, None, date(2026, 9, 2))  # back to the detected name
+    back = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
+    assert (back.name, back.named_by_me) == ("Phone Co", False)
+
+
+def test_a_rename_applies_only_from_the_day_it_was_made(conn: sqlite3.Connection) -> None:
+    from lookahead.recurring_store import series_as_of, set_name
+
+    phone = by_name(refresh(conn, ACCOUNT))["Phone Co"]
+    set_name(conn, ACCOUNT, phone.key, "Mobile", date(2026, 9, 1))
+    before, _ = series_as_of(conn, ACCOUNT, date(2026, 8, 31))
+    after, _ = series_as_of(conn, ACCOUNT, date(2026, 9, 2))
+    assert {s.key: s for s in before}[phone.key].name == "Phone Co"
+    assert {s.key: s for s in after}[phone.key].name == "Mobile"

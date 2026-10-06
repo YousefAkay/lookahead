@@ -16,12 +16,18 @@ date:
   name). The two are shown as one series with one history; no merchant is merged;
 - rent: for a series paid by hand (rent by e-Transfer), the allowed amounts and the window of
   days of the month it is sent in (lookahead.rent). The latest one wins; None removes it.
+  Any outgoing e-Transfer of an allowed amount counts as rent, whatever the day;
+- rename: your own name for a series, shown instead of the detected one (label only; the
+  matching of payments never uses it). The latest one wins; None gives the detected name back.
+A series added by hand finds its own past payments by its name (a whole-word match on the
+transaction text, the amount not needed).
 Status: detected / confirmed / user-added / rejected. Evidence is stored as transaction
 fingerprints, which survive re-imports. The result is saved in `recurring_series`, so the
 pages and the forecast only read it.
 """
 
 import json
+import re
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
@@ -29,11 +35,11 @@ from datetime import date, timedelta
 
 from lookahead.flows import Flow, Txn, flow_types
 from lookahead.recurring import CADENCES, Series, detect, expected_dates
-from lookahead.rent import RentRule, next_window_day, rent_cents, window_containing
+from lookahead.rent import RentRule, assign_cycles, next_window_day, rent_cents
 from lookahead.resolve import UserDecisions, load_user_decisions
 from lookahead.taxonomy import CATEGORIES
 
-ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent")
+ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent", "rename")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 
 
@@ -65,6 +71,7 @@ class Stored:
     continues: tuple[str, ...] = ()  # keys of the ended series this one carries on
     allowed_cents: tuple[int, ...] = ()  # rent rule: the amounts it may be paid in (sizes)
     window: tuple[int, int] | None = None  # rent rule: from-day and to-day of the month
+    named_by_me: bool = False  # the name is my own text (hand-added or renamed), safe to show
 
 
 @dataclass(frozen=True)
@@ -126,6 +133,7 @@ def confirm(
             "continues",
             "allowed_cents",
             "window",
+            "named_by_me",
         )  # fmt: skip
     }
     decide(conn, account, series.key, "confirm", snapshot, when)
@@ -161,6 +169,18 @@ def set_rent_rule(
         "to_day": rule.to_day,
     }  # fmt: skip
     decide(conn, account, key, "rent", details, when)
+
+
+def set_name(
+    conn: sqlite3.Connection, account: str, key: str, name: str | None,
+    when: date | None = None,
+) -> None:  # fmt: skip
+    """Give a series a name of your own, shown instead of the detected one (None: take it
+    back). This changes the label only."""
+    clean = " ".join(name.split()) if name else ""
+    if len(clean) > 60:
+        raise ValueError("a name of at most 60 characters")
+    decide(conn, account, key, "rename", {"name": clean or None}, when)
 
 
 def rent_rule_of(s: Stored) -> RentRule | None:
@@ -267,9 +287,13 @@ def current_series(
     }
     links: list[tuple[str, str]] = []  # (series, the ended one it continues), in log order
     rules: dict[str, RentRule | None] = {}  # the latest rent rule of each series
+    names: dict[str, str | None] = {}  # the latest name of my own for each series
     for d in decisions:
         if d.action == "rent":
             rules[d.key] = _rule_from(d.details)
+            continue
+        if d.action == "rename":
+            names[d.key] = d.details.get("name")  # type: ignore[assignment]
             continue
         if d.action == "continue":
             links.append((d.key, str(d.details["previous"])))
@@ -278,13 +302,16 @@ def current_series(
             cadence, direction = str(d.details["cadence"]), str(d.details["direction"])
             anchor = date.fromisoformat(str(d.details["anchor"]))
             amount = int(d.details["amount_cents"])  # type: ignore[call-overload]
+            found = _charges_named(str(d.details["name"]), direction, txns)
             series[d.key] = Stored(
                 key=d.key, name=str(d.details["name"]), kind="user", direction=direction,
                 cadence=cadence, anchor=anchor,
                 anchor_day=None if cadence in ("weekly", "biweekly") else anchor.day,
                 amount_type="fixed", expected_cents=amount, range_cents=(amount, amount),
                 next_expected=_next_from(cadence, anchor, direction, max(as_of, anchor)),
-                status="user-added", active=True, detected_now=False,
+                status="user-added", active=True, detected_now=False, named_by_me=True,
+                evidence=tuple(fingerprint[t.row_id] for t in found),
+                last_paid=found[-1].posted_date if found else None,
             )  # fmt: skip
             continue
         if d.key not in series:
@@ -310,6 +337,9 @@ def current_series(
                 amount = int(d.details["amount_cents"])  # type: ignore[call-overload]
                 changes |= {"expected_cents": amount, "range_cents": (amount, amount)}
             series[d.key] = replace(s, **changes)  # type: ignore[arg-type]
+    for k, name in names.items():  # after the loop: the latest wins, and None gives it back
+        if name and k in series:
+            series[k] = replace(series[k], name=name, named_by_me=True)
     rented = [(k, r) for k, r in rules.items() if r is not None and k in series]
     if rented:  # after every edit, so the rule's amount and window win
         flows = flow_types(txns, user)
@@ -332,12 +362,29 @@ def _rule_from(details: dict[str, object]) -> RentRule | None:
     )  # fmt: skip
 
 
+def _charges_named(name: str, direction: str, txns: Sequence[Txn]) -> list[Txn]:
+    """Payments whose text contains `name` as whole words (any case), in the series'
+    direction, oldest first. The amount is not needed: a price can change."""
+    words = " ".join(name.casefold().split())
+    if not words:
+        return []
+    pattern = re.compile(r"(?<!\w)" + re.escape(words) + r"(?!\w)")
+    right_way = (
+        (lambda t: t.amount_cents < 0) if direction == "out" else (lambda t: t.amount_cents > 0)
+    )
+    found = [
+        t for t in txns if right_way(t) and pattern.search(" ".join(t.text.casefold().split()))
+    ]
+    return sorted(found, key=lambda t: (t.posted_date, t.row_id))
+
+
 def _with_rent_rule(
     s: Stored, rule: RentRule, txns: Sequence[Txn], fingerprint: dict[int, str],
     flows: dict[int, Flow], as_of: date,
 ) -> Stored:  # fmt: skip
     """Apply a rent rule: the larger amount, and every outgoing e-Transfer of an allowed
-    amount posted inside a window (by `as_of`) counts as a payment of this series."""
+    amount posted by `as_of` counts as a payment of this series, whatever the day (the window
+    only places the next payment). Each payment is given its own rent cycle."""
     posted = {fingerprint[t.row_id]: t.posted_date for t in txns}
     paid = {fp: posted[fp] for fp in s.evidence if fp in posted}
     for t in txns:
@@ -346,7 +393,6 @@ def _with_rent_rule(
             and -t.amount_cents in rule.amounts_cents
             and flows[t.row_id].reason == "outgoing e-Transfer"
             and not flows[t.row_id].netted
-            and window_containing(rule, t.posted_date) is not None
         ):  # fmt: skip
             paid[fingerprint[t.row_id]] = t.posted_date
     last_paid = max(paid.values(), default=s.last_paid)
@@ -357,7 +403,8 @@ def _with_rent_rule(
         "evidence": tuple(sorted(paid, key=lambda fp: (paid[fp], fp))), "last_paid": last_paid,
     }  # fmt: skip
     if not s.edited:  # your own date, if you set one, stays
-        changes["next_expected"] = next_window_day(rule, as_of, last_paid)
+        cycles = {cycle for _, cycle in assign_cycles(rule, list(paid.values()))}
+        changes["next_expected"] = next_window_day(rule, as_of, cycles)
     return replace(s, **changes)  # type: ignore[arg-type]
 
 

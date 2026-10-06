@@ -9,6 +9,8 @@ import pytest
 
 from lookahead.rent import (
     RentRule,
+    assign_cycles,
+    cycle_start,
     draw_rent_date,
     earliest_day,
     next_window_day,
@@ -89,15 +91,78 @@ def test_dollars_may_be_separated_by_commas_or_semicolons_and_bad_text_is_refuse
 
 def test_the_single_date_is_the_earliest_unpaid_day_still_ahead() -> None:
     # inside a window, not yet paid: today (the earliest day still to come)
-    assert next_window_day(RULE, date(2027, 3, 3), date(2027, 1, 31)) == date(2027, 3, 3)
+    assert next_window_day(RULE, date(2027, 3, 3), {date(2027, 1, 30)}) == date(2027, 3, 3)
     # before the window starts: the first day of the window
-    assert next_window_day(RULE, date(2027, 2, 10), date(2027, 1, 31)) == date(2027, 2, 28)
-    # already paid in this window: the next window
-    assert next_window_day(RULE, date(2027, 3, 3), date(2027, 3, 1)) == date(2027, 3, 30)
+    assert next_window_day(RULE, date(2027, 2, 10), {date(2027, 1, 30)}) == date(2027, 2, 28)
+    # this cycle is already paid: the next window
+    assert next_window_day(RULE, date(2027, 3, 3), {date(2027, 2, 28)}) == date(2027, 3, 30)
     # across the year end
-    assert next_window_day(RULE, date(2026, 12, 31), date(2026, 11, 30)) == date(2026, 12, 31)
-    assert next_window_day(RULE, date(2027, 1, 2), date(2026, 12, 30)) == date(2027, 1, 30)
-    assert next_window_day(RULE, date(2026, 6, 1), None) == date(2026, 6, 1)  # in window 5/30-6/7
+    assert next_window_day(RULE, date(2026, 12, 31), {date(2026, 11, 30)}) == date(2026, 12, 31)
+    assert next_window_day(RULE, date(2027, 1, 2), {date(2026, 12, 30)}) == date(2027, 1, 30)
+    assert next_window_day(RULE, date(2026, 6, 1), set()) == date(2026, 6, 1)  # window 5/30-6/7
+
+
+def test_a_cycle_that_ended_unpaid_is_not_the_next_date() -> None:
+    """Late rent: the window ended unpaid, so the single date moves on (the missing payment
+    is a matter for an alert, not for a date in the past)."""
+    assert next_window_day(RULE, date(2027, 1, 12), {date(2026, 11, 30)}) == date(2027, 1, 30)
+
+
+# --- Rent cycles: which payment belongs to which month's rent, whatever day it was sent ---
+
+LATE = RentRule((82000,), from_day=27, to_day=7)  # a window that is for prediction only
+
+
+def test_a_payment_belongs_to_the_latest_window_that_started_by_its_date() -> None:
+    assert cycle_start(LATE, date(2027, 1, 3)) == date(2026, 12, 27)  # inside the window
+    assert cycle_start(LATE, date(2027, 1, 12)) == date(2026, 12, 27)  # late: after it ended
+    assert cycle_start(LATE, date(2027, 1, 26)) == date(2026, 12, 27)  # the day before the next
+    assert cycle_start(LATE, date(2027, 1, 27)) == date(2027, 1, 27)
+    assert cycle_start(RULE, date(2027, 3, 1)) == date(2027, 2, 28)  # clamped February start
+    assert cycle_start(RULE, date(2027, 1, 3)) == date(2026, 12, 30)  # across the year end
+
+
+def test_a_late_payment_in_mid_month_counts_for_its_own_cycle() -> None:
+    sent = [date(2026, 12, 12), date(2027, 1, 3), date(2027, 2, 2), date(2027, 3, 12)]
+    assert [c for _, c in assign_cycles(LATE, sent)] == [
+        date(2026, 11, 27), date(2026, 12, 27), date(2027, 1, 27), date(2027, 2, 27),
+    ]  # fmt: skip
+
+
+def test_two_payments_in_one_cycle_put_the_extra_one_in_the_nearest_cycle_with_none() -> None:
+    sent = [date(2026, 11, 29), date(2027, 1, 3), date(2027, 1, 12)]
+    cycles = [c for _, c in assign_cycles(LATE, sent)]
+    assert cycles == [date(2026, 11, 27), date(2026, 12, 27), date(2027, 1, 27)]
+    assert len(set(cycles)) == 3  # never two in one cycle
+
+
+def test_when_two_cycles_are_equally_near_the_earlier_one_is_chosen() -> None:
+    """Two payments in January with nothing before: more likely a missed earlier month
+    paid late than a month paid in advance."""
+    cycles = [c for _, c in assign_cycles(LATE, [date(2027, 1, 3), date(2027, 1, 12)])]
+    assert cycles == [date(2026, 12, 27), date(2026, 11, 27)]  # the 3rd keeps its own
+
+
+def test_a_month_with_no_payment_stays_empty() -> None:
+    cycles = {c for _, c in assign_cycles(LATE, [date(2026, 11, 29), date(2027, 1, 28)])}
+    assert cycles == {date(2026, 11, 27), date(2027, 1, 27)}  # December has none
+    assert next_window_day(LATE, date(2027, 2, 1), cycles) == date(2027, 2, 27)
+
+
+def test_a_cycle_assignment_never_depends_on_later_payments() -> None:
+    """Rule zero: the cycles found by a date are the first ones found with every payment."""
+    sent = [date(2026, 11, 29), date(2026, 12, 29), date(2027, 1, 3), date(2027, 1, 12),
+            date(2027, 2, 3), date(2027, 2, 12), date(2027, 3, 29)]  # fmt: skip
+    everything = assign_cycles(LATE, sent)
+    for k in range(1, len(sent) + 1):
+        assert assign_cycles(LATE, sent[:k]) == everything[:k]
+
+
+def test_cycles_wrap_across_month_and_year_ends() -> None:
+    sent = [date(2026, 12, 31), date(2027, 1, 30), date(2027, 3, 1), date(2027, 3, 31)]
+    assert [c for _, c in assign_cycles(RULE, sent)] == [
+        date(2026, 12, 30), date(2027, 1, 30), date(2027, 2, 28), date(2027, 3, 30),
+    ]  # fmt: skip
 
 
 def test_a_drawn_date_is_always_inside_the_window() -> None:

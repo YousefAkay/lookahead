@@ -28,6 +28,7 @@ from lookahead.recurring_store import (  # noqa: E402
     reject,
     rent_rule_of,
     set_category,
+    set_name,
     set_rent_rule,
 )
 from lookahead.rent import RentRule, parse_dollars, rent_cents  # noqa: E402
@@ -90,7 +91,10 @@ rows = transactions(conn, account)
 shown_rows = display_table(rows, display_key)
 # A series whose payments show a replaced name (a person) keeps its own name hidden too.
 changed = set(rows.loc[(shown_rows["Text"] != rows["text"]).to_numpy(), "fingerprint"])
-hidden = {s.key for s in series if display_key is not None and changed & set(s.evidence)}
+hidden = {
+    s.key for s in series
+    if display_key is not None and changed & set(s.evidence) and not s.named_by_me
+}  # fmt: skip
 
 listed = [s for s in series if show_rejected or s.status != "rejected"]
 waiting = sum(s.status == "detected" for s in listed)
@@ -141,7 +145,9 @@ if listed:
             st.caption(
                 f"Rent rule: {amounts} dollars, sent between day {rule.from_day} of a month "
                 f"and day {rule.to_day} of the next. Rent is assumed at the larger amount "
-                f"({rent_cents(rule) / 100:.2f}), somewhere in that window."
+                f"({rent_cents(rule) / 100:.2f}), somewhere in that window. Any payment of "
+                "an allowed amount counts as rent, on any day; the window only places the "
+                "next one."
             )
         elif chosen.loose and chosen.offsets:
             spread = sorted(abs(d) for d in chosen.offsets)
@@ -209,6 +215,21 @@ if listed:
                              None if picked == OWN_CATEGORY else picked)  # fmt: skip
                 refresh(conn, account, stored_key)
                 st.rerun()
+        with st.form("name_form"):
+            new_name = st.text_input(
+                "Your own name for this series (the label only; empty gives the detected "
+                "name back)", value=chosen.name if chosen.named_by_me else "",
+                key=f"name|{chosen.key}",
+            )  # fmt: skip
+            save_name = st.form_submit_button("Save name")
+        if save_name:
+            try:
+                set_name(conn, account, chosen.key, new_name)
+            except ValueError as problem:
+                st.warning(f"Could not save: {problem}")
+            else:
+                refresh(conn, account, stored_key)
+                st.rerun()
         if chosen.status in ("confirmed", "user-added") and chosen.direction == "out":
             with st.form("rent_form"):
                 st.markdown("**Rent rule (payments sent by hand in one of a few amounts)**")
@@ -227,9 +248,11 @@ if listed:
                     chosen.window[1] if chosen.window else 7, key=f"rent_to|{chosen.key}",
                 )  # fmt: skip
                 st.caption(
-                    "Payments of an allowed amount inside the window count as this series. "
-                    "The forecast assumes the larger amount, somewhere in the window, and "
-                    "never uses anything posted after the forecast date."
+                    "Any outgoing e-Transfer of an allowed amount counts as this series, on any "
+                    "day, one per month (a late payment counts for its own month). The window "
+                    "only says where the next one is expected: the forecast assumes the larger "
+                    "amount, somewhere in the window, and never uses anything posted after "
+                    "the forecast date."
                 )
                 save_rent = st.form_submit_button("Save rent rule")
                 clear_rent = st.form_submit_button("Remove rent rule", disabled=rule is None)

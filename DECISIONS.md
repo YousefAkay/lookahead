@@ -411,6 +411,13 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Two gaps found by using it: a hand-added series does not pick up its own past charges (shows none), and a series has no name of my own for display.
 - Consequence for the rent rule: matching must not depend on the day (late payers exist). Design change planned next, see the next entry.
 
+### 2026-10-06: Rent rule v2: any day counts, the window only places the next payment
+- Why: the first version matched only payments inside the window, so a payment sent outside it was missed. A rule that only works for people who pay on time is the wrong rule.
+- Decision: any outgoing e-Transfer of an allowed amount counts as rent, whatever the day. Each payment belongs to a rent cycle (the latest window that started on or before it, so a mid-month payment is late rent for the cycle before). At most one payment per cycle: if two land in one, the extra one goes to the nearest cycle with none (the earlier one if two are equally near, since a month paid late is more likely than a month paid in advance). Payments are taken oldest first and each looks only at earlier ones, so rows posted later never change an earlier assignment (rule zero; there is a test for it). Lost: counting only payments inside the window.
+- The window is for prediction only: where the forecast places rent. A cycle whose window ended with no payment is skipped when choosing the next date; that case is for the recurring alerts (3a-iv), which should wait for the window to end plus a grace period.
+- A series added by hand now finds its own past payments by name: a whole-word, any-case match on the transaction text, in the series' direction, the amount not needed (a price can change). Rows posted after the date being replayed are never used. Lost: matching on the amount too (a subscription changes price), and substring matching ("Rent" would match "Current").
+- A series can be given a name of my own (a dated entry in the log). It changes the label only; the matching never reads it, and hand-added matching uses the name typed at the time. A name I typed is my own text, so it stays visible when text is pseudonymized.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

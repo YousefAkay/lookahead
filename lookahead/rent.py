@@ -7,6 +7,8 @@ in February) is clamped to that month's last day.
 
 How the forecast reads a rent series:
 - the amount is always the larger allowed one (the cautious reading);
+- every outgoing e-Transfer of an allowed amount counts as rent, whatever day it was sent, one
+  per cycle (`assign_cycles`): the window is for prediction, not for matching;
 - where one date is needed, it is the earliest day of the window still ahead (`next_window_day`);
 - in simulated paths, the date is drawn from inside the window, weighted by your own past rent
   dates posted on or before the forecast date (`draw_rent_date`), so nothing from the future
@@ -16,7 +18,7 @@ How the forecast reads a rent series:
 import random
 from calendar import monthrange
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
@@ -90,12 +92,46 @@ def window_containing(rule: RentRule, on: date) -> tuple[date, date] | None:
     return None
 
 
-def next_window_day(rule: RentRule, as_of: date, last_paid: date | None) -> date:
+def cycle_start(rule: RentRule, on: date) -> date:
+    """The rent cycle a payment belongs to, whatever day it was sent: the latest window that
+    started on or before it. A payment in mid-month is late rent for the cycle before."""
+    start = window(rule, on.year, on.month)[0]
+    return start if start <= on else window(rule, on.year, on.month - 1)[0]
+
+
+def _ordinal(cycle: date) -> int:
+    return cycle.year * 12 + cycle.month - 1
+
+
+def assign_cycles(rule: RentRule, paid: Sequence[date]) -> list[tuple[date, date]]:
+    """(payment date, its cycle) for each payment, oldest first, at most one per cycle.
+
+    A payment goes to its own cycle. If an earlier payment already holds it, it goes to the
+    nearest cycle with none (the earlier one if two are equally near: more likely a month paid
+    late than a month paid in advance). Payments are taken oldest first and each looks only at
+    earlier ones, so rows posted later never change an earlier assignment (rule zero)."""
+    taken: set[int] = set()
+    out: list[tuple[date, date]] = []
+    for day in sorted(paid):
+        home = _ordinal(cycle_start(rule, day))
+        step = 0
+        while True:
+            free = [n for n in dict.fromkeys((home - step, home + step)) if n not in taken]
+            if free:
+                break
+            step += 1
+        taken.add(free[0])
+        out.append((day, window(rule, free[0] // 12, free[0] % 12 + 1)[0]))
+    return out
+
+
+def next_window_day(rule: RentRule, as_of: date, paid_cycles: Collection[date]) -> date:
     """The single date for the next rent: the earliest day of the first window that has not
-    ended and has no payment yet, but never before `as_of` (the past cannot be expected)."""
+    ended and whose cycle has no payment yet, but never before `as_of` (the past cannot be
+    expected). A cycle that ended unpaid is skipped: that is for an alert, not for a date."""
     for back in (-1, 0, 1, 2):  # a window can start in the month before `as_of` (it wraps)
         start, end = window(rule, as_of.year, as_of.month + back)
-        if end >= as_of and (last_paid is None or last_paid < start):
+        if end >= as_of and start not in paid_cycles:
             return max(start, as_of)
     raise ValueError("no window found")  # a window always ends within a month of its start
 
