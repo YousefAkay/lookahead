@@ -439,6 +439,13 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Closing balance of a day = the balance on the first row stored for that day, because an export lists a day's postings newest first (the balance chart uses the same rule). This holds for a single export; the importer's reconciliation check still warns on the page if balances do not add up.
 - The safety buffer is a setting (`app_settings`), default $200, editable on the Forecast page.
 
+### 2026-10-06: 3b step 2: recurring payments on the forecast days
+- Decision: every active, non-rejected series is used as it stands, detected or confirmed or entered. The forecast needs no confirmations; each placed payment says which of the three it rests on (a series with my own date or amount counts as entered).
+- A payment is placed on its next expected date, then on each later date of its pattern inside the 30 days. One due on or before the last data day and not seen is expected on the first forecast day (it may be late, or posted after the export): the cautious side for a shortfall warning.
+- Rent (a series with a rent rule): always the larger allowed amount; one payment per cycle; the date is the earliest day of the window still ahead. The most recent window that ended unpaid, with no later payment, is expected on the first forecast day (data may be stale, or the payment late). Older unpaid windows are treated as skipped months, so a month I did not pay is not expected again. Only rows posted by the data's last day mark a cycle paid.
+- Known limitation: a stored series does not say whether it is paid by card, so later dates of an e-Transfer series use the card-posting-day rule and every other series uses the business-day rule. The difference is at most a day or two around Sundays and holidays.
+- Income: only series that exist. If there are none, none is assumed, and the page says so.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
