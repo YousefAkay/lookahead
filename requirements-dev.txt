@@ -1,0 +1,4 @@
+# Development only (not needed to run the app): screenshots of the synthetic demo for design review.
+# Uses the Edge or Chrome that is already installed, so no browser download.
+-r requirements.txt
+playwright==1.63.0

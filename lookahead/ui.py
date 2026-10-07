@@ -86,7 +86,10 @@ def balance_chart(daily: pd.DataFrame) -> go.Figure:
     """End-of-day balance as a step line: balances jump at postings and stay flat
     between them, so straight diagonal segments would suggest gradual change."""
     figure = px.line(daily, x="date", y="balance ($)", title="End-of-day balance", line_shape="hv")
-    figure.add_hline(y=0, line_dash="dot")
+    figure.update_traces(
+        meta="recent", name="Balance", showlegend=False
+    )  # the theme styles by role
+    figure.add_hline(y=0, line_dash="dot", name="zero")
     return figure
 
 
@@ -212,30 +215,31 @@ def forecast_chart(actual: pd.DataFrame, forecast: object, buffer_cents: int) ->
     figure = go.Figure()
     if not actual.empty:
         figure.add_scatter(x=actual["date"], y=actual["balance ($)"], mode="lines",
-                           line_shape="hv", name="Recent balance")  # fmt: skip
+                           line_shape="hv", name="Recent balance", meta="recent")  # fmt: skip
     if sim is not None:
         x = list(sim.days)
         figure.add_scatter(**from_anchor(x, sim.p90), mode="lines", line_shape="hv",
-                           line={"width": 0}, showlegend=False, hoverinfo="skip")  # fmt: skip
+                           showlegend=False, hoverinfo="skip", meta="band_edge")  # fmt: skip
         figure.add_scatter(
-            **from_anchor(x, sim.p10), mode="lines", line_shape="hv", line={"width": 0},
-            fill="tonexty", fillcolor="rgba(99, 110, 250, 0.2)",
+            **from_anchor(x, sim.p10), mode="lines", line_shape="hv", fill="tonexty",
             name=f"Range of {sim.futures} simulated futures (10th to 90th percentile)",
+            meta="band",
         )  # fmt: skip
         figure.add_scatter(
-            **from_anchor(x, sim.p50), mode="lines", line_shape="hv",
+            **from_anchor(x, sim.p50), mode="lines", line_shape="hv", meta="median",
             name="Middle future (median), with irregular deposits",
         )  # fmt: skip
         figure.add_scatter(
             **from_anchor(x, sim.median_without), mode="lines", line_shape="hv",
-            line={"dash": "dot"}, name="Middle future (median), without irregular deposits",
+            name="Middle future (median), without irregular deposits", meta="median_without",
         )  # fmt: skip
     figure.add_scatter(
         **from_anchor([d.day for d in days], [d.balance_cents for d in days]), mode="lines",
-        line={"dash": "dash"}, line_shape="hv", name="Forecast with no randomness (an estimate)",
+        line_shape="hv", name="Forecast with no randomness (an estimate)", meta="estimate",
     )  # fmt: skip
-    figure.add_hline(y=0, line_dash="dot")
-    figure.add_hline(y=buffer_cents / 100, line_dash="dash", annotation_text="safety buffer")
+    figure.add_hline(y=0, line_dash="dot", name="zero")
+    figure.add_hline(y=buffer_cents / 100, line_dash="dash", annotation_text="safety buffer",
+                     name="buffer")  # fmt: skip
     figure.update_layout(title="Projected end-of-day balance", yaxis_title="balance ($)")
     return figure
 
@@ -337,22 +341,23 @@ def scenario_chart(
         }
 
     figure = go.Figure()
-    for sim, label, fill, colour in (
-        (original, "Original", "rgba(130, 130, 130, 0.25)", "gray"),
-        (modified, "With the changes", "rgba(99, 110, 250, 0.25)", "royalblue"),
+    for sim, label, role in (
+        (original, "Original", "original"),
+        (modified, "With the changes", "modified"),
     ):
         figure.add_scatter(**line(sim, sim.p90), mode="lines", line_shape="hv",  # type: ignore[attr-defined]
-                           line={"width": 0}, showlegend=False, hoverinfo="skip")  # fmt: skip
+                           showlegend=False, hoverinfo="skip", meta="band_edge")  # fmt: skip
         figure.add_scatter(
-            **line(sim, sim.p10), mode="lines", line_shape="hv", line={"width": 0},  # type: ignore[attr-defined]
-            fill="tonexty", fillcolor=fill, name=f"{label}: range (10th to 90th percentile)",
+            **line(sim, sim.p10), mode="lines", line_shape="hv", fill="tonexty",  # type: ignore[attr-defined]
+            name=f"{label}: range (10th to 90th percentile)", meta=f"{role}_band",
         )  # fmt: skip
         figure.add_scatter(
-            **line(sim, sim.p50), mode="lines", line_shape="hv", line={"color": colour},  # type: ignore[attr-defined]
+            **line(sim, sim.p50), mode="lines", line_shape="hv", meta=f"{role}_median",  # type: ignore[attr-defined]
             name=f"{label}: middle future",
         )  # fmt: skip
-    figure.add_hline(y=0, line_dash="dot")
-    figure.add_hline(y=buffer_cents / 100, line_dash="dash", annotation_text="safety buffer")
+    figure.add_hline(y=0, line_dash="dot", name="zero")
+    figure.add_hline(y=buffer_cents / 100, line_dash="dash", annotation_text="safety buffer",
+                     name="buffer")  # fmt: skip
     figure.update_layout(title="Conditional scenario: original and with the changes",
                          yaxis_title="balance ($)")  # fmt: skip
     return figure

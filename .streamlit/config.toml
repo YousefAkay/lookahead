@@ -1,9 +1,67 @@
 # Lookahead is local-first: the app must only be reachable from this computer.
 [server]
 address = "localhost"
+enableStaticServing = true  # serves app/static (the bundled fonts), nothing else
 
 [browser]
 gatherUsageStats = false
 
 [client]
-toolbarMode = "minimal"  # hides the Deploy button: this app is never deployed
+toolbarMode = "minimal"  # hides the Deploy button and developer items: this app is never deployed
+
+# --- Look: deep green, with navy as the second colour. Every colour is a token; the same values
+# are named in app/theme.py (a test keeps the two in step and checks WCAG AA contrast).
+# No external calls: the fonts below are files in app/static/fonts (SIL Open Font Licence).
+[theme]
+base = "dark"
+primaryColor = "#34D399"              # emerald: buttons, links, the main forecast line
+backgroundColor = "#07120D"           # near-black green
+secondaryBackgroundColor = "#0E1F17"  # cards, expanders, inputs
+textColor = "#E9F2EC"                 # off-white
+linkColor = "#6EE7B7"
+borderColor = "#1F3D2E"
+showWidgetBorder = true
+baseRadius = "0.75rem"
+buttonRadius = "0.6rem"
+font = "Inter, sans-serif"
+headingFont = "Inter, sans-serif"
+codeFont = "JetBrains Mono, monospace"
+baseFontSize = 16
+metricValueFontSize = "1.85rem"
+headingFontWeights = [700, 650, 600, 600, 600, 600]
+dataframeHeaderBackgroundColor = "#142B20"
+dataframeBorderColor = "#1F3D2E"
+# Status colours (text and background pairs are all AA): green = fine, blue = navy callouts,
+# orange = amber warnings, red = soft red shortfalls and negative amounts.
+greenColor = "#34D399"
+greenBackgroundColor = "#0F3324"
+greenTextColor = "#9AF0CB"
+blueColor = "#5B86E5"
+blueBackgroundColor = "#0F2347"
+blueTextColor = "#BFD4FF"
+orangeColor = "#F5B942"
+orangeBackgroundColor = "#2B2410"
+orangeTextColor = "#F8DC9B"
+redColor = "#F28B82"
+redBackgroundColor = "#33161A"
+redTextColor = "#F8B4AE"
+grayColor = "#9FB8AA"
+grayBackgroundColor = "#142B20"
+grayTextColor = "#9FB8AA"
+chartCategoricalColors = ["#34D399", "#5B86E5", "#F5B942", "#F28B82", "#A7F3D0", "#9FB8AA"]
+
+[theme.sidebar]
+backgroundColor = "#091810"
+secondaryBackgroundColor = "#0E1F17"
+
+[[theme.fontFaces]]
+family = "Inter"
+url = "app/static/fonts/Inter-latin.woff2"
+weight = "100 900"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "JetBrains Mono"
+url = "app/static/fonts/JetBrainsMono-latin.woff2"
+weight = "100 800"
+style = "normal"

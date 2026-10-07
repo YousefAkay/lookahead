@@ -542,6 +542,9 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - A bad scenario (a cut of 0 percent, a deposit with no description, a payment moved into the past) is explained in a warning and not run. A purchase or deposit added in a scenario is not saved; saved items are the planned items further down the page.
 - One scenario at a time, with at most one added item and one moved payment. More than that is what planned items are for; the limit keeps the page readable.
 
+## Design
+
+
 ## Tests
 
 ### 2026-10-01: Slow marker
