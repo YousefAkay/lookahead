@@ -37,7 +37,7 @@ from lookahead.forecast.spending import (
     weekday_average_path,
 )
 from lookahead.forecast.start import HORIZON_DAYS, ForecastStart, forecast_start
-from lookahead.planned import PlannedItem, planned_as_of
+from lookahead.planned import PlannedItem, planned_as_of, received_planned
 from lookahead.recurring_store import Stored, series_as_of
 from lookahead.resolve import load_user_decisions
 from lookahead.settings import DEFAULT_BUFFER_CENTS, safety_buffer_cents
@@ -73,6 +73,7 @@ class Forecast:
     planned: tuple[PlannedItem, ...] = ()  # every planned item I have entered (by the date)
     deposit_weeks: tuple[DepositWeek, ...] = ()  # the weeks the futures draw deposits from
     inputs: SimulationInputs | None = None  # what the futures were made from (for scenarios)
+    received: frozenset[int] = frozenset()  # planned items a real transaction has matched
 
     @property
     def large_deposits(self) -> tuple[BigEvent, ...]:
@@ -155,7 +156,10 @@ def build_forecast(
             daily, start.data_last_updated, first_posted, start.first_day, horizon
         )
     planned = planned_as_of(conn, account, as_of)
-    items = scheduled_items(series, posted, start, planned)
+    received = received_planned(conn, account, planned, start.data_last_updated)
+    items = scheduled_items(
+        series, posted, start, [p for p in planned if p.item_id not in received]
+    )  # a received item is in the balance already: placing it again would count it twice
     fee_rate = recent_fee_rate(txns, flows, start.data_last_updated, first_posted)
     fees = constant_path(fee_rate, horizon)
     simulation = inputs = None
@@ -178,4 +182,5 @@ def build_forecast(
         tuple(deposit_weeks(txns, flows, in_series, start.data_last_updated,
                             pool_week_starts(start, first_posted))),
         inputs,
+        received,
     )  # fmt: skip

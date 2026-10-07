@@ -77,3 +77,50 @@ def planned_as_of(
         PlannedItem(r[0], date.fromisoformat(r[1]), r[2], r[3], date.fromisoformat(r[4]))
         for r in rows
     ]
+
+
+# --- Received: a real transaction has arrived for the item ---
+
+MATCH_DAYS = 7  # a real transaction counts if it posted within this many days of the item's day
+MATCH_PERCENT = 5  # ... and its amount is within this percent of the item's
+
+
+def received_planned(
+    conn: sqlite3.Connection, account: str, items: list[PlannedItem], as_of: date | None = None
+) -> frozenset[int]:
+    """The ids of the items that a real transaction has since matched, so the forecast stops
+    placing them (they would be counted twice: once as the item, once in the balance).
+
+    A transaction matches an item if it has the same direction, an amount within MATCH_PERCENT of
+    the item's, a posting date within MATCH_DAYS of the item's day, and was imported on or after
+    the day the item was entered (an older row cannot be the money I was waiting for). Rule zero:
+    only rows posted on or before `as_of` count. One transaction matches one item: the closest
+    pairs are settled first (by days apart, then by amount difference)."""
+    if not items:
+        return frozenset()
+    limit = (as_of or date.max).isoformat()
+    rows = conn.execute(
+        "SELECT id, posted_date, amount_cents, imported_at FROM transactions"
+        " WHERE account = ? AND posted_date <= ?",
+        (account, limit),
+    ).fetchall()
+    pairs = []
+    for item in items:
+        for row_id, posted, cents, imported_at in rows:
+            apart = abs((date.fromisoformat(posted) - item.day).days)
+            same_way = (cents > 0) == (item.cents > 0) and cents != 0
+            close = abs(cents - item.cents) * 100 <= MATCH_PERCENT * abs(item.cents)
+            if (
+                same_way
+                and close
+                and apart <= MATCH_DAYS
+                and imported_at[:10] >= item.entered_at.isoformat()
+            ):
+                pairs.append((apart, abs(cents - item.cents), item.day, item.item_id, row_id))
+    taken: set[int] = set()
+    done: set[int] = set()
+    for _, _, _, item_id, row_id in sorted(pairs):
+        if item_id not in done and row_id not in taken:
+            done.add(item_id)
+            taken.add(row_id)
+    return frozenset(done)

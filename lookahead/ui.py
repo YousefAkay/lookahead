@@ -281,11 +281,16 @@ def events_table(events: list) -> pd.DataFrame:  # type: ignore[type-arg]
     )
 
 
-def planned_table(planned: list, first_day: object, last_day: object) -> pd.DataFrame:  # type: ignore[type-arg]
+def planned_table(  # type: ignore[type-arg]
+    planned: list, first_day: object, last_day: object, received: frozenset[int] = frozenset()
+) -> pd.DataFrame:
     """The planned items I entered: day, what, the amount in dollars (display only; money in is
-    positive), when I entered it, and whether this forecast uses it."""
+    positive), when I entered it, and whether this forecast uses it. An item a real transaction
+    has matched says "received": it is in the balance already, so it is not placed again."""
 
     def used(p: object) -> str:
+        if p.item_id in received:  # type: ignore[attr-defined]
+            return "received"
         if p.day < first_day:  # type: ignore[attr-defined, operator]
             return "no: the day has passed"
         return "yes" if p.day <= last_day else "no: after the last forecast day"  # type: ignore[attr-defined, operator]

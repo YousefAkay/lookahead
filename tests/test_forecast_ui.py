@@ -174,6 +174,18 @@ def test_the_planned_table_says_whether_each_item_is_in_this_forecast() -> None:
     assert planned_table([], first, last).empty
 
 
+def test_a_received_planned_item_says_received() -> None:
+    first, last = date(2026, 10, 1), date(2026, 10, 30)
+    planned = [
+        PlannedItem(1, date(2026, 9, 20), 70000, "Already happened", date(2026, 9, 1)),
+        PlannedItem(2, date(2026, 10, 10), -50000, "Concert", date(2026, 9, 29)),
+    ]
+    table = planned_table(planned, first, last, received=frozenset({1, 2}))
+    assert list(table["In this forecast"]) == ["received", "received"]  # beats "day has passed"
+    mixed = planned_table(planned, first, last, received=frozenset({1}))
+    assert list(mixed["In this forecast"]) == ["received", "yes"]
+
+
 def test_the_deposit_weeks_table_shows_each_week_with_its_types_and_what_was_set_aside() -> None:
     from lookahead.forecast.spending import DepositWeek
     from lookahead.ui import deposit_weeks_table
