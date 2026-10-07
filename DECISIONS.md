@@ -544,7 +544,19 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 
 ## Design
 
-
+### 2026-10-07: The look of the app: light, green top bar, Manrope (replaces the dark-green attempt)
+- Why: the first attempt (dark green and navy, Inter, a sidebar wordmark) was dropped before it was reviewed further; the target is an exported design mockup (a Forecast page and a Recurring page with made-up data), no longer kept in the repository. The first attempt's commits were replaced, not layered on: its fonts, wordmark, favicon and `docs/design/forecast-*` screenshots are deleted. Presentation only: no logic changes.
+- What lost: dark theme (the design is light; dark would also have needed its own chart colours); Inter and JetBrains Mono (the design uses Manrope); Streamlit's sidebar page list (the design has a top bar).
+- Built-in first: `.streamlit/config.toml` carries the colours, status colours, radius, chart colours and the bundled Manrope file. One module, `app/theme.py`, holds the palette, money and date formats, the HTML pieces (top bar, tag, callout, "coming up" list, result panel, chart legend), one CSS string and the Plotly chart template. Pages call these; none repeats a colour.
+- Palette (from the design): top bar `#17603E`, page `#F6F8F6`, cards `#FFFFFF` with `#E2E8E4` borders, text `#14201A`, muted `#55665C`, green `#1F7A4F`, blue `#2E5F9A`, amber `#8A5300` on `#FDF3E1`. One deviation: the design's faint text `#7A8A80` is 3.4 to 3.6 to 1 against its backgrounds, below WCAG AA (4.5), so faint text is `#66756C`. A test checks every text and background pair.
+- Fonts: Manrope (Latin subset, variable weight, tabular figures) is a file in `app/static/fonts` with its SIL licence, served by the app (`server.enableStaticServing`). Nothing is fetched from the internet; the screenshot script records every request and a test fails if a URL or font import appears in the theme.
+- Navigation: the top bar is HTML with plain links, not `st.page_link`, which cannot run inside Streamlit's test harness. A click is a full page load, which I have not checked for keeping the account chosen in Settings. Streamlit's own sidebar navigation is switched off. Settings (data source, account, pseudonymize, method, buffer) stay in a collapsed sidebar opened by a "Settings" pill.
+- Forecast page: title, one-sentence callout (amber for a possible shortfall, green when none), four number cards, the chart (actual line dark, middle future green, 80 percent band translucent blue, buffer dashed amber, the low point marked and labelled, the forecast area lightly shaded), "What if..." as pill buttons with a before and after result, "Coming up", and the explanations folded at the bottom. The first-attempt screenshots showed one bug that the keys now avoid: a container keyed like a card gets the card style, so colour-only wrappers are keyed `tone-*`, cards `card-*`.
+- Charts: lines differ by dash style and width, not colour alone. The old zero line, the on-chart "safety buffer" label and the chart title are removed (the legend names the buffer). Two builder roles are hidden in the new look (the no-deposits line and the no-randomness estimate); their data and tests are unchanged.
+- Deviations from the design, on purpose: extra links in the top bar (Label review, To check) because those pages exist; date pickers show numbers (Streamlit limit); tables size themselves; the design's "Settings" is a pill instead of a gear.
+- Test edits (for the new labels only): the Forecast page test now looks for "Data to" and a card named "Balance on <date>" instead of "Data last updated:" and "Balance when the data ends". One earlier edit stands (the events table is picked by its exact columns, since irregular deposits now come before it).
+- Dev only: Playwright (with the Edge already installed, no browser download) takes screenshots of the Synthetic demo, never of my data; it is in `requirements-dev.txt`.
+- Screenshots are in `docs/design` (calm and shortfall; desktop, laptop, phone, and one with every expander open). Synthetic data only.
 
 ## Tests
 

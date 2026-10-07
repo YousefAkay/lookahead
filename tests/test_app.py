@@ -3,6 +3,7 @@
 All paths point into a temporary folder: these tests never open data/private/.
 """
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -498,11 +499,12 @@ def test_forecast_page_shows_the_start_the_assumptions_and_the_placed_payments(
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     text = page_text(at)
-    assert "Data last updated:" in text and "the day after the data ends" in text
+    assert "Data to " in text and "the day after the data ends" in text
     assert "Starting point:" in text and "Everyday spending:" in text  # the assumptions
     assert "Bank fees:" in text and "recent daily average" in text
     assert "Not financial advice" in text
-    assert metric(at, "Balance when the data ends").startswith("$")
+    start_card = next(m for m in at.metric if m.label.startswith("Balance on "))
+    assert start_card.value.startswith("$")
     assert metric(at, "Safety buffer") == "$200.00"  # the default buffer
     placed = next(d.value for d in at.dataframe if "Why" in d.value.columns)
     assert list(placed.columns) == ["Date", "Name", "Amount ($)", "Based on", "Why"]
@@ -593,11 +595,12 @@ def test_forecast_page_shows_the_shortfall_probability_plainly(isolated: Path) -
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     text = page_text(at)
-    assert "of 500 simulated futures" in text and "below your" in text
+    assert "below your" in text  # the callout sentence
+    assert any("of 500 simulated futures" in str(m.delta) for m in at.metric)  # the card note
     assert "without irregular deposits" in text
-    chance = metric(at, "Chance of dipping below your buffer")
+    chance = metric(at, "Chance below buffer")
     assert chance.endswith("%") and 0 <= float(chance.rstrip("%")) <= 100
-    assert metric(at, "Chance of going below $0").endswith("%")
+    assert metric(at, "Chance below $0").endswith("%")
     assert "Simulated futures:" in text and "not rescaled" in text
 
 
@@ -706,48 +709,71 @@ def scenario_page() -> AppTest:
     return at
 
 
+def choose(at: AppTest, *options: str) -> None:
+    """Press what-if pills (the pills hold a list of the chosen options)."""
+    at.pills(key="wi_pills").set_value(list(options)).run()
+    assert not at.exception, at.exception
+
+
+def panel_pair(text: str, label_start: str) -> tuple[str, str]:
+    """The `before` and `after` shown in the result panel for one row."""
+    found = re.search(
+        rf"{re.escape(label_start)}[^<]*</span><span[^>]*>([^<]*?) → <span[^>]*>([^<]*)</span>",
+        text,
+    )
+    assert found, label_start
+    return found.group(1), found.group(2)
+
+
 def test_the_what_if_section_waits_until_something_is_changed(isolated: Path) -> None:
     at = scenario_page()
-    assert "Change something above to see what would happen" in page_text(at)
-    assert not [m for m in at.metric if m.label.startswith("Scenario:")]
+    assert "Choose something above to see what would happen" in page_text(at)
+    assert "Conditional scenario" not in page_text(at)
 
 
 def test_no_other_money_expected_is_a_scenario_control(isolated: Path) -> None:
     at = scenario_page()
-    at.checkbox(key="wi_no_other").set_value(True).run()
-    assert not at.exception, at.exception
+    choose(at, "No other money coming")
     text = page_text(at)
     assert "Conditional scenario" in text and "not a forecast of what will happen" in text
     assert "No other money expected" in text
-    labels = {m.label for m in at.metric}
-    assert {"Scenario: chance of dipping below your buffer", "Scenario: chance of going below $0",
-            "Scenario: median lowest balance",
-            "Scenario: balance on the last day (middle future)"} <= labels  # fmt: skip
+    for label in (
+        "Chance below buffer",
+        "Lowest expected balance",
+        "Chance below $0",
+        "Balance on",
+    ):
+        assert panel_pair(text, label)
 
 
 def test_spending_less_by_a_percent_improves_the_scenario_metrics(isolated: Path) -> None:
     at = scenario_page()
+    choose(at, "Spend less")
     at.radio(key="wi_spend_mode").set_value("By a percent").run()
     at.number_input(key="wi_spend_value").set_value(30.0).run()
     assert not at.exception, at.exception
-    last = next(
-        m for m in at.metric if m.label == "Scenario: balance on the last day (middle future)"
+    text = page_text(at)
+    before, after = (
+        float(v.replace("−", "-").replace("$", "").replace(",", ""))
+        for v in panel_pair(text, "Balance on")
     )
-    assert str(last.delta).startswith("+") or str(last.delta).startswith("$")  # it went up
-    assert "lower by 30 percent" in page_text(at)
+    assert after > before  # spending less leaves more on the last day
+    assert "lower by 30 percent" in text
 
 
 def test_a_bad_scenario_is_explained_not_run(isolated: Path) -> None:
     at = scenario_page()
+    choose(at, "Spend less")
     at.radio(key="wi_spend_mode").set_value("By a percent").run()
     at.number_input(key="wi_spend_value").set_value(0.0).run()  # a cut of nothing
     assert not at.exception, at.exception
     assert "Could not run the scenario" in " ".join(str(w.value) for w in at.warning)
-    assert not [m for m in at.metric if m.label.startswith("Scenario:")]
+    assert "Conditional scenario" not in page_text(at)
 
 
 def test_a_purchase_added_in_a_scenario_is_not_saved(isolated: Path) -> None:
     at = scenario_page()
+    choose(at, "Add a purchase")
     at.number_input(key="wi_extra_amount").set_value(500.0).run()
     at.text_input(key="wi_extra_what").set_value("Laptop repair").run()
     assert not at.exception, at.exception
@@ -757,6 +783,7 @@ def test_a_purchase_added_in_a_scenario_is_not_saved(isolated: Path) -> None:
 
 def test_delaying_money_in_and_moving_a_payment_are_scenario_controls(isolated: Path) -> None:
     at = scenario_page()
+    choose(at, "Money arrives late", "Move a bill")
     at.number_input(key="wi_delay").set_value(10).run()
     assert not at.exception, at.exception
     assert "10 days later" in page_text(at)
