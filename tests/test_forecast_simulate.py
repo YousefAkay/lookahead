@@ -274,3 +274,14 @@ def test_a_cut_does_not_touch_returns_or_the_days_it_does_not_name() -> None:
     cut = SpendingCut(date(2026, 10, 1), date(2026, 10, 3), percent=50.0)
     sim = run(spending_daily=spending, start=start_for(1000, 3), spending_cut=cut)
     assert sim.p50 == (1040, 1080, 1120)  # money coming back is left alone
+
+
+def test_a_payment_a_scenario_moved_stays_where_it_was_put_even_if_it_is_rent() -> None:
+    from lookahead.forecast.schedule import MOVED_NOTE
+
+    s = series(key="rent", kind="e-transfer", allowed_cents=RULE.amounts_cents, window=(27, 7))
+    start = ForecastStart("a", date(2026, 10, 15), 100000, date(2026, 10, 16), date(2026, 11, 14))
+    item = ScheduledItem(date(2026, 11, 3), -82000, "rent", "Rent", "entered", MOVED_NOTE)
+    assert {sample_item_day(item, s, {}, start, random.Random(k)) for k in range(50)} == {
+        date(2026, 11, 3)
+    }

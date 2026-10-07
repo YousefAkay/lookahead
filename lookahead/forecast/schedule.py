@@ -22,6 +22,7 @@ from lookahead.recurring_store import Stored, rent_rule_of
 from lookahead.rent import RentRule, assign_cycles, rent_cents, window
 
 OVERDUE_MARK = "the window ended with no payment"  # in the note of an overdue rent item
+MOVED_NOTE = "moved in this scenario"  # the note of a payment a scenario put on another day
 
 
 @dataclass(frozen=True)

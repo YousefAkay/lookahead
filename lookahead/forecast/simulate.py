@@ -28,7 +28,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from lookahead.forecast.schedule import OVERDUE_MARK, ScheduledItem
+from lookahead.forecast.schedule import MOVED_NOTE, OVERDUE_MARK, ScheduledItem
 from lookahead.forecast.spending import constant_path
 from lookahead.forecast.start import ForecastStart
 from lookahead.recurring_store import Stored, rent_rule_of
@@ -61,6 +61,8 @@ def sample_item_day(
     rng: random.Random,
 ) -> date:  # fmt: skip
     """The day a placed payment falls on in one future."""
+    if item.note == MOVED_NOTE:
+        return item.day  # a scenario put it here: it stays here
     as_of = start.data_last_updated
     rule = rent_rule_of(series) if series is not None else None
     if rule is not None and series is not None and series.direction == "out":

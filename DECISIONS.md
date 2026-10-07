@@ -530,6 +530,13 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - A cut in everyday spending for a period (a percent of each day, or dollars a day, never below zero; returns left alone) is applied to the drawn spending, so the draws themselves do not change.
 - The forecast keeps what its futures were made from, so a scenario can change one part and run the futures again.
 
+### 2026-10-06: The what-if scenario engine
+- Decision: a scenario changes one part of what the futures were made from and runs the same futures again (same draws), so each difference is the change itself. It is conditional (what would happen if), nothing is saved, and the original is never altered. Controls: spend less by a percent or by dollars a week for a period (dollars a week is spread evenly over the days, never below zero a day); a purchase or deposit added for this scenario only; money in arriving N days later (0 to 60; income series and planned deposits, never a payment); moving a payment to another day (it then stays exactly there; it cannot move to a day that has passed); and "no other money expected" (irregular deposits off, so only income series, planned deposits and deposits added in the scenario count as money in).
+- What "delay money in" does not cover: irregular deposits drawn from history (they have no date to move). A late planned deposit is the case it is for.
+- Reported as differences: the change in the chance of dipping below the buffer, the chance of going below $0, the median lowest balance and the middle future's balance on the last day.
+- Tests: an empty scenario gives exactly the original; "no other money" gives exactly the original's without-deposits median; a planned purchase lowers every point of the range by exactly its amount from its day; delaying a deposit lowers the days in between by exactly the deposit and nothing else; moving a bill changes only the days between the old and new dates; a cut in spending never lowers any point of the range. I broke the engine four ways on purpose and the tests failed each time.
+- Lost: changing the point forecast (the no-randomness line) in a scenario. The comparison is on the futures; a second set of numbers would only add a way to disagree with them.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
