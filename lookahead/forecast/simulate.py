@@ -11,6 +11,11 @@ date (rule zero):
   late). Confirmed and entered dates stay where they are.
 - Fees at their recent daily average, the same in every future.
 
+Common random numbers: every week and every placed payment draws from its own stream, named by
+the seed, the future and what is being drawn. Changing one payment, or the spending in a period,
+never changes the draws of anything else, so a scenario and the original can be compared draw
+for draw and the difference is the change itself, not luck.
+
 Everything else (recurring payments and their amounts, big one-time rows left out) is as in the
 point forecast. The result is shown with and without the irregular deposits.
 
@@ -105,34 +110,87 @@ def _percentile(values: list[int], share: float) -> int:
     return ordered[round(share * (len(ordered) - 1))]
 
 
+@dataclass(frozen=True)
+class SpendingCut:
+    """Spend less on the days from `first` to `last`: by a percent of each day's spending, or by
+    a number of cents a day (never below zero). Money coming back (a return) is left alone."""
+
+    first: date
+    last: date
+    percent: float | None = None
+    cents_per_day: int | None = None
+
+    def apply(self, day: date, spent: int) -> int:
+        if spent <= 0 or not self.first <= day <= self.last:
+            return spent
+        if self.percent is not None:
+            return round(spent * (1 - self.percent / 100))
+        return max(spent - (self.cents_per_day or 0), 0)
+
+
+def _stream(seed: int, future: int, *parts: object) -> random.Random:
+    """A random stream named by what it is for. A string seed is hashed the same way every run."""
+    return random.Random("|".join(str(p) for p in (seed, future, *parts)))
+
+
+@dataclass(frozen=True)
+class SimulationInputs:
+    """Everything `simulate` needs, kept so a scenario can change a part and run it again."""
+
+    start: ForecastStart
+    items: tuple[ScheduledItem, ...]
+    series: tuple[Stored, ...]
+    posted: Mapping[str, date]
+    spending_daily: Mapping[date, int]
+    deposits_daily: Mapping[date, int]
+    history_start: date | None
+    buffer_cents: int
+    fees_per_day: float = 0.0
+    futures: int = N_FUTURES
+    seed: int = 0
+
+
 def simulate(
     start: ForecastStart, items: Sequence[ScheduledItem], series: Sequence[Stored],
     posted: Mapping[str, date], spending_daily: Mapping[date, int],
     deposits_daily: Mapping[date, int], history_start: date | None, buffer_cents: int,
     fees_per_day: float = 0.0, futures: int = N_FUTURES, seed: int = 0,
+    spending_cut: SpendingCut | None = None,
 ) -> Simulation:  # fmt: skip
     """`futures` simulated balance paths over the forecast days, with and without irregular
     deposits. The same seed gives the same answer."""
-    rng = random.Random(seed)
+    return run(
+        SimulationInputs(start, tuple(items), tuple(series), posted, spending_daily,
+                         deposits_daily, history_start, buffer_cents, fees_per_day, futures,
+                         seed),
+        spending_cut,
+    )  # fmt: skip
+
+
+def run(inputs: SimulationInputs, spending_cut: SpendingCut | None = None) -> Simulation:
+    """Run the futures for these inputs, optionally with a cut in everyday spending."""
+    start, futures, seed = inputs.start, inputs.futures, inputs.seed
     horizon = (start.last_day - start.first_day).days + 1
     days = tuple(start.first_day + timedelta(days=k) for k in range(horizon))
-    by_key = {s.key: s for s in series}
-    pool = _week_pool(spending_daily, deposits_daily, start, history_start)
+    by_key = {s.key: s for s in inputs.series}
+    pool = _week_pool(inputs.spending_daily, inputs.deposits_daily, start, inputs.history_start)
     weeks = -(-horizon // BLOCK)
-    fees = constant_path(fees_per_day, horizon)
+    fees = constant_path(inputs.fees_per_day, horizon)
     with_dep: list[list[int]] = []
     without: list[list[int]] = []
-    for _ in range(futures):
+    for future in range(futures):
         scheduled = [0] * horizon
-        for item in items:
-            day = sample_item_day(item, by_key.get(item.series_key), posted, start, rng)
+        for item in inputs.items:
+            stream = _stream(seed, future, "item", item.series_key, item.slot or item.day)
+            day = sample_item_day(item, by_key.get(item.series_key), inputs.posted, start, stream)
             k = (day - start.first_day).days
             if 0 <= k < horizon:
                 scheduled[k] += item.cents
+        weeks_stream = _stream(seed, future, "weeks")
         spend_daily: list[int] = []
         dep_daily: list[int] = []
         for _week in range(weeks):
-            spend, dep = rng.choice(pool) if pool else ((0,) * BLOCK, (0,) * BLOCK)
+            spend, dep = weeks_stream.choice(pool) if pool else ((0,) * BLOCK, (0,) * BLOCK)
             spend_daily += spend
             dep_daily += dep
         money = spent = money_in = 0
@@ -140,7 +198,10 @@ def simulate(
         b: list[int] = []
         for k in range(horizon):
             money += scheduled[k]
-            spent += spend_daily[k]
+            spend_today = spend_daily[k]
+            if spending_cut is not None:
+                spend_today = spending_cut.apply(days[k], spend_today)
+            spent += spend_today
             money_in += dep_daily[k]
             base = start.balance_cents + money - spent - fees[k]
             a.append(base + money_in)
@@ -156,7 +217,7 @@ def simulate(
 
     return Simulation(
         days, futures, at(with_dep, 0.1), at(with_dep, 0.5), at(with_dep, 0.9), at(without, 0.5),
-        share(with_dep, buffer_cents), share(without, buffer_cents),
+        share(with_dep, inputs.buffer_cents), share(without, inputs.buffer_cents),
         share(with_dep, 0), share(without, 0),
         _percentile([min(p) for p in with_dep], 0.5) if with_dep else start.balance_cents,
         _percentile([min(p) for p in without], 0.5) if without else start.balance_cents,

@@ -32,6 +32,7 @@ class ScheduledItem:
     name: str | None
     basis: str  # "detected", "confirmed" or "entered" (typed by me, or my own date or amount)
     note: str
+    slot: date | None = None  # the day it was first placed: names its stream of random draws
 
 
 def _basis(s: Stored) -> str:

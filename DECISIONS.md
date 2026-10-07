@@ -525,6 +525,11 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Found on my data: after planned items, the 10th to 90th range still jumped sharply in one week. The Forecast page now has "What's in irregular deposits": one row for each of the 13 weeks the futures can draw from (the exact weeks, starting on the forecast's first weekday), with the deposits in the stream by type and, in the last column, what was set aside that week (big deposits and pass-throughs, which are never drawn). The weeks add up to the deposit stream (a test checks it). A week with a large deposit in the stream adds it to about one in 13 of the weeks ahead; that is the behaviour this table makes visible, not a bug in the draw.
 - Every forecast line and the band now start at the last observed day's closing balance, so the chart has no gap between the recent balance and the forecast. The balance stays flat from that day until the first forecast day, like any balance between postings.
 
+### 2026-10-06: Common random numbers for scenarios
+- Decision: every simulated week and every placed payment draws from its own random stream, named by the seed, the future and what is drawn (a payment's stream is named by its series and the day it was first placed). Before, one sequence was shared, so changing or adding one payment shifted every later draw and a scenario would differ from the original by luck as well as by the change. Now the original and a scenario use the same draws, so the difference between them is the change itself. Tests: the order of the items does not matter; adding an item does not change the other items' draws; a spending cut can only raise every point of the range.
+- A cut in everyday spending for a period (a percent of each day, or dollars a day, never below zero; returns left alone) is applied to the drawn spending, so the draws themselves do not change.
+- The forecast keeps what its futures were made from, so a scenario can change one part and run the futures again.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

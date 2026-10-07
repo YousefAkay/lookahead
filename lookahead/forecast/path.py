@@ -15,7 +15,13 @@ from datetime import date, timedelta
 
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.schedule import ScheduledItem, scheduled_items
-from lookahead.forecast.simulate import N_FUTURES, Simulation, pool_week_starts, simulate
+from lookahead.forecast.simulate import (
+    N_FUTURES,
+    Simulation,
+    SimulationInputs,
+    pool_week_starts,
+    run,
+)
 from lookahead.forecast.spending import (
     BigEvent,
     BreakdownRow,
@@ -66,6 +72,7 @@ class Forecast:
     simulation: Simulation | None = None  # the simulated futures (a range, not one path)
     planned: tuple[PlannedItem, ...] = ()  # every planned item I have entered (by the date)
     deposit_weeks: tuple[DepositWeek, ...] = ()  # the weeks the futures draw deposits from
+    inputs: SimulationInputs | None = None  # what the futures were made from (for scenarios)
 
     @property
     def large_deposits(self) -> tuple[BigEvent, ...]:
@@ -151,13 +158,14 @@ def build_forecast(
     items = scheduled_items(series, posted, start, planned)
     fee_rate = recent_fee_rate(txns, flows, start.data_last_updated, first_posted)
     fees = constant_path(fee_rate, horizon)
-    simulation = None
+    simulation = inputs = None
     if futures > 0:
         deposits = deposits_by_day(txns, flows, in_series, start.data_last_updated)
-        simulation = simulate(
-            start, items, series, posted, daily, deposits, first_posted,
+        inputs = SimulationInputs(
+            start, tuple(items), tuple(series), posted, daily, deposits, first_posted,
             safety_buffer_cents(conn), fee_rate, futures,
         )  # fmt: skip
+        simulation = run(inputs)
     return Forecast(
         start, BASELINES[method], project_balance(start, items, spending, fees), items,
         any(s.direction == "in" and s.active and s.status != "rejected" for s in series),
@@ -169,4 +177,5 @@ def build_forecast(
         tuple(planned),
         tuple(deposit_weeks(txns, flows, in_series, start.data_last_updated,
                             pool_week_starts(start, first_posted))),
+        inputs,
     )  # fmt: skip

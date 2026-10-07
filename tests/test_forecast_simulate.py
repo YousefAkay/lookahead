@@ -189,3 +189,88 @@ def test_the_weeks_the_futures_draw_from_are_listed_by_their_first_day() -> None
     assert pool_week_starts(start_for(), None) == []
     short = pool_week_starts(start_for(), AS_OF - timedelta(days=13))  # two weeks of history
     assert short == [date(2026, 9, 17), date(2026, 9, 24)]
+
+
+# --- Common random numbers: every item and every week has its own stream ---
+
+
+def test_the_order_of_the_items_does_not_change_the_draws() -> None:
+    a = series(key="a", offsets=(-2, 0, 3))
+    b = series(key="b", offsets=(-1, 4))
+    items = [ScheduledItem(date(2026, 10, 6), -6500, "a", "a", "detected", ""),
+             ScheduledItem(date(2026, 10, 9), -4000, "b", "b", "detected", "")]  # fmt: skip
+    mixed = {AS_OF - timedelta(days=i): (i * 37) % 900 for i in range(91)}
+    one = run(items=items, series=[a, b], spending_daily=mixed, start=start_for(100000, 14))
+    two = run(items=items[::-1], series=[b, a], spending_daily=mixed, start=start_for(100000, 14))
+    assert one == two
+
+
+def test_adding_an_item_does_not_change_the_draws_of_the_others() -> None:
+    """The reason scenarios can be compared: the other items fall where they fell before."""
+    a = series(key="a", offsets=(-2, 0, 3))
+    item = ScheduledItem(date(2026, 10, 6), -6500, "a", "a", "detected", "")
+    extra = ScheduledItem(date(2026, 10, 8), -5000, "scenario|0", "Purchase", "entered", "")
+    mixed = {AS_OF - timedelta(days=i): (i * 37) % 900 for i in range(91)}
+    base = run(items=[item], series=[a], spending_daily=mixed, start=start_for(100000, 14))
+    more = run(items=[item, extra], series=[a], spending_daily=mixed, start=start_for(100000, 14))
+    for k, day in enumerate(base.days):
+        shift = -5000 if day >= date(2026, 10, 8) else 0
+        assert more.p10[k] == base.p10[k] + shift and more.p90[k] == base.p90[k] + shift
+
+
+def test_an_occurrence_keeps_its_own_draws_when_it_is_moved() -> None:
+    """The `slot` names the stream an occurrence draws from, so moving it or delaying it does not
+    give the other occurrences of that series new draws."""
+    a = series(key="a", offsets=(-2, 0, 3))
+    first = ScheduledItem(date(2026, 10, 6), -6500, "a", "a", "detected", "")
+    second = ScheduledItem(date(2026, 10, 13), -6500, "a", "a", "detected", "")
+    assert first.slot is None
+    mixed = {AS_OF - timedelta(days=i): (i * 53) % 700 for i in range(91)}
+    base = run(items=[first, second], series=[a], spending_daily=mixed, start=start_for(100000, 21))
+    from dataclasses import replace
+
+    moved = replace(first, day=date(2026, 10, 6), slot=date(2026, 10, 6))  # same slot, same draws
+    same = run(items=[moved, second], series=[a], spending_daily=mixed, start=start_for(100000, 21))
+    assert base == same
+
+
+# --- A cut in everyday spending for a period (a scenario control) ---
+
+from lookahead.forecast.simulate import SpendingCut  # noqa: E402
+
+
+def test_a_percent_cut_lowers_spending_only_inside_the_period() -> None:
+    cut = SpendingCut(date(2026, 10, 3), date(2026, 10, 5), percent=50.0)
+    sim = run(spending_daily=history(100), start=start_for(100000, 6), spending_cut=cut)
+    # days: 1 Oct ... 6 Oct; 100 a day, but 50 a day on the 3rd to the 5th
+    assert sim.p50 == (99900, 99800, 99750, 99700, 99650, 99550)
+
+
+def test_a_dollar_cut_never_takes_a_day_below_zero() -> None:
+    spending = {AS_OF - timedelta(days=i): (30 if i % 2 else 100) for i in range(91)}
+    cut = SpendingCut(date(2026, 10, 1), date(2026, 10, 7), cents_per_day=50)
+    sim = run(spending_daily=spending, start=start_for(100000, 7), spending_cut=cut, futures=1,
+              seed=0)  # fmt: skip
+    drops = [a - b for a, b in zip((100000, *sim.p50), sim.p50, strict=False)]
+    assert all(d >= 0 for d in drops) and all(d in (0, 50) for d in drops)  # 30 -> 0, 100 -> 50
+
+
+def test_a_cut_never_raises_the_balance_of_any_future() -> None:
+    """With the same random draws, spending less can only help: every point of the range is at
+    least as high, and the chance of a shortfall is no higher."""
+    mixed = {AS_OF - timedelta(days=i): (i * 37) % 900 for i in range(91)}
+    base = run(spending_daily=mixed, start=start_for(5000, 14))
+    cut = SpendingCut(date(2026, 10, 1), date(2026, 10, 14), percent=30.0)
+    less = run(spending_daily=mixed, start=start_for(5000, 14), spending_cut=cut)
+    assert all(b >= a for a, b in zip(base.p10, less.p10, strict=True))
+    assert all(b >= a for a, b in zip(base.p50, less.p50, strict=True))
+    assert all(b >= a for a, b in zip(base.p90, less.p90, strict=True))
+    assert less.shortfall_probability <= base.shortfall_probability
+    assert less.p50 != base.p50
+
+
+def test_a_cut_does_not_touch_returns_or_the_days_it_does_not_name() -> None:
+    spending = {AS_OF - timedelta(days=i): -40 for i in range(91)}  # only returns
+    cut = SpendingCut(date(2026, 10, 1), date(2026, 10, 3), percent=50.0)
+    sim = run(spending_daily=spending, start=start_for(1000, 3), spending_cut=cut)
+    assert sim.p50 == (1040, 1080, 1120)  # money coming back is left alone

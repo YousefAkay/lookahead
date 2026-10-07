@@ -417,3 +417,14 @@ def test_the_forecast_lists_the_weeks_its_futures_draw_deposits_from(
     assert len(forecast.deposit_weeks) == forecast.simulation.weeks_drawn_from == 13
     assert sum(w.total for w in forecast.deposit_weeks) == 6 * 4000
     assert [e.cents for w in forecast.deposit_weeks for e in w.set_aside] == [1500000]
+
+
+def test_the_forecast_keeps_what_its_futures_were_made_from(conn: sqlite3.Connection) -> None:
+    from lookahead.forecast.simulate import run
+
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert forecast is not None and forecast.inputs is not None
+    assert run(forecast.inputs) == forecast.simulation  # the same inputs give the same futures
+    assert forecast.inputs.items == tuple(forecast.items)
+    assert forecast.inputs.buffer_cents == forecast.buffer_cents
+    assert build_forecast(conn, ACCOUNT, "weekday", futures=0).inputs is None  # type: ignore[union-attr]
