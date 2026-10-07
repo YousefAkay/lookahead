@@ -133,7 +133,7 @@ def series_label(series: object, hide: bool = False) -> str:
     if hide:
         return HIDDEN
     label = name or _KIND_NAMES.get(getattr(series, "kind", ""), BLANK)
-    return f"{label} (sent by hand, the day varies)" if getattr(series, "loose", False) else label
+    return label  # how it is paid goes in the grey line under the name, not after it
 
 
 def recurring_table(  # type: ignore[type-arg]

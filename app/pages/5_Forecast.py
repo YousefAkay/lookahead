@@ -32,6 +32,7 @@ from app.theme import (  # noqa: E402
     money_short,
     result_panel_html,
     save_choices,
+    scenario_legend_html,
     seed_choice,
     show_table,
     side_label,
@@ -258,6 +259,7 @@ with st.container(border=True, key="card-chart"):
     )
 
 # --- What if... and Coming up, side by side ---
+scenario_result = None  # set below when a scenario runs; its chart is drawn full width after
 what_if, coming_up = st.columns(2, gap="medium")
 with what_if, st.container(border=True, key="card-whatif"):
     st.markdown("<h2>What if…</h2>", unsafe_allow_html=True)
@@ -380,17 +382,11 @@ with what_if, st.container(border=True, key="card-whatif"):
                 )  # fmt: skip
                 st.markdown(
                     '<p class="la-note">Conditional scenario: '
-                    + html.escape(" ".join(result.changes)).replace("$", "&#36;")
+                    + html.escape(humanize_dates(" ".join(result.changes))).replace("$", "&#36;")
                     + " This is not a forecast of what will happen.</p>",
                     unsafe_allow_html=True,
                 )
-                with st.expander("Show the comparison chart"):
-                    compare = style_scenario_chart(
-                        scenario_chart(forecast, o, m, forecast.buffer_cents)
-                    )
-                    compare.update_layout(height=300)
-                    st.plotly_chart(compare, width="stretch", theme=None,
-                                    config={"displayModeBar": False})  # fmt: skip
+                scenario_result = result
 
 with coming_up, st.container(border=True, key="card-coming"):
     head = st.columns([2, 1.2], vertical_alignment="bottom")
@@ -420,6 +416,31 @@ with coming_up, st.container(border=True, key="card-coming"):
         st.markdown(coming_up_html(upcoming), unsafe_allow_html=True)
     else:
         st.caption("Nothing is expected in this period.")
+
+# --- The comparison, full width, when a scenario is active ---
+if scenario_result is not None:
+    o, m = scenario_result.original, scenario_result.modified
+    with st.container(border=True, key="card-compare"):
+        st.markdown(
+            '<div style="display: flex; flex-wrap: wrap; justify-content: space-between; '
+            'gap: 12px; align-items: center"><h2 style="margin: 0">'
+            f"Original and with your change</h2>{scenario_legend_html(forecast.buffer_cents)}"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        compare = style_scenario_chart(scenario_chart(forecast, o, m, forecast.buffer_cents))
+        compare.update_layout(title={"text": ""})
+        fit_y_range(compare, [
+            start.balance_cents / 100, forecast.buffer_cents / 100,
+            *(c / 100 for c in (*o.p10, *o.p90, *m.p10, *m.p90)),
+        ])  # fmt: skip
+        compare.update_layout(height=340)  # the same height as the main chart
+        st.plotly_chart(compare, width="stretch", theme=None, config={"displayModeBar": False})
+        st.markdown(
+            '<p class="la-note">Conditional scenario, not a forecast of what will happen. '
+            "Both start from the last observed balance.</p>",
+            unsafe_allow_html=True,
+        )
 
 # --- The explanations, folded ---
 st.markdown('<div id="evidence"></div>', unsafe_allow_html=True)

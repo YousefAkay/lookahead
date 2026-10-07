@@ -826,8 +826,10 @@ def choose(at: AppTest, *options: str) -> None:
 def panel_pair(text: str, label_start: str) -> tuple[str, str]:
     """The `before` and `after` shown in the result panel for one row."""
     found = re.search(
-        rf"{re.escape(label_start)}[^<]*</span><span[^>]*>([^<]*?) → <span[^>]*>([^<]*)</span>",
+        rf"{re.escape(label_start)}[^<]*</span>.*?Before</span><span[^>]*>([^<]*)</span>"
+        r".*?After</span><span[^>]*>([^<]*)</span>",
         text,
+        re.DOTALL,
     )
     assert found, label_start
     return found.group(1), found.group(2)
@@ -936,3 +938,14 @@ def test_to_check_page_has_the_top_bar_and_a_plain_table(isolated: Path) -> None
     assert "Data to " in text and 'aria-current="page">To check<' in text
     table = at.dataframe[0].value
     assert "Amount ($)" in table.columns  # the data keeps its names; the headers shown are plain
+
+
+def test_the_comparison_chart_is_a_full_width_card_below_the_what_if_row(isolated: Path) -> None:
+    at = scenario_page()
+    assert len(at.get("plotly_chart")) == 1  # only the main chart before a scenario
+    choose(at, "No other money coming")
+    assert len(at.get("plotly_chart")) == 2  # the comparison chart is added, not folded away
+    texts = [str(m.value) for m in at.markdown]
+    heading = next(t for t in texts if "<h2" in t and "Original and with your change" in t)
+    assert "With your change" in next(t for t in texts if "la-legend" in t and "Original" in t)
+    assert "<h2" in heading  # a normal card heading, not a title inside the plot

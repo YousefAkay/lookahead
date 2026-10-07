@@ -66,10 +66,10 @@ def test_a_variable_series_gives_its_usual_range() -> None:
 def test_an_e_transfer_series_says_so_and_a_hand_sent_one_says_by_hand() -> None:
     assert series_summary(make(kind="e-transfer")) == "Interac e-Transfer, same amount every month"
     assert series_summary(make(kind="e-transfer", loose=True)) == (
-        "Interac e-Transfer, sent by hand"
+        "Interac e-Transfer, sent by hand, the day varies"
     )
     rent = make(kind="e-transfer", allowed_cents=(75000,), window=(30, 2))
-    assert series_summary(rent) == "Interac e-Transfer, sent by hand"
+    assert series_summary(rent) == "Interac e-Transfer, sent by hand, the day varies"
 
 
 def test_an_ended_series_says_when_it_was_last_seen() -> None:
@@ -140,3 +140,14 @@ def test_the_payments_table_has_four_headers_and_signed_money() -> None:
 
 def test_an_empty_payments_table_is_a_sentence() -> None:
     assert "No payments in the data yet" in payments_table_html([])
+
+
+def test_a_series_label_is_just_its_name_and_the_note_is_in_the_grey_line() -> None:
+    from lookahead.ui import series_label
+
+    rent = make(name="Rent", kind="e-transfer", loose=True)
+    assert series_label(rent) == "Rent"  # no "(sent by hand, the day varies)" after the name
+    assert series_summary(rent) == "Interac e-Transfer, sent by hand, the day varies"
+    assert series_summary(make(kind="e-transfer", allowed_cents=(75000,), window=(30, 2))) == (
+        "Interac e-Transfer, sent by hand, the day varies"
+    )

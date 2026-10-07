@@ -237,7 +237,7 @@ def series_summary(s: Stored) -> str:
            else f"varies {money_short(low)}–{money_short(high)}")  # fmt: skip
     if s.kind == "e-transfer":
         by_hand = s.loose or bool(s.allowed_cents)
-        return "Interac e-Transfer, " + ("sent by hand" if by_hand else how)
+        return "Interac e-Transfer, " + ("sent by hand, the day varies" if by_hand else how)
     if s.kind == "own transfer":
         return "Transfer to my own account, " + how
     return how[0].upper() + how[1:]
@@ -695,18 +695,59 @@ def result_panel_html(rows: list[tuple[str, str, str, str]]) -> str:
     """The what-if result: a blue panel, two columns, each `before → after`. A row is (label,
     before, after, verdict) with verdict "better" (green), "worse" (amber) or "same"."""
     colour = {"better": COLORS.green_dark, "worse": COLORS.amber, "same": COLORS.text}
+    small = f"font-size: 12px; font-weight: 600; color: {COLORS.muted}"
+    line = "display: flex; justify-content: space-between; align-items: baseline; gap: 8px"
     cells = "".join(
-        f'<div style="display: flex; flex-direction: column; gap: 4px">'
+        f'<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">'
         f'<span style="font-size: 13px; color: {COLORS.blue}; font-weight: 700">'
         f"{html.escape(label)}</span>"
-        f'<span style="font-size: 24px; font-weight: 800">{html.escape(before)} → '
-        f'<span style="color: {colour[verdict]}">{html.escape(after)}</span></span></div>'
+        f'<span style="{line}"><span style="{small}">Before</span>'
+        f'<span style="font-size: 16px; font-weight: 700; white-space: nowrap">'
+        f"{html.escape(before)}</span></span>"
+        f'<span style="{line}"><span style="{small}">After</span>'
+        f'<span style="font-size: 20px; font-weight: 800; white-space: nowrap; '
+        f'color: {colour[verdict]}">{html.escape(after)}</span></span></div>'
         for label, before, after, verdict in rows
     )
     return (
         f'<div class="la-panel" style="background: {COLORS.panel_blue}; border-radius: 12px; '
         f"padding: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); "
         f'gap: 16px">{cells}</div>'
+    )
+
+
+def scenario_legend_html(buffer_cents: int) -> str:
+    """The legend above the comparison chart: the original (grey) and with your change (green and
+    blue), each with its band, and the buffer."""
+
+    def swatch(line_colour: str, band: str, dash: str = "") -> str:
+        return (
+            f'<svg width="26" height="14" aria-hidden="true"><rect x="0" y="1" width="26" '
+            f'height="12" rx="2" fill="{band}"></rect><line x1="0" y1="7" x2="26" y2="7" '
+            f'stroke="{line_colour}" stroke-width="2.5"{dash}></line></svg>'
+        )
+
+    items = [
+        (
+            swatch(COLORS.muted, _rgba(COLORS.muted, 0.15), ' stroke-dasharray="6 3 1 3"'),
+            "Original",
+        ),
+        (swatch(COLORS.green, _BLUE_BAND), "With your change"),
+        (
+            f'<svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" '
+            f'stroke="{COLORS.amber_line}" stroke-width="2" stroke-dasharray="4 3"></line></svg>',
+            f"Buffer {money_short(buffer_cents)}",
+        ),
+    ]
+    parts = "".join(
+        f'<span style="display: flex; align-items: center; gap: 6px">'
+        f"{mark}{html.escape(text)}</span>"
+        for mark, text in items
+    )
+    return (
+        f'<div class="la-legend" style="display: flex; flex-wrap: wrap; gap: 8px 16px; '
+        f'font-size: 13px; color: {COLORS.muted}; align-items: center; justify-content: flex-end">'
+        f"{parts}</div>"
     )
 
 

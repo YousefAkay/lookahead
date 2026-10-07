@@ -393,7 +393,9 @@ def test_the_result_panel_shows_before_and_after_and_colours_the_verdict() -> No
         ("Lowest expected balance", "$624.00", "$500.00", "worse"),
         ("Chance below $0", "6%", "6%", "same"),
     ])  # fmt: skip
-    assert "22% →" in html and "8%" in html and "Chance below buffer" in html
+    assert "22%" in html and "8%" in html and "Chance below buffer" in html
+    assert html.count("Before") == 3 and html.count("After") == 3  # stacked, never side by side
+    assert html.count("white-space: nowrap") >= 6  # every number stays on one line
     assert f"color: {COLORS.green_dark}" in html and f"color: {COLORS.amber}" in html
     assert COLORS.panel_blue in html and "repeat(2, minmax(0, 1fr))" in html
 
@@ -516,3 +518,23 @@ def test_choices_are_written_to_the_address_and_into_the_links(
     theme.save_choices()
     assert fake.query_params == {"data": "My data", "account": "chequing 1", "text": "0"}
     assert theme.choice_query() == "data=My+data&account=chequing+1&text=0"
+
+
+def test_the_comparison_legend_names_both_versions_and_the_buffer() -> None:
+    from app.theme import scenario_legend_html
+
+    html = scenario_legend_html(20000)
+    assert "Original" in html and "With your change" in html and "Buffer $200" in html
+    assert (
+        COLORS.muted in html and COLORS.green in html
+    )  # grey for the original, green for the change
+
+
+def test_the_original_is_grey_and_the_changed_future_is_green_with_a_blue_band() -> None:
+    from app.theme import ROLES
+
+    assert ROLES["original_median"]["line"]["color"] == COLORS.muted
+    assert ROLES["modified_median"]["line"]["color"] == COLORS.green
+    assert "46, 95, 154" in ROLES["modified_band"]["fillcolor"]  # translucent blue
+    assert "46, 95, 154" not in ROLES["original_band"]["fillcolor"]  # grey, not blue
+    assert ROLES["original_median"]["line"]["dash"] != ROLES["modified_median"]["line"]["dash"]
