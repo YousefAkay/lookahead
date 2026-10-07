@@ -207,7 +207,7 @@ def top_bar_html(
 
 EVERY = {"weekly": "every week", "biweekly": "every 2 weeks", "semimonthly": "twice a month",
          "monthly": "every month", "yearly": "every year"}  # fmt: skip
-PER = {"weekly": "week", "biweekly": "2 weeks", "semimonthly": "half month", "monthly": "month",
+PER = {"weekly": "week", "biweekly": "2 weeks", "semimonthly": "half-month", "monthly": "month",
        "yearly": "year"}  # fmt: skip
 _PER_MONTH = {"weekly": 52 / 12, "biweekly": 26 / 12, "semimonthly": 2.0, "monthly": 1.0,
               "yearly": 1 / 12}  # fmt: skip
@@ -282,7 +282,8 @@ def series_card_html(s: Stored, name: str, category: str | None, selected: bool)
         f'<span style="font-size: 13px; color: {COLORS.muted}">'
         f"{html.escape(series_summary(s))}</span></div>"
         f'<div style="{row}; align-items: baseline">'
-        f'<span style="font-size: 22px; font-weight: 800; color: {amount_colour}">'
+        f'<span style="font-size: 22px; font-weight: 800; color: {amount_colour}; '
+        f'white-space: nowrap">'
         f"{html.escape(amount)}"
         f'<span style="font-size: 14px; font-weight: 600; color: {COLORS.muted}"> '
         f"/ {PER[s.cadence]}</span></span>"
@@ -332,7 +333,7 @@ def payments_table_html(rows: Sequence[tuple[str, str, int, int | None]]) -> str
         )
     return (
         f'<div style="overflow-x: auto; border: 1px solid {COLORS.hairline}; border-radius: 12px">'
-        f'<table style="width: 100%; min-width: 480px; border-collapse: collapse; '
+        f'<table style="width: 100%; min-width: 480px; border-collapse: collapse; margin: 0; '
         f'font-size: 14px"><thead><tr style="background: {COLORS.bg}">{head}</tr></thead>'
         f"<tbody>{''.join(body)}</tbody></table></div>"
     )
@@ -430,13 +431,14 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
 
 /* Recurring: a grid of series cards. Each card is a keyed block ("seriescard-...") holding the
    card's HTML and a see-through button laid over all of it, so the whole card is one click. */
-.st-key-seriesgrid {{ display: grid !important; gap: 16px;
+.st-key-seriesgrid {{ display: grid !important; gap: 16px; align-items: stretch !important;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }}
 [class*="st-key-seriescard-"][data-testid="stVerticalBlock"] {{ position: relative; gap: 0;
   height: 100%; }}
 [class*="st-key-seriescard-"] > [data-testid="stElementContainer"]:not(:has(button)) {{
   height: 100%; }}
 [class*="st-key-seriescard-"] [data-testid="stMarkdown"],
+[class*="st-key-seriescard-"] [data-testid="stMarkdown"] > div,
 [class*="st-key-seriescard-"] [data-testid="stMarkdownContainer"] {{ height: 100%; }}
 [class*="st-key-seriescard-"] > [data-testid="stElementContainer"]:has(button) {{
   position: absolute;

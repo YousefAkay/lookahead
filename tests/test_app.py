@@ -339,22 +339,43 @@ def stored_series(tmp_path: Path, account: str) -> dict:  # type: ignore[type-ar
     return series
 
 
+def series_cards(at: AppTest) -> list[str]:
+    """The HTML of each series card on the Recurring page (the "Add one I pay" card is not one)."""
+    return [
+        str(m.value)
+        for m in at.markdown
+        if 'class="la-series"' in str(m.value) and "Add one I pay" not in str(m.value)
+    ]
+
+
+def open_series(at: AppTest, name: str) -> None:
+    """Click a series' card (a see-through button laid over it, named "Open <name>")."""
+    button(at, f"Open {name}").click().run()
+    assert not at.exception, at.exception
+
+
 def test_recurring_page_lists_detected_series_with_their_evidence(isolated: Path) -> None:
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
-    table = at.dataframe[0].value
-    assert set(table["Status"]) == {"detected"} and len(table) == 6
-    assert {"semimonthly", "monthly"} <= set(table["How often"])
-    assert "Transfer to my own account" in set(table["Name"])
+    cards = series_cards(at)
+    series = stored_series(isolated, "synthetic-B")
+    assert len(cards) == len(series) == 6
+    assert {s.status for s in series.values()} == {"detected"}
+    assert all("Detected" in card for card in cards)
+    assert {"semimonthly", "monthly"} <= {s.cadence for s in series.values()}
+    assert any("Transfer to my own account" in card for card in cards)
     assert "estimates" in page_text(at) and "Not financial advice" in page_text(at)
-    assert len(at.dataframe[1].value) >= 3  # the payments behind the first series
+    assert "6 to review" in page_text(at)
+    first = at.session_state["series"]
+    assert first in {s.key for s in series.values()}  # the first card is open
+    assert "Balance after" in page_text(at)  # the payments behind it
 
 
 def test_recurring_page_confirms_rejects_and_adds(isolated: Path) -> None:
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
-    first_key = at.selectbox(key="series").value
+    first_key = at.session_state["series"]
 
     def status() -> str:
         from lookahead.db import connect_readonly
@@ -369,18 +390,46 @@ def test_recurring_page_confirms_rejects_and_adds(isolated: Path) -> None:
     assert not at.exception, at.exception
     after = stored_series(isolated, "synthetic-B")
     assert after and status() == "confirmed"
-    assert at.selectbox(key="series").value == first_key  # the selection stays put
+    assert at.session_state["series"] == first_key  # the selection stays put
     button(at, "Not recurring").click().run()
     assert status() == "rejected"
-    assert len(at.dataframe[0].value) == 5  # rejected ones are hidden by default
+    assert len(series_cards(at)) == 5  # rejected ones are hidden by default
 
+    button(at, "Add one I pay").click().run()  # the card opens the form
     at.text_input(key="add_name").set_value("Bursary")
     at.radio(key="add_direction").set_value("Money in")
     at.number_input(key="add_amount").set_value(1200.0)
-    button(at, "Add").click().run()
+    next(b for b in at.button if b.label == "Add").click().run()
     assert not at.exception, at.exception
     added = stored_series(isolated, "synthetic-B")["Bursary"]
     assert (added.status, added.direction, added.expected_cents) == ("user-added", "in", 120000)
+    assert at.session_state["series"] == added.key  # and it is the one shown now
+
+
+def test_looks_right_confirm_all_confirms_every_detected_series_and_logs_each(
+    isolated: Path,
+) -> None:
+    from lookahead.db import connect_readonly
+    from lookahead.recurring_store import load_decisions
+
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    before = stored_series(isolated, "synthetic-B")
+    assert {s.status for s in before.values()} == {"detected"} and len(before) == 6
+    button(at, "Looks right, confirm all").click().run()  # one click
+    assert not at.exception, at.exception
+    after = stored_series(isolated, "synthetic-B")
+    assert {s.status for s in after.values()} == {"confirmed"}
+    conn = connect_readonly(isolated / "demo.db")
+    log = load_decisions(conn, "synthetic-B")
+    conn.close()
+    assert sorted(d.key for d in log if d.action == "confirm") == sorted(
+        s.key for s in before.values()
+    )
+    assert len(log) == 6  # one decision each, nothing else
+    assert not [b for b in at.button if b.label.startswith("Looks right")]  # nothing left
+    assert "nothing left to review" in page_text(at)
+    assert all("Confirmed" in card for card in series_cards(at))
 
 
 def test_recurring_page_hides_a_persons_name_when_pseudonymizing(isolated: Path) -> None:
@@ -403,11 +452,12 @@ def test_recurring_page_hides_a_persons_name_when_pseudonymizing(isolated: Path)
     conn.close()
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
-    names = set(at.dataframe[0].value["Name"])
-    assert "(hidden)" in names and not any("Jane" in str(n) for n in names)
-    assert "Rent share" in names  # a name I typed myself stays
+    cards = " ".join(series_cards(at))
+    assert "(hidden)" in cards and "Jane" not in cards
+    assert "Rent share" in cards  # a name I typed myself stays
+    assert not any("Jane" in b.label for b in at.button)
     at.sidebar.toggle[0].set_value(False).run()
-    assert any("Jane Doe" in str(n) for n in at.dataframe[0].value["Name"])
+    assert "Jane Doe" in " ".join(series_cards(at))
 
 
 # --- Recurring page: the edit form follows the series; category; continuation ---
@@ -416,15 +466,15 @@ def test_recurring_page_hides_a_persons_name_when_pseudonymizing(isolated: Path)
 def test_edit_form_shows_the_selected_series_values(isolated: Path) -> None:
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
-    options = at.selectbox(key="series").options
     series = stored_series(isolated, "synthetic-B")
-    by_label = {str(o): s for o in options for s in series.values()
-                if (s.name or "") and (s.name or "") in str(o)}  # fmt: skip
     seen = set()
-    for label in list(by_label)[:3]:
-        at.selectbox(key="series").select(label).run()
-        chosen = next(s for s in series.values()
-                      if s.key == at.selectbox(key="series").value)  # fmt: skip
+    for name in [
+        n for n in series if n in ("Netflix", "Gestion Immobiliere", "Groupe Conseil Plateau")
+    ]:
+        open_series(at, name)
+        button(at, "Edit").click().run()  # the form opens on request
+        chosen = series[name]
+        assert at.session_state["series"] == chosen.key
         shown_date = at.date_input(key=f"next_date|{chosen.key}").value
         shown_amount = at.number_input(key=f"amount|{chosen.key}").value
         assert shown_date == chosen.next_expected
@@ -433,19 +483,27 @@ def test_edit_form_shows_the_selected_series_values(isolated: Path) -> None:
     assert len(seen) >= 2  # the form really changed with the series
 
 
+def test_the_edit_form_is_closed_until_asked_for(isolated: Path) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    key = at.session_state["series"]
+    assert not [d for d in at.date_input if d.key == f"next_date|{key}"]
+    button(at, "Edit").click().run()
+    assert [d for d in at.date_input if d.key == f"next_date|{key}"]
+
+
 def test_a_confirmed_fixed_series_can_get_a_category(isolated: Path) -> None:
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
-    pick = next(o for o in at.selectbox(key="series").options if "Netflix" in str(o))
-    at.selectbox(key="series").select(pick).run()
-    key = at.selectbox(key="series").value
+    open_series(at, "Netflix")
+    key = at.session_state["series"]
     assert not [s for s in at.selectbox if s.key == f"series_category|{key}"]  # not confirmed yet
     button(at, "Confirm").click().run()
     at.selectbox(key=f"series_category|{key}").select("Entertainment")
     button(at, "Save category").click().run()
     assert not at.exception, at.exception
     assert stored_series(isolated, "synthetic-B")["Netflix"].category == "Entertainment"
-    assert "Entertainment" in set(at.dataframe[0].value["Category"])
+    assert any("Entertainment" in card for card in series_cards(at))
 
 
 # --- Recurring page: estimated categories, data date, saved copy, rent form ---
@@ -454,17 +512,22 @@ def test_a_confirmed_fixed_series_can_get_a_category(isolated: Path) -> None:
 def test_a_series_shows_an_estimated_category_until_i_choose_one(isolated: Path) -> None:
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
-    categories = list(at.dataframe[0].value["Category"])
-    assert any(str(c).endswith("(estimate)") for c in categories)
-    assert "Data last updated: " in page_text(at)
+    assert any("(estimate)" in card for card in series_cards(at))
+    assert "Data to " in page_text(at)  # the top bar's date chip
+
+
+def test_the_top_bar_links_carry_the_account_so_the_next_page_opens_on_it(isolated: Path) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-C").run()
+    text = page_text(at)
+    assert 'href="/Forecast?data=Synthetic+demo&amp;account=synthetic-C&amp;text=1"' in text
 
 
 def test_a_confirmed_series_can_get_a_rent_rule_form_and_a_category(isolated: Path) -> None:
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
-    pick = next(o for o in at.selectbox(key="series").options if "Netflix" in str(o))
-    at.selectbox(key="series").select(pick).run()
-    key = at.selectbox(key="series").value
+    open_series(at, "Netflix")
+    key = at.session_state["series"]
     assert not [t for t in at.text_input if t.key == f"rent_amounts|{key}"]  # not confirmed yet
     button(at, "Confirm").click().run()
     assert [t for t in at.text_input if t.key == f"rent_amounts|{key}"]
