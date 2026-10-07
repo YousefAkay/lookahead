@@ -98,7 +98,7 @@ def test_turning_pseudonymize_off_shows_raw_text() -> None:
 def test_search_narrows_the_table() -> None:
     at = run(TRANSACTIONS)
     everything = len(at.dataframe[0].value)
-    at.sidebar.text_input[0].set_value("uber").run()
+    at.text_input(key="search").set_value("uber").run()
     narrowed = at.dataframe[0].value
     assert 0 < len(narrowed) < everything
 
@@ -213,9 +213,34 @@ def test_transactions_page_shows_categories_flow_types_and_flags() -> None:
     assert (table["Category"] == "Groceries").any()
     assert "says nothing about real accuracy" in page_text(at)
     everything = len(table)
-    at.sidebar.multiselect[1].set_value(["Groceries"]).run()
+    at.multiselect(key="categories").set_value(["Groceries"]).run()
     filtered = at.dataframe[0].value
     assert 0 < len(filtered) < everything and set(filtered["Category"]) == {"Groceries"}
+
+
+def transactions_table(at: AppTest) -> str:
+    return next(str(m.value) for m in at.markdown if "<thead>" in str(m.value))
+
+
+def test_transactions_page_shows_a_trimmed_table_and_the_rest_behind_details() -> None:
+    at = run(TRANSACTIONS)
+    html = transactions_table(at)
+    for header in ("Date", "Merchant", "Category", "Amount", "Balance"):
+        assert f">{header}<" in html
+    for hidden in ("Flow", "Flag", "From", "Type"):  # not in the trimmed table
+        assert f">{hidden}<" not in html
+    assert html.count("<tr") == 51  # the header and the first 50
+    assert not at.sidebar.text_input  # search and filters are on top, not in Settings
+    assert [e.label for e in at.expander if e.label.startswith("Details")]
+    assert len(at.dataframe[0].value) > 100  # every row, every column, behind Details
+
+
+def test_show_more_adds_rows_and_a_new_filter_starts_again() -> None:
+    at = run(TRANSACTIONS)
+    button(at, "Show 50 more").click().run()
+    assert transactions_table(at).count("<tr") == 101
+    at.text_input(key="search").set_value("uber").run()
+    assert 1 < transactions_table(at).count("<tr") < 101  # fewer rows, from the top again
 
 
 # --- Step 8b: the "To check" page ---

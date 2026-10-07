@@ -65,3 +65,18 @@ def test_merchant_text_is_escaped_and_missing_values_are_dashes() -> None:
 
 def test_an_empty_transactions_table_is_a_sentence() -> None:
     assert "No transactions match" in transactions_table_html([])
+
+
+def test_the_balance_chart_is_the_actual_line_in_the_themes_ink_with_no_titles() -> None:
+    import pandas as pd
+
+    from app.theme import style_balance_chart
+    from lookahead.ui import balance_chart
+
+    daily = pd.DataFrame({"date": pd.to_datetime(["2026-09-01", "2026-09-02"]),
+                          "balance ($)": [100.0, 80.0]})  # fmt: skip
+    figure = style_balance_chart(balance_chart(daily))
+    assert figure.data[0].line.color == COLORS.text  # the "recent" role
+    assert not [s for s in figure.layout.shapes if s.name == "zero"]
+    assert not figure.layout.title.text
+    assert not figure.layout.xaxis.title.text and not figure.layout.yaxis.title.text

@@ -891,6 +891,17 @@ def style_forecast_chart(
     return figure
 
 
+def style_balance_chart(figure: go.Figure) -> go.Figure:
+    """The Transactions page's end-of-day balance: the actual line in the theme's ink, no zero
+    line, no titles (the heading is written above the chart)."""
+    _apply_roles(figure)
+    figure.layout.shapes = [s for s in figure.layout.shapes if s.name != "zero"]
+    figure.update_layout(title={"text": ""})
+    figure.update_xaxes(title_text="")
+    figure.update_yaxes(title_text="")
+    return figure
+
+
 def style_scenario_chart(figure: go.Figure) -> go.Figure:
     """The original and the changed futures, in the same palette."""
     _apply_roles(figure)
