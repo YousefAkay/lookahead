@@ -191,3 +191,10 @@ def test_series_rows_show_recurring_outflow_and_the_series_category(db: sqlite3.
     only = transactions(db, account, categories=["Entertainment"])
     assert set(card.evidence) <= set(only["fingerprint"])  # the filter sees what is shown
     assert set(only["category"]) == {"Entertainment"}
+
+
+def test_last_posted_is_the_day_the_data_runs_to(db: sqlite3.Connection) -> None:
+    from lookahead.views import last_posted
+
+    assert last_posted(db, "synthetic-C") == import_status(db, "synthetic-C").last_date
+    assert last_posted(db, "no-such-account") is None

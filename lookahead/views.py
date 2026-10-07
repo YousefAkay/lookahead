@@ -41,6 +41,14 @@ def accounts(conn: sqlite3.Connection) -> list[str]:
     ]
 
 
+def last_posted(conn: sqlite3.Connection, account: str) -> date | None:
+    """The posting date of the newest stored transaction (the day the data runs to), or None."""
+    day = conn.execute(
+        "SELECT MAX(posted_date) FROM transactions WHERE account = ?", (account,)
+    ).fetchone()[0]
+    return date.fromisoformat(day) if day else None
+
+
 def transaction_types(conn: sqlite3.Connection, account: str) -> list[str]:
     rows = conn.execute(
         "SELECT DISTINCT description FROM transactions WHERE account = ? ORDER BY description",

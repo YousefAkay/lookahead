@@ -900,3 +900,30 @@ def test_delaying_money_in_and_moving_a_payment_are_scenario_controls(isolated: 
     at.selectbox(key="wi_move_pick").select_index(1).run()
     assert not at.exception, at.exception
     assert "A payment moved from" in page_text(at)
+
+
+def test_review_page_escapes_the_merchant_name_it_shows(
+    isolated: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A merchant name is bank text: it must not become markup."""
+    import dataclasses
+
+    import lookahead.labels as labels
+
+    freeze_demo(isolated)
+    real = labels.review_queue
+
+    def hostile(conn, account, model=None):  # type: ignore[no-untyped-def]
+        tasks = real(conn, account, model)
+        return [dataclasses.replace(tasks[0], group="<script>alert(1)</script>"), *tasks[1:]]
+
+    monkeypatch.setattr(labels, "review_queue", hostile)
+    at = run(REVIEW)
+    heading = next(str(m.value) for m in at.markdown if "<h2>" in str(m.value))
+    assert "<script>" not in heading and "&lt;script&gt;" in heading
+
+
+def test_review_page_has_the_top_bar_with_the_data_date(isolated: Path) -> None:
+    freeze_demo(isolated)
+    at = run(REVIEW)
+    assert "Data to " in page_text(at) and "Label review" in page_text(at)
