@@ -403,3 +403,17 @@ def test_planned_items_are_listed_on_the_forecast(conn: sqlite3.Connection) -> N
     assert [(p.description, p.cents) for p in forecast.planned] == [
         ("Concert", -50000), ("Tuition", -1900000),
     ]  # fmt: skip
+
+
+def test_the_forecast_lists_the_weeks_its_futures_draw_deposits_from(
+    conn: sqlite3.Connection,
+) -> None:
+    insert(conn, date(2026, 9, 12), 1500000, "credit memo", "Family ", 1)
+    for week in range(6):
+        insert(conn, date(2026, 8, 12) + timedelta(days=7 * week), 4000, "deposit",
+               "Interac e-Transfer from a friend ", 1)  # fmt: skip
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert forecast is not None and forecast.simulation is not None
+    assert len(forecast.deposit_weeks) == forecast.simulation.weeks_drawn_from == 13
+    assert sum(w.total for w in forecast.deposit_weeks) == 6 * 4000
+    assert [e.cents for w in forecast.deposit_weeks for e in w.set_aside] == [1500000]

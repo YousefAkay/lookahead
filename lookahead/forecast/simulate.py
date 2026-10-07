@@ -72,23 +72,31 @@ def sample_item_day(
     return item.day
 
 
-def _week_pool(
-    spending: Mapping[date, int], deposits: Mapping[date, int], start: ForecastStart,
-    history_start: date | None,
-) -> list[tuple[tuple[int, ...], tuple[int, ...]]]:  # fmt: skip
-    """Every whole past week (7 days) that starts on the forecast's first weekday, within the
-    last 13 weeks, as (spending by day, deposits by day)."""
+def pool_week_starts(start: ForecastStart, history_start: date | None) -> list[date]:
+    """The first day of every whole past week (7 days) that starts on the forecast's first
+    weekday, within the last 13 weeks: the weeks the futures can draw from, oldest first."""
     if history_start is None:
         return []
     as_of = start.data_last_updated
     day = max(history_start, as_of - timedelta(days=POOL_DAYS - 1))
-    pool = []
+    starts = []
     while day + timedelta(days=BLOCK - 1) <= as_of:
         if day.weekday() == start.first_day.weekday():
-            days = [day + timedelta(days=k) for k in range(BLOCK)]
-            pool.append((tuple(spending.get(d, 0) for d in days),
-                         tuple(deposits.get(d, 0) for d in days)))  # fmt: skip
+            starts.append(day)
         day += timedelta(days=1)
+    return starts
+
+
+def _week_pool(
+    spending: Mapping[date, int], deposits: Mapping[date, int], start: ForecastStart,
+    history_start: date | None,
+) -> list[tuple[tuple[int, ...], tuple[int, ...]]]:  # fmt: skip
+    """Each of those weeks as (spending by day, deposits by day)."""
+    pool = []
+    for first in pool_week_starts(start, history_start):
+        days = [first + timedelta(days=k) for k in range(BLOCK)]
+        pool.append((tuple(spending.get(d, 0) for d in days),
+                     tuple(deposits.get(d, 0) for d in days)))  # fmt: skip
     return pool
 
 

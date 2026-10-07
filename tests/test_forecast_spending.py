@@ -556,3 +556,65 @@ def test_a_few_small_deposits_are_not_large_just_because_there_are_few() -> None
     rows += [txn(30, date(2026, 9, 4), 40000, "deposit", FRIEND),
              txn(31, date(2026, 9, 9), 45000, "deposit", FRIEND)]  # fmt: skip
     assert paired(rows) == []  # 400 and 450 dollars: under the floor of 500 dollars
+
+
+# --- What's in irregular deposits: the weeks the futures draw from ---
+
+from lookahead.forecast.spending import DepositWeek, deposit_weeks  # noqa: E402
+
+WEEK_STARTS = [date(2026, 7, 2) + timedelta(days=7 * k) for k in range(13)]  # Thursdays
+
+
+def weeks_for(rows: list[Txn], series_rows: set[int] | None = None) -> list[DepositWeek]:
+    return deposit_weeks(rows, flow_types(rows), series_rows or set(), AS_OF, WEEK_STARTS)
+
+
+def test_each_week_shows_its_deposits_by_type_and_what_was_set_aside() -> None:
+    rows = ordinary() + [txn(1, date(2026, 9, 12), 1500000, "credit memo", "Family ")]
+    weeks = {w.first: w for w in weeks_for(rows)}
+    assert len(weeks) == 13 and all((w.last - w.first).days == 6 for w in weeks.values())
+    early = weeks[date(2026, 9, 3)]  # 3 to 9 September: two small deposits (the 5th and the 8th)
+    assert early.in_stream == (("Incoming e-Transfer", 6000),) and early.total == 6000
+    big = weeks[date(2026, 9, 10)]  # the 11th is in the stream; the 12th was set aside
+    assert big.total == 3000
+    assert [(e.cents, e.group) for e in big.set_aside] == [(1500000, "Large deposit")]
+    assert weeks[date(2026, 7, 2)].total == 0 and weeks[date(2026, 7, 2)].set_aside == ()
+
+
+def test_a_pass_through_is_shown_as_set_aside_in_its_week() -> None:
+    rows = ordinary() + [
+        txn(1, date(2026, 9, 12), 600000, "deposit", "Payroll "),
+        txn(2, date(2026, 9, 14), -590000, "customer transfer dr.", "To savings "),
+    ]
+    week = next(w for w in weeks_for(rows) if w.first == date(2026, 9, 10))
+    assert [(e.cents, e.group) for e in week.set_aside] == [(600000, "Pass-through")]
+    assert week.total == 3000  # only the small deposit is in the stream
+
+
+def test_the_weeks_add_up_to_the_deposit_stream() -> None:
+    rows = ordinary() + [txn(1, date(2026, 9, 12), 1500000, "credit memo", "Family ")]
+    stream_total = sum(deposits_by_day(rows, flow_types(rows), set(), AS_OF).values())
+    assert sum(w.total for w in weeks_for(rows)) == stream_total == 4 * 3000
+
+
+def test_several_types_in_one_week_are_listed_largest_first() -> None:
+    rows = ordinary()[:12] + [
+        txn(1, date(2026, 9, 25), 4000, "deposit", FRIEND),
+        txn(2, date(2026, 9, 26), 9000, "credit memo", "Family "),
+        txn(3, date(2026, 9, 27), 2000, "customer transfer cr.", "From savings "),
+        txn(4, date(2026, 9, 28), 3000, "deposit", FRIEND),
+        txn(5, date(2026, 9, 29), 3500, "deposit", FRIEND),
+    ]
+    week = next(w for w in weeks_for(rows) if w.first == date(2026, 9, 24))
+    assert week.in_stream == (
+        ("Incoming e-Transfer", 10500),
+        ("Credit memo", 9000),
+        ("Transfer from my own accounts", 2000),
+    )
+    amounts = [c for _, c in week.in_stream]
+    assert amounts == sorted(amounts, reverse=True)
+
+
+def test_deposits_of_an_income_series_are_not_in_the_weeks() -> None:
+    rows = ordinary()[:12] + [txn(1, date(2026, 9, 25), 120000, "deposit", "Payroll ")]
+    assert sum(w.total for w in weeks_for(rows, series_rows={1})) == 0

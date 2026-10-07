@@ -28,6 +28,7 @@ from lookahead.ui import (  # noqa: E402
     breakdown_table,
     daily_balance,
     demo_db_path,
+    deposit_weeks_table,
     events_table,
     forecast_chart,
     forecast_table,
@@ -258,6 +259,23 @@ with st.expander("Big one-time events (not forecast)", expanded=bool(forecast.bi
             "You sometimes receive large deposits. If you expect one, add it as a planned "
             'deposit. Use "Planned items" below.'
         )
+
+with st.expander("What's in irregular deposits", expanded=False):
+    st.caption(
+        "The simulated futures draw whole past weeks. For each week ahead a future picks one of "
+        "the weeks below at random and takes that week's irregular deposits (and its spending). "
+        "A week with a large deposit in the stream therefore adds it to about one in "
+        f"{max(len(forecast.deposit_weeks), 1)} of the weeks ahead. Big deposits and "
+        "pass-throughs are set aside (last column) and are never drawn. Deposits of recurring "
+        "income series are not here: they are placed on their own dates."
+    )
+    if forecast.deposit_weeks:
+        st.dataframe(
+            deposit_weeks_table(list(forecast.deposit_weeks)), hide_index=True, width="stretch",
+            column_config={"In the stream ($)": st.column_config.NumberColumn(format="%.2f")},
+        )  # fmt: skip
+    else:
+        st.caption("Not enough history for a whole past week.")
 
 with st.expander("Planned items (money in or out that I enter)", expanded=bool(forecast.planned)):
     st.caption(

@@ -681,3 +681,15 @@ def test_a_planned_item_with_no_description_is_refused(isolated: Path) -> None:
     add_planned_item(at, day, "Money out", 500.0, "   ")
     assert "Could not save" in " ".join(str(w.value) for w in at.warning)
     assert not [d for d in at.dataframe if "Entered on" in d.value.columns]
+
+
+def test_forecast_page_shows_whats_in_irregular_deposits_week_by_week(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-C").run()  # a persona that receives deposits
+    assert not at.exception, at.exception
+    assert "picks one of the weeks below at random" in page_text(at)
+    tables = [
+        d.value for d in at.dataframe if list(d.value.columns)[:2] == ["Week", "In the stream ($)"]
+    ]
+    assert tables and 1 <= len(tables[0]) <= 13
+    assert list(tables[0].columns) == ["Week", "In the stream ($)", "What", "Set aside"]

@@ -5,9 +5,9 @@ import random
 from datetime import date, timedelta
 
 import pytest
-from lookahead.forecast.simulate import N_FUTURES, Simulation, sample_item_day, simulate
 
 from lookahead.forecast.schedule import ScheduledItem
+from lookahead.forecast.simulate import N_FUTURES, Simulation, sample_item_day, simulate
 from lookahead.forecast.start import ForecastStart
 from lookahead.recurring_store import Stored
 from lookahead.rent import RentRule
@@ -178,3 +178,14 @@ def test_an_overdue_rent_stays_on_the_first_forecast_day() -> None:
     item = ScheduledItem(date(2026, 10, 16), -82000, "rent", "Rent", "entered",
                          "rent: the window ended with no payment (not seen yet)")  # fmt: skip
     assert sample_item_day(item, s, {}, start, random.Random(0)) == date(2026, 10, 16)
+
+
+def test_the_weeks_the_futures_draw_from_are_listed_by_their_first_day() -> None:
+    from lookahead.forecast.simulate import pool_week_starts
+
+    starts = pool_week_starts(start_for(), AS_OF - timedelta(days=200))
+    assert len(starts) == 13 and starts[0] == date(2026, 7, 2) and starts[-1] == date(2026, 9, 24)
+    assert all(d.weekday() == start_for().first_day.weekday() for d in starts)  # Thursdays
+    assert pool_week_starts(start_for(), None) == []
+    short = pool_week_starts(start_for(), AS_OF - timedelta(days=13))  # two weeks of history
+    assert short == [date(2026, 9, 17), date(2026, 9, 24)]

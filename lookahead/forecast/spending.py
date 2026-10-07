@@ -246,6 +246,36 @@ def big_events(
     return _streams(txns, flows, series_rows, as_of).events
 
 
+@dataclass(frozen=True)
+class DepositWeek:
+    first: date
+    last: date
+    in_stream: tuple[tuple[str, int], ...]  # (type, cents) of the deposits the futures can draw
+    set_aside: tuple[BigEvent, ...]  # big deposits and pass-throughs of that week: never drawn
+    total: int  # cents in the stream that week
+
+
+def deposit_weeks(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
+    week_starts: Sequence[date],
+) -> list[DepositWeek]:  # fmt: skip
+    """For each week the futures can draw from, the irregular deposits in the stream (by type,
+    largest first) and the big deposits and pass-throughs that were set aside that week. This is
+    the evidence behind the deposit part of the simulated range."""
+    streams = _streams(txns, flows, series_rows, as_of)
+    out = []
+    for first in week_starts:
+        last = first + timedelta(days=6)
+        kinds: dict[str, int] = defaultdict(int)
+        for t, flow, cents in streams.deposits:
+            if first <= t.posted_date <= last:
+                kinds[_DEPOSIT_KIND.get(flow.reason, "Other money in")] += cents
+        aside = tuple(e for e in streams.events if e.cents > 0 and first <= e.day <= last)
+        in_stream = tuple(sorted(kinds.items(), key=lambda kv: (-kv[1], kv[0])))
+        out.append(DepositWeek(first, last, in_stream, aside, sum(kinds.values())))
+    return out
+
+
 def recent_fee_rate(
     txns: Sequence[Txn], flows: Mapping[int, Flow], as_of: date, history_start: date | None,
     days: int = FEE_DAYS,

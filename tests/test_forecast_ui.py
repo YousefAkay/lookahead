@@ -172,3 +172,45 @@ def test_the_planned_table_says_whether_each_item_is_in_this_forecast() -> None:
         "no: the day has passed", "yes", "no: after the last forecast day",
     ]  # fmt: skip
     assert planned_table([], first, last).empty
+
+
+def test_the_deposit_weeks_table_shows_each_week_with_its_types_and_what_was_set_aside() -> None:
+    from lookahead.forecast.spending import DepositWeek
+    from lookahead.ui import deposit_weeks_table
+
+    weeks = [
+        DepositWeek(date(2026, 9, 3), date(2026, 9, 9), (("Incoming e-Transfer", 6000),), (), 6000),
+        DepositWeek(
+            date(2026, 9, 10), date(2026, 9, 16), (("Incoming e-Transfer", 3000),),
+            (BigEvent(date(2026, 9, 12), "Credit memo", 1500000, "Large deposit"),), 3000,
+        ),
+        DepositWeek(date(2026, 9, 17), date(2026, 9, 23), (), (), 0),
+    ]  # fmt: skip
+    table = deposit_weeks_table(weeks)
+    assert list(table.columns) == ["Week", "In the stream ($)", "What", "Set aside"]
+    assert list(table["Week"]) == ["2026-09-03 to 2026-09-09", "2026-09-10 to 2026-09-16",
+                                   "2026-09-17 to 2026-09-23"]  # fmt: skip
+    assert list(table["In the stream ($)"]) == [60.0, 30.0, 0.0]
+    assert table.loc[0, "What"] == "Incoming e-Transfer 60.00"
+    assert table.loc[1, "Set aside"] == "Large deposit 15,000.00 (2026-09-12, not forecast)"
+    assert table.loc[2, "What"] == "nothing" and table.loc[2, "Set aside"] == ""
+    assert deposit_weeks_table([]).empty
+
+
+def test_every_forecast_line_and_the_band_start_at_the_last_observed_balance() -> None:
+    """No gap between the recent balance and the forecast: each forecast trace starts on the
+    last day of the data, at that day's closing balance."""
+    forecast = make_forecast(True)
+    figure = forecast_chart(pd.DataFrame(), forecast, 20000)
+    anchor_day, anchor = forecast.start.data_last_updated, forecast.start.balance_cents / 100
+    assert len(figure.data) == 5  # upper edge, lower edge (the band), two medians, the estimate
+    for trace in figure.data:
+        assert trace.x[0] == anchor_day and trace.y[0] == anchor
+        assert len(trace.x) == len(forecast.days) + 1  # the anchor, then every forecast day
+
+
+def test_the_estimate_line_also_starts_at_the_anchor_without_a_simulation() -> None:
+    forecast = make_forecast(False)
+    (trace,) = forecast_chart(pd.DataFrame(), forecast, 20000).data
+    assert trace.x[0] == forecast.start.data_last_updated
+    assert trace.y[0] == forecast.start.balance_cents / 100

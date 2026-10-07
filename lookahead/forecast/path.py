@@ -15,12 +15,14 @@ from datetime import date, timedelta
 
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.schedule import ScheduledItem, scheduled_items
-from lookahead.forecast.simulate import N_FUTURES, Simulation, simulate
+from lookahead.forecast.simulate import N_FUTURES, Simulation, pool_week_starts, simulate
 from lookahead.forecast.spending import (
     BigEvent,
     BreakdownRow,
+    DepositWeek,
     big_events,
     constant_path,
+    deposit_weeks,
     deposits_by_day,
     recent_average_path,
     recent_fee_rate,
@@ -63,6 +65,7 @@ class Forecast:
     fees_per_day: float = 0.0  # cents a day, from the last 28 days
     simulation: Simulation | None = None  # the simulated futures (a range, not one path)
     planned: tuple[PlannedItem, ...] = ()  # every planned item I have entered (by the date)
+    deposit_weeks: tuple[DepositWeek, ...] = ()  # the weeks the futures draw deposits from
 
     @property
     def large_deposits(self) -> tuple[BigEvent, ...]:
@@ -164,4 +167,6 @@ def build_forecast(
         fee_rate,
         simulation,
         tuple(planned),
+        tuple(deposit_weeks(txns, flows, in_series, start.data_last_updated,
+                            pool_week_starts(start, first_posted))),
     )  # fmt: skip

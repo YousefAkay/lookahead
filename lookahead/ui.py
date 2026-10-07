@@ -199,32 +199,39 @@ def forecast_table(items: list, by_key: dict, hidden: set[str]) -> pd.DataFrame:
 def forecast_chart(actual: pd.DataFrame, forecast: object, buffer_cents: int) -> go.Figure:
     """Recent end-of-day balances, then the simulated range (10th to 90th percentile) with the
     middle future with and without irregular deposits, then the forecast with no randomness,
-    with zero and the buffer."""
+    with zero and the buffer. Every forecast line and the band start at the last day of the
+    data, at that day's closing balance, so the chart has no gap."""
     days = forecast.days  # type: ignore[attr-defined]
     sim = getattr(forecast, "simulation", None)
+    start = forecast.start  # type: ignore[attr-defined]
+    anchor_day, anchor = start.data_last_updated, start.balance_cents / 100
+
+    def from_anchor(xs: list, cents: list) -> dict:  # type: ignore[type-arg]
+        return {"x": [anchor_day, *xs], "y": [anchor, *(c / 100 for c in cents)]}
+
     figure = go.Figure()
     if not actual.empty:
         figure.add_scatter(x=actual["date"], y=actual["balance ($)"], mode="lines",
                            line_shape="hv", name="Recent balance")  # fmt: skip
     if sim is not None:
         x = list(sim.days)
-        figure.add_scatter(x=x, y=[c / 100 for c in sim.p90], mode="lines", line_shape="hv",
+        figure.add_scatter(**from_anchor(x, sim.p90), mode="lines", line_shape="hv",
                            line={"width": 0}, showlegend=False, hoverinfo="skip")  # fmt: skip
         figure.add_scatter(
-            x=x, y=[c / 100 for c in sim.p10], mode="lines", line_shape="hv", line={"width": 0},
+            **from_anchor(x, sim.p10), mode="lines", line_shape="hv", line={"width": 0},
             fill="tonexty", fillcolor="rgba(99, 110, 250, 0.2)",
             name=f"Range of {sim.futures} simulated futures (10th to 90th percentile)",
         )  # fmt: skip
         figure.add_scatter(
-            x=x, y=[c / 100 for c in sim.p50], mode="lines", line_shape="hv",
+            **from_anchor(x, sim.p50), mode="lines", line_shape="hv",
             name="Middle future (median), with irregular deposits",
         )  # fmt: skip
         figure.add_scatter(
-            x=x, y=[c / 100 for c in sim.median_without], mode="lines", line_shape="hv",
+            **from_anchor(x, sim.median_without), mode="lines", line_shape="hv",
             line={"dash": "dot"}, name="Middle future (median), without irregular deposits",
         )  # fmt: skip
     figure.add_scatter(
-        x=[d.day for d in days], y=[d.balance_cents / 100 for d in days], mode="lines",
+        **from_anchor([d.day for d in days], [d.balance_cents for d in days]), mode="lines",
         line={"dash": "dash"}, line_shape="hv", name="Forecast with no randomness (an estimate)",
     )  # fmt: skip
     figure.add_hline(y=0, line_dash="dot")
@@ -286,5 +293,30 @@ def planned_table(planned: list, first_day: object, last_day: object) -> pd.Data
             "Amount ($)": [p.cents / 100 for p in planned],
             "Entered on": [p.entered_at.isoformat() for p in planned],
             "In this forecast": [used(p) for p in planned],
+        }
+    )
+
+
+def deposit_weeks_table(weeks: list) -> pd.DataFrame:  # type: ignore[type-arg]
+    """What is in irregular deposits: one row for each week the futures can draw from, with the
+    deposits in the stream (dollars, display only), their types, and what was set aside that
+    week (big deposits and pass-throughs, which the futures never draw)."""
+
+    def kinds(w: object) -> str:
+        parts = [f"{kind} {cents / 100:.2f}" for kind, cents in w.in_stream]  # type: ignore[attr-defined]
+        return "; ".join(parts) if parts else "nothing"
+
+    def aside(w: object) -> str:
+        return "; ".join(
+            f"{e.group} {abs(e.cents) / 100:,.2f} ({e.day}, not forecast)"
+            for e in w.set_aside  # type: ignore[attr-defined]
+        )
+
+    return pd.DataFrame(
+        {
+            "Week": [f"{w.first} to {w.last}" for w in weeks],
+            "In the stream ($)": [w.total / 100 for w in weeks],
+            "What": [kinds(w) for w in weeks],
+            "Set aside": [aside(w) for w in weeks],
         }
     )

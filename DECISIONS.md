@@ -521,6 +521,10 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Large deposits that are not paid out (the money stays and funds a whole term), and savings moves that pass through quickly, as separate cases.
 - Report big-deposit and pass-through results per income type, as for the other income results.
 
+### 2026-10-06: Evidence for the deposit part of the range, and a chart with no gap
+- Found on my data: after planned items, the 10th to 90th range still jumped sharply in one week. The Forecast page now has "What's in irregular deposits": one row for each of the 13 weeks the futures can draw from (the exact weeks, starting on the forecast's first weekday), with the deposits in the stream by type and, in the last column, what was set aside that week (big deposits and pass-throughs, which are never drawn). The weeks add up to the deposit stream (a test checks it). A week with a large deposit in the stream adds it to about one in 13 of the weeks ahead; that is the behaviour this table makes visible, not a bug in the draw.
+- Every forecast line and the band now start at the last observed day's closing balance, so the chart has no gap between the recent balance and the forecast. The balance stays flat from that day until the first forecast day, like any balance between postings.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
