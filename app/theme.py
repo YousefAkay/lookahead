@@ -17,14 +17,18 @@ No external calls: Manrope is a file in app/static/fonts, named in .streamlit/co
 
 import html
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
+
+from lookahead.recurring_store import Stored
 
 STATIC = Path(__file__).resolve().parent / "static"
 FAVICON = STATIC / "favicon.png"
@@ -176,23 +180,161 @@ PAGES = [
 
 
 def top_bar_html(
-    active: str, pages: list[tuple[str, str]], data_to: date | None, source: str
+    active: str, pages: list[tuple[str, str]], data_to: date | None, source: str, query: str = "",
 ) -> str:  # fmt: skip
     """The green bar: wordmark, page links (the current page marked), the date the data runs to,
-    and which data is shown (Synthetic demo or My data)."""
+    and which data is shown (Synthetic demo or My data). `query` ("data=...&account=...") is added
+    to every link: a link opens a new browser session, and the address is what carries the
+    data and account choice over."""
+    suffix = f"?{query}" if query else ""
     links = []
     for label, path in pages:
         current = ' aria-current="page"' if label == active else ""
-        links.append(
-            f'<a href="{html.escape(path)}" target="_self"{current}>{html.escape(label)}</a>'
-        )
+        href = html.escape(path + suffix)
+        links.append(f'<a href="{href}" target="_self"{current}>{html.escape(label)}</a>')
     until = f"Data to {fmt_date(data_to)}" if data_to is not None else "No data yet"
     return (
         '<header class="la-bar"><div class="la-bar-inner">'
-        f'<a href="/" target="_self" class="la-brand">{_MARK}Lookahead</a>'
+        f'<a href="{html.escape("/" + suffix)}" target="_self" class="la-brand">'
+        f"{_MARK}Lookahead</a>"
         f'<nav aria-label="Main" class="la-nav">{"".join(links)}</nav>'
         f'<div class="la-bar-right"><span class="la-until">{html.escape(until)}</span>'
         f'<span class="la-source">{html.escape(source)}</span></div></div></header>'
+    )
+
+
+# --- Recurring: series cards, the payments table, monthly totals ---
+
+EVERY = {"weekly": "every week", "biweekly": "every 2 weeks", "semimonthly": "twice a month",
+         "monthly": "every month", "yearly": "every year"}  # fmt: skip
+PER = {"weekly": "week", "biweekly": "2 weeks", "semimonthly": "half month", "monthly": "month",
+       "yearly": "year"}  # fmt: skip
+_PER_MONTH = {"weekly": 52 / 12, "biweekly": 26 / 12, "semimonthly": 2.0, "monthly": 1.0,
+              "yearly": 1 / 12}  # fmt: skip
+
+
+def monthly_totals(series: Sequence[Stored]) -> tuple[int, int]:
+    """About what the active series take out and bring in each month, in cents, each rounded
+    to the nearest $10. Ended and rejected series are left out."""
+    out = money_in = 0.0
+    for s in series:
+        if not s.active or s.status == "rejected":
+            continue
+        month = abs(s.expected_cents) * _PER_MONTH[s.cadence]
+        if s.direction == "in":
+            money_in += month
+        else:
+            out += month
+    return round(out / 1000) * 1000, round(money_in / 1000) * 1000
+
+
+def series_summary(s: Stored) -> str:
+    """The line under a series' name: what kind of payment it is and how steady the amount is."""
+    if not s.active:
+        return f"Last seen {fmt_day(s.last_paid)}" if s.last_paid else "No payment seen lately"
+    low, high = (abs(c) for c in sorted(s.range_cents, key=abs))
+    how = (f"same amount {EVERY[s.cadence]}" if s.amount_type == "fixed"
+           else f"varies {money_short(low)}–{money_short(high)}")  # fmt: skip
+    if s.kind == "e-transfer":
+        by_hand = s.loose or bool(s.allowed_cents)
+        return "Interac e-Transfer, " + ("sent by hand" if by_hand else how)
+    if s.kind == "own transfer":
+        return "Transfer to my own account, " + how
+    return how[0].upper() + how[1:]
+
+
+def series_card_html(s: Stored, name: str, category: str | None, selected: bool) -> str:
+    """One card of the Recurring grid: status tag and category, name, what it is, the amount per
+    period and the next date. An ended series is faded and dashed; the selected one has a thick
+    green border. (The page lays a see-through button over it, so the whole card is a click.)"""
+    ended = not s.active
+    if ended:
+        tag, kind = "Ended", "ended"
+    elif s.status == "confirmed":
+        tag, kind = "Confirmed", "confirmed"
+    elif s.status == "user-added":
+        tag, kind = "Added by me", "neutral"
+    elif s.status == "rejected":
+        tag, kind = "Rejected", "neutral"
+    else:
+        tag, kind = "Detected", "detected"
+    if selected:
+        box = f"background: {COLORS.card}; border: 2px solid {COLORS.green}"
+    elif ended:
+        box = f"background: {COLORS.ended_bg}; border: 1px dashed {COLORS.border_input}"
+    else:
+        box = f"background: {COLORS.card}; border: 1px solid {COLORS.border}"
+    faded = ended or s.status == "rejected"
+    ink = COLORS.muted if faded else COLORS.text
+    money_in = s.direction == "in" and not faded
+    amount = ("+" if money_in else "") + money_short(abs(s.expected_cents))
+    amount_colour = COLORS.green_dark if money_in else ink
+    until = "Not expected" if ended else f"Next {fmt_day(s.next_expected)}"
+    row = "display: flex; justify-content: space-between; gap: 8px"
+    return (
+        f'<div class="la-series" style="{box}; border-radius: 14px; padding: 18px; height: 100%; '
+        f'box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">'
+        f'<div style="{row}; align-items: center">{tag_html(tag, kind)}'
+        f'<span style="font-size: 12px; font-weight: 600; color: {COLORS.muted}">'
+        f"{html.escape(category or 'No category')}</span></div>"
+        f'<div style="display: flex; flex-direction: column; gap: 2px">'
+        f'<span style="font-size: 17px; font-weight: 800; color: {ink}">{html.escape(name)}</span>'
+        f'<span style="font-size: 13px; color: {COLORS.muted}">'
+        f"{html.escape(series_summary(s))}</span></div>"
+        f'<div style="{row}; align-items: baseline">'
+        f'<span style="font-size: 22px; font-weight: 800; color: {amount_colour}">'
+        f"{html.escape(amount)}"
+        f'<span style="font-size: 14px; font-weight: 600; color: {COLORS.muted}"> '
+        f"/ {PER[s.cadence]}</span></span>"
+        f'<span style="font-size: 13px; color: {COLORS.muted}">{html.escape(until)}</span></div>'
+        "</div>"
+    )
+
+
+def add_card_html() -> str:
+    """The "Add one I pay" card: dashed green, a plus and three words."""
+    return (
+        f'<div class="la-series" style="border: 1.5px dashed {COLORS.add_border}; '
+        f"border-radius: 14px; padding: 18px; height: 100%; box-sizing: border-box; "
+        f"display: flex; align-items: center; justify-content: center; gap: 8px; "
+        f'font-weight: 700; min-height: 140px; color: {COLORS.green_dark}">'
+        '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">'
+        '<path d="M9 3v12M3 9h12" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+        "</path></svg>Add one I pay</div>"
+    )
+
+
+def payments_table_html(rows: Sequence[tuple[str, str, int, int | None]]) -> str:
+    """The payments of one series: Date, Description, Amount, Balance after. A row is (date text,
+    description, signed cents, balance cents or None). Descriptions are untrusted text and are
+    escaped; money in is green and bold."""
+    if not rows:
+        return '<p class="la-note">No payments in the data yet for this series.</p>'
+    head = "".join(
+        f'<th style="text-align: {align}; padding: 12px 16px; font-size: 12px; font-weight: 700; '
+        f'color: {COLORS.muted}; letter-spacing: 0.03em; text-transform: uppercase">{label}</th>'
+        for label, align in (("Date", "left"), ("Description", "left"), ("Amount", "right"),
+                             ("Balance after", "right"))
+    )  # fmt: skip
+    body = []
+    for day, text, cents, balance in rows:
+        colour = COLORS.green_dark if cents > 0 else COLORS.text
+        sign = "+" if cents > 0 else ""
+        shown_balance = "" if balance is None else money(balance)
+        body.append(
+            f'<tr style="border-top: 1px solid {COLORS.hairline}">'
+            f'<td style="padding: 12px 16px">{html.escape(day)}</td>'
+            f'<td style="padding: 12px 16px; color: {COLORS.muted}">{html.escape(text)}</td>'
+            f'<td style="padding: 12px 16px; text-align: right; font-weight: 700; '
+            f'color: {colour}">{sign}{money(cents)}</td>'
+            f'<td style="padding: 12px 16px; text-align: right; color: {COLORS.muted}">'
+            f"{shown_balance}</td></tr>"
+        )
+    return (
+        f'<div style="overflow-x: auto; border: 1px solid {COLORS.hairline}; border-radius: 12px">'
+        f'<table style="width: 100%; min-width: 480px; border-collapse: collapse; '
+        f'font-size: 14px"><thead><tr style="background: {COLORS.bg}">{head}</tr></thead>'
+        f"<tbody>{''.join(body)}</tbody></table></div>"
     )
 
 
@@ -202,7 +344,7 @@ CSS = f"""
 #MainMenu, footer, [data-testid="stDecoration"] {{ display: none !important; }}
 html, body, [data-testid="stApp"] {{ background: {COLORS.bg}; color: {COLORS.text};
   font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }}
-[data-testid="stMainBlockContainer"] {{ max-width: 1200px; padding: 76px 24px 64px; }}
+[data-testid="stMainBlockContainer"] {{ max-width: 1200px; padding: 0 24px 64px; }}
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {{ gap: 24px; }}
 [data-testid="stMarkdownContainer"] h1, [data-testid="stMarkdownContainer"] h2,
 [data-testid="stMarkdownContainer"] h3 {{ margin: 0 !important; padding: 0 !important; }}
@@ -216,11 +358,18 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
 [data-testid="stMarkdownContainer"] p.la-foot {{ margin: 0; color: {COLORS.faint}; font-size: 12px;
   text-align: center; }}
 
-/* the green top bar: fixed, full width, content centred at 1200px; the sidebar slides over it */
-.st-key-topbar {{ position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-  background: {COLORS.topbar}; padding: 0; gap: 0; }}
+/* the block that carries this stylesheet takes no room (it would add a gap above the bar) */
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {{ display: none; }}
+
+/* the green top bar: the first block of the page, sticky at the top, so it takes its own height
+   (one row or three) and can never cover the title. A huge spread shadow, clipped above and
+   below, paints it across the full width while its content stays in the 1200px column. */
+[data-testid="stLayoutWrapper"]:has(> .st-key-topbar) {{ position: sticky; top: 0; z-index: 100;
+  margin-bottom: 8px; }}
+.st-key-topbar {{ background: {COLORS.topbar}; padding: 0; gap: 0;
+  box-shadow: 0 0 0 100vmax {COLORS.topbar}; clip-path: inset(0 -100vmax); }}
 .la-bar {{ background: {COLORS.topbar}; color: {COLORS.white}; }}
-.la-bar-inner {{ max-width: 1200px; margin: 0 auto; padding: 0 24px; display: flex;
+.la-bar-inner {{ margin: 0; padding: 0; display: flex;
   flex-wrap: wrap; align-items: center; gap: 12px 28px; min-height: 64px; }}
 .la-brand {{ display: flex; align-items: center; gap: 10px; color: {COLORS.white} !important;
   text-decoration: none !important; font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }}
@@ -237,7 +386,7 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
   color: {COLORS.topbar}; padding: 4px 10px; border-radius: 999px; }}
 
 /* the header holds only the settings button: it sits at the right end of the green bar */
-[data-testid="stHeader"] {{ position: fixed; top: 0;
+[data-testid="stHeader"] {{ position: fixed; top: 0; z-index: 101;
   right: max(24px, calc((100vw - 1200px) / 2 + 24px));
   left: auto; width: auto; height: 64px; background: transparent; display: flex;
   align-items: center; }}
@@ -279,6 +428,26 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
 .st-key-evidence summary {{ padding: 10px 0; }}
 .st-key-evidence summary p {{ font-size: 16px !important; font-weight: 700 !important; }}
 
+/* Recurring: a grid of series cards. Each card is a keyed block ("seriescard-...") holding the
+   card's HTML and a see-through button laid over all of it, so the whole card is one click. */
+.st-key-seriesgrid {{ display: grid !important; gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }}
+[class*="st-key-seriescard-"][data-testid="stVerticalBlock"] {{ position: relative; gap: 0;
+  height: 100%; }}
+[class*="st-key-seriescard-"] > [data-testid="stElementContainer"]:not(:has(button)) {{
+  height: 100%; }}
+[class*="st-key-seriescard-"] [data-testid="stMarkdown"],
+[class*="st-key-seriescard-"] [data-testid="stMarkdownContainer"] {{ height: 100%; }}
+[class*="st-key-seriescard-"] > [data-testid="stElementContainer"]:has(button) {{
+  position: absolute;
+  inset: 0; z-index: 2; }}
+[class*="st-key-seriescard-"] button {{ width: 100%; height: 100%; opacity: 0; cursor: pointer;
+  min-height: 0; }}
+[class*="st-key-seriescard-"]:has(button:focus-visible) {{ outline: 3px solid {COLORS.green};
+  outline-offset: 2px; border-radius: 14px; }}
+[class*="st-key-seriescard-"]:hover .la-series {{ border-color: {COLORS.green}; }}
+[data-testid="stLayoutWrapper"]:has(> [class*="st-key-seriescard-"]) {{ width: auto; }}
+
 /* pills: the what-if choices */
 button[data-variant="pills"] {{ border-radius: 999px; border: 1px solid {COLORS.border_input};
   background: {COLORS.white}; color: {COLORS.text}; font-weight: 600; min-height: 44px;
@@ -290,16 +459,19 @@ button[data-variant="pills"][aria-pressed="true"] {{ border: 1.5px solid {COLORS
 
 /* the settings panel (Streamlit's sidebar), kept small and plain */
 [data-testid="stSidebar"] {{ border-right: 1px solid {COLORS.border}; }}
+[data-testid="stSidebar"][aria-expanded="true"] {{ width: 380px !important;
+  min-width: 380px !important; max-width: 100vw; }}
+[data-testid="stSidebar"] label, [data-testid="stSidebar"] label * {{ overflow-wrap: normal;
+  word-break: normal; white-space: normal; }}
+[data-testid="stSidebar"] [data-testid="stMetric"] {{ min-height: 0; padding: 14px 16px; }}
+[data-testid="stSidebar"] [data-testid="stMetricValue"] * {{ font-size: 26px !important;
+  white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; }}
 [data-testid="stAlert"] {{ border-radius: 14px; }}
 
-@media (max-width: 1100px) {{
-  [data-testid="stMainBlockContainer"] {{ padding-top: 96px; }}
-}}
-
 @media (max-width: 760px) {{
-  [data-testid="stMainBlockContainer"] {{ padding: 168px 16px 48px; }}
+  [data-testid="stMainBlockContainer"] {{ padding: 0 16px 48px; }}
   .la-bar-right {{ padding-right: 0; }}
-  .la-bar-inner {{ padding: 12px 16px; gap: 8px 16px; }}
+  .la-bar-inner {{ padding: 12px 0; gap: 8px 16px; }}
   [data-testid="stHeader"] {{ top: 8px; right: 16px; height: auto; }}
   [data-testid="stMetric"] {{ min-height: 0; padding: 16px; }}
   h1 {{ font-size: 28px !important; }}
@@ -322,7 +494,79 @@ def top_bar(slot: "st.delta_generator.DeltaGenerator", active: str, data_to: dat
             source: str) -> None:  # fmt: skip
     """Draw the green bar into the container `slot` (made first, filled once the data is known)."""
     with slot:
-        st.markdown(top_bar_html(active, PAGES, data_to, source), unsafe_allow_html=True)
+        st.markdown(
+            top_bar_html(active, PAGES, data_to, source, choice_query()), unsafe_allow_html=True
+        )
+
+
+# --- The data and account choice survives a click on the top bar ---
+# Streamlit keeps a widget's value only inside one browser session, and a plain link starts a new
+# one. So the three choices live in the address (`?data=...&account=...&text=...`): written after
+# the widgets are drawn, read before they are drawn on the next page.
+
+CHOICES = {"data_source": "data", "account": "account", "pseudonymize": "text"}
+
+
+def seed_choice(key: str, options: list[str] | None = None) -> None:
+    """Call before drawing the widget with this key. If the widget has no value yet and the
+    address carries one that fits `options` (or, for the on/off toggle, "1" or "0"), use it; the
+    toggle starts on. The widget itself is then drawn with no default of its own. A
+    value held from before that no longer fits (another data source has other accounts) goes."""
+    if options is not None and st.session_state.get(key) not in (*options, None):
+        del st.session_state[key]
+    if key in st.session_state:
+        return
+    wanted = st.query_params.get(CHOICES[key])
+    if options is None:  # an on/off toggle, on unless the address says "0"
+        st.session_state[key] = wanted != "0"
+    elif wanted in options:
+        st.session_state[key] = wanted
+
+
+def _choice_pairs() -> list[tuple[str, str]]:
+    pairs = []
+    for key, name in CHOICES.items():
+        if key in st.session_state:
+            value = st.session_state[key]
+            pairs.append((name, ("1" if value else "0") if isinstance(value, bool) else value))
+    return pairs
+
+
+def choice_query() -> str:
+    """The current choices as an address query string ("" if none are set yet)."""
+    return urlencode(_choice_pairs())
+
+
+def save_choices() -> None:
+    """Write the current choices into the address, so a reload or a copied link keeps them."""
+    for name, value in _choice_pairs():
+        st.query_params[name] = value
+
+
+SOURCES = ["Synthetic demo", "My data"]
+
+
+def data_settings() -> tuple[str, bool]:
+    """The settings panel's first two choices, the same on every page: which data (Synthetic demo
+    or My data) and whether text is pseudonymized. Returns (source, pseudonymize)."""
+    side_label("Data")
+    seed_choice("data_source", SOURCES)
+    source = st.sidebar.radio("Data", SOURCES, label_visibility="collapsed", key="data_source")
+    seed_choice("pseudonymize")
+    pseudonymize = st.sidebar.toggle(
+        "Pseudonymize text", key="pseudonymize",
+        help="Hides people's names and reference numbers; business names stay readable.",
+    )  # fmt: skip
+    return source, pseudonymize
+
+
+def account_setting(names: list[str]) -> str:
+    """The account choice, the same on every page; it is written into the address."""
+    side_label("Account")
+    seed_choice("account", names)
+    account = st.sidebar.selectbox("Account", names, label_visibility="collapsed", key="account")
+    save_choices()
+    return account
 
 
 def side_label(text: str) -> None:

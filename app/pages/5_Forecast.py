@@ -31,6 +31,8 @@ from app.theme import (  # noqa: E402
     money,
     money_short,
     result_panel_html,
+    save_choices,
+    seed_choice,
     show_table,
     side_label,
     style_forecast_chart,
@@ -76,7 +78,9 @@ bar = st.container(key="topbar")  # the green bar: drawn into once the data date
 
 # --- Settings (the sidebar): data, account, forecast settings ---
 side_label("Data")
-source = st.sidebar.radio("Data", ["Synthetic demo", "My data"], label_visibility="collapsed")
+SOURCES = ["Synthetic demo", "My data"]
+seed_choice("data_source", SOURCES)
+source = st.sidebar.radio("Data", SOURCES, label_visibility="collapsed", key="data_source")
 if source == "Synthetic demo":
     db_path = demo_db_path()
     if not db_path.exists() or not demo_has_categories(db_path):
@@ -89,8 +93,9 @@ else:
         st.info(f"No database found at `{db_path}`. Import your exports first.")
         st.stop()
 
+seed_choice("pseudonymize")
 pseudonymize = st.sidebar.toggle(
-    "Pseudonymize text", value=True,
+    "Pseudonymize text", key="pseudonymize",
     help="Hides people's names and reference numbers; business names stay readable.",
 )  # fmt: skip
 try:
@@ -108,7 +113,9 @@ if not names:
     st.info("This database has no transactions yet.")
     st.stop()
 side_label("Account")
-account = st.sidebar.selectbox("Account", names, label_visibility="collapsed")
+seed_choice("account", names)
+account = st.sidebar.selectbox("Account", names, label_visibility="collapsed", key="account")
+save_choices()
 
 side_label("Forecast settings")
 METHOD_LABELS = {"recent": "28-day average", "weekday": "Weekday average (8 weeks)"}
@@ -541,10 +548,13 @@ with st.container(key="evidence"):
         st.caption(
             "A payment or deposit you know is coming: a term payment, an expected deposit, a "
             'purchase. It is placed exactly on its day, labelled "entered", and never guessed '
-            "or moved. Only days inside the forecast period change the forecast."
+            "or moved. Only days inside the forecast period change the forecast. When a real "
+            "transaction of about the same amount posts within 7 days of it, it says received and "
+            "is no longer placed."
         )
         if forecast.planned:
-            show_table(planned_table(list(forecast.planned), start.first_day, start.last_day),
+            show_table(planned_table(list(forecast.planned), start.first_day, start.last_day,
+                                     forecast.received),
                        money=["Amount ($)"], dates=["Date", "Entered on"],
                        money_in=["Amount ($)"])  # fmt: skip
         else:

@@ -437,3 +437,82 @@ def test_the_y_axis_fits_the_forecast_not_a_distant_peak_in_the_history() -> Non
     untouched = go.Figure()
     fit_y_range(untouched, [])  # nothing to fit: left alone
     assert untouched.layout.yaxis.range is None
+
+
+def test_every_top_bar_link_carries_the_data_and_account_choice() -> None:
+    html = top_bar_html(
+        "Forecast", PAGES, date(2026, 10, 1), "Synthetic demo",
+        "data=Synthetic+demo&account=synthetic-C&text=1",
+    )  # fmt: skip
+    for _, path in PAGES:
+        assert f'href="{path}?data=Synthetic+demo&amp;account=synthetic-C&amp;text=1"' in html
+    assert 'href="/?data=' in html  # the wordmark too
+    assert 'href="/Forecast"' not in html  # no link without the choice
+
+
+def test_the_choice_is_written_in_the_address_form() -> None:
+    from urllib.parse import parse_qs, urlencode
+
+    query = urlencode([("data", "My data"), ("account", "chequing 1"), ("text", "0")])
+    assert parse_qs(query) == {"data": ["My data"], "account": ["chequing 1"], "text": ["0"]}
+
+
+class FakeStreamlit:
+    """Just enough of `st` for the choice helpers: a dict for the session, one for the address."""
+
+    def __init__(self, address: dict[str, str] | None = None) -> None:
+        self.session_state: dict[str, object] = {}
+        self.query_params: dict[str, str] = dict(address or {})
+
+
+def test_a_choice_in_the_address_fills_a_widget_that_has_no_value_yet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeStreamlit({"data": "Synthetic demo", "account": "synthetic-C", "text": "0"})
+    monkeypatch.setattr(theme, "st", fake)
+    theme.seed_choice("data_source", ["Synthetic demo", "My data"])
+    theme.seed_choice("pseudonymize")
+    theme.seed_choice("account", ["synthetic-A", "synthetic-C"])
+    assert fake.session_state == {
+        "data_source": "Synthetic demo", "pseudonymize": False, "account": "synthetic-C",
+    }  # fmt: skip
+
+
+def test_an_address_choice_that_does_not_fit_is_ignored_and_the_toggle_starts_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeStreamlit({"account": "gone", "data": "nonsense"})
+    monkeypatch.setattr(theme, "st", fake)
+    theme.seed_choice("account", ["synthetic-A"])
+    theme.seed_choice("data_source", ["Synthetic demo", "My data"])
+    theme.seed_choice("pseudonymize")
+    assert fake.session_state == {"pseudonymize": True}
+
+
+def test_a_held_value_that_no_longer_fits_the_options_is_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeStreamlit({"account": "synthetic-B"})
+    fake.session_state["account"] = "private-account"  # held from the other data source
+    monkeypatch.setattr(theme, "st", fake)
+    theme.seed_choice("account", ["synthetic-A", "synthetic-B"])
+    assert fake.session_state == {"account": "synthetic-B"}  # the address supplies a valid one
+
+
+def test_a_value_the_widget_already_has_is_left_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeStreamlit({"account": "synthetic-B"})
+    fake.session_state["account"] = "synthetic-A"
+    monkeypatch.setattr(theme, "st", fake)
+    theme.seed_choice("account", ["synthetic-A", "synthetic-B"])
+    assert fake.session_state["account"] == "synthetic-A"
+
+
+def test_choices_are_written_to_the_address_and_into_the_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeStreamlit()
+    fake.session_state.update(data_source="My data", account="chequing 1", pseudonymize=False)
+    monkeypatch.setattr(theme, "st", fake)
+    theme.save_choices()
+    assert fake.query_params == {"data": "My data", "account": "chequing 1", "text": "0"}
+    assert theme.choice_query() == "data=My+data&account=chequing+1&text=0"
