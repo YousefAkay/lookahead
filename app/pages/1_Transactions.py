@@ -7,10 +7,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # make `lookahead`
 
 import streamlit as st  # noqa: E402
 
-from lookahead.db import connect_readonly  # noqa: E402
+from lookahead.db import connect, connect_readonly  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
+from lookahead.recurring_store import cache_current, ensure_current  # noqa: E402
 from lookahead.taxonomy import CATEGORIES  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
@@ -73,6 +74,14 @@ if not names:
 
 # --- Filters ---
 account = st.sidebar.selectbox("Account", names)
+if not cache_current(conn, account):  # the saved series are from older code or older data
+    try:
+        series_key: bytes | None = pseudonym_key()
+    except PseudonymKeyError:
+        series_key = None
+    writer = connect(db_path)  # this page only reads, except to rebuild that saved copy
+    ensure_current(writer, account, series_key)
+    writer.close()
 status = import_status(conn, account)
 picked = st.sidebar.date_input(
     "Dates",

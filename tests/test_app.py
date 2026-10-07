@@ -565,3 +565,22 @@ def test_forecast_page_lists_the_big_one_time_events_it_leaves_out(isolated: Pat
         d.value for d in at.dataframe if list(d.value.columns) == ["Date", "Type", "Amount ($)"]
     ]
     assert events or "No big one-time rows in the last 13 weeks" in text
+
+
+def test_the_transactions_page_refreshes_an_older_saved_copy_too(isolated: Path) -> None:
+    from lookahead.db import connect
+    from lookahead.recurring_store import cache_current
+
+    first = run(RECURRING)  # builds the demo database and the saved series
+    first.sidebar.selectbox[0].set_value("synthetic-B").run()
+    conn = connect(isolated / "demo.db")
+    with conn:  # as if the saved copy came from an older version of the code
+        conn.execute("UPDATE recurring_cache_info SET version = -1")
+    assert not cache_current(conn, "synthetic-B")
+    conn.close()
+    page = run(TRANSACTIONS)
+    page.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not page.exception, page.exception
+    conn = connect(isolated / "demo.db")
+    assert cache_current(conn, "synthetic-B")
+    conn.close()
