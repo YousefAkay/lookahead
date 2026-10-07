@@ -11,15 +11,19 @@ Everything visual lives here so that every page uses the same pieces:
 No external calls: the fonts are files in app/static/fonts, named in the config.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
 
-DISCLAIMER = "Estimates for personal budgeting. Not financial advice."
+STATIC = Path(__file__).resolve().parent / "static"
+FAVICON = STATIC / "favicon.png"
+WORDMARK = STATIC / "wordmark.svg"
 
 
 @dataclass(frozen=True)
@@ -88,7 +92,7 @@ TEMPLATE = go.layout.Template(
         },
         yaxis={
             "gridcolor": GRID, "linecolor": GRID, "zeroline": False, "automargin": True,
-            "tickprefix": "$", "tickformat": ",.0f", "hoverformat": "$,.2f",
+            "tickformat": "$,.0f", "hoverformat": "$,.2f",
             "tickfont": {"color": COLORS.muted}, "title": {"text": ""},
         },
     )
@@ -97,7 +101,7 @@ pio.templates["lookahead"] = TEMPLATE
 
 # How a role looks. The chart builders in lookahead/ui.py tag each trace with one of these.
 # Lines differ by dash style and width as well as colour, so they stay apart without colour.
-_BAND = _rgba(COLORS.navy_accent, 0.3)
+_BAND = _rgba(COLORS.navy_accent, 0.4)
 _BAND_GREY = _rgba(COLORS.muted, 0.2)
 ROLES: dict[str, dict] = {  # type: ignore[type-arg]
     "recent": {"line": {"color": COLORS.text, "width": 2, "dash": "solid"}},
@@ -128,7 +132,25 @@ def style_figure(figure: go.Figure) -> go.Figure:
                          line={"color": COLORS.amber, "dash": "dash", "width": 1.5})  # fmt: skip
     figure.update_shapes(selector={"name": "zero"},
                          line={"color": COLORS.red, "dash": "dot", "width": 1})  # fmt: skip
-    figure.update_annotations(font={"color": COLORS.amber, "size": 12})
+    # the buffer is named in the legend (amber dashed), not written over the lines
+    figure.layout.annotations = [a for a in figure.layout.annotations if a.text != "safety buffer"]
+    if any(s.name == "buffer" for s in figure.layout.shapes):
+        figure.add_scatter(
+            x=[None], y=[None], mode="lines", name="Safety buffer", hoverinfo="skip",
+            line={"color": COLORS.amber, "dash": "dash", "width": 1.5}, meta="buffer_key",
+        )  # fmt: skip
+    return figure
+
+
+def fit_y_range(figure: go.Figure, dollars: list[float], pad: float = 0.1) -> go.Figure:
+    """Set the y-axis to the values that matter (the forecast, zero, the buffer and the last few
+    days), padded evenly, so one distant peak in the history cannot squash the forecast.
+    Lines outside the range are simply cut off at the edge of the chart."""
+    if not dollars:
+        return figure
+    low, high = min(dollars), max(dollars)
+    margin = max((high - low) * pad, 50.0)  # at least $50 of room, so a flat line is visible
+    figure.update_yaxes(range=[low - margin, high + margin])
     return figure
 
 
@@ -139,9 +161,6 @@ CSS = f"""
   display: none !important; }}
 header[data-testid="stHeader"] {{ background: transparent; }}
 .block-container {{ padding-top: 2.4rem; max-width: 1240px; }}
-.la-brand {{ display: flex; align-items: center; gap: .65rem; margin: .2rem 0 .6rem;
-  font-weight: 700; font-size: 1.4rem; letter-spacing: -.01em; color: {COLORS.text}; }}
-.la-brand svg {{ width: 30px; height: 30px; flex: none; }}
 .la-side-label {{ text-transform: uppercase; letter-spacing: .09em; font-size: .72rem;
   font-weight: 600; color: {COLORS.muted}; margin: 1.3rem 0 .3rem; }}
 .la-chip {{ display: inline-block; padding: .22rem .75rem; border-radius: 999px;
@@ -150,7 +169,15 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 .la-lede {{ color: {COLORS.muted}; font-size: 1.02rem; margin: -.4rem 0 .7rem; max-width: 62ch; }}
 [data-testid="stMetric"] {{ background: {COLORS.surface}; border: 1px solid {COLORS.border};
   border-radius: 14px; padding: .9rem 1.1rem; }}
-[data-testid="stMetricLabel"] {{ color: {COLORS.muted}; }}
+[data-testid="stMetricLabel"] {{ color: {COLORS.muted}; min-height: 2.5em; }}
+[data-testid="stMetricLabel"] * {{ white-space: normal !important; overflow: visible !important;
+  text-overflow: clip !important; }}
+[data-testid="stMain"] [data-testid="stMetric"] {{ min-height: 8.4rem; }}
+[data-testid="stCheckbox"] * {{ white-space: normal !important; overflow: visible !important;
+  text-overflow: clip !important; }}
+[data-testid="stSidebar"] [data-testid="stMetric"] {{ padding: .55rem .9rem; border-radius: 12px; }}
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] {{ min-height: 0; }}
+[data-testid="stSidebar"] [data-testid="stMetricValue"] {{ font-size: 1.35rem; }}
 [data-testid="stMetricValue"], [data-testid="stMetricDelta"] {{
   font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }}
 [data-testid="stExpander"] details {{ background: {COLORS.surface};
@@ -158,31 +185,32 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 [data-testid="stExpander"] summary {{ font-weight: 600; }}
 .stMarkdown, [data-testid="stCaptionContainer"] {{ font-variant-numeric: tabular-nums; }}
 [data-testid="stAlert"] {{ border-radius: 14px; }}
+@media (max-width: 1100px) {{
+  [data-testid="stMain"] [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
+  [data-testid="stMain"] [data-testid="stColumn"] {{ min-width: calc(50% - 1rem) !important;
+    flex: 1 1 calc(50% - 1rem) !important; }}
+}}
 @media (max-width: 640px) {{
   .block-container {{ padding: 1.4rem .9rem 3rem; }}
   [data-testid="stMetric"] {{ padding: .7rem .85rem; }}
+  [data-testid="stMain"] [data-testid="stMetric"] {{ min-height: 0; }}
+  [data-testid="stMetricLabel"] {{ min-height: 0; }}
 }}
 """
 
-_MARK = (
-    f'<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" '
-    f'fill="{COLORS.navy}"/><path d="M5 22 L12 15 L17 19 L27 8" fill="none" '
-    f'stroke="{COLORS.primary}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
-    f'<circle cx="27" cy="8" r="2.8" fill="{COLORS.primary}"/></svg>'
-)
 
-
-def apply(title: str, icon: str = ":material/show_chart:") -> None:
-    """Page settings, the custom CSS and the shared chart template. Call first on every page."""
-    st.set_page_config(page_title=f"{title} · Lookahead", page_icon=icon, layout="wide")
+def apply(title: str) -> None:
+    """Page settings, the custom CSS and the shared chart template. Call first on every page.
+    The tab icon is a local file: a Material icon shortcode would be fetched from Google."""
+    st.set_page_config(page_title=f"{title} · Lookahead", page_icon=str(FAVICON), layout="wide")
     st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
     pio.templates.default = "lookahead"
 
 
 def sidebar_brand() -> None:
-    """The wordmark at the top of the sidebar."""
-    st.sidebar.markdown(f'<div class="la-brand">{_MARK}<span>Lookahead</span></div>',
-                        unsafe_allow_html=True)  # fmt: skip
+    """The wordmark at the top of the sidebar, above the page list (Streamlit's logo slot).
+    A local SVG with the font inside it, so it needs nothing from the internet."""
+    st.logo(str(WORDMARK), icon_image=str(FAVICON), size="large")
 
 
 def side_label(text: str) -> None:
@@ -215,6 +243,26 @@ def fmt_date(day: date) -> str:
     return f"{day:%b} {day.day}, {day.year}"
 
 
+def fmt_day(day: date) -> str:
+    """Oct 2 (no year: for a day close to now)."""
+    return f"{day:%b} {day.day}"
+
+
+_ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+
+
+def humanize_dates(text: str) -> str:
+    """Turn ISO dates inside a sentence into Oct 2, 2026. Something that is not a date stays."""
+
+    def one(match: re.Match[str]) -> str:
+        try:
+            return fmt_date(date(int(match[1]), int(match[2]), int(match[3])))
+        except ValueError:
+            return match[0]
+
+    return _ISO_DATE.sub(one, text)
+
+
 # --- Tables ---
 
 
@@ -242,9 +290,11 @@ def prepare_table(df: pd.DataFrame, money: list[str], dates: list[str]) -> Table
 
 
 def show_table(df: pd.DataFrame, money: list[str] = (), dates: list[str] = (),  # type: ignore[assignment]
-               widths: dict[str, str] | None = None) -> None:  # fmt: skip
+               widths: dict[str, str | int] | None = None,
+               whole: bool = False) -> None:  # fmt: skip
     """A read-only table: no index, amounts as $1,234.56 (negatives in soft red), dates as
-    Oct 2, 2026, plain headers. `widths` maps a column to "small", "medium" or "large"."""
+    Oct 2, 2026, plain headers. `widths` maps a column to "small", "medium", "large" or pixels.
+    `whole` shows every row (for a short table) instead of scrolling inside the table."""
     view = prepare_table(df, list(money), list(dates))
     widths = widths or {}
     config: dict = {}  # type: ignore[type-arg]
@@ -260,4 +310,5 @@ def show_table(df: pd.DataFrame, money: list[str] = (), dates: list[str] = (),  
     shown = view.frame.style
     if money:
         shown = shown.map(lambda v: f"color: {COLORS.red}" if v < 0 else "", subset=list(money))
-    st.dataframe(shown, hide_index=True, width="stretch", column_config=config)
+    st.dataframe(shown, hide_index=True, width="stretch", column_config=config,
+                 height="content" if whole else "auto")  # fmt: skip

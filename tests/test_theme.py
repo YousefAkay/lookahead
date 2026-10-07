@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import plotly.graph_objects as go
 import pytest
 
 from app import theme
@@ -203,7 +204,7 @@ def test_the_forecast_chart_uses_the_shared_template_and_the_palette() -> None:
     assert layout.paper_bgcolor == "rgba(0,0,0,0)" and layout.plot_bgcolor == "rgba(0,0,0,0)"
     assert layout.legend.orientation == "h" and layout.legend.y < 0  # below the chart
     assert layout.xaxis.hoverformat == "%b %-d" and layout.xaxis.tickformat == "%b %-d"
-    assert layout.yaxis.tickprefix == "$" and layout.yaxis.hoverformat == "$,.2f"
+    assert layout.yaxis.tickformat == "$,.0f" and layout.yaxis.hoverformat == "$,.2f"
     lines = {t.name: t for t in figure.data if t.name and t.mode == "lines" and t.line.width}
     middle = next(
         t for n, t in lines.items() if n.startswith("Middle future") and "without" not in n
@@ -233,13 +234,38 @@ def test_the_buffer_is_amber_and_dashed_and_zero_is_a_soft_red_dotted_line() -> 
     assert shapes["zero"].line.color == COLORS.red and shapes["zero"].line.dash == "dot"
 
 
+def test_the_axis_fits_the_forecast_not_a_distant_peak_in_the_history() -> None:
+    from app.theme import fit_y_range
+
+    figure = go.Figure()
+    fit_y_range(figure, [100.0, 600.0, 400.0, 0.0, 200.0])
+    low, high = figure.layout.yaxis.range
+    assert low < 0 and high > 600  # padded on both sides
+    assert high - 600 == pytest.approx(0 - low, rel=0.01)  # evenly
+    fit_y_range(figure, [500.0, 500.0])  # a flat line still gets a visible range
+    assert figure.layout.yaxis.range[1] - figure.layout.yaxis.range[0] >= 100
+    untouched = go.Figure()
+    fit_y_range(untouched, [])  # nothing to fit: left alone
+    assert untouched.layout.yaxis.range is None
+
+
+def test_the_buffer_is_named_in_the_legend_and_not_written_over_the_chart() -> None:
+    from lookahead.ui import forecast_chart
+
+    forecast, _ = sample_forecast()
+    figure = style_figure(forecast_chart(pd.DataFrame(), forecast, 20000))
+    assert not [a for a in figure.layout.annotations if a.text == "safety buffer"]
+    key = next(t for t in figure.data if t.name == "Safety buffer")
+    assert key.line.color == COLORS.amber and key.line.dash == "dash"
+
+
 def test_the_band_is_translucent_navy_blue() -> None:
     from lookahead.ui import forecast_chart
 
     forecast, _ = sample_forecast()
     figure = style_figure(forecast_chart(pd.DataFrame(), forecast, 20000))
     band = next(t for t in figure.data if t.fill == "tonexty")
-    assert band.fillcolor.startswith("rgba(91, 134, 229") and band.fillcolor.endswith("0.3)")
+    assert band.fillcolor.startswith("rgba(91, 134, 229") and band.fillcolor.endswith("0.4)")
 
 
 def test_the_scenario_chart_is_styled_too() -> None:
@@ -266,3 +292,33 @@ def test_hover_labels_show_dollars_and_the_series_name() -> None:
         t for t in figure.data if t.name == "Middle future (median), with irregular deposits"
     )
     assert "%{y:$,.2f}" in middle.hovertemplate and "%{fullData.name}" in middle.hovertemplate
+
+
+def test_short_days_have_no_year_and_no_leading_zero() -> None:
+    from app.theme import fmt_day
+
+    assert fmt_day(date(2026, 10, 2)) == "Oct 2"
+    assert fmt_day(date(2026, 12, 31)) == "Dec 31"
+
+
+def test_iso_dates_inside_a_sentence_become_readable() -> None:
+    from app.theme import humanize_dates
+
+    assert humanize_dates("2026-09-03 to 2026-09-09") == "Sep 3, 2026 to Sep 9, 2026"
+    assert humanize_dates("Large deposit 15,000.00 (2026-09-12, not forecast)") == (
+        "Large deposit 15,000.00 (Sep 12, 2026, not forecast)"
+    )
+    assert humanize_dates("nothing here") == "nothing here"
+    assert humanize_dates("") == ""
+    assert humanize_dates("Order 2026-13-45 is not a date") == "Order 2026-13-45 is not a date"
+
+
+def test_the_tab_icon_is_a_local_file_not_a_fetched_material_icon() -> None:
+    assert theme.FAVICON.exists() and theme.FAVICON.stat().st_size > 200
+    assert (
+        "material/"
+        not in (ROOT / "app" / "theme.py")
+        .read_text(encoding="utf-8")
+        .split("def apply")[1]
+        .split("def sidebar_brand")[0]
+    )

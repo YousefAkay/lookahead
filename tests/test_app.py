@@ -626,7 +626,8 @@ def test_forecast_page_asks_for_a_planned_deposit_only_when_large_deposits_were_
     with_deposit.sidebar.selectbox[0].set_value("synthetic-B").run()
     assert not with_deposit.exception, with_deposit.exception
     assert sentence in page_text(with_deposit)
-    events = [d.value for d in with_deposit.dataframe if "What" in d.value.columns]
+    wanted = ["Date", "Type", "Amount ($)", "What"]  # the big events table, not the deposit weeks
+    events = [d.value for d in with_deposit.dataframe if list(d.value.columns) == wanted]
     assert events and any("Large deposit" in w for w in events[0]["What"])
 
 
