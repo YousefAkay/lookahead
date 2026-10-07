@@ -16,7 +16,9 @@ from datetime import date, timedelta
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.schedule import ScheduledItem, scheduled_items
 from lookahead.forecast.spending import (
+    BigEvent,
     BreakdownRow,
+    big_events,
     recent_average_path,
     spending_breakdown,
     spending_by_day,
@@ -51,6 +53,7 @@ class Forecast:
     buffer_cents: int = DEFAULT_BUFFER_CENTS
     series: tuple[Stored, ...] = ()
     breakdown: tuple[BreakdownRow, ...] = ()  # what the weekday baseline's history is made of
+    big_events: tuple[BigEvent, ...] = ()  # big one-time rows of the last 13 weeks: not forecast
 
     @property
     def lowest(self) -> tuple[date, int]:
@@ -130,4 +133,5 @@ def build_forecast(
         any(s.direction == "in" and s.active and s.status != "rejected" for s in series),
         safety_buffer_cents(conn), tuple(series),
         tuple(spending_breakdown(txns, flows, in_series, start.data_last_updated, first_posted)),
+        tuple(big_events(txns, flows, in_series, start.data_last_updated)),
     )  # fmt: skip

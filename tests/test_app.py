@@ -553,3 +553,15 @@ def test_forecast_page_shows_what_is_in_everyday_spending(isolated: Path) -> Non
     assert "adds these up over the weekdays" in page_text(at)
     tables = [d.value for d in at.dataframe if "Per week" in d.value.columns]
     assert tables and "All types" in set(tables[0]["Type"])
+
+
+def test_forecast_page_lists_the_big_one_time_events_it_leaves_out(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    text = page_text(at)
+    assert "Big one-time rows" in text  # the explanation, whether or not there are any
+    events = [
+        d.value for d in at.dataframe if list(d.value.columns) == ["Date", "Type", "Amount ($)"]
+    ]
+    assert events or "No big one-time rows in the last 13 weeks" in text

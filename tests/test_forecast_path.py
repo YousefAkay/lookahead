@@ -226,3 +226,19 @@ def test_the_forecast_carries_the_table_of_what_is_in_everyday_spending(
     assert kinds == {"Card purchases"}  # the phone bill is a series, so it is not in the table
     week = sum(r.per_week for r in forecast.breakdown)
     assert week == pytest.approx(7 * 2000 / 4, rel=0.15)  # about 3500 a week
+
+
+def test_big_one_time_rows_are_listed_and_not_in_the_forecast(conn: sqlite3.Connection) -> None:
+    """A move to savings and a tuition payment in the last 13 weeks: neither is everyday
+    spending, so neither is repeated; both are listed as events that are not forecast."""
+    insert(conn, date(2026, 9, 3), -600000, "customer transfer dr.", "To savings ", 1)
+    insert(conn, date(2026, 9, 20), -1900000, "bill payment", "City University ", 1)
+    forecast = build_forecast(conn, ACCOUNT, "recent")
+    assert forecast is not None
+    assert [(e.day, e.kind, e.cents) for e in forecast.big_events] == [
+        (date(2026, 9, 3), "Transfers to my own accounts", -600000),
+        (date(2026, 9, 20), "Bill payments (in no series)", -1900000),
+    ]
+    assert sum(d.spending_cents for d in forecast.days) == pytest.approx(15000, abs=40)
+    weekday = build_forecast(conn, ACCOUNT, "weekday")
+    assert weekday is not None and {r.type for r in weekday.breakdown} == {"Card purchases"}

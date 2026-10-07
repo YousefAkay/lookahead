@@ -5,8 +5,11 @@ D(t, h) is the cumulative spending from the day after t through h days later. Wh
   (e-Transfers to people, money to savings, a one-off bill): they all lower the balance, so
   they stay in. One stream, not two:
   a separate transfer model would add a method before any evidence that one is needed;
-- large one-offs stay in as well. They really happen, and leaving them out would make the
-  forecast too optimistic, the risky direction for a shortfall warning;
+- big one-time rows do not: a row of at least $300 that is at least 5 times the typical row of
+  the last 13 weeks (the same rule for money out and for money in) is left out of every
+  everyday stream and listed on its own (`big_events`). Averaged over weekdays, a one-off
+  would be repeated every week; and the deposit that funded it must leave the deposit stream
+  too, or the futures would be too optimistic;
 - card returns and corrections that are not fully reversed lower the stream.
 What does not count: payments of a recurring series (they are placed on their own dates),
 fully reversed pairs, bank fees (modelled separately, because they follow events such as an
@@ -25,6 +28,9 @@ from statistics import median
 from lookahead.flows import OWN_ACCOUNT, Flow, Txn
 
 FEE_REASONS = frozenset({"bank fee"})
+LARGE_MIN_CENTS = 30000
+LARGE_TIMES_MEDIAN = 5
+LARGE_WINDOW_DAYS = 91  # the typical row is taken from the last 13 weeks
 RETURN_REASONS = frozenset({"card return", "pre-auth correction", "returned e-Transfer"})
 RECENT_DAYS = 28
 WEEKDAY_WEEKS = 8
@@ -51,14 +57,90 @@ def _counted(
     return out
 
 
+def large_cutoff(amounts: Sequence[int]) -> int:
+    """The size from which a row is a big one-time row: at least $300 and at least 5 times the
+    typical (median) row. Used for money out and money in alike."""
+    return max(LARGE_MIN_CENTS, LARGE_TIMES_MEDIAN * (int(median(amounts)) if amounts else 0))
+
+
+def _split_large(
+    rows: list[tuple[Txn, Flow, int]], as_of: date
+) -> tuple[list[tuple[Txn, Flow, int]], list[tuple[Txn, Flow, int]]]:
+    """(kept, big): rows whose size is at least the cutoff of the last 13 weeks go to `big`. Rows
+    older than that window are kept as they are (no stream reads them)."""
+    first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
+    cutoff = large_cutoff([c for t, _, c in rows if c > 0 and t.posted_date >= first])
+    big = [r for r in rows if r[2] >= cutoff and r[0].posted_date >= first]
+    kept = [r for r in rows if r[2] < cutoff or r[0].posted_date < first]
+    return kept, big
+
+
 def spending_by_day(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
 ) -> dict[date, int]:
-    """Spending in cents for each day (positive = spent; a day of returns can be negative)."""
+    """Everyday spending in cents for each day (positive = spent; a day of returns can be
+    negative). Big one-time rows are not in it."""
+    kept, _ = _split_large(_counted(txns, flows, series_rows, as_of), as_of)
     daily: dict[date, int] = defaultdict(int)
-    for t, _, cents in _counted(txns, flows, series_rows, as_of):
+    for t, _, cents in kept:
         daily[t.posted_date] += cents
     return dict(daily)
+
+
+_DEPOSIT_KIND = {
+    "credit memo": "Credit memo",
+    "deposit": "Deposit",
+    "incoming e-Transfer": "Incoming e-Transfer",
+    "own-account transfer": "Transfer from my own accounts",
+}
+
+
+def _money_in(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> list[tuple[Txn, Flow, int]]:
+    """Money in that is not a refund, not a netted hold and not a payment of a series (an
+    income series is placed on its own dates). Includes transfers in from my own accounts."""
+    out: list[tuple[Txn, Flow, int]] = []
+    for t in txns:
+        flow = flows[t.row_id]
+        if t.posted_date > as_of or t.row_id in series_rows or flow.netted or t.amount_cents <= 0:
+            continue
+        if flow.flow_type in ("income", "transfer"):
+            out.append((t, flow, t.amount_cents))
+    return out
+
+
+def deposits_by_day(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> dict[date, int]:
+    """Irregular money in, in cents for each day: deposits, incoming e-Transfers and transfers
+    from my own accounts that are in no series. Big one-time deposits are not in it."""
+    kept, _ = _split_large(_money_in(txns, flows, series_rows, as_of), as_of)
+    daily: dict[date, int] = defaultdict(int)
+    for t, _, cents in kept:
+        daily[t.posted_date] += cents
+    return dict(daily)
+
+
+@dataclass(frozen=True)
+class BigEvent:
+    day: date
+    kind: str  # what it was, e.g. "Transfers to my own accounts" or "Deposit"
+    cents: int  # signed: money in is positive
+
+
+def big_events(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> list[BigEvent]:
+    """The big one-time rows of the last 13 weeks, money out and money in, oldest first. They
+    are left out of every everyday stream and are not forecast."""
+    _, out = _split_large(_counted(txns, flows, series_rows, as_of), as_of)
+    _, money_in = _split_large(_money_in(txns, flows, series_rows, as_of), as_of)
+    events = [BigEvent(t.posted_date, _TYPE_OF_REASON.get(f.reason, "Other"), -c)
+              for t, f, c in out if c > 0]  # fmt: skip
+    events += [BigEvent(t.posted_date, _DEPOSIT_KIND.get(f.reason, "Other money in"), c)
+               for t, f, c in money_in]  # fmt: skip
+    return sorted(events, key=lambda e: (e.day, e.cents))
 
 
 def _cumulative(per_day: list[float]) -> list[int]:
@@ -119,7 +201,6 @@ BREAKDOWN_TYPES = (
     "Other withdrawals",
     "Other",
     "Returns",
-    "Large one-offs",
 )
 _TYPE_OF_REASON = {
     "card purchase": "Card purchases",
@@ -130,10 +211,6 @@ _TYPE_OF_REASON = {
     "bill payment": "Bill payments (in no series)",
     "withdrawal": "Other withdrawals",
 }
-# A row is a "large one-off" if it is at least this much and at least 5 times the median row of
-# the window. It is only a label for this table: large one-offs stay in the forecast.
-LARGE_MIN_CENTS = 30000
-LARGE_TIMES_MEDIAN = 5
 
 
 @dataclass(frozen=True)
@@ -154,14 +231,11 @@ def spending_breakdown(
         return []
     window = _days_in(as_of, history_start, weeks * 7)
     in_window = set(window)
-    rows = [r for r in _counted(txns, flows, series_rows, as_of) if r[0].posted_date in in_window]
-    outgoing = [cents for _, _, cents in rows if cents > 0]
-    large = max(LARGE_MIN_CENTS, LARGE_TIMES_MEDIAN * (median(outgoing) if outgoing else 0))
+    kept, _ = _split_large(_counted(txns, flows, series_rows, as_of), as_of)
+    rows = [r for r in kept if r[0].posted_date in in_window]
     sums: dict[str, list[float]] = {}
     for t, flow, cents in rows:
-        kind = "Returns" if cents < 0 else "Large one-offs" if cents >= large else (
-            _TYPE_OF_REASON.get(flow.reason, "Other")
-        )  # fmt: skip
+        kind = "Returns" if cents < 0 else _TYPE_OF_REASON.get(flow.reason, "Other")
         sums.setdefault(kind, [0.0] * 7)[t.posted_date.weekday()] += cents
     days_per_weekday = [sum(d.weekday() == w for d in window) for w in range(7)]
     out = []

@@ -222,3 +222,15 @@ def breakdown_table(rows: list) -> pd.DataFrame:  # type: ignore[type-arg]
     )
     total = ["All types", *(float(table[c].sum()) for c in (*_WEEKDAYS, "Per week"))]
     return pd.concat([table, pd.DataFrame([total], columns=table.columns)], ignore_index=True)
+
+
+def events_table(events: list) -> pd.DataFrame:  # type: ignore[type-arg]
+    """Big one-time rows that are left out of the forecast: date, what it was, and the amount in
+    dollars (display only; money in is positive, money out is negative)."""
+    return pd.DataFrame(
+        {
+            "Date": [e.day.isoformat() for e in events],
+            "Type": [e.kind for e in events],
+            "Amount ($)": [e.cents / 100 for e in events],
+        }
+    )

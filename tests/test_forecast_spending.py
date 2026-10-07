@@ -37,11 +37,50 @@ def test_card_purchases_cash_and_unattached_transfers_out_all_count() -> None:
     assert stream(rows) == {day: 2500 + 4000 + 7500 + 10000}
 
 
-def test_large_one_offs_are_not_excluded() -> None:
-    """They really happen; leaving them out would make the forecast too optimistic."""
+def test_big_one_time_rows_are_not_everyday_spending() -> None:
+    """A $6,000 move to savings and a $19,000 tuition payment are not everyday spending:
+    averaged over weekdays they would be repeated every week."""
     day = date(2026, 9, 10)
-    rows = [txn(1, day, -900000, "pos purchase", CARD.format("Laptop Store"))]
-    assert stream(rows) == {day: 900000}
+    rows = [
+        txn(1, day, -2500, "pos purchase", CARD.format("Bookshop")),
+        txn(2, day, -3000, "pos purchase", CARD.format("Bookshop")),
+        txn(3, day, -2000, "pos purchase", CARD.format("Bookshop")),
+        txn(4, day, -600000, "customer transfer dr.", "To savings "),
+        txn(5, day, -1900000, "bill payment", "City University "),
+    ]
+    assert stream(rows) == {day: 2500 + 3000 + 2000}
+
+
+def test_a_row_must_be_both_above_the_floor_and_far_above_the_typical_row() -> None:
+    day = date(2026, 9, 10)
+    rows = [txn(i, day, -20000, "pos purchase", CARD.format("Shop")) for i in range(1, 6)]
+    rows.append(txn(9, day, -40000, "withdrawal", "Free Interac E-Transfer "))
+    # typical row 200 dollars: 5 times is 1000; 400 is above the 300 floor but not far above
+    assert stream(rows) == {day: 5 * 20000 + 40000}
+    rows.append(txn(10, day, -120000, "withdrawal", "Free Interac E-Transfer "))
+    assert stream(rows) == {day: 5 * 20000 + 40000}  # 1,200 dollars is more than 5 x typical
+
+
+def test_the_floor_applies_when_the_typical_row_is_tiny() -> None:
+    day = date(2026, 9, 10)
+    rows = [txn(i, day, -500, "pos purchase", CARD.format("Shop")) for i in range(1, 6)]
+    rows += [
+        txn(8, day, -29900, "withdrawal", "Free Interac E-Transfer "),  # under 300 dollars
+        txn(9, day, -30000, "withdrawal", "Free Interac E-Transfer "),
+    ]  # 300: big
+    assert stream(rows) == {day: 5 * 500 + 29900}
+
+
+def test_the_typical_row_comes_from_the_last_13_weeks_only() -> None:
+    """Old history does not move the line."""
+    day = date(2026, 9, 10)
+    old = [
+        txn(i, date(2025, 1, 1), -2000000, "pos purchase", CARD.format("Old")) for i in range(1, 9)
+    ]
+    rows = [*old, txn(20, day, -40000, "withdrawal", "Free Interac E-Transfer ")]
+    rows += [txn(30 + i, day, -2000, "pos purchase", CARD.format("Shop")) for i in range(6)]
+    # the typical row of the last 13 weeks is 20 dollars, so 400 dollars is a big one-time row
+    assert stream(rows, as_of=date(2026, 9, 30))[day] == 6 * 2000
 
 
 def test_payments_of_a_recurring_series_are_not_everyday_spending() -> None:
@@ -179,7 +218,12 @@ def test_a_bill_payment_that_is_in_no_series_is_still_spending() -> None:
 
 # --- What is in everyday spending: the evidence table ---
 
-from lookahead.forecast.spending import BREAKDOWN_TYPES, spending_breakdown  # noqa: E402
+from lookahead.forecast.spending import (  # noqa: E402
+    BREAKDOWN_TYPES,
+    big_events,
+    deposits_by_day,
+    spending_breakdown,
+)
 
 
 def breakdown(rows: list[Txn], series_rows: set[int] | None = None):  # type: ignore[no-untyped-def]
@@ -203,7 +247,7 @@ def test_each_type_gets_its_own_row_with_the_average_for_each_weekday() -> None:
     assert table["Card purchases"].per_week == 1000.0
 
 
-def test_a_large_one_off_gets_its_own_row_whatever_its_type() -> None:
+def test_a_big_one_time_row_is_not_in_the_table_it_is_listed_as_an_event() -> None:
     wed = date(2026, 9, 30)
     rows = [
         txn(i, wed - timedelta(days=i), -2000, "pos purchase", CARD.format("Bookshop"))
@@ -211,7 +255,82 @@ def test_a_large_one_off_gets_its_own_row_whatever_its_type() -> None:
     ]  # ten ordinary purchases
     rows.append(txn(99, wed, -400000, "withdrawal", "Free Interac E-Transfer "))
     table = {r.type: r for r in breakdown(rows)}
-    assert table["Large one-offs"].per_week == 400000 / 8 and "Transfers to people" not in table
+    assert set(table) == {"Card purchases"}  # nothing else, and no "large" row
+    events = big_events(rows, flow_types(rows), set(), AS_OF)
+    assert [(e.day, e.kind, e.cents) for e in events] == [(wed, "Transfers to people", -400000)]
+
+
+def test_big_events_cover_both_directions_and_name_their_type() -> None:
+    rows = [
+        txn(i, date(2026, 9, i), -2000, "pos purchase", CARD.format("Shop")) for i in range(1, 8)
+    ]
+    rows += [
+        txn(10 + i, date(2026, 9, 10 + i), 2500, "deposit", "Interac e-Transfer from a friend ")
+        for i in range(5)
+    ]
+    rows += [txn(30, date(2026, 9, 3), -600000, "customer transfer dr.", "To savings "),
+             txn(31, date(2026, 9, 5), 900000, "deposit", "Payroll "),
+             txn(32, date(2026, 9, 6), 700000, "customer transfer cr.", "From savings "),
+             ]  # fmt: skip
+    events = big_events(rows, flow_types(rows), set(), AS_OF)
+    assert [(e.day.day, e.kind, e.cents) for e in events] == [
+        (3, "Transfers to my own accounts", -600000),
+        (5, "Deposit", 900000),
+        (6, "Transfer from my own accounts", 700000),
+    ]  # oldest first
+
+
+def test_series_payments_and_fees_are_never_big_events() -> None:
+    rows = [txn(1, date(2026, 9, 3), -900000, "withdrawal", "Free Interac E-Transfer "),
+            txn(2, date(2026, 9, 4), -900000, "service charge", "Big fee "),
+            txn(3, date(2026, 9, 5), -2000, "pos purchase", CARD.format("Shop"))]  # fmt: skip
+    assert big_events(rows, flow_types(rows), {1}, AS_OF) == []
+
+
+# --- Irregular money in: deposits that are in no series ---
+
+
+def deposits(rows: list[Txn], series_rows: set[int] | None = None):  # type: ignore[no-untyped-def]
+    return deposits_by_day(rows, flow_types(rows), series_rows or set(), AS_OF)
+
+
+def test_irregular_money_in_counts_whatever_its_source() -> None:
+    day = date(2026, 9, 10)
+    rows = [txn(1, day, 5000, "deposit", "Interac e-Transfer from a friend "),
+            txn(2, day, 7000, "credit memo", "Refund of fees "),
+            txn(3, day, 3000, "customer transfer cr.", "From savings ")]  # fmt: skip
+    assert deposits(rows) == {day: 5000 + 7000 + 3000}
+
+
+def test_refunds_and_netted_holds_are_not_money_in() -> None:
+    day = date(2026, 9, 10)
+    rows = [txn(1, day, -5000, "pos purchase", CARD.format("Hold")),
+            txn(2, day, 5000, "pos return", CARD.format("Hold")),  # fully reversed: netted
+            txn(3, day, -8000, "pos purchase", CARD.format("Shoes")),
+            txn(4, date(2026, 9, 12), 2000, "pos return", CARD.format("Shoes")),  # a refund
+            txn(5, day, 4000, "deposit", "Interac e-Transfer from a friend ")]  # fmt: skip
+    assert deposits(rows) == {day: 4000}
+
+
+def test_an_income_series_payment_is_not_an_irregular_deposit() -> None:
+    day = date(2026, 9, 10)
+    rows = [txn(1, day, 120000, "deposit", "Payroll "),
+            txn(2, day, 4000, "deposit", "Interac e-Transfer from a friend ")]  # fmt: skip
+    assert deposits(rows, series_rows={1}) == {day: 4000}
+
+
+def test_a_big_deposit_leaves_the_irregular_stream_by_the_same_rule() -> None:
+    day = date(2026, 9, 10)
+    rows = [txn(i, day, 2500, "deposit", "Interac e-Transfer from a friend ") for i in range(1, 6)]
+    rows.append(txn(9, day, 600000, "deposit", "Payroll "))
+    assert deposits(rows) == {day: 5 * 2500}
+
+
+def test_deposits_after_the_forecast_date_are_not_used() -> None:
+    friend = "Interac e-Transfer from a friend "
+    rows = [txn(1, date(2026, 9, 10), 4000, "deposit", friend),
+            txn(2, date(2026, 10, 3), 9000, "deposit", friend)]  # fmt: skip
+    assert deposits(rows) == {date(2026, 9, 10): 4000}
 
 
 def test_the_rows_of_the_table_add_up_to_the_weekday_average_the_forecast_uses() -> None:
@@ -238,4 +357,5 @@ def test_series_payments_are_left_out_of_the_table_too() -> None:
 
 
 def test_the_types_are_the_known_ones() -> None:
-    assert "Large one-offs" in BREAKDOWN_TYPES and "Transfers to my own accounts" in BREAKDOWN_TYPES
+    assert "Transfers to my own accounts" in BREAKDOWN_TYPES
+    assert "Large one-offs" not in BREAKDOWN_TYPES  # they are events, not spending

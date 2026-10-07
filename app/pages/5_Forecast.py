@@ -27,6 +27,7 @@ from lookahead.ui import (  # noqa: E402
     breakdown_table,
     daily_balance,
     demo_db_path,
+    events_table,
     forecast_chart,
     forecast_table,
     hidden_series,
@@ -153,8 +154,8 @@ with st.expander("Assumptions behind this forecast", expanded=True):
         f"{counts['entered']} entered by me). Detected ones are used as found; you can "
         "confirm or change them on the Recurring page.\n"
         f"- **Everyday spending:** the {forecast.method}. It includes transfers to people and to "
-        "savings that are not part of a recurring series, and large one-off purchases. "
-        "Bank fees are not forecast yet."
+        "savings that are not part of a recurring series. Big one-time rows (below) are left "
+        "out. Bank fees are not forecast yet."
     )
     if forecast.has_income:
         st.markdown(
@@ -177,10 +178,9 @@ with st.expander("What's in everyday spending", expanded=False):
     st.caption(
         "The average spent on each weekday over the last 8 weeks, by type. The weekday "
         "estimate adds these up over the weekdays of the forecast, so one large row on one "
-        "weekday shows here as a high average for that weekday. Payments of recurring series "
-        "are not in this table: they are placed on their own dates. Bank fees are not in it "
-        "either. A large one-off is a single row of at least $300 and at least 5 times the "
-        "typical row; it stays in the forecast."
+        "weekday would show here as a high average for that weekday, so big one-time rows "
+        "(listed below) are not in this table. Payments of recurring series are not in it "
+        "either: they are placed on their own dates. Bank fees are not in it."
     )
     spending = breakdown_table(list(forecast.breakdown))
     if spending.empty:
@@ -192,6 +192,21 @@ with st.expander("What's in everyday spending", expanded=False):
                 c: st.column_config.NumberColumn(format="%.2f") for c in spending.columns[1:]
             },
         )  # fmt: skip
+
+with st.expander("Big one-time events (not forecast)", expanded=bool(forecast.big_events)):
+    st.caption(
+        "Big one-time rows of the last 13 weeks: a row of at least $300 that is at least 5 "
+        "times the typical row, money out or money in. They are not everyday spending or "
+        "irregular deposits, and they are not repeated in the forecast. Add a planned payment "
+        "(for example a term payment) if one is coming."
+    )
+    if forecast.big_events:
+        st.dataframe(
+            events_table(list(forecast.big_events)), hide_index=True, width="stretch",
+            column_config={"Amount ($)": st.column_config.NumberColumn(format="%.2f")},
+        )  # fmt: skip
+    else:
+        st.caption("No big one-time rows in the last 13 weeks.")
 
 st.subheader("Recurring payments placed in this period")
 if forecast.items:

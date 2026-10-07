@@ -5,9 +5,16 @@ from datetime import date
 import pandas as pd
 
 from lookahead.forecast.schedule import ScheduledItem
-from lookahead.forecast.spending import BreakdownRow
+from lookahead.forecast.spending import BigEvent, BreakdownRow
 from lookahead.recurring_store import Stored
-from lookahead.ui import BLANK, HIDDEN, breakdown_table, forecast_table, hidden_series
+from lookahead.ui import (
+    BLANK,
+    HIDDEN,
+    breakdown_table,
+    events_table,
+    forecast_table,
+    hidden_series,
+)
 
 
 def stored(key: str, name: str | None, evidence: tuple[str, ...] = (), **fields: object) -> Stored:
@@ -77,15 +84,25 @@ def test_a_series_whose_payments_show_a_persons_name_is_hidden_unless_it_is_name
 def test_the_spending_table_has_a_row_per_type_and_a_column_per_weekday_in_dollars() -> None:
     rows = [
         BreakdownRow("Card purchases", (0, 0, 1000.0, 0, 0, 0, 0), 1000.0),
-        BreakdownRow("Large one-offs", (0, 0, 0, 0, 0, 0, 5000.0), 5000.0),
+        BreakdownRow("Cash", (0, 0, 0, 0, 0, 0, 5000.0), 5000.0),
     ]
     table = breakdown_table(rows)
     assert list(table.columns) == ["Type", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
                                    "Per week"]  # fmt: skip
-    assert list(table["Type"]) == ["Card purchases", "Large one-offs", "All types"]
+    assert list(table["Type"]) == ["Card purchases", "Cash", "All types"]
     assert table.loc[0, "Wed"] == 10.0 and table.loc[1, "Sun"] == 50.0  # cents -> dollars
     assert table.loc[2, "Per week"] == 60.0 and table.loc[2, "Wed"] == 10.0  # the total row
 
 
 def test_an_empty_spending_table_is_empty() -> None:
     assert breakdown_table([]).empty
+
+
+def test_the_big_events_table_shows_dates_types_and_signed_dollars() -> None:
+    events = [BigEvent(date(2026, 9, 3), "Transfers to my own accounts", -600000),
+              BigEvent(date(2026, 9, 5), "Deposit", 900000)]  # fmt: skip
+    table = events_table(events)
+    assert list(table.columns) == ["Date", "Type", "Amount ($)"]
+    assert list(table["Date"]) == ["2026-09-03", "2026-09-05"]
+    assert list(table["Amount ($)"]) == [-6000.0, 9000.0]  # money in is positive
+    assert events_table([]).empty

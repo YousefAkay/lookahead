@@ -468,6 +468,12 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Added the evidence: the Forecast page now shows "What's in everyday spending": the average for each weekday over the last 8 weeks, by type (card purchases, cash, transfers to people, transfers to my own accounts, bill payments in no series, other withdrawals, returns, large one-offs). Its rows add up to the weekday baseline's averages (a test checks that). A large one-off here is a single row of at least $300 and at least 5 times the median row of the window; it is only a label, and those rows stay in the forecast.
 - What the weekday average does with one large row: it is averaged over the 8 times that weekday occurred, so one large transfer on one weekday becomes a high expected spend on that weekday every week. That repeats a one-off at a weekly frequency. It is a property of the baseline, not a bug; whether to damp it (for example a median, or capping a row at a multiple of the typical row) is a decision to make after looking at the table on real data, as a declared experiment.
 
+### 2026-10-06: Big one-time rows leave the everyday streams (replaces "keep large one-offs")
+- This replaces my earlier choice (3b step 3) to keep large one-offs in everyday spending. Why: with weekday averaging, a one-off is repeated every week, and a large one-off is not everyday spending. The worry behind the old choice (leaving them out makes the forecast optimistic) is met in two other ways: they are listed on the Forecast page as "Big one-time events (not forecast)", and a payment I know is coming can be added as a planned payment.
+- One rule for both directions: a row of at least $300 that is at least 5 times the typical (median) row of the same direction over the last 13 weeks is big. A big outflow leaves everyday spending (both baselines and the table). A big deposit leaves the irregular-deposit stream: otherwise a large one-off deposit would make the futures too optimistic. Lost: a fixed dollar line (it does not follow a person's usual row), and leaving rows out by type (a big transfer to savings and a big tuition payment have different types and the same effect).
+- Series payments, fees, refunds and netted holds are never big events; they are handled elsewhere.
+- Not built yet (proposed): recognizing transfers to my own savings, and a planned-payment entry for a term payment such as tuition.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
