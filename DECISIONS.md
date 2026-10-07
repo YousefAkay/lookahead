@@ -461,6 +461,13 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Choosing between the two baselines is a control on the page (the weekday average is the default). Neither is evaluated yet: the backtest waits for the replay in week 4. A look at three synthetic personas showed plausible numbers only; it is not a result.
 - Streamlit renders `$...$` in text as a formula, so dollar amounts in captions and warnings are escaped; tables and metrics show them plainly.
 
+### 2026-10-06: Weekly drops in the forecast on my data: series rows ruled out, a gap fixed, evidence added
+- Found on my data: the weekday baseline dropped the balance sharply on one weekday each week. My first suspicion was that rows belonging to a series were also counted as everyday spending.
+- Tested, not found: a test with rent by e-Transfer in two amounts (one of them paid late, in mid-month), a detected bill and a series added by hand, all inside the last 8 weeks, shows that none of their payments reach the everyday history. The test stays as a guard. So series rows are not the cause.
+- Found instead, and fixed: a bill payment that is in no series is typed "recurring outflow", and the spending stream only counted everyday and transfer rows, so such a payment was counted nowhere. It now counts. This can only raise the estimate; it is not the cause of too high a drop.
+- Added the evidence: the Forecast page now shows "What's in everyday spending": the average for each weekday over the last 8 weeks, by type (card purchases, cash, transfers to people, transfers to my own accounts, bill payments in no series, other withdrawals, returns, large one-offs). Its rows add up to the weekday baseline's averages (a test checks that). A large one-off here is a single row of at least $300 and at least 5 times the median row of the window; it is only a label, and those rows stay in the forecast.
+- What the weekday average does with one large row: it is averaged over the 8 times that weekday occurred, so one large transfer on one weekday becomes a high expected spend on that weekday every week. That repeats a one-off at a weekly frequency. It is a property of the baseline, not a bug; whether to damp it (for example a median, or capping a row at a multiple of the typical row) is a decision to make after looking at the table on real data, as a declared experiment.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

@@ -206,3 +206,19 @@ def forecast_chart(actual: pd.DataFrame, forecast: object, buffer_cents: int) ->
     figure.add_hline(y=buffer_cents / 100, line_dash="dash", annotation_text="safety buffer")
     figure.update_layout(title="Projected end-of-day balance", yaxis_title="balance ($)")
     return figure
+
+
+_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def breakdown_table(rows: list) -> pd.DataFrame:  # type: ignore[type-arg]
+    """What is in everyday spending: a row per type, the average for each weekday over the
+    last 8 weeks, in dollars (display only), and a total row."""
+    if not rows:
+        return pd.DataFrame()
+    table = pd.DataFrame(
+        [[r.type, *(c / 100 for c in r.per_weekday), r.per_week / 100] for r in rows],
+        columns=["Type", *_WEEKDAYS, "Per week"],
+    )
+    total = ["All types", *(float(table[c].sum()) for c in (*_WEEKDAYS, "Per week"))]
+    return pd.concat([table, pd.DataFrame([total], columns=table.columns)], ignore_index=True)

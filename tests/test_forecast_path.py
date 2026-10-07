@@ -174,3 +174,55 @@ def test_a_confirmed_series_is_marked_confirmed(conn: sqlite3.Connection) -> Non
     confirm(conn, ACCOUNT, phone, date(2026, 9, 29))
     forecast = build_forecast(conn, ACCOUNT, "weekday", as_of=None)
     assert forecast is not None and {i.basis for i in forecast.items} == {"confirmed"}
+
+
+# --- Everything that belongs to a series stays out of everyday spending ---
+
+
+def test_no_payment_of_any_series_is_counted_as_everyday_spending(tmp_path: Path) -> None:
+    """Rent sent by e-Transfer in two amounts with a late payment, a detected phone bill and a
+    series added by hand: all of their payments sit in the last eight weeks, and none of them
+    may appear in the weekday history. Only the card purchases do."""
+    c = connect(tmp_path / "all.db")
+    rows: list[tuple[date, int, str, str]] = []
+    for when, cents in ((date(2026, 1, 1), -79500), (date(2026, 2, 1), -79500),
+                        (date(2026, 3, 1), -79500), (date(2026, 4, 1), -79500),
+                        (date(2026, 5, 1), -79500), (date(2026, 6, 1), -79500),
+                        (date(2026, 7, 1), -82000), (date(2026, 8, 12), -82000),  # late
+                        (date(2026, 9, 1), -82000)):  # fmt: skip
+        rows.append((when, cents, "withdrawal", "Free Interac E-Transfer "))
+    for m in range(1, 10):
+        rows.append((shift_to_business_day(monthly_date(2026, m, 10), "later"), -6500,
+                     "bill payment", "Phone Co "))  # fmt: skip
+    for when, cents in ((date(2026, 8, 20), -4500), (date(2026, 9, 21), -4700)):
+        rows.append((when, cents, "pos purchase", CARD.format("Gym Club")))  # hand-added below
+    day = date(2026, 1, 2)
+    while day <= date(2026, 9, 28):
+        rows.append((day, -2000, "pos purchase", CARD.format("Bookshop")))
+        day += timedelta(days=4)
+    balance = 900000
+    for when, cents, kind, text in sorted(rows, key=lambda r: r[0]):
+        balance += cents
+        insert(c, when, cents, kind, text, balance)
+    rent = add_series(
+        c, ACCOUNT, "Rent", "out", "monthly", date(2026, 9, 1), 82000, date(2026, 1, 1)
+    )
+    set_rent_rule(c, ACCOUNT, rent, RentRule((79500, 82000), 30, 7), date(2026, 9, 29))
+    add_series(c, ACCOUNT, "Gym Club", "out", "monthly", date(2026, 9, 21), 4600, date(2026, 1, 1))
+    forecast = build_forecast(c, ACCOUNT, "recent")
+    assert forecast is not None
+    series = {s.name: s for s in forecast.series}
+    assert len(series["Rent"].evidence) == 9 and len(series["Gym Club"].evidence) == 2
+    # Card purchases only: 7 purchases of 2000 in the last 28 days = 500 a day, 30 days ahead.
+    assert sum(d.spending_cents for d in forecast.days) == pytest.approx(15000, abs=40)
+
+
+def test_the_forecast_carries_the_table_of_what_is_in_everyday_spending(
+    conn: sqlite3.Connection,
+) -> None:
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert forecast is not None
+    kinds = {r.type for r in forecast.breakdown}
+    assert kinds == {"Card purchases"}  # the phone bill is a series, so it is not in the table
+    week = sum(r.per_week for r in forecast.breakdown)
+    assert week == pytest.approx(7 * 2000 / 4, rel=0.15)  # about 3500 a week

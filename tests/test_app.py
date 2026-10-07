@@ -504,7 +504,7 @@ def test_forecast_page_shows_the_start_the_assumptions_and_the_placed_payments(
     assert "Not financial advice" in text
     assert metric(at, "Balance when the data ends").startswith("$")
     assert metric(at, "Safety buffer") == "$200.00"  # the default buffer
-    placed = at.dataframe[0].value
+    placed = next(d.value for d in at.dataframe if "Why" in d.value.columns)
     assert list(placed.columns) == ["Date", "Name", "Amount ($)", "Based on", "Why"]
     assert set(placed["Based on"]) <= {"detected", "confirmed", "entered"}
 
@@ -544,3 +544,12 @@ def test_forecast_page_can_switch_the_spending_baseline(isolated: Path) -> None:
     at.sidebar.selectbox[1].set_value("recent").run()
     assert not at.exception, at.exception
     assert "average of the last 28 days" in page_text(at)
+
+
+def test_forecast_page_shows_what_is_in_everyday_spending(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    assert "adds these up over the weekdays" in page_text(at)
+    tables = [d.value for d in at.dataframe if "Per week" in d.value.columns]
+    assert tables and "All types" in set(tables[0]["Type"])

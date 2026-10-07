@@ -16,7 +16,9 @@ from datetime import date, timedelta
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.schedule import ScheduledItem, scheduled_items
 from lookahead.forecast.spending import (
+    BreakdownRow,
     recent_average_path,
+    spending_breakdown,
     spending_by_day,
     weekday_average_path,
 )
@@ -48,6 +50,7 @@ class Forecast:
     has_income: bool  # an income series exists (if not, no income is assumed)
     buffer_cents: int = DEFAULT_BUFFER_CENTS
     series: tuple[Stored, ...] = ()
+    breakdown: tuple[BreakdownRow, ...] = ()  # what the weekday baseline's history is made of
 
     @property
     def lowest(self) -> tuple[date, int]:
@@ -126,4 +129,5 @@ def build_forecast(
         start, BASELINES[method], project_balance(start, items, spending), items,
         any(s.direction == "in" and s.active and s.status != "rejected" for s in series),
         safety_buffer_cents(conn), tuple(series),
+        tuple(spending_breakdown(txns, flows, in_series, start.data_last_updated, first_posted)),
     )  # fmt: skip

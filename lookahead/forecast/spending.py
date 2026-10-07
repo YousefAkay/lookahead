@@ -1,8 +1,9 @@
 """The everyday-spending stream D(t, h) and its two baselines (3b step 3).
 
 D(t, h) is the cumulative spending from the day after t through h days later. What counts:
-- card purchases, cash, and transfers out that belong to no recurring series (e-Transfers to
-  people, money to savings): they all lower the balance, so they stay in. One stream, not two:
+- card purchases, cash, bill payments and transfers out that belong to no recurring series
+  (e-Transfers to people, money to savings, a one-off bill): they all lower the balance, so
+  they stay in. One stream, not two:
   a separate transfer model would add a method before any evidence that one is needed;
 - large one-offs stay in as well. They really happen, and leaving them out would make the
   forecast too optimistic, the risky direction for a shortfall warning;
@@ -17,9 +18,11 @@ Amounts are integer cents; an average is an estimate, so a path is rounded after
 
 from collections import defaultdict
 from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
+from statistics import median
 
-from lookahead.flows import Flow, Txn
+from lookahead.flows import OWN_ACCOUNT, Flow, Txn
 
 FEE_REASONS = frozenset({"bank fee"})
 RETURN_REASONS = frozenset({"card return", "pre-auth correction", "returned e-Transfer"})
@@ -27,21 +30,34 @@ RECENT_DAYS = 28
 WEEKDAY_WEEKS = 8
 
 
-def spending_by_day(
+def _counted(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
-) -> dict[date, int]:
-    """Spending in cents for each day (positive = spent; a day of returns can be negative)."""
-    daily: dict[date, int] = defaultdict(int)
+) -> list[tuple[Txn, Flow, int]]:
+    """The rows that make up the stream, each with its cents spent (negative for a return)."""
+    out: list[tuple[Txn, Flow, int]] = []
     for t in txns:
         flow = flows[t.row_id]
         if t.posted_date > as_of or t.row_id in series_rows or flow.netted:
             continue
         if flow.reason in FEE_REASONS:
             continue
-        if t.amount_cents < 0 and flow.flow_type in ("everyday", "transfer"):
-            daily[t.posted_date] += -t.amount_cents
+        # A bill payment is typed "recurring outflow" because most are; one that is in no
+        # series still lowers the balance, and nothing else would count it.
+        spends = flow.flow_type in ("everyday", "transfer") or flow.reason == "bill payment"
+        if t.amount_cents < 0 and spends:
+            out.append((t, flow, -t.amount_cents))
         elif t.amount_cents > 0 and flow.reason in RETURN_REASONS:
-            daily[t.posted_date] -= t.amount_cents
+            out.append((t, flow, -t.amount_cents))
+    return out
+
+
+def spending_by_day(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> dict[date, int]:
+    """Spending in cents for each day (positive = spent; a day of returns can be negative)."""
+    daily: dict[date, int] = defaultdict(int)
+    for t, _, cents in _counted(txns, flows, series_rows, as_of):
+        daily[t.posted_date] += cents
     return dict(daily)
 
 
@@ -90,3 +106,70 @@ def weekday_average_path(
     return _cumulative(
         [by_weekday[(first_day + timedelta(days=k)).weekday()] for k in range(horizon)]
     )
+
+
+# --- What is in everyday spending (the evidence behind the weekday baseline) ---
+
+BREAKDOWN_TYPES = (
+    "Card purchases",
+    "Cash",
+    "Transfers to people",
+    "Transfers to my own accounts",
+    "Bill payments (in no series)",
+    "Other withdrawals",
+    "Other",
+    "Returns",
+    "Large one-offs",
+)
+_TYPE_OF_REASON = {
+    "card purchase": "Card purchases",
+    "cash withdrawal": "Cash",
+    "outgoing e-Transfer": "Transfers to people",
+    "own-account transfer": "Transfers to my own accounts",
+    OWN_ACCOUNT: "Transfers to my own accounts",
+    "bill payment": "Bill payments (in no series)",
+    "withdrawal": "Other withdrawals",
+}
+# A row is a "large one-off" if it is at least this much and at least 5 times the median row of
+# the window. It is only a label for this table: large one-offs stay in the forecast.
+LARGE_MIN_CENTS = 30000
+LARGE_TIMES_MEDIAN = 5
+
+
+@dataclass(frozen=True)
+class BreakdownRow:
+    type: str
+    per_weekday: tuple[float, ...]  # average cents spent on each weekday, Monday first
+    per_week: float  # the seven added up: what one week of this type adds to the forecast
+
+
+def spending_breakdown(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
+    history_start: date | None, weeks: int = WEEKDAY_WEEKS,
+) -> list[BreakdownRow]:  # fmt: skip
+    """The weekday baseline's history, split by type: for each type, the average spent on each
+    weekday over the last 8 weeks. Same rows as the baseline (series payments are not here).
+    The rows add up to the baseline's weekday averages before it rounds or clamps them."""
+    if history_start is None or history_start > as_of:
+        return []
+    window = _days_in(as_of, history_start, weeks * 7)
+    in_window = set(window)
+    rows = [r for r in _counted(txns, flows, series_rows, as_of) if r[0].posted_date in in_window]
+    outgoing = [cents for _, _, cents in rows if cents > 0]
+    large = max(LARGE_MIN_CENTS, LARGE_TIMES_MEDIAN * (median(outgoing) if outgoing else 0))
+    sums: dict[str, list[float]] = {}
+    for t, flow, cents in rows:
+        kind = "Returns" if cents < 0 else "Large one-offs" if cents >= large else (
+            _TYPE_OF_REASON.get(flow.reason, "Other")
+        )  # fmt: skip
+        sums.setdefault(kind, [0.0] * 7)[t.posted_date.weekday()] += cents
+    days_per_weekday = [sum(d.weekday() == w for d in window) for w in range(7)]
+    out = []
+    for kind in BREAKDOWN_TYPES:
+        if kind in sums:
+            per = tuple(
+                sums[kind][w] / days_per_weekday[w] if days_per_weekday[w] else 0.0
+                for w in range(7)
+            )
+            out.append(BreakdownRow(kind, per, sum(per)))
+    return out

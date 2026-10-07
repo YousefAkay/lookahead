@@ -24,6 +24,7 @@ from lookahead.rent import rent_cents  # noqa: E402
 from lookahead.settings import safety_buffer_cents, set_safety_buffer_cents  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
+    breakdown_table,
     daily_balance,
     demo_db_path,
     forecast_chart,
@@ -171,6 +172,26 @@ with st.expander("Assumptions behind this forecast", expanded=True):
                 "still ahead; a window that ended with no payment is expected on the first "
                 "forecast day."
             )
+
+with st.expander("What's in everyday spending", expanded=False):
+    st.caption(
+        "The average spent on each weekday over the last 8 weeks, by type. The weekday "
+        "estimate adds these up over the weekdays of the forecast, so one large row on one "
+        "weekday shows here as a high average for that weekday. Payments of recurring series "
+        "are not in this table: they are placed on their own dates. Bank fees are not in it "
+        "either. A large one-off is a single row of at least $300 and at least 5 times the "
+        "typical row; it stays in the forecast."
+    )
+    spending = breakdown_table(list(forecast.breakdown))
+    if spending.empty:
+        st.caption("No spending in the last 8 weeks.")
+    else:
+        st.dataframe(
+            spending, hide_index=True, width="stretch",
+            column_config={
+                c: st.column_config.NumberColumn(format="%.2f") for c in spending.columns[1:]
+            },
+        )  # fmt: skip
 
 st.subheader("Recurring payments placed in this period")
 if forecast.items:

@@ -164,3 +164,78 @@ def test_a_weekday_never_seen_in_a_short_history_uses_the_overall_average() -> N
 
 def test_no_history_means_no_weekday_estimate() -> None:
     assert weekday_average_path({}, AS_OF, None, FIRST, horizon=3) == [0, 0, 0]
+
+
+# --- Bill payments that belong to no series still lower the balance ---
+
+
+def test_a_bill_payment_that_is_in_no_series_is_still_spending() -> None:
+    day = date(2026, 9, 10)
+    rows = [txn(1, day, -42000, "bill payment", "City Tuition "),
+            txn(2, day, -6500, "bill payment", "Phone Co ")]  # fmt: skip
+    assert stream(rows) == {day: 42000 + 6500}
+    assert stream(rows, series_rows={2}) == {day: 42000}  # the series one is placed on its dates
+
+
+# --- What is in everyday spending: the evidence table ---
+
+from lookahead.forecast.spending import BREAKDOWN_TYPES, spending_breakdown  # noqa: E402
+
+
+def breakdown(rows: list[Txn], series_rows: set[int] | None = None):  # type: ignore[no-untyped-def]
+    return spending_breakdown(rows, flow_types(rows), series_rows or set(), AS_OF, LONG_AGO)
+
+
+def test_each_type_gets_its_own_row_with_the_average_for_each_weekday() -> None:
+    wed = date(2026, 9, 30)  # a Wednesday: weekday 2
+    rows = [
+        txn(1, wed, -8000, "pos purchase", CARD.format("Bookshop")),
+        txn(2, wed, -16000, "withdrawal", "Free Interac E-Transfer "),
+        txn(3, wed, -24000, "customer transfer dr.", "To savings "),
+        txn(4, wed, -4000, "abm withdrawal", "Cash "),
+    ]
+    table = {r.type: r for r in breakdown(rows)}
+    assert table["Card purchases"].per_weekday[2] == 8000 / 8  # one Wednesday of eight
+    assert table["Transfers to people"].per_weekday[2] == 16000 / 8
+    assert table["Transfers to my own accounts"].per_weekday[2] == 24000 / 8
+    assert table["Cash"].per_weekday[2] == 4000 / 8
+    assert table["Card purchases"].per_weekday[0] == 0  # nothing on Mondays
+    assert table["Card purchases"].per_week == 1000.0
+
+
+def test_a_large_one_off_gets_its_own_row_whatever_its_type() -> None:
+    wed = date(2026, 9, 30)
+    rows = [
+        txn(i, wed - timedelta(days=i), -2000, "pos purchase", CARD.format("Bookshop"))
+        for i in range(1, 11)
+    ]  # ten ordinary purchases
+    rows.append(txn(99, wed, -400000, "withdrawal", "Free Interac E-Transfer "))
+    table = {r.type: r for r in breakdown(rows)}
+    assert table["Large one-offs"].per_week == 400000 / 8 and "Transfers to people" not in table
+
+
+def test_the_rows_of_the_table_add_up_to_the_weekday_average_the_forecast_uses() -> None:
+    rows = [
+        txn(1, date(2026, 9, 30), -8000, "pos purchase", CARD.format("Bookshop")),
+        txn(2, date(2026, 9, 29), -16000, "withdrawal", "Free Interac E-Transfer "),
+        txn(3, date(2026, 9, 23), -5000, "customer transfer dr.", "To savings "),
+        txn(4, date(2026, 9, 22), -42000, "bill payment", "City Tuition "),
+        txn(5, date(2026, 9, 23), 3000, "pos return", CARD.format("Bookshop")),
+    ]
+    flows = flow_types(rows)
+    daily = spending_by_day(rows, flows, set(), AS_OF)
+    path = weekday_average_path(daily, AS_OF, LONG_AGO, FIRST, horizon=7)
+    from_table = [sum(r.per_weekday[(FIRST + timedelta(days=k)).weekday()] for r in breakdown(rows))
+                  for k in range(7)]  # fmt: skip
+    assert path[-1] == round(sum(from_table))  # a week of the table = a week of the forecast
+
+
+def test_series_payments_are_left_out_of_the_table_too() -> None:
+    rows = [txn(1, date(2026, 9, 30), -82000, "withdrawal", "Free Interac E-Transfer "),
+            txn(2, date(2026, 9, 30), -8000, "pos purchase", CARD.format("Bookshop"))]  # fmt: skip
+    table = {r.type: r for r in breakdown(rows, series_rows={1})}
+    assert "Transfers to people" not in table and table["Card purchases"].per_week == 1000.0
+
+
+def test_the_types_are_the_known_ones() -> None:
+    assert "Large one-offs" in BREAKDOWN_TYPES and "Transfers to my own accounts" in BREAKDOWN_TYPES
