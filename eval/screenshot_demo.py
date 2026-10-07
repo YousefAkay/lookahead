@@ -67,7 +67,10 @@ def main() -> None:
             page.on("request", lambda r: external.add(r.url)
                     if urlparse(r.url).hostname not in ("localhost", "127.0.0.1", None)
                     and not r.url.startswith(("data:", "blob:")) else None)  # fmt: skip
-            page.goto(f"http://localhost:{PORT}/{args.page}", wait_until="networkidle")
+            page.goto(
+                f"http://localhost:{PORT}/{'' if args.page == 'Home' else args.page}",
+                wait_until="networkidle",
+            )
             page.get_by_text("Synthetic demo", exact=True).first.wait_for(timeout=60000)
             sidebar = page.locator('[data-testid="stSidebar"]')
             opener = page.locator('[data-testid="stExpandSidebarButton"]')

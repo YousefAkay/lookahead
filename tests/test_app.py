@@ -50,6 +50,26 @@ def test_home_page_renders_with_the_disclaimer() -> None:
     assert "Not financial advice" in page_text(at)
 
 
+def test_home_page_shows_the_status_and_links_to_the_main_pages(isolated: Path) -> None:
+    at = run(HOME)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    text = page_text(at)
+    assert "A local-first cashflow planner" in text
+    for label in ("Data to", "Account", "synthetic-B", "Transactions", "Confirmed recurring"):
+        assert label in text
+    assert "Oct 1, 2026" in text  # the day the made-up data ends
+    for page in ("Forecast", "Recurring", "Transactions"):
+        assert f'href="/{page}?data=Synthetic+demo&amp;account=synthetic-B&amp;text=1"' in text
+
+
+def test_home_page_without_my_data_says_how_to_import(isolated: Path) -> None:
+    at = run(HOME)
+    at.sidebar.radio[0].set_value("My data").run()
+    assert not at.exception, at.exception
+    assert "python -m lookahead.ingest" in " ".join(str(i.value) for i in at.info)
+
+
 def test_transactions_page_defaults_to_the_synthetic_demo() -> None:
     at = run(TRANSACTIONS)
     assert at.sidebar.radio[0].value == "Synthetic demo"

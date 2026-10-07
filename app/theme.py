@@ -339,6 +339,85 @@ def payments_table_html(rows: Sequence[tuple[str, str, int, int | None]]) -> str
     )
 
 
+# --- Home and Transactions ---
+
+
+def link_button_html(label: str, path: str, query: str = "", primary: bool = False) -> str:
+    """A link that looks like a button (the deep green one is the main action). `query` is the
+    data and account choice, so the next page opens on the same ones."""
+    href = html.escape(path + (f"?{query}" if query else ""))
+    if primary:
+        look = (f"background: {COLORS.topbar}; color: {COLORS.white}; "
+                f"border: 1px solid {COLORS.topbar}")  # fmt: skip
+    else:
+        look = (f"background: {COLORS.white}; color: {COLORS.text}; "
+                f"border: 1px solid {COLORS.border_input}")  # fmt: skip
+    return (
+        f'<a class="la-linkbutton" href="{href}" target="_self" style="{look}; font-weight: 700; '
+        f"font-size: 14px; padding: 10px 18px; border-radius: 10px; min-height: 44px; "
+        f"box-sizing: border-box; display: inline-flex; align-items: center; "
+        f'text-decoration: none">{html.escape(label)}</a>'
+    )
+
+
+def status_card_html(items: Sequence[tuple[str, str]]) -> str:
+    """The Home page's status card: a few labelled facts side by side."""
+    cells = "".join(
+        f'<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">'
+        f'<span style="font-size: 13px; color: {COLORS.muted}; font-weight: 600">'
+        f"{html.escape(label)}</span>"
+        f'<span style="font-size: 22px; font-weight: 800; overflow-wrap: anywhere">'
+        f"{html.escape(value)}</span></div>"
+        for label, value in items
+    )
+    return (
+        f'<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); '
+        f'gap: 20px">{cells}</div>'
+    )
+
+
+def transactions_table_html(
+    rows: Sequence[tuple[str, str, str | None, int, int | None, bool]],
+) -> str:
+    """The trimmed transactions table: Date, Merchant, Category (a tag), Amount, Balance. A row is
+    (date text, merchant, category or None, signed cents, balance cents or None, to check?).
+    Merchant text is untrusted and is escaped; money in is green and bold."""
+    if not rows:
+        return '<p class="la-note">No transactions match.</p>'
+    head = "".join(
+        f'<th style="text-align: {align}; padding: 12px 16px; font-size: 12px; font-weight: 700; '
+        f'color: {COLORS.muted}; letter-spacing: 0.03em; text-transform: uppercase">{label}</th>'
+        for label, align in (("Date", "left"), ("Merchant", "left"), ("Category", "left"),
+                             ("Amount", "right"), ("Balance", "right"))
+    )  # fmt: skip
+    dash = "\u2014"
+    check_tag = (
+        f' <span style="font-size: 12px; font-weight: 700; background: {COLORS.amber_bg}; '
+        f'color: {COLORS.amber}; padding: 4px 10px; border-radius: 999px">to check</span>'
+    )
+    body = []
+    for day, merchant, category, cents, balance, check in rows:
+        colour = COLORS.green_dark if cents > 0 else COLORS.text
+        sign = "+" if cents > 0 else ""
+        tags = (tag_html(category, "neutral") if category else dash) + (check_tag if check else "")
+        body.append(
+            f'<tr style="border-top: 1px solid {COLORS.hairline}">'
+            f'<td style="padding: 10px 16px; white-space: nowrap">{html.escape(day)}</td>'
+            f'<td style="padding: 10px 16px">{html.escape(merchant) or dash}</td>'
+            f'<td style="padding: 10px 16px">{tags}</td>'
+            f'<td style="padding: 10px 16px; text-align: right; font-weight: 700; '
+            f'color: {colour}; white-space: nowrap">{sign}{money(cents)}</td>'
+            f'<td style="padding: 10px 16px; text-align: right; color: {COLORS.muted}; '
+            f'white-space: nowrap">{dash if balance is None else money(balance)}</td></tr>'
+        )
+    return (
+        f'<div style="overflow-x: auto; border: 1px solid {COLORS.hairline}; border-radius: 12px">'
+        f'<table style="width: 100%; min-width: 560px; border-collapse: collapse; margin: 0; '
+        f'font-size: 14px"><thead><tr style="background: {COLORS.bg}">{head}</tr></thead>'
+        f"<tbody>{''.join(body)}</tbody></table></div>"
+    )
+
+
 # --- The custom CSS (Streamlit's own theme does the rest) ---
 
 CSS = f"""
