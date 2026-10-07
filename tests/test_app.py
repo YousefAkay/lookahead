@@ -693,3 +693,74 @@ def test_forecast_page_shows_whats_in_irregular_deposits_week_by_week(isolated: 
     ]
     assert tables and 1 <= len(tables[0]) <= 13
     assert list(tables[0].columns) == ["Week", "In the stream ($)", "What", "Set aside"]
+
+
+# --- What if? A conditional scenario on the Forecast page ---
+
+
+def scenario_page() -> AppTest:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    return at
+
+
+def test_the_what_if_section_waits_until_something_is_changed(isolated: Path) -> None:
+    at = scenario_page()
+    assert "Change something above to see what would happen" in page_text(at)
+    assert not [m for m in at.metric if m.label.startswith("Scenario:")]
+
+
+def test_no_other_money_expected_is_a_scenario_control(isolated: Path) -> None:
+    at = scenario_page()
+    at.checkbox(key="wi_no_other").set_value(True).run()
+    assert not at.exception, at.exception
+    text = page_text(at)
+    assert "Conditional scenario" in text and "not a forecast of what will happen" in text
+    assert "No other money expected" in text
+    labels = {m.label for m in at.metric}
+    assert {"Scenario: chance of dipping below your buffer", "Scenario: chance of going below $0",
+            "Scenario: median lowest balance",
+            "Scenario: balance on the last day (middle future)"} <= labels  # fmt: skip
+
+
+def test_spending_less_by_a_percent_improves_the_scenario_metrics(isolated: Path) -> None:
+    at = scenario_page()
+    at.radio(key="wi_spend_mode").set_value("By a percent").run()
+    at.number_input(key="wi_spend_value").set_value(30.0).run()
+    assert not at.exception, at.exception
+    last = next(
+        m for m in at.metric if m.label == "Scenario: balance on the last day (middle future)"
+    )
+    assert str(last.delta).startswith("+") or str(last.delta).startswith("$")  # it went up
+    assert "lower by 30 percent" in page_text(at)
+
+
+def test_a_bad_scenario_is_explained_not_run(isolated: Path) -> None:
+    at = scenario_page()
+    at.radio(key="wi_spend_mode").set_value("By a percent").run()
+    at.number_input(key="wi_spend_value").set_value(0.0).run()  # a cut of nothing
+    assert not at.exception, at.exception
+    assert "Could not run the scenario" in " ".join(str(w.value) for w in at.warning)
+    assert not [m for m in at.metric if m.label.startswith("Scenario:")]
+
+
+def test_a_purchase_added_in_a_scenario_is_not_saved(isolated: Path) -> None:
+    at = scenario_page()
+    at.number_input(key="wi_extra_amount").set_value(500.0).run()
+    at.text_input(key="wi_extra_what").set_value("Laptop repair").run()
+    assert not at.exception, at.exception
+    assert "Laptop repair" in page_text(at) and "this scenario only" in page_text(at)
+    assert "No planned items" in page_text(at)  # nothing was saved to the planned items
+
+
+def test_delaying_money_in_and_moving_a_payment_are_scenario_controls(isolated: Path) -> None:
+    at = scenario_page()
+    at.number_input(key="wi_delay").set_value(10).run()
+    assert not at.exception, at.exception
+    assert "10 days later" in page_text(at)
+    picks = at.selectbox(key="wi_move_pick").options
+    assert len(picks) >= 2  # "Don't move anything" and at least one placed payment
+    at.selectbox(key="wi_move_pick").select_index(1).run()
+    assert not at.exception, at.exception
+    assert "A payment moved from" in page_text(at)

@@ -6,7 +6,7 @@ spending paths come later.
 """
 
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # make `lookahead` importable
@@ -18,6 +18,13 @@ from lookahead.db import connect  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.forecast.path import BASELINES, build_forecast  # noqa: E402
+from lookahead.forecast.scenario import (  # noqa: E402
+    ExtraItem,
+    MovedBill,
+    Scenario,
+    SpendingChange,
+    run_scenario,
+)
 from lookahead.planned import add_planned, remove_planned  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import rent_rule_of  # noqa: E402
@@ -35,6 +42,7 @@ from lookahead.ui import (  # noqa: E402
     hidden_series,
     planned_table,
     private_db_path,
+    scenario_chart,
     series_label,
     synthetic_dir,
 )
@@ -155,6 +163,122 @@ recent = rows[rows["date"] >= latest - pd.Timedelta(days=30)]
 st.plotly_chart(
     forecast_chart(daily_balance(recent), forecast, forecast.buffer_cents), width="stretch"
 )
+
+# --- What if? A conditional scenario, run on the same simulated futures ---
+st.subheader("What if…?")
+st.caption(
+    "Change one or more things and the same simulated futures run again, so the difference is the "
+    "change itself. Nothing here is saved; saved planned items are entered further down."
+)
+if sim is None:
+    st.caption("No simulated futures for this account yet.")
+else:
+    pay_labels = forecast_table(forecast.items, {s.key: s for s in forecast.series}, set())["Name"]
+    controls = st.columns(3)
+    with controls[0]:
+        no_other = st.checkbox(
+            "No other money expected (irregular deposits off)", key="wi_no_other",
+            help="Only income series, planned deposits and deposits added here count as money in.",
+        )  # fmt: skip
+        delay = st.number_input("Money in arrives this many days later", 0, 60, 0, step=1,
+                                key="wi_delay")  # fmt: skip
+        pick = st.selectbox(
+            "Move a payment", list(range(len(forecast.items) + 1)), key="wi_move_pick",
+            format_func=lambda i: "Don't move anything" if i == 0 else (
+                f"{forecast.items[i - 1].day} · {pay_labels.iloc[i - 1]} · "
+                f"${forecast.items[i - 1].cents / 100:,.2f}"
+            ),
+        )  # fmt: skip
+        move_to = st.date_input("…to this day", value=start.first_day + timedelta(days=7),
+                                key="wi_move_to")  # fmt: skip
+    with controls[1]:
+        mode = st.radio("Everyday spending", ["No change", "By a percent", "By dollars a week"],
+                        key="wi_spend_mode")  # fmt: skip
+        amount = st.number_input("Lower by (percent, or dollars a week)", min_value=0.0, value=10.0,
+                                 step=5.0, key="wi_spend_value")  # fmt: skip
+        spend_from = st.date_input("From", value=start.first_day, key="wi_spend_from")
+        spend_to = st.date_input("To", value=start.last_day, key="wi_spend_to")
+    with controls[2]:
+        st.markdown("**Add a purchase or a deposit (this scenario only)**")
+        extra_day = st.date_input("Day", value=start.first_day, key="wi_extra_date")
+        extra_way = st.radio("Direction", ["Money out", "Money in"], horizontal=True,
+                             key="wi_extra_way")  # fmt: skip
+        extra_amount = st.number_input("Amount ($, 0 for none)", min_value=0.0, value=0.0,
+                                       step=50.0, key="wi_extra_amount")  # fmt: skip
+        extra_what = st.text_input("What it is", key="wi_extra_what")
+    changed = bool(no_other or delay or mode != "No change" or extra_amount > 0 or pick > 0)
+    if not changed:
+        st.caption("Change something above to see what would happen.")
+    else:
+        try:
+            result = run_scenario(
+                forecast,
+                Scenario(
+                    spending=None
+                    if mode == "No change"
+                    else SpendingChange(
+                        spend_from,
+                        spend_to,
+                        percent=amount if mode == "By a percent" else None,
+                        per_week_cents=round(amount * 100) if mode == "By dollars a week" else None,
+                    ),
+                    extras=()
+                    if extra_amount <= 0
+                    else (
+                        ExtraItem(
+                            extra_day,
+                            (1 if extra_way == "Money in" else -1) * round(extra_amount * 100),
+                            extra_what,
+                        ),
+                    ),
+                    delay_money_in_days=int(delay),
+                    moved=()
+                    if pick == 0
+                    else (
+                        MovedBill(
+                            forecast.items[pick - 1].series_key,
+                            forecast.items[pick - 1].day,
+                            move_to,
+                        ),
+                    ),
+                    no_other_money=bool(no_other),
+                ),
+            )
+        except ValueError as problem:
+            st.warning(f"Could not run the scenario: {problem}")
+        else:
+            st.info(
+                "Conditional scenario: this shows what would happen if these changes were made, "
+                "from the same simulated futures. It is not a forecast of what will happen."
+            )
+            st.markdown("\n".join(f"- {line}".replace("$", "\\$") for line in result.changes))
+            o, m = result.original, result.modified
+
+            def points(change: float) -> str:
+                return f"{change * 100:+.0f} points"
+
+            def money_change(cents: int) -> str:
+                return f"{'+' if cents >= 0 else '-'}${abs(cents) / 100:,.2f}"
+
+            cols = st.columns(4)
+            cols[0].metric("Scenario: chance of dipping below your buffer",
+                           f"{m.shortfall_probability:.0%}", points(result.shortfall_change),
+                           delta_color="inverse")  # fmt: skip
+            cols[1].metric("Scenario: chance of going below $0", f"{m.below_zero_probability:.0%}",
+                           points(result.below_zero_change), delta_color="inverse")  # fmt: skip
+            lowest = f"${m.median_lowest_cents / 100:,.2f}"
+            cols[2].metric("Scenario: median lowest balance", lowest,
+                           money_change(result.lowest_change))  # fmt: skip
+            last = f"${m.p50[-1] / 100:,.2f}"
+            cols[3].metric("Scenario: balance on the last day (middle future)", last,
+                           money_change(result.final_change))  # fmt: skip
+            st.caption(
+                f"Original: {o.shortfall_probability:.0%} chance of dipping below the buffer, "
+                f"{o.below_zero_probability:.0%} of going below $0, median lowest balance "
+                f"{dollars(o.median_lowest_cents)}, middle future on the last day "
+                f"{dollars(o.p50[-1])}."
+            )
+            st.plotly_chart(scenario_chart(forecast, o, m, forecast.buffer_cents), width="stretch")
 
 # --- Every assumption ---
 by_key = {s.key: s for s in forecast.series}

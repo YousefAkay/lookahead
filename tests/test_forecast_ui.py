@@ -214,3 +214,24 @@ def test_the_estimate_line_also_starts_at_the_anchor_without_a_simulation() -> N
     (trace,) = forecast_chart(pd.DataFrame(), forecast, 20000).data
     assert trace.x[0] == forecast.start.data_last_updated
     assert trace.y[0] == forecast.start.balance_cents / 100
+
+
+def test_the_scenario_chart_shows_both_ranges_and_both_middles_from_the_same_start() -> None:
+    from lookahead.ui import scenario_chart
+
+    forecast = make_forecast(True)
+    sim = forecast.simulation
+    assert sim is not None
+    from dataclasses import replace
+
+    higher = {name: tuple(c + 500 for c in getattr(sim, name)) for name in ("p10", "p50", "p90")}
+    modified = replace(sim, **higher)
+    figure = scenario_chart(forecast, sim, modified, 20000)
+    names = [t.name for t in figure.data]
+    assert "Original: range (10th to 90th percentile)" in names
+    assert "Original: middle future" in names
+    assert "With the changes: range (10th to 90th percentile)" in names
+    assert "With the changes: middle future" in names
+    anchor_day, anchor = forecast.start.data_last_updated, forecast.start.balance_cents / 100
+    for trace in figure.data:
+        assert trace.x[0] == anchor_day and trace.y[0] == anchor  # no gap, nothing starts apart

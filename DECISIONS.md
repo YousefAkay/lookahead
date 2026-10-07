@@ -537,6 +537,11 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Tests: an empty scenario gives exactly the original; "no other money" gives exactly the original's without-deposits median; a planned purchase lowers every point of the range by exactly its amount from its day; delaying a deposit lowers the days in between by exactly the deposit and nothing else; moving a bill changes only the days between the old and new dates; a cut in spending never lowers any point of the range. I broke the engine four ways on purpose and the tests failed each time.
 - Lost: changing the point forecast (the no-randomness line) in a scenario. The comparison is on the futures; a second set of numbers would only add a way to disagree with them.
 
+### 2026-10-06: The what-if section of the Forecast page
+- The section "What if...?" has the five controls side by side; nothing is run until something is changed. Once it is, the page says in plain words that this is a conditional scenario ("what would happen if these changes were made ... not a forecast of what will happen"), lists the changes, and shows four numbers each with its change from the original: the chance of dipping below the buffer, the chance of going below $0, the median lowest balance, and the middle future's balance on the last day. The original numbers are written beneath. The chart shows both ranges and both middle futures from the same starting balance.
+- A bad scenario (a cut of 0 percent, a deposit with no description, a payment moved into the past) is explained in a warning and not run. A purchase or deposit added in a scenario is not saved; saved items are the planned items further down the page.
+- One scenario at a time, with at most one added item and one moved payment. More than that is what planned items are for; the limit keeps the page readable.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

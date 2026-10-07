@@ -320,3 +320,39 @@ def deposit_weeks_table(weeks: list) -> pd.DataFrame:  # type: ignore[type-arg]
             "Set aside": [aside(w) for w in weeks],
         }
     )
+
+
+def scenario_chart(
+    forecast: object, original: object, modified: object, buffer_cents: int
+) -> go.Figure:
+    """The original range and middle future, and the same with the scenario's changes, both from
+    the last observed balance so they start together, with zero and the buffer."""
+    start = forecast.start  # type: ignore[attr-defined]
+    anchor_day, anchor = start.data_last_updated, start.balance_cents / 100
+
+    def line(sim: object, cents: tuple[int, ...]) -> dict:  # type: ignore[type-arg]
+        return {
+            "x": [anchor_day, *sim.days],  # type: ignore[attr-defined]
+            "y": [anchor, *(c / 100 for c in cents)],
+        }
+
+    figure = go.Figure()
+    for sim, label, fill, colour in (
+        (original, "Original", "rgba(130, 130, 130, 0.25)", "gray"),
+        (modified, "With the changes", "rgba(99, 110, 250, 0.25)", "royalblue"),
+    ):
+        figure.add_scatter(**line(sim, sim.p90), mode="lines", line_shape="hv",  # type: ignore[attr-defined]
+                           line={"width": 0}, showlegend=False, hoverinfo="skip")  # fmt: skip
+        figure.add_scatter(
+            **line(sim, sim.p10), mode="lines", line_shape="hv", line={"width": 0},  # type: ignore[attr-defined]
+            fill="tonexty", fillcolor=fill, name=f"{label}: range (10th to 90th percentile)",
+        )  # fmt: skip
+        figure.add_scatter(
+            **line(sim, sim.p50), mode="lines", line_shape="hv", line={"color": colour},  # type: ignore[attr-defined]
+            name=f"{label}: middle future",
+        )  # fmt: skip
+    figure.add_hline(y=0, line_dash="dot")
+    figure.add_hline(y=buffer_cents / 100, line_dash="dash", annotation_text="safety buffer")
+    figure.update_layout(title="Conditional scenario: original and with the changes",
+                         yaxis_title="balance ($)")  # fmt: skip
+    return figure
