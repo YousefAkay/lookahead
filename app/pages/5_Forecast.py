@@ -122,14 +122,28 @@ metrics[1].metric(
     "Lowest projected balance", f"${low_cents / 100:,.2f}", str(low_day), delta_color="off"
 )
 metrics[2].metric("Safety buffer", f"${forecast.buffer_cents / 100:,.2f}")
-if first_below is not None:
+sim = forecast.simulation
+if sim is not None:
+    chance = st.columns(3)
+    chance[0].metric("Chance of dipping below your buffer", f"{sim.shortfall_probability:.0%}")
+    chance[1].metric("Chance of going below $0", f"{sim.below_zero_probability:.0%}")
+    chance[2].metric(
+        "Lowest balance in the middle future", f"${sim.median_lowest_cents / 100:,.2f}"
+    )
+    below = round(sim.shortfall_probability * sim.futures)
+    message = (
+        f"In {below} of {sim.futures} simulated futures the balance goes below your "
+        f"{dollars(forecast.buffer_cents)} buffer on at least one day "
+        f"({sim.shortfall_probability:.0%}); without irregular deposits it would be "
+        f"{sim.shortfall_probability_without:.0%}. This is what the simulated futures say about "
+        "the next 30 days, from your own past weeks; it is not tuned and not a guarantee."
+    )
+    (st.warning if below else st.info)(message)
+elif first_below is not None:
     st.warning(
         "Possible shortfall: this estimate puts the balance below your "
-        f"{dollars(forecast.buffer_cents)} buffer from {first_below}. "
-        "It depends on the assumptions listed below."
+        f"{dollars(forecast.buffer_cents)} buffer from {first_below}."
     )
-else:
-    st.info("This estimate keeps the balance above your buffer for the whole period.")
 
 # --- The chart: recent balance, then the forecast ---
 rows = transactions(conn, account)
@@ -165,10 +179,26 @@ with st.expander("Assumptions behind this forecast", expanded=True):
     )
     if forecast.has_income:
         st.markdown(
-            "- **Income:** only the income series on the Recurring page, on their expected dates."
+            "- **Income:** the income series on the Recurring page, on their expected dates; "
+            "other money in is estimated from your history (below)."
         )
     else:
-        st.markdown("- **Income:** no regular income found; none assumed.")
+        st.markdown(
+            "- **Income:** no regular income found; irregular deposits estimated from your "
+            "history (below)."
+        )
+    if sim is not None:
+        st.markdown(
+            f"- **Simulated futures:** {sim.futures}. Each draws, for every week ahead, one "
+            f"whole past week from the last 13 weeks ({sim.weeks_drawn_from} different weeks "
+            "here) and takes that week's everyday spending and irregular deposits together. "
+            "Irregular deposits are money in that is in no series, not a refund and not a big "
+            "one-time row. Rent falls inside its window, weighted by your own past rent dates; "
+            "a detected payment's date moves by its own past offsets; confirmed and entered "
+            "dates stay. The draws are not rescaled to the point forecast. Middle future on the "
+            f"last day: {dollars(sim.p50[-1])} with irregular deposits, "
+            f"{dollars(sim.median_without[-1])} without."
+        )
     for s in forecast.series:
         rule = rent_rule_of(s)
         if rule is not None and s.active and s.status != "rejected":

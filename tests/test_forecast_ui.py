@@ -4,14 +4,18 @@ from datetime import date
 
 import pandas as pd
 
+from lookahead.forecast.path import Forecast, ForecastDay
 from lookahead.forecast.schedule import ScheduledItem
+from lookahead.forecast.simulate import Simulation
 from lookahead.forecast.spending import BigEvent, BreakdownRow
+from lookahead.forecast.start import ForecastStart
 from lookahead.recurring_store import Stored
 from lookahead.ui import (
     BLANK,
     HIDDEN,
     breakdown_table,
     events_table,
+    forecast_chart,
     forecast_table,
     hidden_series,
 )
@@ -106,3 +110,31 @@ def test_the_big_events_table_shows_dates_types_and_signed_dollars() -> None:
     assert list(table["Date"]) == ["2026-09-03", "2026-09-05"]
     assert list(table["Amount ($)"]) == [-6000.0, 9000.0]  # money in is positive
     assert events_table([]).empty
+
+
+def make_forecast(simulated: bool) -> Forecast:
+    first = date(2026, 10, 1)
+    start = ForecastStart("a", date(2026, 9, 30), 100000, first, date(2026, 10, 3))
+    days = [ForecastDay(first.replace(day=1 + k), 100000 - 100 * k, 0, 100, 0) for k in range(3)]
+    sim = None
+    if simulated:
+        sim = Simulation(
+            tuple(d.day for d in days), 500, (90000, 89000, 88000), (99000, 98500, 98000),
+            (101000, 100500, 100000), (98000, 97000, 96000), 0.12, 0.31, 0.01, 0.02, 95000, 90000,
+            12,
+        )  # fmt: skip
+    return Forecast(start, "test", days, [], False, simulation=sim)
+
+
+def test_the_chart_shows_the_range_both_medians_and_the_point_forecast() -> None:
+    figure = forecast_chart(pd.DataFrame(), make_forecast(True), 20000)
+    names = [t.name for t in figure.data]
+    assert "Range of 500 simulated futures (10th to 90th percentile)" in names
+    assert "Middle future (median), with irregular deposits" in names
+    assert "Middle future (median), without irregular deposits" in names
+    assert "Forecast with no randomness (an estimate)" in names
+
+
+def test_the_chart_still_works_without_a_simulation() -> None:
+    names = [t.name for t in forecast_chart(pd.DataFrame(), make_forecast(False), 20000).data]
+    assert names == ["Forecast with no randomness (an estimate)"]

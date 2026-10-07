@@ -192,15 +192,35 @@ def forecast_table(items: list, by_key: dict, hidden: set[str]) -> pd.DataFrame:
 
 
 def forecast_chart(actual: pd.DataFrame, forecast: object, buffer_cents: int) -> go.Figure:
-    """Recent end-of-day balances, then the projected ones (dashed), with zero and the buffer."""
+    """Recent end-of-day balances, then the simulated range (10th to 90th percentile) with the
+    middle future with and without irregular deposits, then the forecast with no randomness,
+    with zero and the buffer."""
     days = forecast.days  # type: ignore[attr-defined]
+    sim = getattr(forecast, "simulation", None)
     figure = go.Figure()
     if not actual.empty:
         figure.add_scatter(x=actual["date"], y=actual["balance ($)"], mode="lines",
                            line_shape="hv", name="Recent balance")  # fmt: skip
+    if sim is not None:
+        x = list(sim.days)
+        figure.add_scatter(x=x, y=[c / 100 for c in sim.p90], mode="lines", line_shape="hv",
+                           line={"width": 0}, showlegend=False, hoverinfo="skip")  # fmt: skip
+        figure.add_scatter(
+            x=x, y=[c / 100 for c in sim.p10], mode="lines", line_shape="hv", line={"width": 0},
+            fill="tonexty", fillcolor="rgba(99, 110, 250, 0.2)",
+            name=f"Range of {sim.futures} simulated futures (10th to 90th percentile)",
+        )  # fmt: skip
+        figure.add_scatter(
+            x=x, y=[c / 100 for c in sim.p50], mode="lines", line_shape="hv",
+            name="Middle future (median), with irregular deposits",
+        )  # fmt: skip
+        figure.add_scatter(
+            x=x, y=[c / 100 for c in sim.median_without], mode="lines", line_shape="hv",
+            line={"dash": "dot"}, name="Middle future (median), without irregular deposits",
+        )  # fmt: skip
     figure.add_scatter(
         x=[d.day for d in days], y=[d.balance_cents / 100 for d in days], mode="lines",
-        line={"dash": "dash"}, line_shape="hv", name="Forecast (an estimate)",
+        line={"dash": "dash"}, line_shape="hv", name="Forecast with no randomness (an estimate)",
     )  # fmt: skip
     figure.add_hline(y=0, line_dash="dot")
     figure.add_hline(y=buffer_cents / 100, line_dash="dash", annotation_text="safety buffer")

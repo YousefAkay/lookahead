@@ -522,7 +522,9 @@ def test_forecast_page_says_so_when_no_income_is_assumed(isolated: Path) -> None
     conn.close()
     at = run(FORECAST)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
-    assert "no regular income found; none assumed" in page_text(at)
+    assert "no regular income found; irregular deposits estimated from your history" in page_text(
+        at
+    )
 
 
 def test_the_safety_buffer_can_be_changed_and_is_kept(isolated: Path) -> None:
@@ -584,3 +586,16 @@ def test_the_transactions_page_refreshes_an_older_saved_copy_too(isolated: Path)
     conn = connect(isolated / "demo.db")
     assert cache_current(conn, "synthetic-B")
     conn.close()
+
+
+def test_forecast_page_shows_the_shortfall_probability_plainly(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    text = page_text(at)
+    assert "of 500 simulated futures" in text and "below your" in text
+    assert "without irregular deposits" in text
+    chance = metric(at, "Chance of dipping below your buffer")
+    assert chance.endswith("%") and 0 <= float(chance.rstrip("%")) <= 100
+    assert metric(at, "Chance of going below $0").endswith("%")
+    assert "Simulated futures:" in text and "not rescaled" in text
