@@ -178,6 +178,32 @@ CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- Shortfall alerts (3c). An episode is a run of alerts about the same predicted low; every look
+-- at a changed forecast adds an event, and `notified` says whether it was worth telling me.
+-- Nothing here is ever rewritten except dismissing an episode and closing it when the
+-- condition goes away. Evidence is JSON, frozen at the moment of the alert.
+CREATE TABLE IF NOT EXISTS alert_episodes (
+    episode_id   INTEGER PRIMARY KEY,
+    account      TEXT    NOT NULL,
+    opened_on    TEXT    NOT NULL,  -- the data date of the first alert
+    last_seen_on TEXT    NOT NULL,  -- the data date of the latest look
+    closed_on    TEXT,
+    dismissed_on TEXT
+);
+CREATE TABLE IF NOT EXISTS alert_events (
+    event_id            INTEGER PRIMARY KEY,
+    episode_id          INTEGER NOT NULL,
+    account             TEXT    NOT NULL,
+    data_date           TEXT    NOT NULL,
+    low_day             TEXT    NOT NULL,
+    low_cents           INTEGER NOT NULL,
+    median_lowest_cents INTEGER NOT NULL,
+    probability         REAL    NOT NULL,
+    buffer_cents        INTEGER NOT NULL,
+    notified            INTEGER NOT NULL,
+    reason              TEXT    NOT NULL,
+    evidence            TEXT    NOT NULL  -- JSON
+);
 CREATE TABLE IF NOT EXISTS categorizer_runs (
     run_id        INTEGER PRIMARY KEY,
     account       TEXT    NOT NULL,
