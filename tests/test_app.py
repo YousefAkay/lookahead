@@ -927,3 +927,12 @@ def test_review_page_has_the_top_bar_with_the_data_date(isolated: Path) -> None:
     freeze_demo(isolated)
     at = run(REVIEW)
     assert "Data to " in page_text(at) and "Label review" in page_text(at)
+
+
+def test_to_check_page_has_the_top_bar_and_a_plain_table(isolated: Path) -> None:
+    at = run(TO_CHECK)
+    at.sidebar.toggle[1].set_value(True).run()  # show every merchant
+    text = page_text(at)
+    assert "Data to " in text and 'aria-current="page">To check<' in text
+    table = at.dataframe[0].value
+    assert "Amount ($)" in table.columns  # the data keeps its names; the headers shown are plain
