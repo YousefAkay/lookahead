@@ -359,3 +359,45 @@ def test_series_payments_are_left_out_of_the_table_too() -> None:
 def test_the_types_are_the_known_ones() -> None:
     assert "Transfers to my own accounts" in BREAKDOWN_TYPES
     assert "Large one-offs" not in BREAKDOWN_TYPES  # they are events, not spending
+
+
+# --- Bank fees: their recent daily average, until they have their own model ---
+
+from lookahead.forecast.spending import recent_fee_rate  # noqa: E402
+
+
+def fee_rate(rows: list[Txn], history_start: date | None = LONG_AGO) -> float:
+    return recent_fee_rate(rows, flow_types(rows), AS_OF, history_start)
+
+
+def test_the_fee_rate_is_the_fees_of_the_last_28_days_spread_evenly() -> None:
+    rows = [txn(1, date(2026, 9, 5), -500, "service charge", "Monthly "),
+            txn(2, date(2026, 9, 20), -300, "overdraft interest", "Interest "),
+            txn(3, date(2026, 7, 1), -90000, "service charge", "Old ")]  # fmt: skip
+    assert fee_rate(rows) == 800 / 28  # the July one is older than 28 days
+
+
+def test_a_fee_reversal_takes_the_fee_back() -> None:
+    rows = [txn(1, date(2026, 9, 5), -500, "service charge", "Monthly "),
+            txn(2, date(2026, 9, 6), 500, "service charge", "Reversal ")]  # fmt: skip
+    assert fee_rate(rows) == 0.0
+
+
+def test_fees_are_not_everyday_spending_and_everyday_spending_is_not_fees() -> None:
+    rows = [txn(1, date(2026, 9, 5), -500, "service charge", "Monthly "),
+            txn(2, date(2026, 9, 5), -2800, "pos purchase", CARD.format("Shop"))]  # fmt: skip
+    assert fee_rate(rows) == 500 / 28
+    assert stream(rows) == {date(2026, 9, 5): 2800}
+
+
+def test_the_fee_rate_uses_only_rows_posted_by_the_forecast_date() -> None:
+    rows = [txn(1, date(2026, 9, 5), -500, "service charge", "Monthly "),
+            txn(2, date(2026, 10, 2), -9000, "service charge", "Later ")]  # fmt: skip
+    assert fee_rate(rows) == 500 / 28
+
+
+def test_a_short_history_averages_fees_over_the_days_it_has() -> None:
+    start = AS_OF - timedelta(days=9)  # ten days of history
+    rows = [txn(1, date(2026, 9, 25), -500, "service charge", "Monthly ")]
+    assert fee_rate(rows, history_start=start) == 50.0
+    assert fee_rate(rows, history_start=None) == 0.0

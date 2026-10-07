@@ -19,7 +19,9 @@ from lookahead.forecast.spending import (
     BigEvent,
     BreakdownRow,
     big_events,
+    constant_path,
     recent_average_path,
+    recent_fee_rate,
     spending_breakdown,
     spending_by_day,
     weekday_average_path,
@@ -41,6 +43,7 @@ class ForecastDay:
     balance_cents: int  # projected end-of-day balance
     scheduled_cents: int  # recurring money in (+) or out (-) that day
     spending_cents: int  # everyday spending that day
+    fees_cents: int = 0  # bank fees that day (their recent daily average)
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,7 @@ class Forecast:
     series: tuple[Stored, ...] = ()
     breakdown: tuple[BreakdownRow, ...] = ()  # what the weekday baseline's history is made of
     big_events: tuple[BigEvent, ...] = ()  # big one-time rows of the last 13 weeks: not forecast
+    fees_per_day: float = 0.0  # cents a day, from the last 28 days
 
     @property
     def lowest(self) -> tuple[date, int]:
@@ -68,28 +72,31 @@ class Forecast:
 
 
 def project_balance(
-    start: ForecastStart, items: Sequence[ScheduledItem], spending_cumulative: Sequence[int]
-) -> list[ForecastDay]:
-    """One entry per forecast day. `spending_cumulative[k]` is the everyday spending from the
-    first forecast day through day k."""
+    start: ForecastStart, items: Sequence[ScheduledItem], spending_cumulative: Sequence[int],
+    fees_cumulative: Sequence[int] | None = None,
+) -> list[ForecastDay]:  # fmt: skip
+    """One entry per forecast day. `spending_cumulative[k]` is the everyday spending, and
+    `fees_cumulative[k]` the bank fees, from the first forecast day through day k."""
     count = len(spending_cumulative)
+    fees = list(fees_cumulative) if fees_cumulative is not None else [0] * count
     scheduled = [0] * count
     for it in items:
         k = (it.day - start.first_day).days
         if 0 <= k < count:
             scheduled[k] += it.cents
-    out, money, spent_before = [], 0, 0
+    out, money, spent_before, fees_before = [], 0, 0, 0
     for k, spent_through in enumerate(spending_cumulative):
         money += scheduled[k]
         out.append(
             ForecastDay(
                 start.first_day + timedelta(days=k),
-                start.balance_cents + money - spent_through,
+                start.balance_cents + money - spent_through - fees[k],
                 scheduled[k],
                 spent_through - spent_before,
+                fees[k] - fees_before,
             )
         )
-        spent_before = spent_through
+        spent_before, fees_before = spent_through, fees[k]
     return out
 
 
@@ -128,10 +135,13 @@ def build_forecast(
             daily, start.data_last_updated, first_posted, start.first_day, horizon
         )
     items = scheduled_items(series, posted, start)
+    fee_rate = recent_fee_rate(txns, flows, start.data_last_updated, first_posted)
+    fees = constant_path(fee_rate, horizon)
     return Forecast(
-        start, BASELINES[method], project_balance(start, items, spending), items,
+        start, BASELINES[method], project_balance(start, items, spending, fees), items,
         any(s.direction == "in" and s.active and s.status != "rejected" for s in series),
         safety_buffer_cents(conn), tuple(series),
         tuple(spending_breakdown(txns, flows, in_series, start.data_last_updated, first_posted)),
         tuple(big_events(txns, flows, in_series, start.data_last_updated)),
+        fee_rate,
     )  # fmt: skip

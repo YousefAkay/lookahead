@@ -155,7 +155,13 @@ with st.expander("Assumptions behind this forecast", expanded=True):
         "confirm or change them on the Recurring page.\n"
         f"- **Everyday spending:** the {forecast.method}. It includes transfers to people and to "
         "savings that are not part of a recurring series. Big one-time rows (below) are left "
-        "out. Bank fees are not forecast yet."
+        "out."
+    )
+    st.markdown(
+        f"- **Bank fees:** estimated at their recent daily average "
+        f"({dollars(round(forecast.fees_per_day))} a day over the last 28 days), until fees "
+        "have their own model. Fees follow events such as an overdraft, which an average "
+        "cannot see."
     )
     if forecast.has_income:
         st.markdown(

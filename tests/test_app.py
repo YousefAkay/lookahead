@@ -500,7 +500,7 @@ def test_forecast_page_shows_the_start_the_assumptions_and_the_placed_payments(
     text = page_text(at)
     assert "Data last updated:" in text and "the day after the data ends" in text
     assert "Starting point:" in text and "Everyday spending:" in text  # the assumptions
-    assert "Bank fees are not forecast yet" in text
+    assert "Bank fees:" in text and "recent daily average" in text
     assert "Not financial advice" in text
     assert metric(at, "Balance when the data ends").startswith("$")
     assert metric(at, "Safety buffer") == "$200.00"  # the default buffer

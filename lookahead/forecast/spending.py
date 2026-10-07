@@ -28,6 +28,8 @@ from statistics import median
 from lookahead.flows import OWN_ACCOUNT, Flow, Txn
 
 FEE_REASONS = frozenset({"bank fee"})
+FEE_REVERSAL = "fee reversal"
+FEE_DAYS = 28
 LARGE_MIN_CENTS = 30000
 LARGE_TIMES_MEDIAN = 5
 LARGE_WINDOW_DAYS = 91  # the typical row is taken from the last 13 weeks
@@ -141,6 +143,33 @@ def big_events(
     events += [BigEvent(t.posted_date, _DEPOSIT_KIND.get(f.reason, "Other money in"), c)
                for t, f, c in money_in]  # fmt: skip
     return sorted(events, key=lambda e: (e.day, e.cents))
+
+
+def recent_fee_rate(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], as_of: date, history_start: date | None,
+    days: int = FEE_DAYS,
+) -> float:  # fmt: skip
+    """Bank fees as cents per day: the fees of the last 28 days (less any reversed) spread over
+    those days. A stand-in until fees have their own model: they follow events such as an
+    overdraft, which an average cannot see."""
+    if history_start is None or history_start > as_of:
+        return 0.0
+    window = set(_days_in(as_of, history_start, days))
+    total = 0
+    for t in txns:
+        if t.posted_date not in window:
+            continue
+        reason = flows[t.row_id].reason
+        if reason in FEE_REASONS and t.amount_cents < 0:
+            total += -t.amount_cents
+        elif reason == FEE_REVERSAL and t.amount_cents > 0:
+            total -= t.amount_cents
+    return max(total, 0) / len(window)
+
+
+def constant_path(per_day: float, horizon: int) -> list[int]:
+    """Cumulative cents for a steady amount a day, rounded after summing."""
+    return _cumulative([per_day] * horizon)
 
 
 def _cumulative(per_day: list[float]) -> list[int]:

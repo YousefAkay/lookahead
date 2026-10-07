@@ -475,6 +475,11 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Series payments, fees, refunds and netted holds are never big events; they are handled elsewhere.
 - Not built yet (proposed): recognizing transfers to my own savings, and a planned-payment entry for a term payment such as tuition.
 
+### 2026-10-06: Bank fees in the forecast, at their recent daily average
+- Decision: until fees have their own model, the forecast takes off the fees of the last 28 days (less any reversed) spread evenly over the days ahead, in the point forecast and later in the simulated paths. The assumptions on the page say so, and say why it is only a stand-in: fees follow events (an overdraft, a statement date) that an average cannot see.
+- Fees stay out of the everyday-spending stream and its table, so the two are never counted twice. Only rows posted by the forecast date are used.
+- Lost: leaving fees out until the real model exists (the forecast would then be optimistic for anyone who pays fees).
+
 ## Tests
 
 ### 2026-10-01: Slow marker

@@ -242,3 +242,23 @@ def test_big_one_time_rows_are_listed_and_not_in_the_forecast(conn: sqlite3.Conn
     assert sum(d.spending_cents for d in forecast.days) == pytest.approx(15000, abs=40)
     weekday = build_forecast(conn, ACCOUNT, "weekday")
     assert weekday is not None and {r.type for r in weekday.breakdown} == {"Card purchases"}
+
+
+def test_fees_are_forecast_at_their_recent_daily_average(conn: sqlite3.Connection) -> None:
+    insert(conn, date(2026, 9, 5), -500, "service charge", "Monthly ", 1)
+    insert(conn, date(2026, 9, 20), -300, "overdraft interest", "Interest ", 1)
+    forecast = build_forecast(conn, ACCOUNT, "recent")
+    assert forecast is not None
+    assert forecast.fees_per_day == pytest.approx(800 / 28)
+    assert sum(d.fees_cents for d in forecast.days) == pytest.approx(800 / 28 * 30, abs=1)
+    assert sum(d.spending_cents for d in forecast.days) == pytest.approx(15000, abs=40)  # not fees
+    income = sum(i.cents for i in forecast.items)
+    spent = sum(d.spending_cents + d.fees_cents for d in forecast.days)
+    assert forecast.days[-1].balance_cents == forecast.start.balance_cents + income - spent
+
+
+def test_the_balance_arithmetic_takes_fees_off_too() -> None:
+    start = start_on(date(2026, 9, 28), balance=100000, days=3)
+    days = project_balance(start, [], [0, 0, 0], [10, 20, 30])
+    assert [d.balance_cents for d in days] == [99990, 99980, 99970]
+    assert [d.fees_cents for d in days] == [10, 10, 10]
