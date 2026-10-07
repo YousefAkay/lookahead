@@ -599,3 +599,20 @@ def test_forecast_page_shows_the_shortfall_probability_plainly(isolated: Path) -
     assert chance.endswith("%") and 0 <= float(chance.rstrip("%")) <= 100
     assert metric(at, "Chance of going below $0").endswith("%")
     assert "Simulated futures:" in text and "not rescaled" in text
+
+
+def test_forecast_page_asks_for_a_planned_deposit_only_when_large_deposits_were_seen(
+    isolated: Path,
+) -> None:
+    sentence = (
+        "You sometimes receive large deposits. If you expect one, add it as a planned deposit."
+    )
+    with_deposit = run(FORECAST)
+    with_deposit.sidebar.selectbox[0].set_value("synthetic-C").run()  # funded by family memos
+    assert not with_deposit.exception, with_deposit.exception
+    assert sentence in page_text(with_deposit)
+    events = [d.value for d in with_deposit.dataframe if "What" in d.value.columns]
+    assert events and any("Large deposit" in w for w in events[0]["What"])
+    without = run(FORECAST)
+    without.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert sentence not in page_text(without)

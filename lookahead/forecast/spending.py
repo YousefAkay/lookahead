@@ -5,9 +5,11 @@ D(t, h) is the cumulative spending from the day after t through h days later. Wh
   (e-Transfers to people, money to savings, a one-off bill): they all lower the balance, so
   they stay in. One stream, not two:
   a separate transfer model would add a method before any evidence that one is needed;
-- big one-time rows do not: a row of at least $300 that is at least 5 times the typical row of
+- big one-time rows do not: a row of at least $500 that is at least 5 times the typical row of
   the last 13 weeks (the same rule for money out and for money in) is left out of every
-  everyday stream and listed on its own (`big_events`). Averaged over weekdays, a one-off
+  everyday stream and listed on its own (`big_events`); a big deposit that is paid straight
+  back out (90 to 110 percent within 14 days) is a pass-through, set aside together with the
+  outflows that paid it out; Averaged over weekdays, a one-off
   would be repeated every week; and the deposit that funded it must leave the deposit stream
   too, or the futures would be too optimistic;
 - card returns and corrections that are not fully reversed lower the stream.
@@ -23,6 +25,7 @@ from collections import defaultdict
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
+from itertools import combinations
 from statistics import median
 
 from lookahead.flows import OWN_ACCOUNT, Flow, Txn
@@ -30,9 +33,13 @@ from lookahead.flows import OWN_ACCOUNT, Flow, Txn
 FEE_REASONS = frozenset({"bank fee"})
 FEE_REVERSAL = "fee reversal"
 FEE_DAYS = 28
-LARGE_MIN_CENTS = 30000
+LARGE_MIN_CENTS = 50000
+TYPICAL_MIN_ROWS = 5  # fewer rows than this in a direction: use the typical row of everything
 LARGE_TIMES_MEDIAN = 5
 LARGE_WINDOW_DAYS = 91  # the typical row is taken from the last 13 weeks
+PASS_THROUGH_DAYS = 14  # outflows in the 14 days from the deposit can pay it back out
+PASS_THROUGH_ROWS = 12  # at most the 12 largest candidate rows are tried together
+PASS_THROUGH_BAND = (90, 110)  # outflows add up to 90 to 110 percent of the deposit
 RETURN_REASONS = frozenset({"card return", "pre-auth correction", "returned e-Transfer"})
 RECENT_DAYS = 28
 WEEKDAY_WEEKS = 8
@@ -60,34 +67,28 @@ def _counted(
 
 
 def large_cutoff(amounts: Sequence[int]) -> int:
-    """The size from which a row is a big one-time row: at least $300 and at least 5 times the
+    """The size from which a row is a big one-time row: at least $500 and at least 5 times the
     typical (median) row. Used for money out and money in alike."""
     return max(LARGE_MIN_CENTS, LARGE_TIMES_MEDIAN * (int(median(amounts)) if amounts else 0))
 
 
 def _split_large(
-    rows: list[tuple[Txn, Flow, int]], as_of: date
+    rows: list[tuple[Txn, Flow, int]], as_of: date, reference: Sequence[int] | None = None
 ) -> tuple[list[tuple[Txn, Flow, int]], list[tuple[Txn, Flow, int]]]:
-    """(kept, big): rows whose size is at least the cutoff of the last 13 weeks go to `big`. Rows
-    older than that window are kept as they are (no stream reads them)."""
+    """(kept, big): rows whose size is at least the cutoff of the last 13 weeks go to `big`.
+    The typical row is that of these rows when there are at least 5 of them in the window, else
+    the typical row of `reference` (everything money in and out), because one deposit cannot be
+    judged against itself. Rows older than the window are kept as they are."""
     first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
-    cutoff = large_cutoff([c for t, _, c in rows if c > 0 and t.posted_date >= first])
+    own = [c for t, _, c in rows if c > 0 and t.posted_date >= first]
+    typical = own if len(own) >= TYPICAL_MIN_ROWS or reference is None else reference
+    cutoff = large_cutoff(typical)
     big = [r for r in rows if r[2] >= cutoff and r[0].posted_date >= first]
     kept = [r for r in rows if r[2] < cutoff or r[0].posted_date < first]
     return kept, big
 
 
-def spending_by_day(
-    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
-) -> dict[date, int]:
-    """Everyday spending in cents for each day (positive = spent; a day of returns can be
-    negative). Big one-time rows are not in it."""
-    kept, _ = _split_large(_counted(txns, flows, series_rows, as_of), as_of)
-    daily: dict[date, int] = defaultdict(int)
-    for t, _, cents in kept:
-        daily[t.posted_date] += cents
-    return dict(daily)
-
+Row = tuple[Txn, Flow, int]
 
 _DEPOSIT_KIND = {
     "credit memo": "Credit memo",
@@ -99,10 +100,10 @@ _DEPOSIT_KIND = {
 
 def _money_in(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
-) -> list[tuple[Txn, Flow, int]]:
+) -> list[Row]:
     """Money in that is not a refund, not a netted hold and not a payment of a series (an
     income series is placed on its own dates). Includes transfers in from my own accounts."""
-    out: list[tuple[Txn, Flow, int]] = []
+    out: list[Row] = []
     for t in txns:
         flow = flows[t.row_id]
         if t.posted_date > as_of or t.row_id in series_rows or flow.netted or t.amount_cents <= 0:
@@ -112,37 +113,137 @@ def _money_in(
     return out
 
 
-def deposits_by_day(
-    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
-) -> dict[date, int]:
-    """Irregular money in, in cents for each day: deposits, incoming e-Transfers and transfers
-    from my own accounts that are in no series. Big one-time deposits are not in it."""
-    kept, _ = _split_large(_money_in(txns, flows, series_rows, as_of), as_of)
-    daily: dict[date, int] = defaultdict(int)
-    for t, _, cents in kept:
-        daily[t.posted_date] += cents
-    return dict(daily)
-
-
 @dataclass(frozen=True)
 class BigEvent:
     day: date
     kind: str  # what it was, e.g. "Transfers to my own accounts" or "Deposit"
     cents: int  # signed: money in is positive
+    group: str = ""  # "Pass-through", "Large deposit" or "Large payment"
+    pair: int | None = None  # the number of the pass-through it belongs to
+
+
+def _pass_through(
+    big_in: list[Row], candidates: list[Row], band: tuple[int, int] = PASS_THROUGH_BAND
+) -> list[tuple[Row, tuple[Row, ...]]]:
+    """Pair each big deposit, oldest first, with outflows that took the money straight back
+    out: some of the candidate rows from the deposit's day to 14 days later that add up to 90 to
+    110 percent of it (the sum closest to 100 percent, then the fewest rows). A row is used for
+    one deposit only. Each deposit looks only at rows up to its own 14 days, so nothing later
+    changes a pairing that is already complete."""
+    used: set[int] = set()
+    pairs: list[tuple[Row, tuple[Row, ...]]] = []
+    for dep in sorted(big_in, key=lambda r: (r[0].posted_date, r[0].row_id)):
+        day, amount = dep[0].posted_date, dep[2]
+        last = day + timedelta(days=PASS_THROUGH_DAYS)
+        pool = [
+            r for r in candidates if r[0].row_id not in used and day <= r[0].posted_date <= last
+        ]
+        pool = sorted(pool, key=lambda r: (-r[2], r[0].posted_date, r[0].row_id))[
+            :PASS_THROUGH_ROWS
+        ]
+        best: tuple[tuple[int, int, tuple[tuple[date, int], ...]], tuple[Row, ...]] | None = None
+        for size in range(1, len(pool) + 1):
+            for combo in combinations(pool, size):
+                total = sum(r[2] for r in combo)
+                if 100 * total < band[0] * amount or 100 * total > band[1] * amount:
+                    continue
+                order = tuple(sorted((r[0].posted_date, r[0].row_id) for r in combo))
+                key = (abs(total - amount), size, order)
+                if best is None or key < best[0]:
+                    best = (key, combo)
+        if best is not None:
+            used.update(r[0].row_id for r in best[1])
+            pairs.append((dep, best[1]))
+    return pairs
+
+
+@dataclass(frozen=True)
+class _Streams:
+    spending: list[Row]  # everyday spending rows (and returns)
+    deposits: list[Row]  # irregular money in
+    events: list[BigEvent]  # what was set aside: pass-throughs, large deposits, large payments
+
+
+def _streams(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> _Streams:
+    """Sort every row into the everyday spending, the irregular deposits, or an event that is
+    set aside. A big row is one of at least $500 and 5 times the typical row of its direction
+    over the last 13 weeks. A big deposit that was paid straight back out is a pass-through:
+    it and the outflows that paid it out are all set aside (the outflows can include small
+    transfers and bill payments, never a small card purchase). Other big deposits and big
+    payments are set aside and listed too."""
+    out_rows = _counted(txns, flows, series_rows, as_of)
+    in_rows = _money_in(txns, flows, series_rows, as_of)
+    first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
+    everything = [r[2] for r in out_rows + in_rows if r[2] > 0 and r[0].posted_date >= first]
+    kept_out, big_out = _split_large(out_rows, as_of, everything)
+    kept_in, big_in = _split_large(in_rows, as_of, everything)
+    big_ids = {r[0].row_id for r in big_out}
+
+    def could_be_paid_out(r: Row) -> bool:
+        """A transfer or bill payment of any size, or any big row; never a small purchase."""
+        return (
+            r[0].row_id in big_ids or r[1].flow_type == "transfer" or r[1].reason == "bill payment"
+        )
+
+    candidates = [r for r in out_rows if r[2] > 0 and could_be_paid_out(r)]
+    pairs = _pass_through(big_in, candidates)
+    paired = {r[0].row_id for _, combo in pairs for r in combo}
+    paired |= {dep[0].row_id for dep, _ in pairs}
+    events: list[BigEvent] = []
+
+    def deposit_event(r: Row, group: str, pair: int | None) -> BigEvent:
+        return BigEvent(
+            r[0].posted_date, _DEPOSIT_KIND.get(r[1].reason, "Other money in"), r[2], group, pair
+        )
+
+    def payment_event(r: Row, group: str, pair: int | None) -> BigEvent:
+        return BigEvent(
+            r[0].posted_date, _TYPE_OF_REASON.get(r[1].reason, "Other"), -r[2], group, pair
+        )
+
+    for n, (dep, combo) in enumerate(pairs, start=1):
+        events.append(deposit_event(dep, "Pass-through", n))
+        events += [payment_event(r, "Pass-through", n) for r in combo]
+    events += [deposit_event(r, "Large deposit", None) for r in big_in if r[0].row_id not in paired]
+    events += [
+        payment_event(r, "Large payment", None) for r in big_out if r[0].row_id not in paired
+    ]
+    events.sort(key=lambda e: (e.day, -e.cents))
+    return _Streams([r for r in kept_out if r[0].row_id not in paired], kept_in, events)
+
+
+def spending_by_day(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> dict[date, int]:
+    """Everyday spending in cents for each day (positive = spent; a day of returns can be
+    negative). Big one-time rows and pass-through outflows are not in it."""
+    daily: dict[date, int] = defaultdict(int)
+    for t, _, cents in _streams(txns, flows, series_rows, as_of).spending:
+        daily[t.posted_date] += cents
+    return dict(daily)
+
+
+def deposits_by_day(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> dict[date, int]:
+    """Irregular money in, in cents for each day: deposits, incoming e-Transfers and transfers
+    from my own accounts that are in no series. Big deposits are not in it: when one comes
+    cannot be predicted from history."""
+    daily: dict[date, int] = defaultdict(int)
+    for t, _, cents in _streams(txns, flows, series_rows, as_of).deposits:
+        daily[t.posted_date] += cents
+    return dict(daily)
 
 
 def big_events(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
 ) -> list[BigEvent]:
-    """The big one-time rows of the last 13 weeks, money out and money in, oldest first. They
-    are left out of every everyday stream and are not forecast."""
-    _, out = _split_large(_counted(txns, flows, series_rows, as_of), as_of)
-    _, money_in = _split_large(_money_in(txns, flows, series_rows, as_of), as_of)
-    events = [BigEvent(t.posted_date, _TYPE_OF_REASON.get(f.reason, "Other"), -c)
-              for t, f, c in out if c > 0]  # fmt: skip
-    events += [BigEvent(t.posted_date, _DEPOSIT_KIND.get(f.reason, "Other money in"), c)
-               for t, f, c in money_in]  # fmt: skip
-    return sorted(events, key=lambda e: (e.day, e.cents))
+    """What was set aside in the last 13 weeks, oldest first: pass-throughs (a big deposit and
+    the outflows that paid it out, numbered), large deposits and large payments. None of it is
+    forecast."""
+    return _streams(txns, flows, series_rows, as_of).events
 
 
 def recent_fee_rate(
@@ -260,7 +361,7 @@ def spending_breakdown(
         return []
     window = _days_in(as_of, history_start, weeks * 7)
     in_window = set(window)
-    kept, _ = _split_large(_counted(txns, flows, series_rows, as_of), as_of)
+    kept = _streams(txns, flows, series_rows, as_of).spending
     rows = [r for r in kept if r[0].posted_date in in_window]
     sums: dict[str, list[float]] = {}
     for t, flow, cents in rows:

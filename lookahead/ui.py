@@ -245,12 +245,21 @@ def breakdown_table(rows: list) -> pd.DataFrame:  # type: ignore[type-arg]
 
 
 def events_table(events: list) -> pd.DataFrame:  # type: ignore[type-arg]
-    """Big one-time rows that are left out of the forecast: date, what it was, and the amount in
-    dollars (display only; money in is positive, money out is negative)."""
+    """What was set aside from the forecast: date, what it was, the amount in dollars (display
+    only; money in is positive, money out is negative), and which group it belongs to: a
+    numbered pass-through, a large deposit or a large payment."""
+
+    def what(e: object) -> str:
+        group = getattr(e, "group", "")
+        if group == "Pass-through":
+            return f"Pass-through {e.pair}"  # type: ignore[attr-defined]
+        return f"{group} (not forecast)" if group else ""
+
     return pd.DataFrame(
         {
             "Date": [e.day.isoformat() for e in events],
             "Type": [e.kind for e in events],
             "Amount ($)": [e.cents / 100 for e in events],
+            "What": [what(e) for e in events],
         }
     )

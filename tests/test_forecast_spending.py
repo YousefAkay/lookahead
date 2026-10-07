@@ -54,21 +54,21 @@ def test_big_one_time_rows_are_not_everyday_spending() -> None:
 def test_a_row_must_be_both_above_the_floor_and_far_above_the_typical_row() -> None:
     day = date(2026, 9, 10)
     rows = [txn(i, day, -20000, "pos purchase", CARD.format("Shop")) for i in range(1, 6)]
-    rows.append(txn(9, day, -40000, "withdrawal", "Free Interac E-Transfer "))
-    # typical row 200 dollars: 5 times is 1000; 400 is above the 300 floor but not far above
-    assert stream(rows) == {day: 5 * 20000 + 40000}
+    rows.append(txn(9, day, -60000, "withdrawal", "Free Interac E-Transfer "))
+    # typical row 200 dollars: 5 times is 1000; 600 is above the 500 floor but not far above
+    assert stream(rows) == {day: 5 * 20000 + 60000}
     rows.append(txn(10, day, -120000, "withdrawal", "Free Interac E-Transfer "))
-    assert stream(rows) == {day: 5 * 20000 + 40000}  # 1,200 dollars is more than 5 x typical
+    assert stream(rows) == {day: 5 * 20000 + 60000}  # 1,200 dollars is more than 5 x typical
 
 
 def test_the_floor_applies_when_the_typical_row_is_tiny() -> None:
     day = date(2026, 9, 10)
     rows = [txn(i, day, -500, "pos purchase", CARD.format("Shop")) for i in range(1, 6)]
     rows += [
-        txn(8, day, -29900, "withdrawal", "Free Interac E-Transfer "),  # under 300 dollars
-        txn(9, day, -30000, "withdrawal", "Free Interac E-Transfer "),
+        txn(8, day, -49900, "withdrawal", "Free Interac E-Transfer "),  # under 500 dollars
+        txn(9, day, -50000, "withdrawal", "Free Interac E-Transfer "),
     ]  # 300: big
-    assert stream(rows) == {day: 5 * 500 + 29900}
+    assert stream(rows) == {day: 5 * 500 + 49900}
 
 
 def test_the_typical_row_comes_from_the_last_13_weeks_only() -> None:
@@ -77,9 +77,9 @@ def test_the_typical_row_comes_from_the_last_13_weeks_only() -> None:
     old = [
         txn(i, date(2025, 1, 1), -2000000, "pos purchase", CARD.format("Old")) for i in range(1, 9)
     ]
-    rows = [*old, txn(20, day, -40000, "withdrawal", "Free Interac E-Transfer ")]
+    rows = [*old, txn(20, day, -60000, "withdrawal", "Free Interac E-Transfer ")]
     rows += [txn(30 + i, day, -2000, "pos purchase", CARD.format("Shop")) for i in range(6)]
-    # the typical row of the last 13 weeks is 20 dollars, so 400 dollars is a big one-time row
+    # the typical row of the last 13 weeks is 20 dollars, so 600 dollars is a big one-time row
     assert stream(rows, as_of=date(2026, 9, 30))[day] == 6 * 2000
 
 
@@ -401,3 +401,147 @@ def test_a_short_history_averages_fees_over_the_days_it_has() -> None:
     rows = [txn(1, date(2026, 9, 25), -500, "service charge", "Monthly ")]
     assert fee_rate(rows, history_start=start) == 50.0
     assert fee_rate(rows, history_start=None) == 0.0
+
+
+# --- Pass-through: a big deposit that goes straight back out ---
+
+FRIEND = "Interac e-Transfer from a friend "
+UNI = "City University "
+ETX = "Free Interac E-Transfer "
+
+
+def ordinary(start_id: int = 100) -> list[Txn]:
+    """Ordinary small rows so that the typical row is small: purchases and small deposits."""
+    rows = [txn(start_id + i, date(2026, 9, 1) + timedelta(days=i), -2000, "pos purchase",
+                CARD.format("Shop")) for i in range(12)]  # fmt: skip
+    rows += [txn(start_id + 20 + i, date(2026, 9, 2) + timedelta(days=3 * i), 3000, "deposit",
+                 FRIEND)
+             for i in range(4)]  # fmt: skip
+    return rows
+
+
+def paired(rows: list[Txn], series_rows: set[int] | None = None, as_of: date = AS_OF):  # type: ignore[no-untyped-def]
+    return big_events(rows, flow_types(rows), series_rows or set(), as_of)
+
+
+def groups(events) -> list[tuple[int, str, int | None]]:  # type: ignore[no-untyped-def]
+    return [(e.cents, e.group, e.pair) for e in events]
+
+
+def test_a_big_deposit_that_goes_straight_to_savings_is_a_pass_through() -> None:
+    rows = ordinary() + [
+        txn(1, date(2026, 9, 3), 600000, "deposit", "Payroll "),
+        txn(2, date(2026, 9, 4), -300000, "customer transfer dr.", "To savings "),
+        txn(3, date(2026, 9, 6), -295000, "customer transfer dr.", "To savings "),
+    ]
+    events = paired(rows)
+    assert groups(events) == [(600000, "Pass-through", 1), (-300000, "Pass-through", 1),
+                              (-295000, "Pass-through", 1)]  # fmt: skip
+    daily = spending_by_day(rows, flow_types(rows), set(), AS_OF)
+    assert sum(daily.values()) == 12 * 2000  # the transfers are not everyday spending
+    assert sum(deposits_by_day(rows, flow_types(rows), set(), AS_OF).values()) == 4 * 3000
+
+
+def test_a_big_deposit_that_pays_tuition_is_a_pass_through() -> None:
+    rows = ordinary() + [
+        txn(1, date(2026, 9, 22), 2000000, "credit memo", "Family "),
+        txn(2, date(2026, 9, 22), -1865900, "bill payment", UNI),
+    ]
+    assert groups(paired(rows)) == [(2000000, "Pass-through", 1), (-1865900, "Pass-through", 1)]
+
+
+def test_the_share_must_be_between_90_and_110_percent() -> None:
+    def case(out: int) -> list[str]:
+        rows = ordinary() + [txn(1, date(2026, 9, 3), 100000, "deposit", "Payroll "),
+                             txn(2, date(2026, 9, 5), -out, "bill payment", UNI)]  # fmt: skip
+        return [e.group for e in paired(rows)]
+
+    assert case(89000) == ["Large deposit", "Large payment"]  # 89 percent: not a pass-through
+    assert case(90000) == ["Pass-through", "Pass-through"]
+    assert case(110000) == ["Pass-through", "Pass-through"]
+    assert case(111000) == ["Large deposit", "Large payment"]
+
+
+def test_only_the_14_days_after_the_deposit_count() -> None:
+    def case(day: int) -> list[str]:
+        rows = ordinary() + [txn(1, date(2026, 9, 3), 100000, "deposit", "Payroll "),
+                             txn(2, date(2026, 9, day), -100000, "bill payment", UNI)]  # fmt: skip
+        return [e.group for e in paired(rows)]
+
+    assert case(17) == ["Pass-through", "Pass-through"]  # day 14 after the 3rd
+    assert case(18) == ["Large deposit", "Large payment"]  # day 15
+    assert case(2) == ["Large payment", "Large deposit"]  # before the deposit: not its outflow
+
+
+def test_each_outflow_is_used_once_and_deposits_pair_in_order() -> None:
+    rows = ordinary() + [
+        txn(1, date(2026, 9, 1), 500000, "deposit", "Payroll "),
+        txn(2, date(2026, 9, 3), 500000, "deposit", "Payroll "),
+        txn(3, date(2026, 9, 4), -500000, "bill payment", UNI),
+        txn(4, date(2026, 9, 6), -500000, "customer transfer dr.", "To savings "),
+    ]
+    events = paired(rows)
+    assert groups(events) == [(500000, "Pass-through", 1), (500000, "Pass-through", 2),
+                              (-500000, "Pass-through", 1),
+                              (-500000, "Pass-through", 2)]  # fmt: skip
+
+
+def test_small_transfers_can_complete_a_pass_through_but_a_purchase_cannot() -> None:
+    rows = ordinary() + [
+        txn(1, date(2026, 9, 3), 600000, "deposit", "Payroll "),
+        txn(2, date(2026, 9, 4), -500000, "customer transfer dr.", "To savings "),
+        txn(3, date(2026, 9, 5), -25000, "withdrawal", ETX),
+        txn(4, date(2026, 9, 6), -25000, "withdrawal", ETX),
+        txn(5, date(2026, 9, 7), -20000, "pos purchase", CARD.format("Shoes")),
+    ]
+    flows = flow_types(rows)
+    daily = spending_by_day(rows, flows, set(), AS_OF)
+    # 5,000 + 250 + 250 = 5,500 of 6,000 = 91.7 percent: paired. A small purchase is not a
+    # transfer, so it never completes a pass-through and stays everyday spending.
+    assert sum(e.pair == 1 for e in paired(rows)) == 4
+    assert daily[date(2026, 9, 6)] == 2000  # only the ordinary purchase: the transfers left
+    assert daily[date(2026, 9, 7)] == 2000 + 20000  # ordinary + shoes
+
+
+def test_payments_of_a_series_never_complete_a_pass_through() -> None:
+    rows = ordinary() + [txn(1, date(2026, 9, 3), 100000, "deposit", "Payroll "),
+                         txn(2, date(2026, 9, 4), -100000, "withdrawal", ETX)]  # fmt: skip
+    assert [e.group for e in paired(rows, series_rows={2})] == ["Large deposit"]
+
+
+def test_nothing_after_the_forecast_date_is_used_for_pairing() -> None:
+    rows = ordinary() + [txn(1, date(2026, 9, 28), 100000, "deposit", "Payroll "),
+                         txn(2, date(2026, 10, 3), -100000, "bill payment", UNI)]  # fmt: skip
+    assert [e.group for e in paired(rows, as_of=date(2026, 9, 30))] == ["Large deposit"]
+
+
+def test_a_big_deposit_with_no_matching_outflow_is_a_large_deposit_not_forecast() -> None:
+    rows = ordinary() + [txn(1, date(2026, 9, 3), 1500000, "credit memo", "Family ")]
+    assert groups(paired(rows)) == [(1500000, "Large deposit", None)]
+    assert sum(deposits_by_day(rows, flow_types(rows), set(), AS_OF).values()) == 4 * 3000
+
+
+# --- What "typical row" means when there are few deposits ---
+
+
+def test_one_deposit_in_the_window_is_judged_against_the_typical_row_of_everything() -> None:
+    """Its own size cannot be its yardstick: a single deposit would never be 5 times itself."""
+    rows = ordinary()[:12] + [txn(1, date(2026, 9, 5), 1500000, "credit memo", "Family ")]
+    assert paired(rows)[0].group == "Large deposit"
+    assert sum(deposits_by_day(rows, flow_types(rows), set(), AS_OF).values()) == 0
+
+
+def test_with_enough_deposits_their_own_typical_size_is_the_yardstick() -> None:
+    """A person who regularly receives a few hundred dollars: 2,500 is not unusual for them."""
+    rows = ordinary()[:12]
+    rows += [txn(30 + i, date(2026, 9, 1 + 3 * i), 60000, "deposit", FRIEND) for i in range(6)]
+    rows.append(txn(40, date(2026, 9, 20), 250000, "deposit", FRIEND))
+    assert paired(rows) == []  # 2,500 is under 5 x the typical 600
+    assert sum(deposits_by_day(rows, flow_types(rows), set(), AS_OF).values()) == 6 * 60000 + 250000
+
+
+def test_a_few_small_deposits_are_not_large_just_because_there_are_few() -> None:
+    rows = ordinary()[:12]
+    rows += [txn(30, date(2026, 9, 4), 40000, "deposit", FRIEND),
+             txn(31, date(2026, 9, 9), 45000, "deposit", FRIEND)]  # fmt: skip
+    assert paired(rows) == []  # 400 and 450 dollars: under the floor of 500 dollars

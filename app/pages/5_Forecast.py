@@ -231,10 +231,12 @@ with st.expander("What's in everyday spending", expanded=False):
 
 with st.expander("Big one-time events (not forecast)", expanded=bool(forecast.big_events)):
     st.caption(
-        "Big one-time rows of the last 13 weeks: a row of at least $300 that is at least 5 "
+        "Big one-time rows of the last 13 weeks: a row of at least $500 that is at least 5 "
         "times the typical row, money out or money in. They are not everyday spending or "
-        "irregular deposits, and they are not repeated in the forecast. Add a planned payment "
-        "(for example a term payment) if one is coming."
+        "irregular deposits, and they are not repeated in the forecast. A big deposit that "
+        "went straight back out (outflows adding up to 90 to 110 percent of it within 14 "
+        "days) is shown with those outflows as a numbered pass-through. A big deposit with no "
+        "such outflows is a large deposit: when one arrives cannot be predicted from history."
     )
     if forecast.big_events:
         st.dataframe(
@@ -243,6 +245,11 @@ with st.expander("Big one-time events (not forecast)", expanded=bool(forecast.bi
         )  # fmt: skip
     else:
         st.caption("No big one-time rows in the last 13 weeks.")
+    if forecast.large_deposits:
+        st.info(
+            "You sometimes receive large deposits. If you expect one, add it as a planned "
+            "deposit. (Planned deposits and payments are not available yet.)"
+        )
 
 st.subheader("Recurring payments placed in this period")
 if forecast.items:

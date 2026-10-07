@@ -102,13 +102,21 @@ def test_an_empty_spending_table_is_empty() -> None:
     assert breakdown_table([]).empty
 
 
-def test_the_big_events_table_shows_dates_types_and_signed_dollars() -> None:
-    events = [BigEvent(date(2026, 9, 3), "Transfers to my own accounts", -600000),
-              BigEvent(date(2026, 9, 5), "Deposit", 900000)]  # fmt: skip
+def test_the_big_events_table_shows_dates_types_signed_dollars_and_what_each_is() -> None:
+    events = [
+        BigEvent(date(2026, 9, 3), "Deposit", 640000, "Pass-through", 1),
+        BigEvent(date(2026, 9, 4), "Bill payments (in no series)", -725000, "Pass-through", 1),
+        BigEvent(date(2026, 9, 8), "Credit memo", 400000, "Large deposit"),
+        BigEvent(date(2026, 9, 9), "Transfers to people", -60000, "Large payment"),
+    ]
     table = events_table(events)
-    assert list(table.columns) == ["Date", "Type", "Amount ($)"]
-    assert list(table["Date"]) == ["2026-09-03", "2026-09-05"]
-    assert list(table["Amount ($)"]) == [-6000.0, 9000.0]  # money in is positive
+    assert list(table.columns) == ["Date", "Type", "Amount ($)", "What"]
+    assert list(table["Date"]) == ["2026-09-03", "2026-09-04", "2026-09-08", "2026-09-09"]
+    assert list(table["Amount ($)"]) == [6400.0, -7250.0, 4000.0, -600.0]  # money in is positive
+    assert list(table["What"]) == [
+        "Pass-through 1", "Pass-through 1", "Large deposit (not forecast)",
+        "Large payment (not forecast)",
+    ]  # fmt: skip
     assert events_table([]).empty
 
 

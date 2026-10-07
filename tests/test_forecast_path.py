@@ -306,3 +306,25 @@ def test_the_simulation_does_not_change_when_later_rows_arrive(conn: sqlite3.Con
     insert(conn, date(2026, 9, 16), -700000, "pos purchase", CARD.format("Laptop"), 1)
     again = build_forecast(conn, ACCOUNT, "weekday", as_of=date(2026, 8, 31))
     assert early is not None and again is not None and early.simulation == again.simulation
+
+
+def test_a_large_deposit_with_no_matching_outflow_is_listed_and_not_forecast(
+    conn: sqlite3.Connection,
+) -> None:
+    insert(conn, date(2026, 9, 5), 1500000, "credit memo", "Family ", 1)
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert forecast is not None and forecast.simulation is not None
+    assert [(e.group, e.cents) for e in forecast.big_events] == [("Large deposit", 1500000)]
+    assert [e.cents for e in forecast.large_deposits] == [1500000]
+    assert forecast.simulation.p50 == forecast.simulation.median_without  # not in the futures
+
+
+def test_a_deposit_paid_straight_out_is_a_pass_through_in_the_forecast(
+    conn: sqlite3.Connection,
+) -> None:
+    insert(conn, date(2026, 9, 5), 2000000, "credit memo", "Family ", 1)
+    insert(conn, date(2026, 9, 5), -1865900, "bill payment", "City University ", 1)
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert forecast is not None
+    assert {e.group for e in forecast.big_events} == {"Pass-through"}
+    assert forecast.large_deposits == ()

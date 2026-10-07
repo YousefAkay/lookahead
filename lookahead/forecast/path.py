@@ -63,6 +63,11 @@ class Forecast:
     simulation: Simulation | None = None  # the simulated futures (a range, not one path)
 
     @property
+    def large_deposits(self) -> tuple[BigEvent, ...]:
+        """Big deposits that were not paid straight back out: set aside, not forecast."""
+        return tuple(e for e in self.big_events if e.group == "Large deposit")
+
+    @property
     def lowest(self) -> tuple[date, int]:
         """The day with the lowest projected balance, and that balance."""
         low = min(self.days, key=lambda d: (d.balance_cents, d.day))
