@@ -232,16 +232,74 @@ def test_looking_again_at_the_same_numbers_records_nothing_new(conn: sqlite3.Con
     assert count == 1
 
 
-def test_a_dismissed_episode_stays_quiet_even_after_a_material_change(
+def test_a_dismissed_episode_stays_quiet_for_moves_that_are_not_worse_in_kind(
     conn: sqlite3.Connection,
 ) -> None:
-    first = run(conn)
+    first = run(conn, probability=0.60)  # band 2
     dismiss(conn, ACCOUNT, first.episode_id or 0, date(2026, 10, 1))
     assert active_alert(conn, ACCOUNT) is None
-    worse = run(conn, data_date=date(2026, 10, 2), low_offset=6, low_cents=1000)
-    assert worse.episode_id == first.episode_id and not worse.notified
+    # $116 lower (material for an open episode), the same band, the low still above $0: quiet
+    lower = run(conn, data_date=date(2026, 10, 2), low_offset=6, low_cents=1000, probability=0.70)
+    assert lower.episode_id == first.episode_id and not lower.notified
+    # a later date, a higher chance inside the same band: quiet
+    later = run(conn, data_date=date(2026, 10, 3), low_offset=8, low_cents=1000, probability=0.75)
+    assert not later.notified
     [episode] = episodes(conn, ACCOUNT)
     assert episode.status == "dismissed" and episode.low_cents == 1000  # still tracked
+
+
+def test_getting_better_stays_quiet_when_dismissed(conn: sqlite3.Connection) -> None:
+    first = run(conn, probability=0.85, low_cents=5000)  # band 3
+    dismiss(conn, ACCOUNT, first.episode_id or 0, date(2026, 10, 1))
+    better = run(conn, data_date=date(2026, 10, 2), low_offset=6, low_cents=15000, probability=0.30)
+    assert not better.notified
+    assert episodes(conn, ACCOUNT)[0].status == "dismissed"
+
+
+@pytest.mark.parametrize(("before", "after"), [(0.30, 0.60), (0.60, 0.85), (0.30, 0.85)])
+def test_a_dismissed_episode_alerts_again_when_the_chance_enters_a_higher_band(
+    conn: sqlite3.Connection, before: float, after: float
+) -> None:
+    first = run(conn, probability=before)
+    dismiss(conn, ACCOUNT, first.episode_id or 0, date(2026, 10, 1))
+    worse = run(conn, data_date=date(2026, 10, 2), low_offset=6, probability=after)
+    assert worse.episode_id == first.episode_id and worse.notified
+    assert "chance" in worse.reason
+    [episode] = episodes(conn, ACCOUNT)
+    assert episode.status == "open" and active_alert(conn, ACCOUNT) == episode  # shown again
+
+
+def test_a_dismissed_episode_alerts_again_when_the_low_drops_below_zero(
+    conn: sqlite3.Connection,
+) -> None:
+    first = run(conn, low_cents=12600, probability=0.60)
+    dismiss(conn, ACCOUNT, first.episode_id or 0, date(2026, 10, 1))
+    worse = run(conn, data_date=date(2026, 10, 2), low_offset=6, low_cents=-500, probability=0.60)
+    assert worse.notified and "$0" in worse.reason
+    assert active_alert(conn, ACCOUNT) is not None
+
+
+def test_a_low_already_below_zero_when_dismissed_does_not_alert_again_for_going_lower(
+    conn: sqlite3.Connection,
+) -> None:
+    first = run(conn, low_cents=-500, probability=0.60)
+    dismiss(conn, ACCOUNT, first.episode_id or 0, date(2026, 10, 1))
+    deeper = run(conn, data_date=date(2026, 10, 2), low_offset=6, low_cents=-90000,
+                 probability=0.60)  # fmt: skip
+    assert not deeper.notified and active_alert(conn, ACCOUNT) is None
+
+
+def test_after_a_dismissed_episode_alerts_again_the_new_state_is_the_baseline(
+    conn: sqlite3.Connection,
+) -> None:
+    first = run(conn, probability=0.30)
+    dismiss(conn, ACCOUNT, first.episode_id or 0, date(2026, 10, 1))
+    run(conn, data_date=date(2026, 10, 2), low_offset=6, probability=0.60)  # alerts, open again
+    dismiss(conn, ACCOUNT, first.episode_id or 0, date(2026, 10, 2))
+    same_band = run(conn, data_date=date(2026, 10, 3), low_offset=5, probability=0.70)
+    assert not same_band.notified  # 60 to 70 is the same band: quiet again
+    higher = run(conn, data_date=date(2026, 10, 4), low_offset=4, probability=0.90)
+    assert higher.notified  # into the next band
 
 
 def test_a_dismissed_episode_can_be_brought_back(conn: sqlite3.Connection) -> None:

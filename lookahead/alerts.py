@@ -9,7 +9,9 @@ still has its low within SAME_LOW_DAYS of the open episode's low, it belongs to 
 look is only worth telling me about (`notified`) when something material changed since the last
 alert: the low moved by MATERIAL_LOW_CENTS, the chance crossed a band, or the date shifted by
 DATE_SHIFT_DAYS. Looks that change nothing material are recorded and stay quiet. I can dismiss an
-episode; it stays quiet until it ends (or I bring it back).
+episode; it then stays quiet for small moves and for getting better, and speaks again only if it
+gets materially worse in kind: the chance enters a higher band, or the middle future's low drops
+below $0 (and it ends when the condition goes away, or I can bring it back).
 
 Rule zero: every number comes from the forecast handed in, which was built from rows posted on or
 before its own data date. Nothing here reads anything else or looks at today's date, except to
@@ -125,6 +127,17 @@ def material_change(old: Snapshot, new: Snapshot) -> str | None:
     return None
 
 
+def worse_after_dismissal(old: Snapshot, new: Snapshot) -> str | None:
+    """Why a dismissed episode should speak again: it got materially worse in kind. Only two
+    things count: the chance entered a higher band, or the middle future's low dropped below
+    $0 (it was not below before). Getting better, and any smaller move, stay quiet."""
+    if new.band > old.band:
+        return f"the chance entered a higher band ({old.probability:.0%} to {new.probability:.0%})"
+    if new.low_cents < 0 <= old.low_cents:
+        return "the middle future's low dropped below $0"
+    return None
+
+
 def alert_message(snap: Snapshot) -> str:
     """One plain sentence, in forecast words."""
     days = snap.days_of_warning
@@ -221,8 +234,16 @@ def record_run(conn: sqlite3.Connection, account: str, forecast: Forecast) -> Ru
             if _same_numbers(conn, episode_id, snap):
                 return RunResult(episode_id, False, "")
             told = _last_notified(conn, episode_id)
-            reason = material_change(told, snap) if told is not None else "new alert"
-            notified = reason is not None and not dismissed
+            if told is None:
+                reason = "new alert"
+            elif dismissed:  # quiet unless it got materially worse in kind
+                reason = worse_after_dismissal(told, snap)
+            else:
+                reason = material_change(told, snap)
+            notified = reason is not None
+            if notified and dismissed:  # it speaks again, so it is shown again
+                conn.execute("UPDATE alert_episodes SET dismissed_on = NULL WHERE episode_id = ?",
+                             (episode_id,))  # fmt: skip
             conn.execute("UPDATE alert_episodes SET last_seen_on = ? WHERE episode_id = ?",
                          (snap.data_date.isoformat(), episode_id))  # fmt: skip
         else:
@@ -345,5 +366,5 @@ __all__ = [
     "BANDS", "DATE_SHIFT_DAYS", "MATERIAL_LOW_CENTS", "PROVISIONAL", "SAME_LOW_DAYS", "Episode",
     "RunResult", "Snapshot", "active_alert", "alert_message", "band_of", "build_evidence",
     "dismiss", "episodes", "material_change", "record_run", "restore", "should_alert",
-    "snapshot_of",
+    "snapshot_of", "worse_after_dismissal",
 ]  # fmt: skip

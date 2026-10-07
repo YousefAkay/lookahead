@@ -337,7 +337,9 @@ with st.container(border=True, key="card-alerts"):
     elif current is not None and current.status == "dismissed":
         st.markdown(
             f'<p style="margin: 0">You dismissed this alert (the low about '
-            f"{fmt_day(current.low_day)}). It stays quiet until the low goes away.</p>",
+            f"{fmt_day(current.low_day)}). It stays quiet for small moves and for good news, and "
+            "speaks again only if the chance enters a higher band or the middle future's low "
+            "drops below $0.</p>".replace("$", "&#36;"),
             unsafe_allow_html=True,
         )
         if st.button("Bring it back", key="restore_alert"):
