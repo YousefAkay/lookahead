@@ -41,7 +41,7 @@ from lookahead.taxonomy import CATEGORIES
 
 # Bump when detection or the replay of decisions changes what a stored series holds; the
 # pages then rebuild the saved copy by themselves instead of showing an older one.
-LOGIC_VERSION = 1
+LOGIC_VERSION = 2  # 2: a series with a rent rule is called Rent
 ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent", "rename")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 
@@ -140,6 +140,17 @@ def confirm(
         )  # fmt: skip
     }
     decide(conn, account, series.key, "confirm", snapshot, when)
+
+
+def confirm_all(
+    conn: sqlite3.Connection, account: str, series: Sequence[Stored], when: date | None = None
+) -> int:
+    """Confirm every series still marked "detected" (not ended, not rejected), one decision
+    each, written exactly as a single confirm would. Returns how many were confirmed."""
+    waiting = [s for s in series if s.status == "detected" and s.active]
+    for s in waiting:
+        confirm(conn, account, s, when)
+    return len(waiting)
 
 
 def set_category(
@@ -349,6 +360,8 @@ def current_series(
         for k, rule in rented:
             if series[k].direction == "out" and series[k].status != "rejected":
                 series[k] = _with_rent_rule(series[k], rule, txns, fingerprint, flows, as_of)
+                if not series[k].named_by_me:  # a name I set myself still wins
+                    series[k] = replace(series[k], name="Rent", named_by_me=True)
     for new_key, old_key in links:  # after everything else, so both sides are up to date
         if new_key in series and old_key in series:
             series[new_key] = _joined(series[new_key], series.pop(old_key))

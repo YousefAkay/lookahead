@@ -590,3 +590,90 @@ def test_a_database_without_the_info_table_counts_as_not_current(tmp_path: Path)
 
     old = sqlite3.connect(tmp_path / "old.db")  # no tables at all
     assert not cache_current(old, ACCOUNT)
+
+
+# --- A series with a rent rule is called "Rent" unless I named it ---
+
+
+def test_a_series_with_a_rent_rule_is_called_rent_unless_i_named_it(
+    conn: sqlite3.Connection,
+) -> None:
+    from lookahead.recurring_store import set_name, set_rent_rule
+    from lookahead.rent import RentRule
+
+    phone = by_name(refresh(conn, ACCOUNT))["Phone Co"]
+    rule = RentRule((6500,), 8, 12)
+    set_rent_rule(conn, ACCOUNT, phone.key, rule, date(2026, 9, 1))
+    rent = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
+    assert (rent.name, rent.named_by_me) == ("Rent", True)  # safe to show: my word, not text
+
+    set_name(conn, ACCOUNT, phone.key, "My flat", date(2026, 9, 2))  # a name I set wins
+    mine = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
+    assert mine.name == "My flat"
+
+    set_name(conn, ACCOUNT, phone.key, None, date(2026, 9, 3))  # taken back: the default again
+    again = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
+    assert again.name == "Rent"
+
+    set_rent_rule(conn, ACCOUNT, phone.key, None, date(2026, 9, 4))  # no rule: detected name
+    plain = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
+    assert (plain.name, plain.named_by_me) == ("Phone Co", False)
+
+
+def test_the_rent_name_is_in_the_saved_series_too(conn: sqlite3.Connection) -> None:
+    from lookahead.recurring_store import set_rent_rule
+    from lookahead.rent import RentRule
+
+    phone = by_name(refresh(conn, ACCOUNT))["Phone Co"]
+    set_rent_rule(conn, ACCOUNT, phone.key, RentRule((6500,), 8, 12), date(2026, 9, 1))
+    refresh(conn, ACCOUNT)
+    assert {s.key: s for s in load_series(conn, ACCOUNT)}[phone.key].name == "Rent"
+
+
+# --- Confirm every detected series in one go ("Looks right, confirm all") ---
+
+
+def test_confirm_all_confirms_each_detected_series_and_logs_it_like_a_single_confirm(
+    conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    import shutil
+
+    from lookahead.recurring_store import confirm_all
+
+    path = conn.execute("PRAGMA database_list").fetchone()[2]
+    twin_path = tmp_path / "twin.db"
+    shutil.copy(path, twin_path)
+    twin = connect(twin_path)
+
+    series = refresh(conn, ACCOUNT)
+    waiting = [s for s in series if s.status == "detected" and s.active]
+    assert len(waiting) >= 3
+    assert confirm_all(conn, ACCOUNT, series, date(2026, 9, 5)) == len(waiting)
+    for s in waiting:  # the same decisions, one at a time, in the twin
+        confirm(twin, ACCOUNT, s, date(2026, 9, 5))
+
+    def log(c: sqlite3.Connection) -> list[tuple[str, str, str, date]]:
+        return [(d.key, d.action, repr(sorted(d.details.items())), d.decided_at)
+                for d in load_decisions(c, ACCOUNT)]  # fmt: skip
+
+    assert log(conn) == log(twin) and len(log(conn)) == len(waiting)
+    assert {s.status for s in refresh(conn, ACCOUNT)} == {"confirmed"}
+
+
+def test_confirm_all_leaves_rejected_ended_and_confirmed_series_alone(
+    conn: sqlite3.Connection,
+) -> None:
+    from lookahead.recurring_store import confirm_all
+
+    series = {s.name: s for s in refresh(conn, ACCOUNT)}
+    reject(conn, ACCOUNT, series["Gym Club"].key, date(2026, 9, 1))
+    end(conn, ACCOUNT, series["Phone Co"].key, date(2026, 9, 1))
+    for_all = refresh(conn, ACCOUNT)
+    before = len(load_decisions(conn, ACCOUNT))
+    done = confirm_all(conn, ACCOUNT, for_all, date(2026, 9, 2))
+    decisions = load_decisions(conn, ACCOUNT)[before:]
+    confirmed_keys = {d.key for d in decisions}
+    assert done == len(decisions)
+    assert series["Gym Club"].key not in confirmed_keys  # rejected: left as rejected
+    assert series["Phone Co"].key not in confirmed_keys  # ended: not a payment to look over
+    assert confirm_all(conn, ACCOUNT, refresh(conn, ACCOUNT), date(2026, 9, 3)) == 0  # nothing left
