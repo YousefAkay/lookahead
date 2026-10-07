@@ -1,16 +1,21 @@
-"""The look of Lookahead: deep green with navy as the second colour. Presentation only.
+"""The look of Lookahead: light, a green top bar, white cards, Manrope. Presentation only.
 
+The target is docs/design/target (a Forecast page and a Recurring page, with made-up data).
 Everything visual lives here so that every page uses the same pieces:
 - `COLORS`: the tokens (the same values are in .streamlit/config.toml; a test keeps them in step
   and checks that every text/background pair meets WCAG AA);
-- `TEMPLATE` and `style_figure`: one Plotly template for every chart, plus role-based styling
-  (the chart builders tag each trace with a role; this module decides how a role looks);
-- `CSS`: the small amount of custom CSS Streamlit's own theme cannot express;
-- helpers: `apply`, `sidebar_brand`, `side_label`, `page_header`, `money`, `fmt_date`, `show_table`.
+- `CSS`: the custom CSS Streamlit's own theme cannot express (the top bar, cards, number cards,
+  pills, expanders), in one place;
+- HTML pieces: `top_bar_html`, `tag_html`, `callout_html`;
+- `money`, `fmt_date`, `fmt_day`, `humanize_dates`;
+- tables: `prepare_table` and `show_table`;
+- charts: the Plotly template and `style_forecast_chart` / `style_scenario_chart`. The chart
+  builders in lookahead/ui.py tag each trace with a role; this module decides how a role looks.
 
-No external calls: the fonts are files in app/static/fonts, named in the config.
+No external calls: Manrope is a file in app/static/fonts, named in .streamlit/config.toml.
 """
 
+import html
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -23,219 +28,59 @@ import streamlit as st
 
 STATIC = Path(__file__).resolve().parent / "static"
 FAVICON = STATIC / "favicon.png"
-WORDMARK = STATIC / "wordmark.svg"
 
 
 @dataclass(frozen=True)
 class Palette:
-    bg: str = "#07120D"  # page: near-black green
-    surface: str = "#0E1F17"  # cards, expanders, inputs: slightly lighter green
-    raised: str = "#142B20"  # table headers, hover
-    border: str = "#1F3D2E"  # hairlines (decorative)
-    border_strong: str = "#4F7F67"  # an input's outline (3:1 or more)
-    text: str = "#E9F2EC"  # off-white
-    muted: str = "#9FB8AA"  # grey-green secondary text
-    primary: str = "#34D399"  # emerald: buttons, links, the main forecast line
-    primary_soft: str = "#A7F3D0"  # lighter green for second and third lines
-    on_primary: str = "#04140C"  # text on a primary button
-    link: str = "#6EE7B7"
-    navy: str = "#0F2347"  # secondary panels and info callouts
-    navy_accent: str = "#5B86E5"  # navy blue for chart graphics (the band)
-    navy_text: str = "#BFD4FF"  # text on navy
-    amber: str = "#F5B942"  # warnings, the safety buffer
-    amber_bg: str = "#2B2410"
-    amber_text: str = "#F8DC9B"
-    red: str = "#F28B82"  # soft red: shortfalls, negative amounts
-    red_bg: str = "#33161A"
-    red_text: str = "#F8B4AE"
-    green_bg: str = "#0F3324"  # "fine" callouts
-    green_text: str = "#9AF0CB"
+    white: str = "#FFFFFF"
+    topbar: str = "#17603E"  # the green bar
+    topbar_text: str = "#D3EBDD"  # page links and the data date on the bar
+    brand_light: str = "#BFE7CF"  # the line in the wordmark
+    bg: str = "#F6F8F6"  # page background
+    card: str = "#FFFFFF"
+    border: str = "#E2E8E4"  # card outline
+    border_input: str = "#D5DED8"  # button and pill outline
+    hairline: str = "#EDF1EE"  # dividers inside a card, chart gridlines
+    text: str = "#14201A"
+    muted: str = "#55665C"
+    faint: str = "#66756C"  # the design's #7A8A80, a little darker so it is AA on white
+    green: str = "#1F7A4F"  # money in, good news
+    green_dark: str = "#17603E"  # primary buttons, links
+    soft_green: str = "#E6F3EC"
+    ok_border: str = "#CFE7D9"
+    blue: str = "#2E5F9A"  # the forecast band, "detected", scenario results
+    soft_blue: str = "#EAF0F8"
+    panel_blue: str = "#F3F7FC"
+    amber: str = "#8A5300"  # a possible shortfall
+    amber_line: str = "#B26B00"  # the buffer line
+    amber_bg: str = "#FDF3E1"
+    amber_border: str = "#F1D9A8"
+    amber_dark: str = "#3D2A08"
+    amber_link: str = "#6B4000"
+    ended_bg: str = "#FAFBFA"
+    grey_tag: str = "#EEF1EF"
+    add_border: str = "#9CC7AF"
+    divider: str = "#9AAEA2"
 
 
 COLORS = Palette()
-FONT = "Inter, system-ui, sans-serif"
-MONO = "JetBrains Mono, ui-monospace, monospace"
-
-
-def _rgba(hex_colour: str, alpha: float) -> str:
-    h = hex_colour.lstrip("#")
-    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
-    return f"rgba({r}, {g}, {b}, {alpha})"
-
-
-GRID = _rgba(COLORS.muted, 0.14)
-
-# --- The Plotly template: one for every chart ---
-
-TEMPLATE = go.layout.Template(
-    layout=go.Layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": FONT, "color": COLORS.text, "size": 13},
-        colorway=[COLORS.primary, COLORS.navy_accent, COLORS.amber, COLORS.red,
-                  COLORS.primary_soft],
-        margin={"l": 8, "r": 12, "t": 48, "b": 8},
-        title={"x": 0, "xanchor": "left", "font": {"size": 16, "color": COLORS.text}},
-        hovermode="x unified",
-        hoverlabel={
-            "bgcolor": COLORS.surface, "bordercolor": COLORS.border_strong,
-            "font": {"family": FONT, "color": COLORS.text, "size": 13},
-        },
-        legend={
-            "orientation": "h", "x": 0, "xanchor": "left", "y": -0.16, "yanchor": "top",
-            "bgcolor": "rgba(0,0,0,0)", "font": {"color": COLORS.muted, "size": 12},
-        },
-        xaxis={
-            "gridcolor": GRID, "linecolor": GRID, "zeroline": False, "automargin": True,
-            "tickformat": "%b %-d", "hoverformat": "%b %-d",
-            "tickfont": {"color": COLORS.muted}, "title": {"text": ""},
-        },
-        yaxis={
-            "gridcolor": GRID, "linecolor": GRID, "zeroline": False, "automargin": True,
-            "tickformat": "$,.0f", "hoverformat": "$,.2f",
-            "tickfont": {"color": COLORS.muted}, "title": {"text": ""},
-        },
-    )
-)  # fmt: skip
-pio.templates["lookahead"] = TEMPLATE
-
-# How a role looks. The chart builders in lookahead/ui.py tag each trace with one of these.
-# Lines differ by dash style and width as well as colour, so they stay apart without colour.
-_BAND = _rgba(COLORS.navy_accent, 0.4)
-_BAND_GREY = _rgba(COLORS.muted, 0.2)
-ROLES: dict[str, dict] = {  # type: ignore[type-arg]
-    "recent": {"line": {"color": COLORS.text, "width": 2, "dash": "solid"}},
-    "band_edge": {"line": {"width": 0}},
-    "band": {"line": {"width": 0}, "fillcolor": _BAND},
-    "median": {"line": {"color": COLORS.primary, "width": 3, "dash": "solid"}},
-    "median_without": {"line": {"color": COLORS.primary_soft, "width": 2.5, "dash": "dot"}},
-    "estimate": {"line": {"color": COLORS.primary_soft, "width": 2, "dash": "dash"}},
-    "original_band": {"line": {"width": 0}, "fillcolor": _BAND_GREY},
-    "original_median": {"line": {"color": COLORS.muted, "width": 2, "dash": "dashdot"}},
-    "modified_band": {"line": {"width": 0}, "fillcolor": _BAND},
-    "modified_median": {"line": {"color": COLORS.primary, "width": 3, "dash": "solid"}},
-}
-_HOVER = "%{y:$,.2f}<extra>%{fullData.name}</extra>"
-
-
-def style_figure(figure: go.Figure) -> go.Figure:
-    """Apply the shared template and the role styles to a figure and return it."""
-    figure.update_layout(template=TEMPLATE)
-    figure.update_layout(TEMPLATE.layout)  # also set explicitly, so the figure carries it
-    for trace in figure.data:
-        style = ROLES.get(trace.meta if isinstance(trace.meta, str) else "")
-        if style is not None:
-            trace.update(**style)
-            if trace.meta != "band_edge":
-                trace.update(hovertemplate=_HOVER)
-    figure.update_shapes(selector={"name": "buffer"},
-                         line={"color": COLORS.amber, "dash": "dash", "width": 1.5})  # fmt: skip
-    figure.update_shapes(selector={"name": "zero"},
-                         line={"color": COLORS.red, "dash": "dot", "width": 1})  # fmt: skip
-    # the buffer is named in the legend (amber dashed), not written over the lines
-    figure.layout.annotations = [a for a in figure.layout.annotations if a.text != "safety buffer"]
-    if any(s.name == "buffer" for s in figure.layout.shapes):
-        figure.add_scatter(
-            x=[None], y=[None], mode="lines", name="Safety buffer", hoverinfo="skip",
-            line={"color": COLORS.amber, "dash": "dash", "width": 1.5}, meta="buffer_key",
-        )  # fmt: skip
-    return figure
-
-
-def fit_y_range(figure: go.Figure, dollars: list[float], pad: float = 0.1) -> go.Figure:
-    """Set the y-axis to the values that matter (the forecast, zero, the buffer and the last few
-    days), padded evenly, so one distant peak in the history cannot squash the forecast.
-    Lines outside the range are simply cut off at the edge of the chart."""
-    if not dollars:
-        return figure
-    low, high = min(dollars), max(dollars)
-    margin = max((high - low) * pad, 50.0)  # at least $50 of room, so a flat line is visible
-    figure.update_yaxes(range=[low - margin, high + margin])
-    return figure
-
-
-# --- The little custom CSS (Streamlit's own theme does the rest) ---
-
-CSS = f"""
-#MainMenu, footer, [data-testid="stDecoration"], [data-testid="stToolbar"] {{
-  display: none !important; }}
-header[data-testid="stHeader"] {{ background: transparent; }}
-.block-container {{ padding-top: 2.4rem; max-width: 1240px; }}
-.la-side-label {{ text-transform: uppercase; letter-spacing: .09em; font-size: .72rem;
-  font-weight: 600; color: {COLORS.muted}; margin: 1.3rem 0 .3rem; }}
-.la-chip {{ display: inline-block; padding: .22rem .75rem; border-radius: 999px;
-  background: {COLORS.surface}; border: 1px solid {COLORS.border}; color: {COLORS.muted};
-  font-size: .82rem; font-variant-numeric: tabular-nums; }}
-.la-lede {{ color: {COLORS.muted}; font-size: 1.02rem; margin: -.4rem 0 .7rem; max-width: 62ch; }}
-[data-testid="stMetric"] {{ background: {COLORS.surface}; border: 1px solid {COLORS.border};
-  border-radius: 14px; padding: .9rem 1.1rem; }}
-[data-testid="stMetricLabel"] {{ color: {COLORS.muted}; min-height: 2.5em; }}
-[data-testid="stMetricLabel"] * {{ white-space: normal !important; overflow: visible !important;
-  text-overflow: clip !important; }}
-[data-testid="stMain"] [data-testid="stMetric"] {{ min-height: 8.4rem; }}
-[data-testid="stCheckbox"] * {{ white-space: normal !important; overflow: visible !important;
-  text-overflow: clip !important; }}
-[data-testid="stSidebar"] [data-testid="stMetric"] {{ padding: .55rem .9rem; border-radius: 12px; }}
-[data-testid="stSidebar"] [data-testid="stMetricLabel"] {{ min-height: 0; }}
-[data-testid="stSidebar"] [data-testid="stMetricValue"] {{ font-size: 1.35rem; }}
-[data-testid="stMetricValue"], [data-testid="stMetricDelta"] {{
-  font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }}
-[data-testid="stExpander"] details {{ background: {COLORS.surface};
-  border: 1px solid {COLORS.border}; border-radius: 14px; }}
-[data-testid="stExpander"] summary {{ font-weight: 600; }}
-.stMarkdown, [data-testid="stCaptionContainer"] {{ font-variant-numeric: tabular-nums; }}
-[data-testid="stAlert"] {{ border-radius: 14px; }}
-@media (max-width: 1100px) {{
-  [data-testid="stMain"] [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
-  [data-testid="stMain"] [data-testid="stColumn"] {{ min-width: calc(50% - 1rem) !important;
-    flex: 1 1 calc(50% - 1rem) !important; }}
-}}
-@media (max-width: 640px) {{
-  .block-container {{ padding: 1.4rem .9rem 3rem; }}
-  [data-testid="stMetric"] {{ padding: .7rem .85rem; }}
-  [data-testid="stMain"] [data-testid="stMetric"] {{ min-height: 0; }}
-  [data-testid="stMetricLabel"] {{ min-height: 0; }}
-}}
-"""
-
-
-def apply(title: str) -> None:
-    """Page settings, the custom CSS and the shared chart template. Call first on every page.
-    The tab icon is a local file: a Material icon shortcode would be fetched from Google."""
-    st.set_page_config(page_title=f"{title} · Lookahead", page_icon=str(FAVICON), layout="wide")
-    st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
-    pio.templates.default = "lookahead"
-
-
-def sidebar_brand() -> None:
-    """The wordmark at the top of the sidebar, above the page list (Streamlit's logo slot).
-    A local SVG with the font inside it, so it needs nothing from the internet."""
-    st.logo(str(WORDMARK), icon_image=str(FAVICON), size="large")
-
-
-def side_label(text: str) -> None:
-    """A small section label in the sidebar (Data, Account, Forecast settings)."""
-    st.sidebar.markdown(f'<div class="la-side-label">{text}</div>', unsafe_allow_html=True)
-
-
-def page_header(title: str, description: str, data_updated: date | None = None) -> None:
-    """The same header on every page: title, a one-line description and a status chip."""
-    st.title(title)
-    st.markdown(f'<p class="la-lede">{description}</p>', unsafe_allow_html=True)
-    if data_updated is not None:
-        st.markdown(f'<span class="la-chip">Data last updated: {fmt_date(data_updated)}</span>',
-                    unsafe_allow_html=True)  # fmt: skip
-
+FONT = "Manrope, system-ui, sans-serif"
 
 # --- Money and dates ---
 
 
 def money(cents: int, *, signed: bool = False, markdown: bool = False) -> str:
-    """Integer cents as $1,234.56 (a minus sign in front for a negative; `signed` also puts a plus
-    in front of a positive). `markdown` escapes the $ so Streamlit does not read it as a formula."""
-    sign = "-" if cents < 0 else ("+" if signed else "")
+    """Integer cents as $1,234.56 (a real minus sign, −, in front of a negative; `signed` also puts
+    a plus in front of a positive). `markdown` escapes the $ so Streamlit does not read it as a
+    formula."""
+    sign = "−" if cents < 0 else ("+" if signed else "")
     dollar = "\\$" if markdown else "$"
     return f"{sign}{dollar}{abs(cents) / 100:,.2f}"
+
+
+def money_short(cents: int) -> str:
+    """$200 for a whole number of dollars, $200.50 otherwise (for a buffer in a subtitle)."""
+    return f"${cents // 100:,}" if cents % 100 == 0 and cents >= 0 else money(cents)
 
 
 def fmt_date(day: date) -> str:
@@ -263,6 +108,309 @@ def humanize_dates(text: str) -> str:
     return _ISO_DATE.sub(one, text)
 
 
+# --- Small HTML pieces ---
+
+_TAGS = {
+    "detected": (COLORS.soft_blue, COLORS.blue),
+    "confirmed": (COLORS.soft_green, COLORS.green_dark),
+    "ended": (COLORS.grey_tag, COLORS.muted),
+    "neutral": (COLORS.grey_tag, COLORS.muted),
+}
+
+
+def tag_html(text: str, kind: str = "neutral") -> str:
+    """A small status pill: Detected (blue), Confirmed (green), Ended (grey)."""
+    background, colour = _TAGS[kind]
+    return (
+        f'<span style="font-size: 12px; font-weight: 700; background: {background}; '
+        f'color: {colour}; padding: 4px 10px; border-radius: 999px">{html.escape(text)}</span>'
+    )
+
+
+def callout_html(
+    kind: str, tag: str, sentence_html: str, link_text: str | None = None,
+    link_href: str | None = None,
+) -> str:  # fmt: skip
+    """The one-sentence callout: amber for a possible shortfall, green for on track. The sentence
+    is HTML that the page built from numbers (it may use <strong>); the tag and link are escaped."""
+    if kind == "warning":
+        box = f"background: {COLORS.amber_bg}; border: 1px solid {COLORS.amber_border}"
+        pill = COLORS.amber
+        words, link = COLORS.amber_dark, COLORS.amber_link
+    else:
+        box = f"background: {COLORS.soft_green}; border: 1px solid {COLORS.ok_border}"
+        pill = COLORS.green
+        words, link = COLORS.text, COLORS.green_dark
+    anchor = ""
+    if link_text and link_href:
+        anchor = (
+            f'<a href="{html.escape(link_href)}" style="font-weight: 700; font-size: 15px; '
+            f'color: {link}">{html.escape(link_text)}</a>'
+        )
+    return (
+        f'<div class="la-callout" style="{box}; border-radius: 14px; padding: 18px 20px; '
+        f'display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: center">'
+        f'<span style="font-size: 12px; font-weight: 800; letter-spacing: 0.04em; '
+        f"text-transform: uppercase; background: {pill}; color: {COLORS.white}; padding: 5px 10px; "
+        f'border-radius: 999px">{html.escape(tag)}</span>'
+        f'<p style="margin: 0; flex: 1 1 420px; font-size: 16px; color: {words}; '
+        f'line-height: 1.5">{sentence_html}</p>{anchor}</div>'
+    )
+
+
+_MARK = (
+    f'<svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">'
+    f'<circle cx="13" cy="13" r="12" stroke="{COLORS.white}" stroke-width="2"></circle>'
+    f'<path d="M6 16 L11 11 L15 14 L20 8" stroke="{COLORS.brand_light}" stroke-width="2.2" '
+    f'stroke-linecap="round" stroke-linejoin="round"></path></svg>'
+)
+
+PAGES = [
+    ("Home", "/"),
+    ("Transactions", "/Transactions"),
+    ("Label review", "/Label_review"),
+    ("To check", "/To_check"),
+    ("Recurring", "/Recurring"),
+    ("Forecast", "/Forecast"),
+]
+
+
+def top_bar_html(
+    active: str, pages: list[tuple[str, str]], data_to: date | None, source: str
+) -> str:  # fmt: skip
+    """The green bar: wordmark, page links (the current page marked), the date the data runs to,
+    and which data is shown (Synthetic demo or My data)."""
+    links = []
+    for label, path in pages:
+        current = ' aria-current="page"' if label == active else ""
+        links.append(
+            f'<a href="{html.escape(path)}" target="_self"{current}>{html.escape(label)}</a>'
+        )
+    until = f"Data to {fmt_date(data_to)}" if data_to is not None else "No data yet"
+    return (
+        '<header class="la-bar"><div class="la-bar-inner">'
+        f'<a href="/" target="_self" class="la-brand">{_MARK}Lookahead</a>'
+        f'<nav aria-label="Main" class="la-nav">{"".join(links)}</nav>'
+        f'<div class="la-bar-right"><span class="la-until">{html.escape(until)}</span>'
+        f'<span class="la-source">{html.escape(source)}</span></div></div></header>'
+    )
+
+
+# --- The custom CSS (Streamlit's own theme does the rest) ---
+
+CSS = f"""
+#MainMenu, footer, [data-testid="stDecoration"] {{ display: none !important; }}
+html, body, [data-testid="stApp"] {{ background: {COLORS.bg}; color: {COLORS.text};
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }}
+[data-testid="stMainBlockContainer"] {{ max-width: 1200px; padding: 76px 24px 64px; }}
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {{ gap: 24px; }}
+[data-testid="stMarkdownContainer"] h1, [data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3 {{ margin: 0 !important; padding: 0 !important; }}
+h1 {{ font-size: 34px !important; font-weight: 800 !important; letter-spacing: -0.02em;
+  line-height: 1.2; }}
+h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacing: 0; }}
+[data-testid="stMarkdownContainer"] p.la-sub {{ margin: 6px 0 0; color: {COLORS.muted};
+  font-size: 15px; }}
+[data-testid="stMarkdownContainer"] p.la-note {{ margin: 0; color: {COLORS.muted};
+  font-size: 13px; }}
+[data-testid="stMarkdownContainer"] p.la-foot {{ margin: 0; color: {COLORS.faint}; font-size: 12px;
+  text-align: center; }}
+
+/* the green top bar: fixed, full width, content centred at 1200px; the sidebar slides over it */
+.st-key-topbar {{ position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: {COLORS.topbar}; padding: 0; gap: 0; }}
+.la-bar {{ background: {COLORS.topbar}; color: {COLORS.white}; }}
+.la-bar-inner {{ max-width: 1200px; margin: 0 auto; padding: 0 24px; display: flex;
+  flex-wrap: wrap; align-items: center; gap: 12px 28px; min-height: 64px; }}
+.la-brand {{ display: flex; align-items: center; gap: 10px; color: {COLORS.white} !important;
+  text-decoration: none !important; font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }}
+.la-nav {{ display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 auto; }}
+.la-nav a {{ color: {COLORS.topbar_text} !important; text-decoration: none !important;
+  font-weight: 600; font-size: 15px; padding: 8px 12px; border-radius: 8px; }}
+.la-nav a:hover {{ background: rgba(255, 255, 255, 0.10); }}
+.la-nav a[aria-current="page"] {{ color: {COLORS.white} !important;
+  background: rgba(255, 255, 255, 0.14); font-weight: 700; }}
+.la-bar-right {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding-right: 104px; }}
+.la-until {{ font-size: 13px; color: {COLORS.topbar_text}; }}
+.la-source {{ font-size: 12px; font-weight: 700; background: {COLORS.white};
+  color: {COLORS.topbar}; padding: 4px 10px; border-radius: 999px; }}
+
+/* the header holds only the settings button: it sits at the right end of the green bar */
+[data-testid="stHeader"] {{ position: fixed; top: 0;
+  right: max(24px, calc((100vw - 1200px) / 2 + 24px));
+  left: auto; width: auto; height: 64px; background: transparent; display: flex;
+  align-items: center; }}
+[data-testid="stToolbar"] {{ position: static; padding: 0; }}
+[data-testid="stExpandSidebarButton"] {{ width: auto; height: auto; padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.14); border-radius: 8px; }}
+[data-testid="stExpandSidebarButton"] span {{ display: none; }}
+[data-testid="stExpandSidebarButton"]::after {{ content: "Settings"; color: {COLORS.white};
+  font-weight: 700; font-size: 14px; }}
+
+/* Streamlit's markdown block pulls the next block up by 1rem; an HTML block needs no such pull */
+[data-testid="stMarkdownContainer"] {{ margin-bottom: 0 !important; }}
+[data-testid="stMarkdownContainer"] > p:last-child {{ margin-bottom: 0; }}
+
+/* cards: a bordered container with a key starting "card-" (the border is the block itself) */
+[class*="st-key-card-"][data-testid="stVerticalBlock"] {{ background: {COLORS.card};
+  border: 1px solid {COLORS.border}; border-radius: 16px; padding: 24px; gap: 16px; }}
+[data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"] {{
+  flex: 1 1 auto; }}
+[data-testid="stLayoutWrapper"] > [class*="st-key-card-"] {{ height: 100%; }}
+[data-testid="stMetric"] {{ background: {COLORS.card}; border: 1px solid {COLORS.border};
+  border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 6px;
+  min-height: 132px; }}
+[data-testid="stMetricLabel"] {{ color: {COLORS.muted}; font-weight: 600; }}
+[data-testid="stMetricLabel"] * {{ font-size: 13px !important; white-space: normal !important;
+  overflow: visible !important; text-overflow: clip !important; }}
+[data-testid="stMetricValue"] * {{ font-size: 30px !important; font-weight: 800 !important;
+  letter-spacing: -0.02em; line-height: 1.2; }}
+[data-testid="stMetricDelta"] {{ background: transparent !important; padding: 0 !important;
+  color: {COLORS.muted} !important; font-size: 13px !important; font-weight: 400; }}
+[data-testid="stMetricDelta"] * {{ color: {COLORS.muted} !important; font-size: 13px !important;
+  font-weight: 400; }}
+.st-key-tone-warn [data-testid="stMetricValue"] * {{ color: {COLORS.amber} !important; }}
+.st-key-evidence {{ background: {COLORS.card}; border: 1px solid {COLORS.border};
+  border-radius: 16px; padding: 8px 24px; gap: 0; }}
+.st-key-evidence [data-testid="stExpander"] details {{ background: transparent; border: 0;
+  border-bottom: 1px solid {COLORS.hairline}; border-radius: 0; padding: 4px 0; }}
+.st-key-evidence [data-testid="stExpander"]:last-child details {{ border-bottom: 0; }}
+.st-key-evidence summary {{ padding: 10px 0; }}
+.st-key-evidence summary p {{ font-size: 16px !important; font-weight: 700 !important; }}
+
+/* pills: the what-if choices */
+button[data-variant="pills"] {{ border-radius: 999px; border: 1px solid {COLORS.border_input};
+  background: {COLORS.white}; color: {COLORS.text}; font-weight: 600; min-height: 44px;
+  padding: 10px 14px; }}
+button[data-variant="pills"][aria-pressed="true"] {{ border: 1.5px solid {COLORS.green};
+  background: {COLORS.soft_green}; color: {COLORS.green_dark}; font-weight: 700; }}
+[data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button {{ min-height: 44px;
+  font-weight: 700; }}
+
+/* the settings panel (Streamlit's sidebar), kept small and plain */
+[data-testid="stSidebar"] {{ border-right: 1px solid {COLORS.border}; }}
+[data-testid="stAlert"] {{ border-radius: 14px; }}
+
+@media (max-width: 1100px) {{
+  [data-testid="stMainBlockContainer"] {{ padding-top: 96px; }}
+}}
+
+@media (max-width: 760px) {{
+  [data-testid="stMainBlockContainer"] {{ padding: 168px 16px 48px; }}
+  .la-bar-right {{ padding-right: 0; }}
+  .la-bar-inner {{ padding: 12px 16px; gap: 8px 16px; }}
+  [data-testid="stHeader"] {{ top: 8px; right: 16px; height: auto; }}
+  [data-testid="stMetric"] {{ min-height: 0; padding: 16px; }}
+  h1 {{ font-size: 28px !important; }}
+}}
+"""
+
+
+def apply(title: str) -> None:
+    """Page settings and the custom CSS. Call first on every page. The tab icon is a local file: a
+    Material icon shortcode would be fetched from Google."""
+    st.set_page_config(
+        page_title=f"{title} · Lookahead", page_icon=str(FAVICON), layout="wide",
+        initial_sidebar_state="collapsed",
+    )  # fmt: skip
+    st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
+    pio.templates.default = "lookahead"
+
+
+def top_bar(slot: "st.delta_generator.DeltaGenerator", active: str, data_to: date | None,
+            source: str) -> None:  # fmt: skip
+    """Draw the green bar into the container `slot` (made first, filled once the data is known)."""
+    with slot:
+        st.markdown(top_bar_html(active, PAGES, data_to, source), unsafe_allow_html=True)
+
+
+def side_label(text: str) -> None:
+    """A small section label in the settings panel."""
+    st.sidebar.markdown(f'<p class="la-note"><strong>{html.escape(text)}</strong></p>',
+                        unsafe_allow_html=True)  # fmt: skip
+
+
+def chart_legend_html(buffer_cents: int) -> str:
+    """The legend written above the chart, as in the design: Actual, Middle future, 80% of futures,
+    and the buffer."""
+
+    def line(colour: str, width: float, dash: str = "") -> str:
+        return (
+            f'<svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" '
+            f'stroke="{colour}" stroke-width="{width}"{dash}></line></svg>'
+        )
+
+    band = (
+        f'<span style="width: 22px; height: 12px; background: {_rgba(COLORS.blue, 0.18)}; '
+        f'border-radius: 3px"></span>'
+    )
+    items = [
+        (line(COLORS.text, 2.5), "Actual"),
+        (line(COLORS.green, 3), "Middle future"),
+        (band, "80% of futures"),
+        (
+            line(COLORS.amber_line, 2, ' stroke-dasharray="4 3"'),
+            f"Buffer {money_short(buffer_cents)}",
+        ),
+    ]
+    parts = "".join(
+        f'<span style="display: flex; align-items: center; gap: 6px">'
+        f"{mark}{html.escape(text)}</span>"
+        for mark, text in items
+    )
+    return (
+        f'<div class="la-legend" style="display: flex; flex-wrap: wrap; gap: 8px 16px; '
+        f'font-size: 13px; color: {COLORS.muted}; align-items: center; justify-content: flex-end">'
+        f"{parts}</div>"
+    )
+
+
+def result_panel_html(rows: list[tuple[str, str, str, str]]) -> str:
+    """The what-if result: a blue panel, two columns, each `before → after`. A row is (label,
+    before, after, verdict) with verdict "better" (green), "worse" (amber) or "same"."""
+    colour = {"better": COLORS.green_dark, "worse": COLORS.amber, "same": COLORS.text}
+    cells = "".join(
+        f'<div style="display: flex; flex-direction: column; gap: 4px">'
+        f'<span style="font-size: 13px; color: {COLORS.blue}; font-weight: 700">'
+        f"{html.escape(label)}</span>"
+        f'<span style="font-size: 24px; font-weight: 800">{html.escape(before)} → '
+        f'<span style="color: {colour[verdict]}">{html.escape(after)}</span></span></div>'
+        for label, before, after, verdict in rows
+    )
+    return (
+        f'<div class="la-panel" style="background: {COLORS.panel_blue}; border-radius: 12px; '
+        f"padding: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); "
+        f'gap: 16px">{cells}</div>'
+    )
+
+
+def coming_up_html(rows: list[tuple[str, str, str, str, bool]]) -> str:
+    """The "Coming up" list. A row is (date, name, what it is, amount, is money in); money in is
+    green and bold, other amounts are plain."""
+    out = []
+    for i, (day, name, sub, amount, money_in) in enumerate(rows):
+        line = "" if i == len(rows) - 1 else f"border-bottom: 1px solid {COLORS.hairline}"
+        weight, colour = ("800", COLORS.green_dark) if money_in else ("700", COLORS.text)
+        out.append(
+            f'<div style="display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; '
+            f"gap: 12px; "
+            f'align-items: center; padding: 12px 0; {line}">'
+            f'<span style="font-size: 13px; font-weight: 700; color: {COLORS.muted}">'
+            f"{html.escape(day)}</span>"
+            f'<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">'
+            f'<span style="font-weight: 700">{html.escape(name)}</span>'
+            f'<span style="font-size: 12px; color: {COLORS.muted}">{html.escape(sub)}</span></div>'
+            f'<span style="font-weight: {weight}; color: {colour}">'
+            f"{html.escape(amount)}</span></div>"
+        )
+    return f'<div style="display: flex; flex-direction: column">{"".join(out)}</div>'
+
+
+def footer(text: str) -> None:
+    st.markdown(f'<p class="la-foot">{html.escape(text)}</p>', unsafe_allow_html=True)
+
+
 # --- Tables ---
 
 
@@ -270,32 +418,36 @@ def humanize_dates(text: str) -> str:
 class TableView:
     frame: pd.DataFrame  # the data, with real dates; column names unchanged
     labels: dict[str, str]  # column name -> the header shown
-    negative_cells: dict[str, list[bool]]  # money column -> which cells are negative
+    positive_cells: dict[str, list[bool]]  # money-in column -> which cells are positive
 
 
 def _label(name: str) -> str:
     return name.replace(" ($)", "").replace("_", " ")
 
 
-def prepare_table(df: pd.DataFrame, money: list[str], dates: list[str]) -> TableView:
+def prepare_table(
+    df: pd.DataFrame, money: list[str], dates: list[str], money_in: list[str] | None = None
+) -> TableView:  # fmt: skip
     """Get a table ready to show: ISO dates become real dates (they sort properly and show as
-    Oct 2, 2026), headers lose "($)" and underscores, and negative amounts are noted so they can
-    be shown in soft red. The data keeps its own column names and numbers."""
+    Oct 2, 2026), headers lose "($)" and underscores, and in the `money_in` columns the positive
+    cells are noted so they can be shown in green (money in). The data keeps its own column names
+    and numbers."""
     frame = df.copy()
     for column in dates:
         frame[column] = pd.to_datetime(frame[column]).dt.date
     labels = {c: _label(c) for c in frame.columns}
-    negatives = {c: [bool(v < 0) for v in frame[c]] for c in money}
-    return TableView(frame, labels, negatives)
+    positives = {c: [bool(v > 0) for v in frame[c]] for c in (money_in or [])}
+    return TableView(frame, labels, positives)
 
 
-def show_table(df: pd.DataFrame, money: list[str] = (), dates: list[str] = (),  # type: ignore[assignment]
-               widths: dict[str, str | int] | None = None,
-               whole: bool = False) -> None:  # fmt: skip
-    """A read-only table: no index, amounts as $1,234.56 (negatives in soft red), dates as
-    Oct 2, 2026, plain headers. `widths` maps a column to "small", "medium", "large" or pixels.
-    `whole` shows every row (for a short table) instead of scrolling inside the table."""
-    view = prepare_table(df, list(money), list(dates))
+def show_table(
+    df: pd.DataFrame, money: list[str] = (), dates: list[str] = (),  # type: ignore[assignment]
+    money_in: list[str] = (), widths: dict[str, str | int] | None = None, whole: bool = False,  # type: ignore[assignment]
+) -> None:  # fmt: skip
+    """A read-only table: no index, amounts as $1,234.56 (money in green where `money_in` says
+    so), dates as Oct 2, 2026, plain headers. `widths` maps a column to "small", "medium", "large"
+    or pixels. `whole` shows every row (for a short table) instead of scrolling inside it."""
+    view = prepare_table(df, list(money), list(dates), list(money_in))
     widths = widths or {}
     config: dict = {}  # type: ignore[type-arg]
     for column, label in view.labels.items():
@@ -308,7 +460,128 @@ def show_table(df: pd.DataFrame, money: list[str] = (), dates: list[str] = (),  
         else:
             config[column] = st.column_config.TextColumn(label, width=widths.get(column))
     shown = view.frame.style
-    if money:
-        shown = shown.map(lambda v: f"color: {COLORS.red}" if v < 0 else "", subset=list(money))
+    if money_in:
+        green = f"color: {COLORS.green_dark}; font-weight: 700"
+        shown = shown.map(lambda v: green if v > 0 else "", subset=list(money_in))
     st.dataframe(shown, hide_index=True, width="stretch", column_config=config,
                  height="content" if whole else "auto")  # fmt: skip
+
+
+# --- Charts ---
+
+
+def _rgba(hex_colour: str, alpha: float) -> str:
+    h = hex_colour.lstrip("#")
+    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
+TEMPLATE = go.layout.Template(
+    layout=go.Layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": FONT, "color": COLORS.text, "size": 12},
+        margin={"l": 8, "r": 12, "t": 16, "b": 8},
+        showlegend=False,
+        hovermode="x unified",
+        hoverlabel={
+            "bgcolor": COLORS.card, "bordercolor": COLORS.border_input,
+            "font": {"family": FONT, "color": COLORS.text, "size": 13},
+        },
+        xaxis={
+            "showgrid": False, "linecolor": COLORS.hairline, "zeroline": False, "automargin": True,
+            "tickformat": "%b %-d", "hoverformat": "%b %-d",
+            "tickfont": {"color": COLORS.faint, "size": 11}, "title": {"text": ""},
+        },
+        yaxis={
+            "gridcolor": COLORS.hairline, "zeroline": False, "automargin": True,
+            "tickformat": "$~s", "hoverformat": "$,.2f",
+            "tickfont": {"color": COLORS.faint, "size": 11}, "title": {"text": ""},
+        },
+    )
+)  # fmt: skip
+pio.templates["lookahead"] = TEMPLATE
+
+_BLUE_BAND = _rgba(COLORS.blue, 0.18)
+BUFFER_LINE = {"color": COLORS.amber_line, "dash": "dash", "width": 1.6}
+ROLES: dict[str, dict] = {  # type: ignore[type-arg]
+    "recent": {"line": {"color": COLORS.text, "width": 2.2, "dash": "solid"}},
+    "band_edge": {"line": {"width": 0}},
+    "band": {"line": {"width": 0}, "fillcolor": _BLUE_BAND},
+    "median": {"line": {"color": COLORS.green, "width": 3, "dash": "solid"}},
+    "median_without": {"visible": False},  # the design shows one middle line; the data stays
+    "estimate": {"visible": False},
+    "original_band": {"line": {"width": 0}, "fillcolor": _rgba(COLORS.muted, 0.15)},
+    "original_median": {"line": {"color": COLORS.muted, "width": 2, "dash": "dashdot"}},
+    "modified_band": {"line": {"width": 0}, "fillcolor": _BLUE_BAND},
+    "modified_median": {"line": {"color": COLORS.green, "width": 3, "dash": "solid"}},
+}
+_HOVER = "%{y:$,.2f}<extra>%{fullData.name}</extra>"
+
+
+def _apply_roles(figure: go.Figure) -> None:
+    figure.update_layout(template=TEMPLATE)
+    figure.update_layout(TEMPLATE.layout)  # also set explicitly, so the figure carries it
+    for trace in figure.data:
+        style = ROLES.get(trace.meta if isinstance(trace.meta, str) else "")
+        if style is not None:
+            trace.update(**style)
+            if trace.meta not in ("band_edge", "median_without", "estimate"):
+                trace.update(hovertemplate=_HOVER)
+
+
+def style_forecast_chart(
+    figure: go.Figure, forecast_start: date, forecast_end: date, low: tuple[date, int] | None
+) -> go.Figure:  # fmt: skip
+    """The design's chart: the actual line dark, the middle future green, the 80% band translucent
+    blue, the buffer dashed amber, the forecast area lightly shaded with its start marked, and the
+    low point marked and labelled. `low` is (day, cents) of the lowest expected balance."""
+    _apply_roles(figure)
+    figure.update_layout(title={"text": ""})  # the heading is written above the chart
+    figure.layout.shapes = [s for s in figure.layout.shapes if s.name != "zero"]
+    figure.layout.annotations = [a for a in figure.layout.annotations if a.text != "safety buffer"]
+    figure.update_shapes(selector={"name": "buffer"}, line=BUFFER_LINE)
+    figure.add_shape(type="rect", xref="x", yref="paper", x0=forecast_start, x1=forecast_end,
+                     y0=0, y1=1, fillcolor=COLORS.panel_blue, line={"width": 0}, layer="below",
+                     name="forecast area")  # fmt: skip
+    figure.add_shape(type="line", xref="x", yref="paper", x0=forecast_start, x1=forecast_start,
+                     y0=0, y1=1, line={"color": COLORS.divider, "width": 1},
+                     name="forecast start")  # fmt: skip
+    figure.add_annotation(x=forecast_start, y=1, xref="x", yref="paper", text="FORECAST",
+                          showarrow=False, xanchor="left", yanchor="top", xshift=8, yshift=-4,
+                          font={"color": COLORS.blue, "size": 11, "weight": 700})  # fmt: skip
+    if low is not None:
+        day, cents = low
+        figure.add_scatter(
+            x=[day], y=[cents / 100], mode="markers", name="Lowest expected balance",
+            marker={"size": 12, "color": COLORS.card,
+                    "line": {"color": COLORS.amber, "width": 2.5}},
+            hovertemplate=_HOVER, meta="low",
+        )  # fmt: skip
+        figure.add_annotation(
+            x=day, y=cents / 100, xref="x", yref="y", showarrow=False, yanchor="top", yshift=-14,
+            text=f"Low {money(cents)} · {fmt_day(day)}", bgcolor=COLORS.amber, borderpad=5,
+            font={"color": COLORS.white, "size": 12, "weight": 700},
+        )  # fmt: skip
+    return figure
+
+
+def style_scenario_chart(figure: go.Figure) -> go.Figure:
+    """The original and the changed futures, in the same palette."""
+    _apply_roles(figure)
+    figure.layout.shapes = [s for s in figure.layout.shapes if s.name != "zero"]
+    figure.layout.annotations = [a for a in figure.layout.annotations if a.text != "safety buffer"]
+    figure.update_shapes(selector={"name": "buffer"}, line=BUFFER_LINE)
+    return figure
+
+
+def fit_y_range(figure: go.Figure, dollars: list[float], pad: float = 0.1) -> go.Figure:
+    """Set the y-axis to the values that matter (the forecast, the buffer and the last few days),
+    padded evenly, so one distant peak in the history cannot squash the forecast. Lines outside
+    the range are cut off at the edge of the chart."""
+    if not dollars:
+        return figure
+    low, high = min(dollars), max(dollars)
+    margin = max((high - low) * pad, 50.0)  # at least $50 of room, so a flat line is visible
+    figure.update_yaxes(range=[low - margin, high + margin])
+    return figure

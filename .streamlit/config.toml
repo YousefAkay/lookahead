@@ -1,67 +1,60 @@
 # Lookahead is local-first: the app must only be reachable from this computer.
 [server]
 address = "localhost"
-enableStaticServing = true  # serves app/static (the bundled fonts), nothing else
+enableStaticServing = true  # serves app/static (the bundled font), nothing else
 
 [browser]
 gatherUsageStats = false
 
 [client]
 toolbarMode = "minimal"  # hides the Deploy button and developer items: this app is never deployed
+showSidebarNavigation = false  # the pages are linked from the green top bar (app/theme.py)
 
-# --- Look: deep green, with navy as the second colour. Every colour is a token; the same values
-# are named in app/theme.py (a test keeps the two in step and checks WCAG AA contrast).
-# No external calls: the fonts below are files in app/static/fonts (SIL Open Font Licence).
+# --- Look: light, a green top bar, white cards. The target is in docs/design/target; every colour
+# is a token named in app/theme.py (a test keeps the two in step and checks WCAG AA contrast).
+# No external calls: Manrope is a file in app/static/fonts (SIL Open Font Licence).
 [theme]
-base = "dark"
-primaryColor = "#34D399"              # emerald: buttons, links, the main forecast line
-backgroundColor = "#07120D"           # near-black green
-secondaryBackgroundColor = "#0E1F17"  # cards, expanders, inputs
-textColor = "#E9F2EC"                 # off-white
-linkColor = "#6EE7B7"
-borderColor = "#1F3D2E"
+base = "light"
+primaryColor = "#17603E"              # buttons and selected pills
+backgroundColor = "#F6F8F6"
+secondaryBackgroundColor = "#FFFFFF"  # inputs and the settings panel
+textColor = "#14201A"
+linkColor = "#17603E"
+borderColor = "#E2E8E4"
 showWidgetBorder = true
-baseRadius = "0.75rem"
-buttonRadius = "0.6rem"
-font = "Inter, sans-serif"
-headingFont = "Inter, sans-serif"
-codeFont = "JetBrains Mono, monospace"
+baseRadius = "10px"
+buttonRadius = "10px"
+font = "Manrope, sans-serif"
+headingFont = "Manrope, sans-serif"
 baseFontSize = 16
-metricValueFontSize = "1.85rem"
-headingFontWeights = [700, 650, 600, 600, 600, 600]
-dataframeHeaderBackgroundColor = "#142B20"
-dataframeBorderColor = "#1F3D2E"
-# Status colours (text and background pairs are all AA): green = fine, blue = navy callouts,
-# orange = amber warnings, red = soft red shortfalls and negative amounts.
-greenColor = "#34D399"
-greenBackgroundColor = "#0F3324"
-greenTextColor = "#9AF0CB"
-blueColor = "#5B86E5"
-blueBackgroundColor = "#0F2347"
-blueTextColor = "#BFD4FF"
-orangeColor = "#F5B942"
-orangeBackgroundColor = "#2B2410"
-orangeTextColor = "#F8DC9B"
-redColor = "#F28B82"
-redBackgroundColor = "#33161A"
-redTextColor = "#F8B4AE"
-grayColor = "#9FB8AA"
-grayBackgroundColor = "#142B20"
-grayTextColor = "#9FB8AA"
-chartCategoricalColors = ["#34D399", "#5B86E5", "#F5B942", "#F28B82", "#A7F3D0", "#9FB8AA"]
+headingFontWeights = [800, 800, 800, 700, 700, 700]
+dataframeHeaderBackgroundColor = "#F6F8F6"
+dataframeBorderColor = "#E2E8E4"
+# Status colours, as in the design: green = money in and good news, blue = the forecast band and
+# "detected", amber = a possible shortfall, red only for errors.
+greenColor = "#1F7A4F"
+greenBackgroundColor = "#E6F3EC"
+greenTextColor = "#17603E"
+blueColor = "#2E5F9A"
+blueBackgroundColor = "#EAF0F8"
+blueTextColor = "#2E5F9A"
+orangeColor = "#B26B00"
+orangeBackgroundColor = "#FDF3E1"
+orangeTextColor = "#8A5300"
+redColor = "#B3261E"
+redBackgroundColor = "#FDECEA"
+redTextColor = "#8C1D18"
+grayColor = "#55665C"
+grayBackgroundColor = "#EEF1EF"
+grayTextColor = "#55665C"
+chartCategoricalColors = ["#1F7A4F", "#2E5F9A", "#B26B00", "#14201A", "#55665C"]
 
 [theme.sidebar]
-backgroundColor = "#091810"
-secondaryBackgroundColor = "#0E1F17"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F8F6"
 
 [[theme.fontFaces]]
-family = "Inter"
-url = "app/static/fonts/Inter-latin.woff2"
-weight = "100 900"
-style = "normal"
-
-[[theme.fontFaces]]
-family = "JetBrains Mono"
-url = "app/static/fonts/JetBrainsMono-latin.woff2"
-weight = "100 800"
+family = "Manrope"
+url = "app/static/fonts/Manrope-latin.woff2"
+weight = "200 800"
 style = "normal"

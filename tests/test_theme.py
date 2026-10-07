@@ -1,8 +1,8 @@
-"""Tests for the look of the app: tokens, contrast, fonts, the Plotly template and the table and
-money helpers. Presentation only: nothing here touches a forecast."""
+"""Tests for the look of the app (the light design in docs/design/target): tokens, contrast, the
+font, offline use, and the small helpers (money, dates, tags, callouts, the top bar, tables and the
+chart template). Presentation only: nothing here touches a forecast."""
 
 import tomllib
-from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -11,7 +11,18 @@ import plotly.graph_objects as go
 import pytest
 
 from app import theme
-from app.theme import COLORS, fmt_date, money, prepare_table, style_figure
+from app.theme import (
+    COLORS,
+    callout_html,
+    fmt_date,
+    fmt_day,
+    humanize_dates,
+    money,
+    prepare_table,
+    style_forecast_chart,
+    tag_html,
+    top_bar_html,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
@@ -32,16 +43,17 @@ def contrast(a: str, b: str) -> float:
 # --- Tokens ---
 
 TEXT_ON_BACKGROUND = [  # (text token, background token): every pair used for text on screen
-    ("text", "bg"), ("text", "surface"), ("text", "raised"), ("text", "navy"),
-    ("text", "amber_bg"), ("text", "red_bg"), ("text", "green_bg"),
-    ("muted", "bg"), ("muted", "surface"), ("muted", "raised"), ("muted", "navy"),
-    ("primary", "bg"), ("primary", "surface"), ("primary", "green_bg"),
-    ("link", "surface"), ("link", "bg"),
-    ("on_primary", "primary"),
-    ("navy_text", "navy"),
-    ("amber", "bg"), ("amber", "surface"), ("amber", "amber_bg"), ("amber_text", "amber_bg"),
-    ("red", "bg"), ("red", "surface"), ("red", "red_bg"), ("red_text", "red_bg"),
-    ("green_text", "green_bg"),
+    ("text", "bg"), ("text", "card"), ("text", "panel_blue"),
+    ("muted", "bg"), ("muted", "card"), ("muted", "ended_bg"), ("muted", "grey_tag"),
+    ("muted", "panel_blue"),
+    ("faint", "bg"), ("faint", "card"),
+    ("white", "topbar"), ("topbar_text", "topbar"), ("topbar", "white"),
+    ("green_dark", "card"), ("green_dark", "bg"), ("green_dark", "soft_green"),
+    ("green", "card"),
+    ("blue", "soft_blue"), ("blue", "panel_blue"), ("blue", "card"),
+    ("amber", "amber_bg"), ("amber", "card"), ("amber_dark", "amber_bg"),
+    ("amber_link", "amber_bg"),
+    ("white", "amber"), ("white", "green_dark"),
 ]  # fmt: skip
 
 
@@ -50,61 +62,57 @@ def test_every_text_and_background_pair_meets_wcag_aa(fg: str, bg: str) -> None:
     assert contrast(getattr(COLORS, fg), getattr(COLORS, bg)) >= 4.5, (fg, bg)
 
 
-def test_chart_graphics_and_input_outlines_have_enough_contrast_to_be_seen() -> None:
-    for graphic in (
-        COLORS.navy_accent,
-        COLORS.primary,
-        COLORS.primary_soft,
-        COLORS.amber,
-        COLORS.red,
-    ):
-        assert contrast(graphic, COLORS.bg) >= 3.0, graphic  # WCAG 1.4.11 for graphics
-    assert contrast(COLORS.border_strong, COLORS.surface) >= 3.0  # an input's outline
+def test_chart_lines_and_markers_can_be_seen_against_the_card() -> None:
+    for graphic in (COLORS.text, COLORS.green, COLORS.blue, COLORS.amber_line, COLORS.amber):
+        assert contrast(graphic, COLORS.card) >= 3.0, graphic  # WCAG 1.4.11 for graphics
+
+
+def test_the_tokens_are_the_designs() -> None:
+    assert COLORS.topbar == "#17603E" and COLORS.bg == "#F6F8F6" and COLORS.card == "#FFFFFF"
+    assert COLORS.border == "#E2E8E4" and COLORS.text == "#14201A" and COLORS.muted == "#55665C"
+    assert COLORS.green == "#1F7A4F" and COLORS.soft_green == "#E6F3EC"
+    assert COLORS.blue == "#2E5F9A" and COLORS.soft_blue == "#EAF0F8"
+    assert COLORS.panel_blue == "#F3F7FC"
+    assert COLORS.amber == "#8A5300" and COLORS.amber_bg == "#FDF3E1"
 
 
 def test_the_tokens_in_the_code_are_the_ones_in_the_streamlit_theme() -> None:
     t = CONFIG["theme"]
-    assert t["primaryColor"] == COLORS.primary
+    assert t["base"] == "light"
+    assert t["primaryColor"] == COLORS.green_dark
     assert t["backgroundColor"] == COLORS.bg
-    assert t["secondaryBackgroundColor"] == COLORS.surface
+    assert t["secondaryBackgroundColor"] == COLORS.card
     assert t["textColor"] == COLORS.text
-    assert t["linkColor"] == COLORS.link
     assert t["borderColor"] == COLORS.border
-    assert (t["greenBackgroundColor"], t["greenTextColor"]) == (COLORS.green_bg, COLORS.green_text)
-    assert (t["blueColor"], t["blueBackgroundColor"], t["blueTextColor"]) == (
-        COLORS.navy_accent, COLORS.navy, COLORS.navy_text)  # fmt: skip
-    assert (t["orangeColor"], t["orangeBackgroundColor"], t["orangeTextColor"]) == (
-        COLORS.amber, COLORS.amber_bg, COLORS.amber_text)  # fmt: skip
-    assert (t["redColor"], t["redBackgroundColor"], t["redTextColor"]) == (
-        COLORS.red, COLORS.red_bg, COLORS.red_text)  # fmt: skip
-    assert t["grayColor"] == COLORS.muted and t["base"] == "dark"
+    assert t["linkColor"] == COLORS.green_dark
+    assert (t["greenColor"], t["greenBackgroundColor"]) == (COLORS.green, COLORS.soft_green)
+    assert (t["blueColor"], t["blueBackgroundColor"]) == (COLORS.blue, COLORS.soft_blue)
+    assert (t["orangeTextColor"], t["orangeBackgroundColor"]) == (COLORS.amber, COLORS.amber_bg)
+    assert t["grayColor"] == COLORS.muted
 
 
-def test_the_theme_colours_are_valid_hex() -> None:
-    for name, value in vars(COLORS).items() if hasattr(COLORS, "__dict__") else []:
-        assert value.startswith("#") and len(value) == 7, name
+def test_every_colour_is_a_valid_hex() -> None:
     for field in COLORS.__dataclass_fields__:
         value = getattr(COLORS, field)
         assert value.startswith("#") and len(value) == 7, field
 
 
-# --- Fonts and offline use ---
+# --- Font and offline use ---
 
 
-def test_the_fonts_are_files_in_the_app_and_licensed() -> None:
-    faces = CONFIG["theme"]["fontFaces"]
-    assert {f["family"] for f in faces} == {"Inter", "JetBrains Mono"}
-    for face in faces:
-        assert face["url"].startswith("app/static/")  # served by the app itself
-        assert (
-            ROOT / "app" / "static" / Path(face["url"]).relative_to("app/static")
-        ).stat().st_size > 10_000
-    assert (ROOT / "app" / "static" / "fonts" / "Inter-LICENSE.txt").exists()
-    assert (ROOT / "app" / "static" / "fonts" / "JetBrainsMono-LICENSE.txt").exists()
+def test_the_font_is_a_file_in_the_app_and_licensed() -> None:
+    (face,) = CONFIG["theme"]["fontFaces"]
+    assert face["family"] == "Manrope" and face["url"].startswith("app/static/")
+    assert (ROOT / face["url"]).stat().st_size > 10_000
+    assert (ROOT / "app" / "static" / "fonts" / "Manrope-LICENSE.txt").exists()
     assert CONFIG["server"]["enableStaticServing"] is True
-    assert CONFIG["theme"]["font"].startswith("Inter") and CONFIG["theme"]["codeFont"].startswith(
-        "JetBrains"
-    )
+    assert CONFIG["theme"]["font"].startswith("Manrope")
+
+
+def test_the_first_attempts_fonts_and_logo_are_gone() -> None:
+    fonts = {p.name for p in (ROOT / "app" / "static" / "fonts").iterdir()}
+    assert fonts == {"Manrope-latin.woff2", "Manrope-LICENSE.txt"}
+    assert not (ROOT / "app" / "static" / "wordmark.svg").exists()
 
 
 def test_nothing_in_the_look_calls_out_to_the_internet() -> None:
@@ -113,71 +121,133 @@ def test_nothing_in_the_look_calls_out_to_the_internet() -> None:
     for source in (text, code):
         assert "googleapis" not in source and "gstatic" not in source and "cdn." not in source
     assert "http://" not in theme.CSS and "https://" not in theme.CSS and "@import" not in theme.CSS
-    assert "url(" not in theme.CSS  # no fetched images or fonts: fonts come from the config
+    assert "url(" not in theme.CSS  # no fetched images or fonts: the font comes from the config
+    assert "material/" not in code  # a Material icon shortcode would be fetched from Google
+
+
+def test_streamlits_own_navigation_is_off_because_the_top_bar_replaces_it() -> None:
+    assert CONFIG["client"]["showSidebarNavigation"] is False
 
 
 # --- Money and dates ---
 
 
-def test_money_is_dollars_with_thousands_separators_and_a_leading_minus() -> None:
+def test_money_is_dollars_with_thousands_separators_and_a_real_minus_sign() -> None:
     assert money(123456) == "$1,234.56"
-    assert money(5) == "$0.05"
-    assert money(0) == "$0.00"
-    assert money(-54000) == "-$540.00"
-    assert money(-1) == "-$0.01"
+    assert money(5) == "$0.05" and money(0) == "$0.00"
+    assert money(-3500) == "−$35.00"  # the design's minus, not a hyphen
     assert money(1865900) == "$18,659.00"
-    assert money(123456, signed=True) == "+$1,234.56"
-    assert money(-123456, signed=True) == "-$1,234.56"
+    assert money(79520, signed=True) == "+$795.20"
+    assert money(-3500, signed=True) == "−$35.00"
 
 
 def test_money_for_markdown_escapes_the_dollar_sign() -> None:
     assert money(123456, markdown=True) == "\\$1,234.56"
-    assert money(-5000, markdown=True) == "-\\$50.00"
+    assert money(-5000, markdown=True) == "−\\$50.00"
 
 
 def test_dates_read_like_oct_2_2026() -> None:
     assert fmt_date(date(2026, 10, 2)) == "Oct 2, 2026"
     assert fmt_date(date(2027, 1, 15)) == "Jan 15, 2027"
-    assert fmt_date(date(2026, 12, 31)) == "Dec 31, 2026"
+    assert fmt_day(date(2026, 10, 2)) == "Oct 2" and fmt_day(date(2026, 12, 31)) == "Dec 31"
+
+
+def test_iso_dates_inside_a_sentence_become_readable() -> None:
+    assert humanize_dates("2026-09-03 to 2026-09-09") == "Sep 3, 2026 to Sep 9, 2026"
+    assert humanize_dates("Large deposit (2026-09-12, not forecast)") == (
+        "Large deposit (Sep 12, 2026, not forecast)"
+    )
+    assert humanize_dates("nothing here") == "nothing here" and humanize_dates("") == ""
+    assert humanize_dates("Order 2026-13-45 is not a date") == "Order 2026-13-45 is not a date"
+
+
+# --- Tags, callouts and the top bar ---
+
+
+def test_a_tag_has_the_designs_colours_for_its_kind() -> None:
+    detected = tag_html("Detected", "detected")
+    assert COLORS.soft_blue in detected and COLORS.blue in detected and ">Detected<" in detected
+    confirmed = tag_html("Confirmed", "confirmed")
+    assert COLORS.soft_green in confirmed and COLORS.green_dark in confirmed
+    ended = tag_html("Ended", "ended")
+    assert COLORS.grey_tag in ended and COLORS.muted in ended
+    assert "border-radius: 999px" in detected
+
+
+def test_tag_text_is_escaped() -> None:
+    assert "<script>" not in tag_html("<script>alert(1)</script>", "detected")
+
+
+def test_the_warning_callout_is_amber_with_a_tag_a_sentence_and_a_link() -> None:
+    html = callout_html("warning", "Possible shortfall", "<strong>22% chance</strong> of a dip.",
+                        "See why →", "#evidence")  # fmt: skip
+    assert COLORS.amber_bg in html and COLORS.amber_border in html and COLORS.amber in html
+    assert "Possible shortfall" in html and "text-transform: uppercase" in html
+    assert "<strong>22% chance</strong>" in html and 'href="#evidence"' in html
+
+
+def test_the_on_track_callout_is_green_and_needs_no_link() -> None:
+    html = callout_html("ok", "On track", "No simulated future dips below your buffer.")
+    assert COLORS.soft_green in html and COLORS.green in html and "href" not in html
+
+
+PAGES = [("Home", "/"), ("Transactions", "/Transactions"), ("Recurring", "/Recurring"),
+         ("Forecast", "/Forecast")]  # fmt: skip
+
+
+def test_the_top_bar_has_the_wordmark_links_the_data_date_and_the_source() -> None:
+    html = top_bar_html("Forecast", PAGES, date(2026, 10, 1), "Synthetic demo")
+    assert "Lookahead" in html and "<svg" in html
+    for label, path in PAGES:
+        assert f">{label}<" in html and f'href="{path}"' in html
+    assert "Data to Oct 1, 2026" in html and "Synthetic demo" in html
+    assert html.count('aria-current="page"') == 1
+    marked = html[html.index('aria-current="page"') :]
+    assert marked.index("Forecast") < marked.index("</a>")  # the current page is the marked one
+
+
+def test_the_top_bar_without_data_says_so() -> None:
+    assert "No data yet" in top_bar_html("Forecast", PAGES, None, "My data")
 
 
 # --- Tables ---
 
 
-def test_a_table_gets_plain_headers_real_dates_and_negative_amounts_marked() -> None:
+def test_a_table_gets_plain_headers_real_dates_and_money_in_marked() -> None:
     raw = pd.DataFrame({
         "Date": ["2026-10-05", "2026-10-15"],
         "Name": ["Phone Co", "Family"],
         "Amount ($)": [-65.0, 1200.0],
         "Based on": ["detected", "entered"],
     })  # fmt: skip
-    view = prepare_table(raw, money=["Amount ($)"], dates=["Date"])
+    view = prepare_table(raw, money=["Amount ($)"], dates=["Date"], money_in=["Amount ($)"])
     assert list(view.frame.columns) == list(raw.columns)  # the data keeps its own column names
     assert list(view.frame["Date"]) == [date(2026, 10, 5), date(2026, 10, 15)]
     assert list(view.frame["Amount ($)"]) == [-65.0, 1200.0]  # still numbers
     assert view.labels == {
-        "Date": "Date",
-        "Name": "Name",
-        "Amount ($)": "Amount",
-        "Based on": "Based on",
-    }
-    assert view.negative_cells == {"Amount ($)": [True, False]}
+        "Date": "Date", "Name": "Name", "Amount ($)": "Amount", "Based on": "Based on",
+    }  # fmt: skip
+    assert view.positive_cells == {"Amount ($)": [False, True]}  # money in is green, out is plain
     assert list(raw["Date"]) == ["2026-10-05", "2026-10-15"]  # the original is not changed
 
 
+def test_a_column_that_is_not_money_in_gets_no_green() -> None:
+    raw = pd.DataFrame({"Type": ["Card"], "Per week": [12.5]})
+    assert prepare_table(raw, money=["Per week"], dates=[]).positive_cells == {}
+
+
 def test_an_empty_table_is_fine() -> None:
-    view = prepare_table(
-        pd.DataFrame(columns=["Date", "Amount ($)"]), money=["Amount ($)"], dates=["Date"]
-    )
-    assert view.frame.empty and view.negative_cells == {"Amount ($)": []}
+    empty = pd.DataFrame(columns=["Date", "Amount ($)"])
+    view = prepare_table(empty, ["Amount ($)"], ["Date"], ["Amount ($)"])
+    assert view.frame.empty and view.positive_cells == {"Amount ($)": []}
 
 
 def test_underscores_never_reach_a_header() -> None:
     raw = pd.DataFrame({"first_day": [1], "Amount ($)": [2.0]})
-    assert "_" not in " ".join(prepare_table(raw, money=["Amount ($)"], dates=[]).labels.values())
+    assert "_" not in " ".join(prepare_table(raw, ["Amount ($)"], []).labels.values())
 
 
-# --- Charts ---
+# --- The chart ---
 
 
 def sample_forecast():  # type: ignore[no-untyped-def]
@@ -195,46 +265,166 @@ def sample_forecast():  # type: ignore[no-untyped-def]
     return Forecast(start, "test", days, [], False, simulation=sim), sim
 
 
-def test_the_forecast_chart_uses_the_shared_template_and_the_palette() -> None:
+def styled(low: bool = True):  # type: ignore[no-untyped-def]
     from lookahead.ui import forecast_chart
 
-    forecast, _ = sample_forecast()
-    figure = style_figure(forecast_chart(pd.DataFrame(), forecast, 20000))
-    layout = figure.layout
-    assert layout.paper_bgcolor == "rgba(0,0,0,0)" and layout.plot_bgcolor == "rgba(0,0,0,0)"
-    assert layout.legend.orientation == "h" and layout.legend.y < 0  # below the chart
-    assert layout.xaxis.hoverformat == "%b %-d" and layout.xaxis.tickformat == "%b %-d"
-    assert layout.yaxis.tickformat == "$,.0f" and layout.yaxis.hoverformat == "$,.2f"
-    lines = {t.name: t for t in figure.data if t.name and t.mode == "lines" and t.line.width}
-    middle = next(
-        t for n, t in lines.items() if n.startswith("Middle future") and "without" not in n
+    forecast, sim = sample_forecast()
+    recent = pd.DataFrame(
+        {"date": pd.to_datetime(["2026-09-30", "2026-10-01"]), "balance ($)": [900.0, 1000.0]}
     )
-    assert middle.line.color == COLORS.primary
+    figure = forecast_chart(recent, forecast, 20000)
+    lowest = (sim.days[2], sim.p50[2]) if low else None
+    return style_forecast_chart(
+        figure, forecast.start.data_last_updated, forecast.start.last_day, lowest
+    )
 
 
-def test_lines_differ_by_dash_style_and_not_by_colour_alone() -> None:
-    from lookahead.ui import forecast_chart
-
-    forecast, _ = sample_forecast()
-    figure = style_figure(forecast_chart(pd.DataFrame(), forecast, 20000))
-    drawn = [t for t in figure.data if t.name and t.line.width]
-    dashes = {t.name: t.line.dash for t in drawn}
-    wanted = ("Middle future", "Forecast with no")
-    forecast_lines = [d for n, d in dashes.items() if n.startswith(wanted)]
-    assert len(forecast_lines) == 3 and len(set(forecast_lines)) == 3  # solid, dotted, dashed
+def by_name(figure: go.Figure) -> dict[str, go.Scatter]:
+    return {t.name: t for t in figure.data if t.name}
 
 
-def test_the_buffer_is_amber_and_dashed_and_zero_is_a_soft_red_dotted_line() -> None:
-    from lookahead.ui import forecast_chart
-
-    forecast, _ = sample_forecast()
-    figure = style_figure(forecast_chart(pd.DataFrame(), forecast, 20000))
-    shapes = {s.name: s for s in figure.layout.shapes}
-    assert shapes["buffer"].line.color == COLORS.amber and shapes["buffer"].line.dash == "dash"
-    assert shapes["zero"].line.color == COLORS.red and shapes["zero"].line.dash == "dot"
+def test_the_chart_has_a_transparent_background_and_no_plotly_legend() -> None:
+    layout = styled().layout
+    assert layout.paper_bgcolor == "rgba(0,0,0,0)" and layout.plot_bgcolor == "rgba(0,0,0,0)"
+    assert layout.showlegend is False  # the legend is written above the chart, as in the design
+    assert layout.font.family.startswith("Manrope")
 
 
-def test_the_axis_fits_the_forecast_not_a_distant_peak_in_the_history() -> None:
+def test_the_actual_line_is_dark_the_middle_future_green_and_the_band_translucent_blue() -> None:
+    figure = styled()
+    traces = by_name(figure)
+    assert traces["Recent balance"].line.color == COLORS.text
+    assert traces["Middle future (median), with irregular deposits"].line.color == COLORS.green
+    band = next(t for t in figure.data if t.fill == "tonexty")
+    assert band.fillcolor == "rgba(46, 95, 154, 0.18)"
+
+
+def test_the_buffer_is_dashed_amber_and_there_is_no_zero_line() -> None:
+    shapes = {s.name: s for s in styled().layout.shapes if s.name}
+    assert shapes["buffer"].line.color == COLORS.amber_line and shapes["buffer"].line.dash == "dash"
+    assert "zero" not in shapes
+
+
+def test_the_forecast_area_is_lightly_shaded_and_labelled() -> None:
+    figure = styled()
+    area = next(s for s in figure.layout.shapes if s.name == "forecast area")
+    assert area.fillcolor == COLORS.panel_blue and area.layer == "below"
+    assert str(area.x0)[:10] == "2026-10-01" and str(area.x1)[:10] == "2026-10-04"
+    assert any(
+        a.text == "FORECAST" and a.font.color == COLORS.blue for a in figure.layout.annotations
+    )
+    assert any(
+        s.name == "forecast start" and s.line.color == COLORS.divider for s in figure.layout.shapes
+    )
+
+
+def test_the_low_point_is_marked_and_labelled() -> None:
+    figure = styled()
+    marker = by_name(figure)["Lowest expected balance"]
+    assert marker.mode == "markers" and marker.marker.line.color == COLORS.amber
+    assert marker.marker.color == COLORS.card
+    label = next(a for a in figure.layout.annotations if a.text.startswith("Low "))
+    assert label.text == "Low $980.00 · Oct 4" and label.bgcolor == COLORS.amber
+    assert label.font.color == COLORS.white
+
+
+def test_the_other_lines_are_hidden_not_removed() -> None:
+    traces = by_name(styled())
+    assert traces["Middle future (median), without irregular deposits"].visible is False
+    assert traces["Forecast with no randomness (an estimate)"].visible is False
+
+
+def test_axes_use_short_dollars_and_short_dates_with_faint_gridlines() -> None:
+    layout = styled().layout
+    assert layout.yaxis.tickformat == "$~s" and layout.yaxis.hoverformat == "$,.2f"
+    assert layout.xaxis.tickformat == "%b %-d" and layout.xaxis.hoverformat == "%b %-d"
+    assert layout.yaxis.gridcolor == COLORS.hairline and layout.xaxis.showgrid is False
+
+
+def test_hover_labels_show_dollars_and_the_series_name() -> None:
+    middle = by_name(styled())["Middle future (median), with irregular deposits"]
+    assert "%{y:$,.2f}" in middle.hovertemplate and "%{fullData.name}" in middle.hovertemplate
+
+
+def test_the_chart_without_a_low_point_still_works() -> None:
+    figure = styled(low=False)
+    assert not any(a.text.startswith("Low ") for a in figure.layout.annotations)
+    assert "Lowest expected balance" not in by_name(figure)
+
+
+def test_the_scenario_chart_is_styled_too() -> None:
+    from dataclasses import replace
+
+    from app.theme import style_scenario_chart
+    from lookahead.ui import scenario_chart
+
+    forecast, sim = sample_forecast()
+    figure = style_scenario_chart(
+        scenario_chart(forecast, sim, replace(sim, p50=tuple(c + 500 for c in sim.p50)), 20000)
+    )
+    medians = {t.name: t for t in figure.data if t.name and t.name.endswith("middle future")}
+    assert medians["With the changes: middle future"].line.color == COLORS.green
+    original, changed = (
+        medians["Original: middle future"],
+        medians["With the changes: middle future"],
+    )
+    assert original.line.dash != changed.line.dash  # told apart by dash, not colour alone
+    assert figure.layout.paper_bgcolor == "rgba(0,0,0,0)"
+
+
+# --- The legend, the what-if panel and the "Coming up" list ---
+
+
+def test_the_legend_names_the_four_things_the_chart_shows() -> None:
+    from app.theme import chart_legend_html
+
+    html = chart_legend_html(20000)
+    for words in ("Actual", "Middle future", "80% of futures", "Buffer $200"):
+        assert words in html
+    assert COLORS.green in html and COLORS.amber_line in html and "rgba(46, 95, 154, 0.18)" in html
+    assert "stroke-dasharray" in html  # the buffer is dashed in the legend too
+
+
+def test_the_result_panel_shows_before_and_after_and_colours_the_verdict() -> None:
+    from app.theme import result_panel_html
+
+    html = result_panel_html([
+        ("Chance below buffer", "22%", "8%", "better"),
+        ("Lowest expected balance", "$624.00", "$500.00", "worse"),
+        ("Chance below $0", "6%", "6%", "same"),
+    ])  # fmt: skip
+    assert "22% →" in html and "8%" in html and "Chance below buffer" in html
+    assert f"color: {COLORS.green_dark}" in html and f"color: {COLORS.amber}" in html
+    assert COLORS.panel_blue in html and "repeat(2, minmax(0, 1fr))" in html
+
+
+def test_the_result_panel_escapes_what_it_is_given() -> None:
+    from app.theme import result_panel_html
+
+    assert "<b>" not in result_panel_html([("<b>x</b>", "1", "2", "same")])
+
+
+def test_the_coming_up_list_makes_money_in_green_and_bold() -> None:
+    from app.theme import coming_up_html
+
+    html = coming_up_html([
+        ("Oct 9", "Boutique", "Income · detected", "+$795.20", True),
+        ("Oct 13", "Phone", "Payment · confirmed", "−$35.00", False),
+    ])  # fmt: skip
+    assert "Oct 9" in html and "Boutique" in html and "Income · detected" in html
+    first, second = html.split("Oct 13")
+    assert f"font-weight: 800; color: {COLORS.green_dark}" in first
+    assert f"font-weight: 700; color: {COLORS.text}" in second
+    assert first.count("border-bottom") == 1 and "border-bottom" not in second  # no line after last
+
+
+def test_the_coming_up_list_escapes_names() -> None:
+    from app.theme import coming_up_html
+
+    assert "<script>" not in coming_up_html([("Oct 9", "<script>x</script>", "s", "$1.00", False)])
+
+
+def test_the_y_axis_fits_the_forecast_not_a_distant_peak_in_the_history() -> None:
     from app.theme import fit_y_range
 
     figure = go.Figure()
@@ -247,78 +437,3 @@ def test_the_axis_fits_the_forecast_not_a_distant_peak_in_the_history() -> None:
     untouched = go.Figure()
     fit_y_range(untouched, [])  # nothing to fit: left alone
     assert untouched.layout.yaxis.range is None
-
-
-def test_the_buffer_is_named_in_the_legend_and_not_written_over_the_chart() -> None:
-    from lookahead.ui import forecast_chart
-
-    forecast, _ = sample_forecast()
-    figure = style_figure(forecast_chart(pd.DataFrame(), forecast, 20000))
-    assert not [a for a in figure.layout.annotations if a.text == "safety buffer"]
-    key = next(t for t in figure.data if t.name == "Safety buffer")
-    assert key.line.color == COLORS.amber and key.line.dash == "dash"
-
-
-def test_the_band_is_translucent_navy_blue() -> None:
-    from lookahead.ui import forecast_chart
-
-    forecast, _ = sample_forecast()
-    figure = style_figure(forecast_chart(pd.DataFrame(), forecast, 20000))
-    band = next(t for t in figure.data if t.fill == "tonexty")
-    assert band.fillcolor.startswith("rgba(91, 134, 229") and band.fillcolor.endswith("0.4)")
-
-
-def test_the_scenario_chart_is_styled_too() -> None:
-    from lookahead.ui import scenario_chart
-
-    forecast, sim = sample_forecast()
-    figure = style_figure(
-        scenario_chart(forecast, sim, replace(sim, p50=tuple(c + 500 for c in sim.p50)), 20000)
-    )
-    medians = {t.name: t for t in figure.data if t.name and t.name.endswith("middle future")}
-    assert medians["With the changes: middle future"].line.color == COLORS.primary
-    assert (
-        medians["Original: middle future"].line.dash
-        != medians["With the changes: middle future"].line.dash
-    )
-
-
-def test_hover_labels_show_dollars_and_the_series_name() -> None:
-    from lookahead.ui import forecast_chart
-
-    forecast, _ = sample_forecast()
-    figure = style_figure(forecast_chart(pd.DataFrame(), forecast, 20000))
-    middle = next(
-        t for t in figure.data if t.name == "Middle future (median), with irregular deposits"
-    )
-    assert "%{y:$,.2f}" in middle.hovertemplate and "%{fullData.name}" in middle.hovertemplate
-
-
-def test_short_days_have_no_year_and_no_leading_zero() -> None:
-    from app.theme import fmt_day
-
-    assert fmt_day(date(2026, 10, 2)) == "Oct 2"
-    assert fmt_day(date(2026, 12, 31)) == "Dec 31"
-
-
-def test_iso_dates_inside_a_sentence_become_readable() -> None:
-    from app.theme import humanize_dates
-
-    assert humanize_dates("2026-09-03 to 2026-09-09") == "Sep 3, 2026 to Sep 9, 2026"
-    assert humanize_dates("Large deposit 15,000.00 (2026-09-12, not forecast)") == (
-        "Large deposit 15,000.00 (Sep 12, 2026, not forecast)"
-    )
-    assert humanize_dates("nothing here") == "nothing here"
-    assert humanize_dates("") == ""
-    assert humanize_dates("Order 2026-13-45 is not a date") == "Order 2026-13-45 is not a date"
-
-
-def test_the_tab_icon_is_a_local_file_not_a_fetched_material_icon() -> None:
-    assert theme.FAVICON.exists() and theme.FAVICON.stat().st_size > 200
-    assert (
-        "material/"
-        not in (ROOT / "app" / "theme.py")
-        .read_text(encoding="utf-8")
-        .split("def apply")[1]
-        .split("def sidebar_brand")[0]
-    )

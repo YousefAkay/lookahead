@@ -52,7 +52,7 @@ def main() -> None:
     parser.add_argument("page", help="the page as named in the sidebar, e.g. Forecast")
     parser.add_argument("--account", default="synthetic-B")
     parser.add_argument("--tag", default="", help="added to the file names, e.g. calm")
-    parser.add_argument("--wait-for", default="Balance when the data ends")
+    parser.add_argument("--wait-for", default="Projected balance")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     stem = args.page.lower() + (f"-{args.tag}" if args.tag else "")
@@ -70,6 +70,10 @@ def main() -> None:
             page.goto(f"http://localhost:{PORT}/{args.page}", wait_until="networkidle")
             page.get_by_text("Synthetic demo", exact=True).first.wait_for(timeout=60000)
             sidebar = page.locator('[data-testid="stSidebar"]')
+            opener = page.locator('[data-testid="stExpandSidebarButton"]')
+            if opener.count():  # the settings panel starts closed: open it to choose the account
+                opener.first.click()
+                time.sleep(1)
             account = sidebar.get_by_role("combobox").first
             if args.account and account.count():
                 account.click()
@@ -79,6 +83,10 @@ def main() -> None:
                 page.get_by_role("option").first.wait_for(state="hidden", timeout=15000)
                 shown = sidebar.get_by_role("combobox").first.input_value()
                 assert shown == args.account, f"picked {shown!r}, wanted {args.account!r}"
+                closer = page.locator('[data-testid="stSidebarCollapseButton"] button')
+                if closer.count():  # close the panel again, as a reader would see the page
+                    closer.first.click()
+                    time.sleep(1)
             page.get_by_text(args.wait_for, exact=False).first.wait_for(timeout=90000)
             for name, (width, height) in WIDTHS.items():  # same page and session, resized
                 page.set_viewport_size({"width": width, "height": height})
