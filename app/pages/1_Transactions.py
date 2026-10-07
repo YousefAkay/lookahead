@@ -105,6 +105,7 @@ top_bar(bar, "Transactions", status.last_date, source)
 categorized = has_categories(conn, account)
 
 # --- Title row ---
+imported = fmt_date(date.fromisoformat(status.last_import[:10]))
 badge = (
     tag_html("Balances check out", "confirmed")
     if status.reconciled
@@ -114,7 +115,7 @@ st.markdown(
     f'<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">'
     f"<h1>Transactions</h1>{badge}</div>"
     f'<p class="la-sub">{status.rows:,} rows stored · {fmt_date(status.first_date)} to '
-    f"{fmt_date(status.last_date)} · last import {fmt_date(date.fromisoformat(status.last_import[:10]))}</p>",
+    f"{fmt_date(status.last_date)} · last import {imported}</p>",
     unsafe_allow_html=True,
 )
 if status.reconciled:
