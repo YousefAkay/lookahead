@@ -19,6 +19,7 @@ import streamlit as st  # noqa: E402
 
 from app.theme import (  # noqa: E402
     COLORS,
+    alert_episodes_html,
     apply,
     callout_html,
     chart_legend_html,
@@ -38,7 +39,17 @@ from app.theme import (  # noqa: E402
     side_label,
     style_forecast_chart,
     style_scenario_chart,
+    tag_html,
     top_bar,
+)
+from lookahead.alerts import (  # noqa: E402
+    PROVISIONAL,
+    alert_message,
+    dismiss,
+    episodes,
+    record_run,
+    restore,
+    snapshot_of,
 )
 from lookahead.db import connect  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
@@ -143,6 +154,10 @@ if forecast is None:
 start = forecast.start
 sim = forecast.simulation
 top_bar(bar, "Forecast", start.data_last_updated, source)
+DEFAULT_METHOD = "weekday"
+snapshot = snapshot_of(forecast)  # the provisional alert rule, applied to this forecast
+if method == DEFAULT_METHOD:  # alerts follow the default estimate, not every one I try out
+    record_run(conn, account, forecast)
 status = import_status(conn, account)
 rows = transactions(conn, account)
 hidden = hidden_series(rows, list(forecast.series), display_key)
@@ -188,12 +203,19 @@ if sim is not None:
     below_zero = round(sim.below_zero_probability * sim.futures)
     spent = f"Everyday spending is about {html.escape(money(spending_per_day))} a day."
     without = f"(without irregular deposits: {sim.shortfall_probability_without:.0%})"
-    if below:
+    if snapshot is not None:  # the rule alerts
         sentence = (
             f"<strong>{sim.shortfall_probability:.0%} chance</strong> your balance dips below your "
             f"{buffer_text} buffer around <strong>{fmt_day(low_day)}</strong> {without}. {spent}"
         )
-        callout = callout_html("warning", "Possible shortfall", sentence, "See why →", "#evidence")
+        callout = callout_html("warning", "Possible shortfall", sentence, "See why →", "#alerts")
+    elif below:
+        sentence = (
+            f"<strong>Only {sim.shortfall_probability:.0%}</strong> of simulated futures dip below "
+            f"your {buffer_text} buffer, around {fmt_day(low_day)} {without}: not enough to "
+            f"alert. {spent}"
+        )
+        callout = callout_html("ok", "On track", sentence, "See why →", "#evidence")
     else:
         sentence = (
             f"<strong>No simulated future</strong> dips below your {buffer_text} buffer in the "
@@ -226,6 +248,120 @@ if sim is not None:
         st.metric("Chance below $0", f"{sim.below_zero_probability:.0%}",
                   f"{below_zero} of {sim.futures} simulated futures", delta_color="off",
                   delta_arrow="off")  # fmt: skip
+
+# --- Shortfall alerts: the current one with its evidence, then the earlier ones ---
+
+
+series_by_key = {s.key: s for s in forecast.series}
+
+
+def shown_name(entry: dict) -> str:  # type: ignore[type-arg]
+    """A payment's name as shown: hidden when its series shows a person's name, and a plain
+    description (such as "e-Transfers of one amount") when the series has no name."""
+    series = series_by_key.get(entry["series_key"])
+    if series is not None:
+        return series_label(series, series.key in hidden)
+    return entry["name"] or "Payment"  # a planned item: the words I typed
+
+
+def safe(text: str) -> str:
+    return html.escape(text).replace("$", "&#36;")  # a dollar sign would start maths in markdown
+
+
+mine = episodes(conn, account)
+current = next((e for e in mine if e.closed_on is None), None)  # the open one, dismissed or not
+st.markdown('<div id="alerts"></div>', unsafe_allow_html=True)
+with st.container(border=True, key="card-alerts"):
+    st.markdown(
+        '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
+        f"<h2>Shortfall alerts</h2>{tag_html(PROVISIONAL, 'neutral')}</div>"
+        '<p class="la-note">The rule is a placeholder until the week 4 backtest replaces it: alert '
+        "when the chance of dipping below your buffer is above 20%, or the middle future's lowest "
+        "balance is below it. Alerts follow the weekday average.</p>",
+        unsafe_allow_html=True,
+    )
+    if current is not None and current.status == "open" and snapshot is not None:
+        st.markdown(f'<p style="font-size: 16px; margin: 0">{safe(alert_message(snapshot))}</p>',
+                    unsafe_allow_html=True)  # fmt: skip
+        ev = current.evidence
+        with st.expander("Evidence for this alert"):
+            low_text = (
+                f"**Lowest balance:** {safe(money(ev['low_cents']))} in the middle future on "
+                f"{fmt_date(date.fromisoformat(ev['low_day']))}. Chance below your "
+                f"{safe(money_short(ev['buffer_cents']))} buffer: {ev['probability']:.0%} "
+                f"(without irregular deposits: {ev['probability_without_deposits']:.0%}); median "
+                f"lowest balance across the {ev['futures']} futures: "
+                f"{safe(money(ev['median_lowest_cents']))}."
+            )
+            st.markdown(low_text, unsafe_allow_html=True)
+            st.markdown("**Largest payments before the low**")
+            if ev["largest_payments"]:
+                for entry in ev["largest_payments"]:
+                    when = fmt_date(date.fromisoformat(entry["day"]))
+                    st.markdown(
+                        f"- {safe(shown_name(entry))} · {when} · {safe(money(entry['cents']))} "
+                        f"· {entry['basis']}",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.caption("No payments are placed before the low.")
+            counts = ev["assumptions"]
+            wording = ", ".join(f"{counts[k]} {k}" for k in ("detected", "confirmed", "entered")
+                                if k in counts)  # fmt: skip
+            st.markdown(
+                f"**What the forecast assumes:** {wording or 'no placed payments'}. Detected ones "
+                "are used as found; confirm or fix them on the Recurring page.",
+            )
+            st.markdown("**Set aside, not forecast**")
+            if ev["big_events"]:
+                for big in ev["big_events"]:
+                    st.markdown(
+                        f"- {safe(big['group'] or 'Big event')}: {safe(big['kind'])} · "
+                        f"{fmt_date(date.fromisoformat(big['day']))} · "
+                        f"{safe(money(big['cents']))}",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.caption("No big one-time rows in the last 13 weeks.")
+            st.markdown(
+                f"**Data to** {fmt_date(date.fromisoformat(ev['data_date']))}; forecast from "
+                f"{fmt_date(date.fromisoformat(ev['forecast_first_day']))}. Everyday spending is "
+                f"about {safe(money(ev['spending_per_day_cents']))} a day "
+                f"({safe(ev['method'])}).",
+                unsafe_allow_html=True,
+            )
+            st.caption(f"Rule: {ev['rule']}.")
+        if st.button("Dismiss this alert", key="dismiss_alert"):
+            dismiss(conn, account, current.episode_id)
+            st.rerun()
+    elif current is not None and current.status == "dismissed":
+        st.markdown(
+            f'<p style="margin: 0">You dismissed this alert (the low about '
+            f"{fmt_day(current.low_day)}). It stays quiet until the low goes away.</p>",
+            unsafe_allow_html=True,
+        )
+        if st.button("Bring it back", key="restore_alert"):
+            restore(conn, account, current.episode_id)
+            st.rerun()
+    else:
+        st.markdown('<p style="margin: 0">No shortfall alert now.</p>', unsafe_allow_html=True)
+    older = [e for e in mine if e is not current or e.status == "dismissed"]
+    if older:
+        st.markdown("<h3>Earlier and dismissed alerts</h3>", unsafe_allow_html=True)
+        st.markdown(
+            alert_episodes_html(
+                [
+                    (
+                        f"{fmt_day(e.opened_on)} – {fmt_day(e.closed_on or e.last_seen_on)}",
+                        f"Low about {money(e.low_cents)} around {fmt_day(e.low_day)} · "
+                        f"{e.probability:.0%} chance",
+                        e.status.capitalize(),
+                    )
+                    for e in older
+                ]
+            ).replace("$", "&#36;"),
+            unsafe_allow_html=True,
+        )
 
 # --- The chart card ---
 latest = rows["date"].max()

@@ -324,3 +324,13 @@ def test_the_message_is_plain_and_uses_forecast_words() -> None:
     for forbidden in ("guarantee", "fraud", "missed"):
         assert forbidden not in text.lower()
     assert "possible" in text.lower()
+
+
+def test_the_evidence_says_the_average_spending_per_day_like_the_callout() -> None:
+    f = forecast()
+    days = [ForecastDay(d.day, d.balance_cents, 0, 1000 if k % 2 else 3000, 0)
+            for k, d in enumerate(f.days)]  # fmt: skip
+    mixed = Forecast(
+        f.start, f.method, days, [], True, buffer_cents=BUFFER, simulation=f.simulation
+    )
+    assert build_evidence(mixed)["spending_per_day_cents"] == 2000  # not the first day's 3000

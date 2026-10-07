@@ -342,6 +342,32 @@ def payments_table_html(rows: Sequence[tuple[str, str, int, int | None]]) -> str
 # --- Home and Transactions ---
 
 
+def alert_episodes_html(rows: Sequence[tuple[str, str, str]]) -> str:
+    """The list of alert episodes. A row is (period, one line about it, status): "Open" is
+    amber, "Dismissed" and "Closed" are grey."""
+    if not rows:
+        return '<p class="la-note">No earlier alerts.</p>'
+    out = []
+    for i, (period, summary, status) in enumerate(rows):
+        line = "" if i == len(rows) - 1 else f"border-bottom: 1px solid {COLORS.hairline}"
+        if status == "Open":
+            tag = (
+                f'<span style="font-size: 12px; font-weight: 700; background: {COLORS.amber_bg}; '
+                f'color: {COLORS.amber}; padding: 4px 10px; border-radius: 999px">'
+                f"{html.escape(status)}</span>"
+            )
+        else:
+            tag = tag_html(status, "neutral")
+        out.append(
+            f'<div style="display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; '
+            f'gap: 12px; align-items: center; padding: 12px 0; {line}">'
+            f'<span style="font-size: 13px; font-weight: 700; color: {COLORS.muted}">'
+            f"{html.escape(period)}</span>"
+            f'<span style="font-size: 14px">{html.escape(summary)}</span>{tag}</div>'
+        )
+    return f'<div style="display: flex; flex-direction: column">{"".join(out)}</div>'
+
+
 def link_button_html(label: str, path: str, query: str = "", primary: bool = False) -> str:
     """A link that looks like a button (the deep green one is the main action). `query` is the
     data and account choice, so the next page opens on the same ones."""

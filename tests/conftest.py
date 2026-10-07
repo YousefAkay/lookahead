@@ -35,3 +35,29 @@ def db(tmp_path_factory: pytest.TempPathFactory) -> Path:
                   category[(r.posted_date, r.amount_cents, r.text)])  # fmt: skip
     conn.close()
     return tmp / "t.db"
+
+
+@pytest.fixture(autouse=True)
+def close_database_connections(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+    """Close every SQLite connection a test (or an app page run by AppTest) opened and left open.
+    Python 3.13 warns about an unclosed connection when it is garbage collected, and that
+    happens at a random later moment, in some other test (it showed up in test_embeddings)."""
+    import sqlite3
+
+    opened: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def tracking_connect(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs.setdefault("check_same_thread", False)  # an app page runs in another thread
+        connection = real_connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", tracking_connect)
+    yield
+    for connection in opened:
+        try:
+            connection.close()
+        except sqlite3.Error:
+            pass
+    opened.clear()

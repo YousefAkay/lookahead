@@ -949,3 +949,94 @@ def test_the_comparison_chart_is_a_full_width_card_below_the_what_if_row(isolate
     heading = next(t for t in texts if "<h2" in t and "Original and with your change" in t)
     assert "With your change" in next(t for t in texts if "la-legend" in t and "Original" in t)
     assert "<h2" in heading  # a normal card heading, not a title inside the plot
+
+
+# --- 3c: shortfall alerts on the Forecast page ---
+
+
+def alert_episodes(tmp_path: Path, account: str) -> list:  # type: ignore[type-arg]
+    from lookahead.alerts import episodes
+    from lookahead.db import connect_readonly
+
+    conn = connect_readonly(tmp_path / "demo.db")
+    found = episodes(conn, account)
+    conn.close()
+    return found
+
+
+def alert_page(account: str) -> AppTest:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value(account).run()
+    assert not at.exception, at.exception
+    return at
+
+
+def test_a_shortfall_shows_an_alert_with_its_evidence_and_the_provisional_label(
+    isolated: Path,
+) -> None:
+    at = alert_page("synthetic-C")
+    text = page_text(at)
+    assert "provisional, not yet validated" in text
+    assert "Possible shortfall:" in text  # the alert's own sentence
+    [episode] = alert_episodes(isolated, "synthetic-C")
+    assert episode.status == "open"
+    evidence = next(e for e in at.expander if e.label == "Evidence for this alert")
+    shown = " ".join(str(m.value) for m in evidence.markdown)
+    for part in ("Lowest balance", "Largest payments before the low", "detected",
+                 "Set aside, not forecast", "Data to", "Everyday spending"):  # fmt: skip
+        assert part in shown, part
+
+
+def test_a_calm_account_has_no_alert_and_says_so(isolated: Path) -> None:
+    at = alert_page("synthetic-B")
+    assert "No shortfall alert" in page_text(at)
+    assert alert_episodes(isolated, "synthetic-B") == []
+    assert not [e for e in at.expander if e.label == "Evidence for this alert"]
+
+
+def test_the_callout_follows_the_alert_rule(isolated: Path) -> None:
+    shortfall = " ".join(str(m.value) for m in alert_page("synthetic-C").markdown)
+    calm = " ".join(str(m.value) for m in alert_page("synthetic-B").markdown)
+    assert "Possible shortfall" in shortfall and "la-callout" in shortfall
+    assert "On track" in calm
+
+
+def test_looking_at_the_page_again_does_not_repeat_the_alert(isolated: Path) -> None:
+    from lookahead.db import connect_readonly
+
+    alert_page("synthetic-C")
+    alert_page("synthetic-C")
+    conn = connect_readonly(isolated / "demo.db")
+    assert (
+        conn.execute("SELECT COUNT(*) FROM alert_events WHERE account = 'synthetic-C'").fetchone()[
+            0
+        ]
+        == 1
+    )
+    conn.close()
+
+
+def test_an_alert_can_be_dismissed_and_brought_back(isolated: Path) -> None:
+    at = alert_page("synthetic-C")
+    button(at, "Dismiss this alert").click().run()
+    assert not at.exception, at.exception
+    assert [e.status for e in alert_episodes(isolated, "synthetic-C")] == ["dismissed"]
+    assert "You dismissed this alert" in page_text(at)
+    assert not [b for b in at.button if b.label == "Dismiss this alert"]
+    button(at, "Bring it back").click().run()
+    assert [e.status for e in alert_episodes(isolated, "synthetic-C")] == ["open"]
+
+
+def test_past_episodes_are_listed(isolated: Path) -> None:
+    from lookahead.alerts import dismiss
+    from lookahead.db import connect
+
+    alert_page("synthetic-C")
+    [episode] = alert_episodes(isolated, "synthetic-C")
+    conn = connect(isolated / "demo.db")
+    dismiss(conn, "synthetic-C", episode.episode_id, date(2026, 10, 2))
+    conn.close()
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-C").run()
+    text = page_text(at)
+    assert "Earlier and dismissed alerts" in text and "Dismissed" in text

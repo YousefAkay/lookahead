@@ -160,7 +160,11 @@ def build_evidence(forecast: Forecast) -> dict[str, Any]:
         "probability_without_deposits": sim.shortfall_probability_without,
         "futures": sim.futures,
         "method": forecast.method,
-        "spending_per_day_cents": forecast.days[0].spending_cents if forecast.days else 0,
+        "spending_per_day_cents": round(
+            sum(d.spending_cents for d in forecast.days) / len(forecast.days)
+        )
+        if forecast.days
+        else 0,  # the average, as the page's callout says it
         "largest_payments": [_item(i) for i in before],
         "assumptions": dict(Counter(i.basis for i in forecast.items)),
         "assumption_items": [_item(i) for i in forecast.items][:60],

@@ -80,3 +80,24 @@ def test_the_balance_chart_is_the_actual_line_in_the_themes_ink_with_no_titles()
     assert not [s for s in figure.layout.shapes if s.name == "zero"]
     assert not figure.layout.title.text
     assert not figure.layout.xaxis.title.text and not figure.layout.yaxis.title.text
+
+
+def test_the_alert_list_shows_each_episode_with_a_status_tag() -> None:
+    from app.theme import alert_episodes_html
+
+    html = alert_episodes_html([
+        ("Oct 2 – Oct 8", "Low about $126.32 around Oct 8 · 97% chance", "Open"),
+        ("Sep 1 – Sep 6", "Low about $90.00 around Sep 5 · 40% chance", "Dismissed"),
+        ("Aug 1 – Aug 3", "Low about $150.00 around Aug 2 · 25% chance", "Closed"),
+    ])  # fmt: skip
+    for part in ("Oct 2 – Oct 8", "$126.32", "Open", "Dismissed", "Closed"):
+        assert part in html
+    assert COLORS.amber_bg in html  # the open one is amber
+    assert html.count("border-bottom") == 2  # a line between rows, none after the last
+
+
+def test_the_alert_list_escapes_and_has_a_sentence_when_empty() -> None:
+    from app.theme import alert_episodes_html
+
+    assert "<b>" not in alert_episodes_html([("<b>x</b>", "<i>y</i>", "Open")])
+    assert "No earlier alerts" in alert_episodes_html([])
