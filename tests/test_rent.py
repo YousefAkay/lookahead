@@ -207,3 +207,13 @@ def test_a_payment_in_a_clamped_february_counts_as_a_30th() -> None:
         draw_rent_date(RULE, 2026, 12, past, date(2027, 3, 1), rng) for _ in range(2000)
     )
     assert draws[date(2026, 12, 30)] / 2000 > 0.6
+
+
+def test_a_drawn_rent_date_can_be_kept_from_the_past() -> None:
+    """The first days of the window may already be over: only days from `not_before` on."""
+    rng = random.Random(7)
+    seen = {
+        draw_rent_date(RULE, 2026, 12, [], date(2026, 9, 1), rng, not_before=date(2027, 1, 3))
+        for _ in range(300)
+    }
+    assert seen == {date(2027, 1, d) for d in range(3, 8)}  # 3 Jan to 7 Jan only

@@ -20,6 +20,8 @@ from lookahead.recurring import expected_dates
 from lookahead.recurring_store import Stored, rent_rule_of
 from lookahead.rent import RentRule, assign_cycles, rent_cents, window
 
+OVERDUE_MARK = "the window ended with no payment"  # in the note of an overdue rent item
+
 
 @dataclass(frozen=True)
 class ScheduledItem:
@@ -99,7 +101,7 @@ def _rent_items(
         if begins not in cycles and all(begins > c for c in cycles):
             items.append(ScheduledItem(
                 start.first_day, cents, s.key, s.name, basis,
-                "rent: the window ended with no payment and the data may be out of date or the "
+                f"rent: {OVERDUE_MARK} and the data may be out of date or the "
                 "payment late (not seen yet): the larger allowed amount, on the first day",
             ))  # fmt: skip
     return items

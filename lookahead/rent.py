@@ -143,12 +143,14 @@ def _key(rule: RentRule, day: date, start: date) -> int:
 
 
 def draw_rent_date(
-    rule: RentRule, year: int, month: int, past: Sequence[date], as_of: date, rng: random.Random
-) -> date:
+    rule: RentRule, year: int, month: int, past: Sequence[date], as_of: date, rng: random.Random,
+    not_before: date | None = None,
+) -> date:  # fmt: skip
     """One date in the window that starts in this month, for a simulated path.
 
     Each day weighs 1 plus the number of past rent payments on the same day of the month, so
-    days you never paid on stay possible. Only payments dated on or before `as_of` count."""
+    days you never paid on stay possible. Only payments dated on or before `as_of` count.
+    With `not_before`, days already over are not drawn."""
     seen: Counter[int] = Counter()
     for paid in past:
         if paid > as_of:
@@ -158,4 +160,8 @@ def draw_rent_date(
             seen[_key(rule, paid, found[0])] += 1
     days = window_days(rule, year, month)
     weights = [1 + seen[_key(rule, d, days[0])] for d in days]
+    if not_before is not None:
+        kept = [(d, w) for d, w in zip(days, weights, strict=True) if d >= not_before]
+        if kept:
+            days, weights = [d for d, _ in kept], [w for _, w in kept]
     return rng.choices(days, weights=weights)[0]

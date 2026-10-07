@@ -262,3 +262,47 @@ def test_the_balance_arithmetic_takes_fees_off_too() -> None:
     days = project_balance(start, [], [0, 0, 0], [10, 20, 30])
     assert [d.balance_cents for d in days] == [99990, 99980, 99970]
     assert [d.fees_cents for d in days] == [10, 10, 10]
+
+
+# --- The simulated futures, built from a database ---
+
+
+def test_the_forecast_carries_500_simulated_futures(conn: sqlite3.Connection) -> None:
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert forecast is not None and forecast.simulation is not None
+    sim = forecast.simulation
+    assert sim.futures == 500 and len(sim.p50) == 30 == len(sim.days)
+    assert sim.days[0] == forecast.start.first_day
+    assert all(a <= b <= c for a, b, c in zip(sim.p10, sim.p50, sim.p90, strict=True))
+    assert 0.0 <= sim.shortfall_probability <= 1.0
+    assert build_forecast(conn, ACCOUNT, "weekday", futures=0).simulation is None  # type: ignore[union-attr]
+
+
+def test_simulated_futures_use_irregular_deposits_from_history_but_not_big_ones(
+    conn: sqlite3.Connection,
+) -> None:
+    for week in range(6):  # small deposits now and then
+        insert(conn, date(2026, 8, 12) + timedelta(days=7 * week), 4000, "deposit",
+               "Interac e-Transfer from a friend ", 1)  # fmt: skip
+    insert(conn, date(2026, 9, 5), 900000, "deposit", "Payroll ", 1)  # a big one-time deposit
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert forecast is not None and forecast.simulation is not None
+    sim = forecast.simulation
+    gap = sim.p50[-1] - sim.median_without[-1]
+    assert 0 < gap < 50000  # about eight thousand in a month, not the nine thousand a week
+    assert [e.cents for e in forecast.big_events if e.cents > 0] == [900000]
+
+
+def test_with_no_deposits_in_history_the_two_medians_are_the_same(conn: sqlite3.Connection) -> None:
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert forecast is not None and forecast.simulation is not None
+    assert forecast.simulation.p50 == forecast.simulation.median_without
+
+
+def test_the_simulation_does_not_change_when_later_rows_arrive(conn: sqlite3.Connection) -> None:
+    """Rule zero, end to end."""
+    early = build_forecast(conn, ACCOUNT, "weekday", as_of=date(2026, 8, 31))
+    insert(conn, date(2026, 9, 15), 800000, "deposit", "Interac e-Transfer from a friend ", 1)
+    insert(conn, date(2026, 9, 16), -700000, "pos purchase", CARD.format("Laptop"), 1)
+    again = build_forecast(conn, ACCOUNT, "weekday", as_of=date(2026, 8, 31))
+    assert early is not None and again is not None and early.simulation == again.simulation

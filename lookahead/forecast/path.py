@@ -15,11 +15,13 @@ from datetime import date, timedelta
 
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.schedule import ScheduledItem, scheduled_items
+from lookahead.forecast.simulate import N_FUTURES, Simulation, simulate
 from lookahead.forecast.spending import (
     BigEvent,
     BreakdownRow,
     big_events,
     constant_path,
+    deposits_by_day,
     recent_average_path,
     recent_fee_rate,
     spending_breakdown,
@@ -58,6 +60,7 @@ class Forecast:
     breakdown: tuple[BreakdownRow, ...] = ()  # what the weekday baseline's history is made of
     big_events: tuple[BigEvent, ...] = ()  # big one-time rows of the last 13 weeks: not forecast
     fees_per_day: float = 0.0  # cents a day, from the last 28 days
+    simulation: Simulation | None = None  # the simulated futures (a range, not one path)
 
     @property
     def lowest(self) -> tuple[date, int]:
@@ -102,7 +105,7 @@ def project_balance(
 
 def build_forecast(
     conn: sqlite3.Connection, account: str, method: str = "weekday", as_of: date | None = None,
-    key: bytes | None = None, horizon_days: int = HORIZON_DAYS,
+    key: bytes | None = None, horizon_days: int = HORIZON_DAYS, futures: int = N_FUTURES,
 ) -> Forecast | None:  # fmt: skip
     """A forecast from what is stored, with no confirmations needed: every active series is used
     as detected unless I changed it. `as_of=None` is a live forecast (all rows, all decisions);
@@ -137,6 +140,13 @@ def build_forecast(
     items = scheduled_items(series, posted, start)
     fee_rate = recent_fee_rate(txns, flows, start.data_last_updated, first_posted)
     fees = constant_path(fee_rate, horizon)
+    simulation = None
+    if futures > 0:
+        deposits = deposits_by_day(txns, flows, in_series, start.data_last_updated)
+        simulation = simulate(
+            start, items, series, posted, daily, deposits, first_posted,
+            safety_buffer_cents(conn), fee_rate, futures,
+        )  # fmt: skip
     return Forecast(
         start, BASELINES[method], project_balance(start, items, spending, fees), items,
         any(s.direction == "in" and s.active and s.status != "rejected" for s in series),
@@ -144,4 +154,5 @@ def build_forecast(
         tuple(spending_breakdown(txns, flows, in_series, start.data_last_updated, first_posted)),
         tuple(big_events(txns, flows, in_series, start.data_last_updated)),
         fee_rate,
+        simulation,
     )  # fmt: skip

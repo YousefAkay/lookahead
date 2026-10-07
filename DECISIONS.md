@@ -480,6 +480,14 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Fees stay out of the everyday-spending stream and its table, so the two are never counted twice. Only rows posted by the forecast date are used.
 - Lost: leaving fees out until the real model exists (the forecast would then be optimistic for anyone who pays fees).
 
+### 2026-10-06: Simulated futures (500) and irregular deposits
+- An account without a regular income series still has money in: deposits, incoming e-Transfers and transfers from one's own accounts can come in irregularly. Assuming none would make every forecast warn, which is useless. They are now their own stream, drawn from the account's own history (rows posted by the forecast date only): everything that is money in, in no series, not a refund and not a netted hold. Big one-time deposits are left out by the same rule as big payments.
+- Decision: 500 futures. Each draws, for every week ahead, one whole past week (7 days, starting on the same weekday as the forecast's first day) from the last 13 weeks, and takes both that week's everyday spending and that week's irregular deposits. They come from the same week so that a week that was heavy because money came in stays that way. Lost: drawing deposits and spending independently (it breaks that link and makes the range wider than my history shows).
+- Not rescaled to the point forecast. HANDOFF said "scaled to the point forecast"; I left that out: it would add a step that forces the futures to agree with a baseline I have not evaluated yet. The futures show what my own weeks did; the point forecast is a separate, simpler estimate. To revisit if the backtest says the futures are miscalibrated.
+- Dates in a future: rent is drawn inside its window weighted by my past rent dates posted by the forecast date (an overdue window stays on the first forecast day); a payment of a series that is only detected moves by one of its own past offsets; confirmed and entered dates do not move. Fees are the same in every future (their recent daily average).
+- Output: a range (the 10th, 50th and 90th percentile of the balance each day), the median with and without the irregular deposits, the share of futures below the safety buffer on at least one day (the shortfall probability, shown as it comes out, not tuned), the share below zero, and the median lowest balance. A fixed seed means the same data gives the same answer.
+- Known limit: the futures can only draw from the last 13 weeks, so about a dozen different weeks; a quiet or unusual quarter shapes all of them.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
