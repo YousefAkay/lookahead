@@ -8,7 +8,7 @@ D(t, h) is the cumulative spending from the day after t through h days later. Wh
 - big one-time rows do not: a row of at least $500 that is at least 5 times the typical row of
   the last 13 weeks (the same rule for money out and for money in) is left out of every
   everyday stream and listed on its own (`big_events`); a big deposit that is paid straight
-  back out (90 to 110 percent within 14 days) is a pass-through, set aside together with the
+  back out (85 to 115 percent within 14 days) is a pass-through, set aside together with the
   outflows that paid it out; Averaged over weekdays, a one-off
   would be repeated every week; and the deposit that funded it must leave the deposit stream
   too, or the futures would be too optimistic;
@@ -39,7 +39,7 @@ LARGE_TIMES_MEDIAN = 5
 LARGE_WINDOW_DAYS = 91  # the typical row is taken from the last 13 weeks
 PASS_THROUGH_DAYS = 14  # outflows in the 14 days from the deposit can pay it back out
 PASS_THROUGH_ROWS = 12  # at most the 12 largest candidate rows are tried together
-PASS_THROUGH_BAND = (90, 110)  # outflows add up to 90 to 110 percent of the deposit
+PASS_THROUGH_BAND = (85, 115)  # outflows add up to 85 to 115 percent of the deposit
 RETURN_REASONS = frozenset({"card return", "pre-auth correction", "returned e-Transfer"})
 RECENT_DAYS = 28
 WEEKDAY_WEEKS = 8
@@ -126,8 +126,8 @@ def _pass_through(
     big_in: list[Row], candidates: list[Row], band: tuple[int, int] = PASS_THROUGH_BAND
 ) -> list[tuple[Row, tuple[Row, ...]]]:
     """Pair each big deposit, oldest first, with outflows that took the money straight back
-    out: some of the candidate rows from the deposit's day to 14 days later that add up to 90 to
-    110 percent of it (the sum closest to 100 percent, then the fewest rows). A row is used for
+    out: some of the candidate rows from the deposit's day to 14 days later that add up to 85 to
+    115 percent of it (the sum closest to 100 percent, then the fewest rows). A row is used for
     one deposit only. Each deposit looks only at rows up to its own 14 days, so nothing later
     changes a pairing that is already complete."""
     used: set[int] = set()

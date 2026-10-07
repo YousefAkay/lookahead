@@ -328,3 +328,78 @@ def test_a_deposit_paid_straight_out_is_a_pass_through_in_the_forecast(
     assert forecast is not None
     assert {e.group for e in forecast.big_events} == {"Pass-through"}
     assert forecast.large_deposits == ()
+
+
+# --- Planned items: money in or out that I entered ---
+
+
+def test_a_planned_payment_is_placed_exactly_on_its_day(conn: sqlite3.Connection) -> None:
+    from lookahead.planned import add_planned
+
+    base = build_forecast(conn, ACCOUNT, "weekday")
+    add_planned(conn, ACCOUNT, date(2026, 10, 10), -50000, "Concert tickets", date(2026, 9, 29))
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert base is not None and forecast is not None
+    planned = [i for i in forecast.items if i.series_key.startswith("planned|")]
+    assert [(i.day, i.cents, i.name, i.basis) for i in planned] == [
+        (date(2026, 10, 10), -50000, "Concert tickets", "entered")
+    ]
+    for old, new in zip(base.days, forecast.days, strict=True):
+        shift = -50000 if new.day >= date(2026, 10, 10) else 0
+        assert new.balance_cents == old.balance_cents + shift  # exactly, on and after the day
+
+
+def test_a_planned_deposit_raises_every_simulated_future_by_the_same_amount(
+    conn: sqlite3.Connection,
+) -> None:
+    from lookahead.planned import add_planned
+
+    base = build_forecast(conn, ACCOUNT, "weekday")
+    add_planned(
+        conn, ACCOUNT, date(2026, 10, 10), 2000000, "Family, for the term", date(2026, 9, 29)
+    )
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert base is not None and forecast is not None
+    assert base.simulation is not None and forecast.simulation is not None
+    for k, day in enumerate(forecast.simulation.days):
+        lift = 2000000 if day >= date(2026, 10, 10) else 0
+        assert forecast.simulation.p10[k] == base.simulation.p10[k] + lift
+        assert forecast.simulation.p50[k] == base.simulation.p50[k] + lift
+        assert forecast.simulation.p90[k] == base.simulation.p90[k] + lift
+        assert forecast.simulation.median_without[k] == base.simulation.median_without[k] + lift
+    assert forecast.simulation.shortfall_probability <= base.simulation.shortfall_probability
+
+
+def test_a_planned_item_outside_the_forecast_days_is_not_used(conn: sqlite3.Connection) -> None:
+    from lookahead.planned import add_planned
+
+    base = build_forecast(conn, ACCOUNT, "weekday")
+    add_planned(conn, ACCOUNT, date(2027, 1, 5), -1900000, "Tuition", date(2026, 9, 29))  # far off
+    add_planned(conn, ACCOUNT, date(2026, 9, 20), -82000, "Already happened", date(2026, 9, 29))
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert base is not None and forecast is not None
+    assert forecast.days == base.days and forecast.items == base.items
+
+
+def test_a_forecast_as_of_an_earlier_date_does_not_know_a_planned_item_entered_later(
+    conn: sqlite3.Connection,
+) -> None:
+    from lookahead.planned import add_planned
+
+    early = build_forecast(conn, ACCOUNT, "weekday", as_of=date(2026, 8, 31))
+    add_planned(conn, ACCOUNT, date(2026, 9, 10), -900000, "Entered later", date(2026, 9, 15))
+    again = build_forecast(conn, ACCOUNT, "weekday", as_of=date(2026, 8, 31))
+    assert early is not None and again is not None
+    assert early.days == again.days and early.simulation == again.simulation
+
+
+def test_planned_items_are_listed_on_the_forecast(conn: sqlite3.Connection) -> None:
+    from lookahead.planned import add_planned
+
+    add_planned(conn, ACCOUNT, date(2026, 10, 10), -50000, "Concert", date(2026, 9, 29))
+    add_planned(conn, ACCOUNT, date(2027, 1, 5), -1900000, "Tuition", date(2026, 9, 29))
+    forecast = build_forecast(conn, ACCOUNT, "weekday")
+    assert forecast is not None
+    assert [(p.description, p.cents) for p in forecast.planned] == [
+        ("Concert", -50000), ("Tuition", -1900000),
+    ]  # fmt: skip

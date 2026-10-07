@@ -29,6 +29,7 @@ from lookahead.forecast.spending import (
     weekday_average_path,
 )
 from lookahead.forecast.start import HORIZON_DAYS, ForecastStart, forecast_start
+from lookahead.planned import PlannedItem, planned_as_of
 from lookahead.recurring_store import Stored, series_as_of
 from lookahead.resolve import load_user_decisions
 from lookahead.settings import DEFAULT_BUFFER_CENTS, safety_buffer_cents
@@ -61,6 +62,7 @@ class Forecast:
     big_events: tuple[BigEvent, ...] = ()  # big one-time rows of the last 13 weeks: not forecast
     fees_per_day: float = 0.0  # cents a day, from the last 28 days
     simulation: Simulation | None = None  # the simulated futures (a range, not one path)
+    planned: tuple[PlannedItem, ...] = ()  # every planned item I have entered (by the date)
 
     @property
     def large_deposits(self) -> tuple[BigEvent, ...]:
@@ -142,7 +144,8 @@ def build_forecast(
         spending = weekday_average_path(
             daily, start.data_last_updated, first_posted, start.first_day, horizon
         )
-    items = scheduled_items(series, posted, start)
+    planned = planned_as_of(conn, account, as_of)
+    items = scheduled_items(series, posted, start, planned)
     fee_rate = recent_fee_rate(txns, flows, start.data_last_updated, first_posted)
     fees = constant_path(fee_rate, horizon)
     simulation = None
@@ -160,4 +163,5 @@ def build_forecast(
         tuple(big_events(txns, flows, in_series, start.data_last_updated)),
         fee_rate,
         simulation,
+        tuple(planned),
     )  # fmt: skip

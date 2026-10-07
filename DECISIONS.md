@@ -503,6 +503,24 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Also seen in the same check: a pass-through that was not recognized. It is now recognized as one.
 - Update to the entry above on big one-time rows: the floor is $500 (was $300), and the typical row is described in the pass-through entry.
 
+### 2026-10-06: Pass-through band widened to 85-115 percent (decided on synthetic data)
+- Decision: outflows within 14 days that add up to 85 to 115 percent of a big deposit make it a pass-through (it was 90 to 110). Decided on synthetic personas, not on my data: on the generator's planted funding-and-payment pairs the 90 to 110 percent band found 0 of 30, and 85 to 115 percent found 30 of 30, with no other big deposit paired in any band (`python -m eval.deposit_rule`). This replaces the 90 to 110 percent in the pass-through entry above.
+- Caveat, plainly: all 30 planted pairs are the same pair. The generator's dates and amounts do not vary by seed, and the payment sits just inside the wider band. This is one pair type, not 30 independent cases. The edge is fragile: it is evidence that 90 to 110 is too tight for a deposit that covers most but not all of a payment, not that 115 is the right limit. Generator v1 should vary the funding share (see the list below).
+- What it changes: only labels on the Forecast page, and small transfers or bill payments that complete a pairing (they leave everyday spending). Big rows were already set aside either way.
+
+### 2026-10-06: Planned items: money in or out that I enter
+- Decision: a planned item is a payment or a deposit I know is coming (a term payment, an expected deposit, a purchase): a day, an amount (money in is positive) and what it is. It is placed exactly on its day, labelled "entered", and is the same in every simulated future (nothing guessed, nothing moved). Only days inside the forecast period change the forecast; other items are listed with the reason ("the day has passed" or "after the last forecast day").
+- Dated, so replays stay honest: an item carries the day I entered it, and a forecast as of an earlier date ignores it (rule zero; tests check both the point forecast and the simulation). Removing an item takes effect from the day it was removed and earlier replays still see it. Changing an item is removing it and entering it again: rows are never rewritten.
+- Lost: giving a planned item a chance of not happening, or a range of days. It would add a second kind of uncertainty before the what-if step exists; "delay income by N days" in 3d covers the late-deposit case. Also lost: treating a term payment as a new recurring cadence (it is not one; the next is outside the 30 days).
+- A planned item is not a history row, so the big-row rule and pass-through pairing never apply to it.
+
+### 2026-10-06: Generator v1 (week 5): what real use showed it needs
+- Ordinary deposits above $500 (a parent sending a regular sum), and mid-size irregular deposits ($500 to $2,000), so the big-deposit rule gets a harder test than the current ten-times gap between ordinary and large deposits.
+- Deposits that cover only part of a payment, with the funding share varying across personas and seeds (for example 70 to 130 percent), so the pass-through band is tested on more than one ratio.
+- A persona with few deposits (one lump sum per term and nothing in between), to test the rule that uses the typical row of everything when there are fewer than five deposits.
+- Large deposits that are not paid out (the money stays and funds a whole term), and savings moves that pass through quickly, as separate cases.
+- Report big-deposit and pass-through results per income type, as for the other income results.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from lookahead.forecast.start import ForecastStart
+from lookahead.planned import PlannedItem
 from lookahead.recurring import expected_dates
 from lookahead.recurring_store import Stored, rent_rule_of
 from lookahead.rent import RentRule, assign_cycles, rent_cents, window
@@ -40,10 +41,12 @@ def _basis(s: Stored) -> str:
 
 
 def scheduled_items(
-    series: Sequence[Stored], posted: Mapping[str, date], start: ForecastStart
-) -> list[ScheduledItem]:
+    series: Sequence[Stored], posted: Mapping[str, date], start: ForecastStart,
+    planned: Sequence[PlannedItem] = (),
+) -> list[ScheduledItem]:  # fmt: skip
     """The payments expected on each forecast day. `posted` maps a payment's fingerprint to its
-    posting date; payments posted after the data ends are ignored."""
+    posting date; payments posted after the data ends are ignored. A planned item I entered is
+    placed exactly on its day if that day is a forecast day (money in or out, basis "entered")."""
     known = {fp: day for fp, day in posted.items() if day <= start.data_last_updated}
     items: list[ScheduledItem] = []
     for s in series:
@@ -55,6 +58,12 @@ def scheduled_items(
             items += _rent_items(s, rule, paid, start)
         else:
             items += _pattern_items(s, start)
+    for p in planned:
+        if start.first_day <= p.day <= start.last_day:
+            items.append(ScheduledItem(
+                p.day, p.cents, f"planned|{p.item_id}", p.description, "entered",
+                "planned by me: placed exactly on its day",
+            ))  # fmt: skip
     return sorted(items, key=lambda i: (i.day, i.series_key))
 
 

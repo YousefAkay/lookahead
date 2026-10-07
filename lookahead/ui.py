@@ -183,7 +183,12 @@ def forecast_table(items: list, by_key: dict, hidden: set[str]) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "Date": [i.day.isoformat() for i in items],
-            "Name": [series_label(by_key[i.series_key], i.series_key in hidden) for i in items],
+            "Name": [
+                series_label(by_key[i.series_key], i.series_key in hidden)
+                if i.series_key in by_key
+                else (i.name or BLANK)  # a planned item: the words I typed
+                for i in items
+            ],
             "Amount ($)": [i.cents / 100 for i in items],
             "Based on": [i.basis for i in items],
             "Why": [i.note for i in items],
@@ -261,5 +266,25 @@ def events_table(events: list) -> pd.DataFrame:  # type: ignore[type-arg]
             "Type": [e.kind for e in events],
             "Amount ($)": [e.cents / 100 for e in events],
             "What": [what(e) for e in events],
+        }
+    )
+
+
+def planned_table(planned: list, first_day: object, last_day: object) -> pd.DataFrame:  # type: ignore[type-arg]
+    """The planned items I entered: day, what, the amount in dollars (display only; money in is
+    positive), when I entered it, and whether this forecast uses it."""
+
+    def used(p: object) -> str:
+        if p.day < first_day:  # type: ignore[attr-defined, operator]
+            return "no: the day has passed"
+        return "yes" if p.day <= last_day else "no: after the last forecast day"  # type: ignore[attr-defined, operator]
+
+    return pd.DataFrame(
+        {
+            "Date": [p.day.isoformat() for p in planned],
+            "What": [p.description for p in planned],
+            "Amount ($)": [p.cents / 100 for p in planned],
+            "Entered on": [p.entered_at.isoformat() for p in planned],
+            "In this forecast": [used(p) for p in planned],
         }
     )

@@ -18,6 +18,7 @@ from lookahead.db import connect  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.forecast.path import BASELINES, build_forecast  # noqa: E402
+from lookahead.planned import add_planned, remove_planned  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import rent_rule_of  # noqa: E402
 from lookahead.rent import rent_cents  # noqa: E402
@@ -31,6 +32,7 @@ from lookahead.ui import (  # noqa: E402
     forecast_chart,
     forecast_table,
     hidden_series,
+    planned_table,
     private_db_path,
     series_label,
     synthetic_dir,
@@ -177,6 +179,12 @@ with st.expander("Assumptions behind this forecast", expanded=True):
         "have their own model. Fees follow events such as an overdraft, which an average "
         "cannot see."
     )
+    if forecast.planned:
+        inside = sum(start.first_day <= p.day <= start.last_day for p in forecast.planned)
+        st.markdown(
+            f"- **Planned items:** {len(forecast.planned)} entered by me, {inside} inside this "
+            "period, placed exactly on their days."
+        )
     if forecast.has_income:
         st.markdown(
             "- **Income:** the income series on the Recurring page, on their expected dates; "
@@ -234,7 +242,7 @@ with st.expander("Big one-time events (not forecast)", expanded=bool(forecast.bi
         "Big one-time rows of the last 13 weeks: a row of at least $500 that is at least 5 "
         "times the typical row, money out or money in. They are not everyday spending or "
         "irregular deposits, and they are not repeated in the forecast. A big deposit that "
-        "went straight back out (outflows adding up to 90 to 110 percent of it within 14 "
+        "went straight back out (outflows adding up to 85 to 115 percent of it within 14 "
         "days) is shown with those outflows as a numbered pass-through. A big deposit with no "
         "such outflows is a large deposit: when one arrives cannot be predicted from history."
     )
@@ -248,8 +256,47 @@ with st.expander("Big one-time events (not forecast)", expanded=bool(forecast.bi
     if forecast.large_deposits:
         st.info(
             "You sometimes receive large deposits. If you expect one, add it as a planned "
-            "deposit. (Planned deposits and payments are not available yet.)"
+            'deposit. Use "Planned items" below.'
         )
+
+with st.expander("Planned items (money in or out that I enter)", expanded=bool(forecast.planned)):
+    st.caption(
+        "A payment or deposit you know is coming: a term payment, an expected deposit, a "
+        'purchase. It is placed exactly on its day, labelled "entered", and never guessed '
+        "or moved. Only days inside the forecast period change the forecast."
+    )
+    if forecast.planned:
+        st.dataframe(
+            planned_table(list(forecast.planned), start.first_day, start.last_day),
+            hide_index=True, width="stretch",
+            column_config={"Amount ($)": st.column_config.NumberColumn(format="%.2f")},
+        )  # fmt: skip
+    else:
+        st.caption("No planned items.")
+    with st.form("planned_form"):
+        planned_day = st.date_input("Day", value=start.first_day, key="planned_date")
+        planned_way = st.radio("Direction", ["Money out", "Money in"], horizontal=True,
+                               key="planned_direction")  # fmt: skip
+        planned_size = st.number_input("Amount ($)", min_value=0.0, step=50.0, key="planned_amount")
+        planned_what = st.text_input("What it is", key="planned_description")
+        add_one = st.form_submit_button("Add planned item")
+    if add_one and isinstance(planned_day, date):
+        sign = 1 if planned_way == "Money in" else -1
+        try:  # dollars only on screen; cents are stored
+            add_planned(conn, account, planned_day, sign * round(planned_size * 100), planned_what)
+        except ValueError as problem:
+            st.warning(f"Could not save: {problem}")
+        else:
+            st.rerun()
+    if forecast.planned:
+        by_id = {p.item_id: p for p in forecast.planned}
+        gone = st.selectbox(
+            "Remove an item", list(by_id), key="planned_remove",
+            format_func=lambda i: f"{by_id[i].day} · {by_id[i].description}",
+        )  # fmt: skip
+        if st.button("Remove planned item"):
+            remove_planned(conn, account, gone)
+            st.rerun()
 
 st.subheader("Recurring payments placed in this period")
 if forecast.items:

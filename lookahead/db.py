@@ -153,6 +153,18 @@ CREATE TABLE IF NOT EXISTS recurring_decisions (
     details     TEXT    NOT NULL,  -- JSON
     decided_at  TEXT    NOT NULL
 );
+-- Planned items: money in or out that I enter, placed exactly on its day (a term payment, an
+-- expected deposit). A row is never changed except to say when I removed it; changing an item is
+-- removing it and entering it again. A replay as of a date uses only what was entered by then.
+CREATE TABLE IF NOT EXISTS planned_items (
+    item_id      INTEGER PRIMARY KEY,
+    account      TEXT    NOT NULL,
+    day          TEXT    NOT NULL,
+    amount_cents INTEGER NOT NULL CHECK (amount_cents <> 0),  -- money in is positive
+    description  TEXT    NOT NULL,
+    entered_at   TEXT    NOT NULL,
+    removed_at   TEXT
+);
 -- Payees that are my own accounts (a credit card, a line of credit), dated. A bill
 -- payment to one is a transfer, not spending. The latest row for a payee wins.
 CREATE TABLE IF NOT EXISTS own_account_payees (

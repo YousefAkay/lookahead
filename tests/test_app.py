@@ -604,15 +604,80 @@ def test_forecast_page_shows_the_shortfall_probability_plainly(isolated: Path) -
 def test_forecast_page_asks_for_a_planned_deposit_only_when_large_deposits_were_seen(
     isolated: Path,
 ) -> None:
+    from lookahead.db import connect
+
     sentence = (
         "You sometimes receive large deposits. If you expect one, add it as a planned deposit."
     )
+    without = run(FORECAST)  # also builds the demo database
+    without.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not without.exception, without.exception
+    assert sentence not in page_text(without)
+    conn = connect(isolated / "demo.db")
+    with conn:  # a large deposit that nothing paid back out
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES ('synthetic-B', '2026-09-10', 1500000, 'credit memo', 'Family ', 0,"
+            " 'bigdep1', 'f', 'x')"
+        )
+    conn.close()
     with_deposit = run(FORECAST)
-    with_deposit.sidebar.selectbox[0].set_value("synthetic-C").run()  # funded by family memos
+    with_deposit.sidebar.selectbox[0].set_value("synthetic-B").run()
     assert not with_deposit.exception, with_deposit.exception
     assert sentence in page_text(with_deposit)
     events = [d.value for d in with_deposit.dataframe if "What" in d.value.columns]
     assert events and any("Large deposit" in w for w in events[0]["What"])
-    without = run(FORECAST)
-    without.sidebar.selectbox[0].set_value("synthetic-B").run()
-    assert sentence not in page_text(without)
+
+
+def add_planned_item(at: AppTest, day: date, direction: str, dollars: float, what: str) -> None:
+    at.date_input(key="planned_date").set_value(day)
+    at.radio(key="planned_direction").set_value(direction)
+    at.number_input(key="planned_amount").set_value(dollars)
+    at.text_input(key="planned_description").set_value(what)
+    button(at, "Add planned item").click().run()
+
+
+def test_a_planned_payment_can_be_added_and_shows_in_the_forecast_as_entered(
+    isolated: Path,
+) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    day = at.date_input(key="planned_date").value  # the default is the first forecast day
+    add_planned_item(at, day, "Money out", 500.0, "Concert tickets")
+    assert not at.exception, at.exception
+    planned = next(d.value for d in at.dataframe if "Entered on" in d.value.columns)
+    assert list(planned["What"]) == ["Concert tickets"]
+    assert list(planned["Amount ($)"]) == [-500.0] and list(planned["In this forecast"]) == ["yes"]
+    placed = next(d.value for d in at.dataframe if "Why" in d.value.columns)
+    row = placed[placed["Name"] == "Concert tickets"]
+    assert list(row["Based on"]) == ["entered"] and list(row["Amount ($)"]) == [-500.0]
+
+
+def test_a_planned_deposit_is_money_in(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    day = at.date_input(key="planned_date").value
+    add_planned_item(at, day, "Money in", 2000.0, "Family, for the term")
+    planned = next(d.value for d in at.dataframe if "Entered on" in d.value.columns)
+    assert list(planned["Amount ($)"]) == [2000.0]
+
+
+def test_a_planned_item_can_be_removed(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    day = at.date_input(key="planned_date").value
+    add_planned_item(at, day, "Money out", 500.0, "Concert tickets")
+    button(at, "Remove planned item").click().run()
+    assert not at.exception, at.exception
+    assert not [d for d in at.dataframe if "Entered on" in d.value.columns]
+    assert "No planned items" in page_text(at)
+
+
+def test_a_planned_item_with_no_description_is_refused(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    day = at.date_input(key="planned_date").value
+    add_planned_item(at, day, "Money out", 500.0, "   ")
+    assert "Could not save" in " ".join(str(w.value) for w in at.warning)
+    assert not [d for d in at.dataframe if "Entered on" in d.value.columns]

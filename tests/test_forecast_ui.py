@@ -9,6 +9,7 @@ from lookahead.forecast.schedule import ScheduledItem
 from lookahead.forecast.simulate import Simulation
 from lookahead.forecast.spending import BigEvent, BreakdownRow
 from lookahead.forecast.start import ForecastStart
+from lookahead.planned import PlannedItem
 from lookahead.recurring_store import Stored
 from lookahead.ui import (
     BLANK,
@@ -18,6 +19,7 @@ from lookahead.ui import (
     forecast_chart,
     forecast_table,
     hidden_series,
+    planned_table,
 )
 
 
@@ -146,3 +148,27 @@ def test_the_chart_shows_the_range_both_medians_and_the_point_forecast() -> None
 def test_the_chart_still_works_without_a_simulation() -> None:
     names = [t.name for t in forecast_chart(pd.DataFrame(), make_forecast(False), 20000).data]
     assert names == ["Forecast with no randomness (an estimate)"]
+
+
+def test_a_planned_item_shows_in_the_placed_payments_with_its_own_description() -> None:
+    items = [ScheduledItem(date(2026, 10, 10), -50000, "planned|3", "Concert tickets",
+                           "entered", "planned by me: placed exactly on its day")]  # fmt: skip
+    table = forecast_table(items, {}, set())  # no series behind it
+    assert list(table["Name"]) == ["Concert tickets"]
+    assert list(table["Based on"]) == ["entered"] and list(table["Amount ($)"]) == [-500.0]
+
+
+def test_the_planned_table_says_whether_each_item_is_in_this_forecast() -> None:
+    first, last = date(2026, 10, 1), date(2026, 10, 30)
+    planned = [
+        PlannedItem(1, date(2026, 9, 20), -7000, "Already happened", date(2026, 9, 29)),
+        PlannedItem(2, date(2026, 10, 10), -50000, "Concert", date(2026, 9, 29)),
+        PlannedItem(3, date(2027, 1, 2), 2000000, "Family, for the term", date(2026, 9, 29)),
+    ]
+    table = planned_table(planned, first, last)
+    assert list(table.columns) == ["Date", "What", "Amount ($)", "Entered on", "In this forecast"]
+    assert list(table["Amount ($)"]) == [-70.0, -500.0, 20000.0]  # money in is positive
+    assert list(table["In this forecast"]) == [
+        "no: the day has passed", "yes", "no: after the last forecast day",
+    ]  # fmt: skip
+    assert planned_table([], first, last).empty

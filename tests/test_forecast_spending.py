@@ -450,16 +450,27 @@ def test_a_big_deposit_that_pays_tuition_is_a_pass_through() -> None:
     assert groups(paired(rows)) == [(2000000, "Pass-through", 1), (-1865900, "Pass-through", 1)]
 
 
-def test_the_share_must_be_between_90_and_110_percent() -> None:
+def test_the_share_must_be_between_85_and_115_percent() -> None:
     def case(out: int) -> list[str]:
-        rows = ordinary() + [txn(1, date(2026, 9, 3), 100000, "deposit", "Payroll "),
-                             txn(2, date(2026, 9, 5), -out, "bill payment", UNI)]  # fmt: skip
+        rows = ordinary() + [
+            txn(1, date(2026, 9, 3), 100000, "deposit", "Payroll "),
+            txn(2, date(2026, 9, 5), -out, "bill payment", UNI),
+        ]
         return [e.group for e in paired(rows)]
 
-    assert case(89000) == ["Large deposit", "Large payment"]  # 89 percent: not a pass-through
-    assert case(90000) == ["Pass-through", "Pass-through"]
-    assert case(110000) == ["Pass-through", "Pass-through"]
-    assert case(111000) == ["Large deposit", "Large payment"]
+    assert case(84000) == ["Large deposit", "Large payment"]  # 84 percent: not a pass-through
+    assert case(85000) == ["Pass-through", "Pass-through"]
+    assert case(115000) == ["Pass-through", "Pass-through"]
+    assert case(116000) == ["Large deposit", "Large payment"]
+
+
+def test_a_payment_a_little_over_the_deposit_still_counts() -> None:
+    """A deposit that covered most, not all, of a payment (here 113 percent)."""
+    rows = ordinary() + [
+        txn(1, date(2026, 9, 1), 640000, "credit memo", "Family "),
+        txn(2, date(2026, 9, 4), -725000, "bill payment", UNI),
+    ]
+    assert [e.group for e in paired(rows)] == ["Pass-through", "Pass-through"]
 
 
 def test_only_the_14_days_after_the_deposit_count() -> None:
