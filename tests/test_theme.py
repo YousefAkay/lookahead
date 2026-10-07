@@ -538,3 +538,7 @@ def test_the_original_is_grey_and_the_changed_future_is_green_with_a_blue_band()
     assert "46, 95, 154" in ROLES["modified_band"]["fillcolor"]  # translucent blue
     assert "46, 95, 154" not in ROLES["original_band"]["fillcolor"]  # grey, not blue
     assert ROLES["original_median"]["line"]["dash"] != ROLES["modified_median"]["line"]["dash"]
+
+
+def test_jump_links_land_below_the_sticky_top_bar() -> None:
+    assert "scroll-margin-top" in theme.CSS  # "See why" must not scroll the heading under the bar

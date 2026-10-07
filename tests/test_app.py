@@ -1040,3 +1040,9 @@ def test_past_episodes_are_listed(isolated: Path) -> None:
     at.sidebar.selectbox[0].set_value("synthetic-C").run()
     text = page_text(at)
     assert "Earlier and dismissed alerts" in text and "Dismissed" in text
+
+
+def test_review_page_warns_about_screenshots_only_for_my_data(isolated: Path) -> None:
+    freeze_demo(isolated)
+    at = run(REVIEW)
+    assert "do not screenshot" not in page_text(at)  # synthetic text is safe to show

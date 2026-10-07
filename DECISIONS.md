@@ -581,6 +581,11 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 ### 2026-10-07: Test hygiene, unclosed database warning
 - Python 3.13 warns when an unclosed SQLite connection is garbage collected, at a random later moment, so the warning appeared in `test_embeddings` although the leak was in another test (fixtures and app pages leave connections open). It did not reproduce when that test ran alone. A shared autouse fixture in `tests/conftest.py` now records every connection and closes it after each test.
 
+### 2026-10-07: Demo preparation (presentation only)
+- `python -m lookahead.demo reset` rebuilds the synthetic demo database from the persona files, so a take starts clean: no alerts, planned items, decisions, corrections or changed buffer; the recurring series are detected and saved (Home can count them before Recurring is opened) and still all "to review"; the label-review splits are frozen so that page opens on a merchant instead of a command to run. It deletes the file, or, when the running app holds it open (Windows refuses), empties every table in place. It refuses a path inside a folder called "private" and anything that is not a .db file. The Forecast alert for synthetic-C is not stored by the reset: it is recorded the first time the page opens, so it is fresh.
+- Checked every page for each synthetic account by loading it in a browser and scanning all its text (with every section opened) for file paths, names, e-mail addresses, long digit runs, error words and empty pages. Found and fixed: the Label review footer told a synthetic-demo viewer not to screenshot "real merchant text" (now shown only for My data); Home said "None found yet" for the recurring count until Recurring had been opened (the reset now saves the series); a jump link ("See why") scrolled the heading under the sticky top bar (anchors now keep a margin). Left as they are on purpose: people's names show as "(hidden)" because pseudonymize is on by default, and the demo says it is made-up data.
+- The click path is in `docs/DEMO.md`.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

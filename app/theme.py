@@ -464,6 +464,9 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
 [data-testid="stMarkdownContainer"] p.la-foot {{ margin: 0; color: {COLORS.faint}; font-size: 12px;
   text-align: center; }}
 
+/* a jump link (See why) lands below the sticky bar, not under it */
+[id="alerts"], [id="evidence"] {{ scroll-margin-top: 96px; }}
+
 /* the block that carries this stylesheet takes no room (it would add a gap above the bar) */
 [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {{ display: none; }}
 

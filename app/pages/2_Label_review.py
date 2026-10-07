@@ -185,6 +185,10 @@ with st.container(border=True, key="card-merchant"):
             st.rerun()
 
 footer(
-    "Labels are stored only when you click. This page shows your real merchant text when "
-    "'My data' is selected: do not screenshot it."
+    "Labels are stored only when you click."
+    + (
+        " This page shows your real merchant text: do not screenshot it."
+        if source == "My data"
+        else ""
+    )  # fmt: skip
 )
