@@ -587,6 +587,8 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - The click path is in `docs/DEMO.md`.
 
 ### 2026-10-08: Week 4 backtest design, fixed before any backtest runs (generator v1 persona mix)
+**Superseded on the same day by "Persona mix revised: four student archetypes" below. Kept for the record; none of its personas (ids `v1-...`) is used any more. The origins, the split and the laptop limits in this entry still stand.**
+
 This entry is written before the generator v1 code and before any backtest has run. **The mix, the parameter ranges, the held-out list, the origins and the split below are final.** Changing any of them after seeing a result needs a new entry that says so and starts a new set of results; the old results stay. The only allowed change to the generator afterwards is fixing a bug (a persona that breaks its own rules, such as a balance below the overdraft limit), recorded here with the number of personas affected.
 
 - **Why a mix at all.** The three hand-written personas (A, B, C) each show one behaviour and say nothing about typical people; with 4 months they give about 15 forecast periods in total. Generator v1 draws 30 personas from 7 archetypes, each with 12 months of history (2025-10-01 to 2026-09-30). A, B and C stay as demo personas and are **development only**; they are not in the backtest.
@@ -618,6 +620,74 @@ This entry is written before the generator v1 code and before any backtest has r
 - Speed, measured: one forecast at 500 futures takes 0.1 to 0.2 seconds on these personas, a `--quick` run (3 personas, 4 origins, 100 futures) 2.5 seconds, so the full development run (20 personas by 40 origins) should take a few minutes. I did not rewrite the futures as array code: it would not change a run that short, and the current code keeps the per-payment random streams that scenarios rely on.
 - Held-out personas run only with `--held-out`, and the runner refuses them otherwise. The origin count is 40 (corrected above). Results made with other settings (futures, seed, method) are refused rather than mixed.
 - Real data: `eval/backtest_real.py` is run by me. It opens the database read-only (a test checks the file's bytes are unchanged), uses the account's own saved buffer, writes under `data/private/backtest/` in files named account-1, account-2, and prints only counts (accounts, origins, how many were followed by a balance below the buffer or below zero). I run it myself; it is never run on real data by anything else.
+
+### 2026-10-08: Persona mix revised: four student archetypes (mix v2, ids `v2-<ARCH>-<nn>`)
+**Why it was revised, stated exactly.** I revised the mix after researching Montreal student finances. The revision came after a `--quick` run that printed counts only, and before any forecast error, coverage or alert result was seen. What I had looked at before the revision: each generated history's lowest and closing balance (noted above), and the `--quick` run's counts, which included that 6 of its 12 origins were followed by a dip below the buffer and 5 by a dip below $0. No error, coverage or alert metric had been computed. From here the v2 mix, ranges, flags and held-out list below are final, under the same rule as before: a change needs a new entry and a new set of results.
+
+**What changed.** The student-like archetypes were merged down to four, chosen by the cashflow shape one chequing account sees, not by label:
+
+- **INTL-FAM** (international, reliable family funding; code `IFAM`) replaces half of LUMP. A family deposit arrives before each semester's tuition payment (this exercises the pass-through pairing), plus a steady monthly allowance and 4-6 recurring bill series (phone, internet, transit, insurance; rent and subscriptions are separate).
+- **INTL-TIGHT** (international, stretched family; `ITIGHT`) replaces the other half of LUMP. Irregular and sometimes partial family transfers, part-time work, small buffer.
+- **DOM-HOME** (domestic, living with parents; `DHOME`) replaces PTS. Little or no rent, wages, more discretionary spending and subscriptions.
+- **DOM-RENT** (domestic, renting with roommates and working; `DRENT`) replaces AWAY and takes the student side of TIGHT. Shift wages that dip during exams; three of five are funded by loans or bursaries paid on set dates.
+- Non-student archetypes stay with fewer personas: SAL 5 to 4, SEM 3 to 2, TIGHT 7 to 4 (the non-student tight-budget worker), FREE 3 to 2. The summer-and-December quiet months of AWAY become a per-persona setting (below).
+- v0 personas A, B and C stay development-only demos.
+
+**The mix: 30 personas, 10 held out** (same share as before):
+
+| Archetype | n | Held out | Buffer | Opening balance |
+|---|---|---|---|---|
+| IFAM | 4 | 04 | $300 | $2,000-8,000 |
+| ITIGHT | 5 | 04, 05 | $100 | $2,000-8,000 |
+| DHOME | 4 | 04 | $150 | $300-1,500 |
+| DRENT | 5 | 04, 05 | $150 | $300-2,000 |
+| SAL | 4 | 04 | $300 | $1,500-4,000 |
+| SEM | 2 | 02 | $300 | $1,200-3,500 |
+| TIGHT | 4 | 04 | $100 | $100-500 |
+| FREE | 2 | 02 | $200 | $500-2,000 |
+
+SAL, SEM, TIGHT and FREE keep the parameter ranges recorded in the superseded entry. Held-out personas are never used to tune anything (code refuses their ids) and run once, at the end. Every student archetype has at least one held-out persona.
+
+**Fixed per-persona assignments** (so each archetype has both cases, not left to a random draw):
+
+| Persona | Tuition per semester | Paid from chequing | Other |
+|---|---|---|---|
+| IFAM-01 | $5,000-6,500 (the French/Belgian rate) | yes | one payment |
+| IFAM-02 | $7,000-12,000 (partial scholarship) | yes | two installments, summer term |
+| IFAM-03 | $14,500-21,500 (standard international) | **no** (the family pays the university) | no tuition rows and no tuition deposits |
+| IFAM-04 (held out) | $22,000-30,000 | yes | two installments |
+| ITIGHT-01 | $15,000-30,000 | yes | |
+| ITIGHT-02 | $15,000-30,000 | **no** | no tuition rows and no tuition deposits |
+| ITIGHT-03 | $15,000-30,000 | yes | summer term |
+| ITIGHT-04 (held out) | $15,000-30,000 | yes | summer term |
+| ITIGHT-05 (held out) | $15,000-30,000 | yes | |
+| DHOME-01 | $0 (CEGEP) | n/a | no rent |
+| DHOME-02 | $1,500-3,100 (university, Quebec rate) | yes | rent contribution $150-400, summer term |
+| DHOME-03 | $1,500-3,100 | no | no rent, away in summer and December |
+| DHOME-04 (held out) | $0 (CEGEP) | n/a | rent contribution $150-400 |
+| DRENT-01 | $1,500-2,500 (Quebec rate) | yes | loans and bursaries, summer term |
+| DRENT-02 | $1,500-2,500 | no | no aid, away in summer and December |
+| DRENT-03 | $1,500-2,500 | yes | loans only |
+| DRENT-04 (held out) | $4,800-7,500 (out of province) | yes | no aid, summer term |
+| DRENT-05 (held out) | $4,800-7,500 | no | loans and bursaries, away in summer and December |
+
+"Paid from chequing: yes" counts are the ones I asked for (IFAM 3 of 4, ITIGHT 4 of 5, DHOME 1 of 4, DRENT 3 of 5). Summer term (a third of the 18 student personas): IFAM-02, ITIGHT-03, ITIGHT-04, DHOME-02, DRENT-01, DRENT-04. Two semesters (Fall, Winter) for everyone, plus the summer term for those six. Tuition falls due around Jan 20 (Winter), May 20 (summer persona only) and Sep 12 (Fall), each date drawn within 5 days.
+
+**Cashflow shapes** (all numbers are per persona, drawn once from its own seeded stream):
+
+- **INTL-FAM.** The family deposit is **not** equal to tuition: it is 100-140% of the tuition due, arriving 1-30 days before the first payment. Some personas pay tuition in two installments (half each, the second 30-45 days after the first). Because of the 100-140% and the 1-30 days, many deposits fall outside the pass-through rule's window (85-115% of the deposit paid back out within 14 days), so the rule is tested by data that was not built to match it. When "paid from chequing" is no there is no tuition payment and no tuition deposit. Also a monthly allowance of $800-1,800, rent $700-1,400, 4-6 recurring bill series.
+- **INTL-TIGHT.** Tuition $15,000-30,000 per semester when paid from chequing. Family transfers before each tuition payment cover 60-105% of it (often partial), plus irregular transfers of $300-2,000 every 15-45 days. Part-time work at $16-17 an hour: at most 24 hours a week during term, 25-40 in breaks (Dec 20 to Jan 4, and May to August unless the persona has a summer term); about 85% of gross reaches the account. Rent $500-800, 3-5 bill series.
+- **DOM-HOME.** Wages at $16-20 an hour, 8-20 hours a week; purchases 1.3-1.9 a day; 2-4 bill series; 3-7 subscriptions.
+- **DOM-RENT.** Shift wages at $16-21 an hour, 12-30 hours a week, falling to 50-70% of that in exam periods (Dec 6-20 and Apr 10-30); rent $450-900; 3-5 bill series. Aid, three personas, both patterns: **loans only** is one payment at the start of each semester ($2,500-4,500); **loans plus bursaries** is a larger payment at the start of the semester ($3,500-6,000, to help with tuition) and then smaller monthly payments for the rest of the term ($300-900). The deposit text looks like a bank transfer from "BMO Bank of Montreal" (the bank that handles Quebec student-loan payments), not a government name. **The monthly part of the loans-plus-bursaries pattern is likely but not fully confirmed**; I model it that way and say so.
+- **Quiet months.** Three personas are away in July, August and December (everyday spending at 15%, no wages): DHOME-03, DRENT-02, DRENT-05.
+
+**Subscriptions are separate from bills.** Phone, internet, transit and insurance are recurring bill series. Subscriptions (Netflix, Spotify and similar) are drawn on their own: the number of them (INTL-FAM 2-5, INTL-TIGHT 1-3, DOM-HOME 3-7, DOM-RENT 2-5) and the total monthly cost (INTL-FAM $20-80, INTL-TIGHT $10-40, DOM-HOME $30-110, DOM-RENT $20-80) are drawn independently, then the total is split across the chosen services. A persona with many subscriptions is not forced to pay more for them.
+
+**What is anchored to published figures and what is not.**
+- **Tuition ranges are anchored to published 2026-27 rates** (15 credits a semester, tuition only; ancillary fees come on top). The Quebec rate is $103.92 a credit (about $1,559 a semester): Concordia's undergraduate rates page (Fall 2026 and Winter 2027), the Universite de Montreal registrar's page and McGill's page agree; McGill calls its numbers estimates and I could not read the government's own page, which has no figures. Out of province: $324.35 a credit for students admitted before Fall 2024 and $432.85 after (about $4,865 and $6,493 a semester), per McGill, Concordia and the registrar's page of UdeM; UQAM's yearly estimate with fees is $10,541. International: Concordia $1,010 to $1,400 a credit by faculty ($15,150 to $21,000 a semester; Arts and Science $1,160), UdeM $1,025.76 a credit (about $15,400 a semester, about $15,800 after the stated 3% rise, not confirmed), UQAM's estimate $29,415 a year with fees (about $14,700 a semester). French and Belgian francophone students pay the out-of-province rate, which is $4,865 to $6,493 a semester.
+- **Limitations in the tuition ranges.** (1) International tuition at McGill for science, engineering and management is above my $30,000 top (third-party figures put a BSc near $32,400 a semester); (2) those McGill international rates and UQAM's per-credit rates could not be confirmed from a primary source, I only have third-party figures or yearly estimates; (3) the French/Belgian rate is below the first range I proposed ($7,000), so INTL-FAM starts at $5,000; (4) management and engineering out-of-province supplements are not modelled.
+- **Modeling assumptions, not research:** subscription counts and costs; the bill counts of the archetypes other than INTL-FAM; wage ranges (the $16.60 an hour I started from was not verified, so I draw $16-17); the 85% of gross that reaches the account; the share of tuition the family funds in INTL-TIGHT; allowance and aid amounts; exam-period dips; which personas are away.
+- **Out of scope, listed as limitations:** student parents, and exchange students (different tuition rules, often no tuition paid by the student, short stays).
 
 ## Tests
 
