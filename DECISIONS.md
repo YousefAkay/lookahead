@@ -586,6 +586,29 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Checked every page for each synthetic account by loading it in a browser and scanning all its text (with every section opened) for file paths, names, e-mail addresses, long digit runs, error words and empty pages. Found and fixed: the Label review footer told a synthetic-demo viewer not to screenshot "real merchant text" (now shown only for My data); Home said "None found yet" for the recurring count until Recurring had been opened (the reset now saves the series); a jump link ("See why") scrolled the heading under the sticky top bar (anchors now keep a margin). Left as they are on purpose: people's names show as "(hidden)" because pseudonymize is on by default, and the demo says it is made-up data.
 - The click path is in `docs/DEMO.md`.
 
+### 2026-10-08: Week 4 backtest design, fixed before any backtest runs (generator v1 persona mix)
+This entry is written before the generator v1 code and before any backtest has run. **The mix, the parameter ranges, the held-out list, the origins and the split below are final.** Changing any of them after seeing a result needs a new entry that says so and starts a new set of results; the old results stay. The only allowed change to the generator afterwards is fixing a bug (a persona that breaks its own rules, such as a balance below the overdraft limit), recorded here with the number of personas affected.
+
+- **Why a mix at all.** The three hand-written personas (A, B, C) each show one behaviour and say nothing about typical people; with 4 months they give about 15 forecast periods in total. Generator v1 draws 30 personas from 7 archetypes, each with 12 months of history (2025-10-01 to 2026-09-30). A, B and C stay as demo personas and are **development only**; they are not in the backtest.
+- **The 30 personas** (ids `v1-<ARCH>-<nn>`; each persona's numbers are drawn once from its own seeded stream, from the ranges below, and never re-drawn):
+
+| Archetype | n | Held out | Income | Rent | Everyday spending (card purchases per day, merchants) | Opening balance | Buffer |
+|---|---|---|---|---|---|---|---|
+| SAL salaried, comfortable | 5 | 04, 05 | biweekly pay $1,500-$2,600 | $900-$1,500 | 0.9-1.3 (worker merchants) | $1,500-$4,000 | $300 |
+| SEM salaried, semimonthly | 3 | 03 | pay on the 15th and last day $1,300-$2,200 | $800-$1,400 | 0.9-1.3 (worker) | $1,200-$3,500 | $300 |
+| PTS part-time student | 4 | 04 | biweekly pay $450-$900 | $500-$800 | 1.0-1.4 (student merchants, delivery) | $300-$900 | $150 |
+| TIGHT tight budget | 7 | 06, 07 | biweekly pay $1,100-$1,700 | 50-62 percent of monthly pay | 1.1-1.5 (worker) | $100-$500 | $100 |
+| LUMP lump-sum income | 6 | 05, 06 | no paycheque: one large credit memo at the start of each term (Jan, May, Sep), $6,000-$12,000, set to tuition plus 4 months of costs times a factor drawn from 0.80-1.15 | $600-$1,100 | 1.0-1.6 (C-like merchants) | $3,000-$8,000 | $500 |
+| FREE freelancer, irregular deposits | 3 | 03 | e-Transfers every 5-20 days, $200-$1,500 | $700-$1,200 | 1.0-1.4 (worker) | $500-$2,000 | $200 |
+| AWAY student away in summer and December | 2 | 02 | monthly bursary $900-$1,400 on the 1st | $500-$800 | 1.0-1.4, times 0.15 in July, August and December | $400-$1,200 | $200 |
+
+  Every persona also has 2-4 recurring bills or subscriptions (phone, internet, a subscription, sometimes hydro and a savings transfer) drawn from short fixed lists, and 1-3 larger one-off purchases in the year. LUMP personas pay tuition ($3,000-$6,000) a few days after each deposit.
+- **Why these archetypes.** TIGHT (7) and LUMP (6) are the two that can produce real shortfall episodes (small buffer and frequent near-zero balances; one deposit a term and no paycheque, as for a student paid by family or a loan), so that alert recall and false alarms are measured on more than a handful of episodes. SAL and SEM (8 together) are the calm majority a threshold must not bother. PTS, FREE and AWAY cover thin pay, irregular deposits and seasonal quiet. I expect the numbers for LUMP to look bad (the forecast cannot know when a deposit arrives, see "Known limitation: irregular income in lump sums"); they are reported per archetype, not hidden in an average.
+- **Held out: 10 of 30**, listed in the table (the last one or two of each archetype). Held-out personas are never used to choose a threshold, tune a rule or pick a method; code that tunes refuses their ids. They are used once, at the end, for the reported test numbers. The 20 other personas (and A, B, C) are the development set.
+- **Split.** Thresholds and any tuning use **development personas only, all origins** (validation). The held-out personas get one run at the end. Within a persona the origins overlap (30-day horizons every 7 days), so results are reported by persona and period counts, not as independent rows, with n (personas, periods, shortfall episodes) beside every number.
+- **Real data.** The same runner will run on my real account through a script I run myself: it prints counts and summaries only, never rows, and its numbers go in a separate column from the synthetic ones. One person's history is a case study.
+- **Laptop limits.** One persona at a time, each origin's result saved to disk as it is made (a stopped run resumes where it left off), `--quick` mode first (3 personas, 4 origins, 100 futures), the full run overnight.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
