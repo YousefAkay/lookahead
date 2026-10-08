@@ -27,3 +27,7 @@ __pycache__/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Generated synthetic histories and backtest results (big, rebuilt from seeds)
+data/synthetic_v1/
+data/backtest/
