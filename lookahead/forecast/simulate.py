@@ -54,6 +54,7 @@ class Simulation:
     median_lowest_cents: int  # the median over futures of each future's lowest balance
     median_lowest_without_cents: int
     weeks_drawn_from: int  # how many different past weeks the futures could draw
+    lowest_cents: tuple[int, ...] = ()  # each future's lowest balance (with deposits), sorted
 
 
 def sample_item_day(
@@ -223,5 +224,5 @@ def run(inputs: SimulationInputs, spending_cut: SpendingCut | None = None) -> Si
         share(with_dep, 0), share(without, 0),
         _percentile([min(p) for p in with_dep], 0.5) if with_dep else start.balance_cents,
         _percentile([min(p) for p in without], 0.5) if without else start.balance_cents,
-        len(pool),
+        len(pool), tuple(sorted(min(p) for p in with_dep)),
     )  # fmt: skip

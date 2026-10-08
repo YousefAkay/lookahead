@@ -7,7 +7,13 @@ from datetime import date, timedelta
 import pytest
 
 from lookahead.forecast.schedule import ScheduledItem
-from lookahead.forecast.simulate import N_FUTURES, Simulation, sample_item_day, simulate
+from lookahead.forecast.simulate import (
+    N_FUTURES,
+    Simulation,
+    _percentile,
+    sample_item_day,
+    simulate,
+)
 from lookahead.forecast.start import ForecastStart
 from lookahead.recurring_store import Stored
 from lookahead.rent import RentRule
@@ -285,3 +291,28 @@ def test_a_payment_a_scenario_moved_stays_where_it_was_put_even_if_it_is_rent() 
     assert {sample_item_day(item, s, {}, start, random.Random(k)) for k in range(50)} == {
         date(2026, 11, 3)
     }
+
+
+# --- The lowest balance of every future is kept, so any buffer can be checked later ---
+
+
+def test_the_lowest_balance_of_every_future_is_kept_sorted() -> None:
+    mixed = {AS_OF - timedelta(days=i): (i * 37) % 900 for i in range(91)}
+    sim = run(spending_daily=mixed, futures=60, seed=3)
+    assert len(sim.lowest_cents) == 60
+    assert list(sim.lowest_cents) == sorted(sim.lowest_cents)
+
+
+def test_the_kept_lows_reproduce_the_median_and_the_shortfall_probability() -> None:
+    mixed = {AS_OF - timedelta(days=i): (i * 37) % 900 for i in range(91)}
+    sim = run(spending_daily=mixed, futures=80, seed=5, buffer_cents=60000)
+    assert sim.median_lowest_cents == _percentile(list(sim.lowest_cents), 0.5)
+    share = sum(low < 60000 for low in sim.lowest_cents) / len(sim.lowest_cents)
+    assert share == sim.shortfall_probability  # so another buffer can be checked afterwards
+    below_zero = sum(low < 0 for low in sim.lowest_cents) / len(sim.lowest_cents)
+    assert below_zero == sim.below_zero_probability
+
+
+def test_with_no_history_the_kept_lows_are_the_start_balance() -> None:
+    sim = run(futures=10)
+    assert sim.lowest_cents == (100000,) * 10
