@@ -1,6 +1,6 @@
 """Tests for the backtest runner (week 4, step 1): origins, realized balances, rule zero, resuming.
 
-Made-up personas from generator v1 only; nothing reads real data.
+Made-up personas from generator mix v2 only; nothing reads real data.
 """
 
 import json
@@ -37,7 +37,7 @@ from lookahead.ingest.store import store_exports
 from lookahead.recurring_store import reject, series_as_of
 from lookahead.settings import set_safety_buffer_cents
 
-PID = "v1-SAL-01"
+PID = "v2-SAL-01"
 ORIGIN = date(2026, 3, 2)
 FUTURES = 60  # small, for speed
 
@@ -99,8 +99,8 @@ def test_by_default_only_development_personas_are_run() -> None:
 
 def test_a_held_out_persona_needs_the_explicit_flag() -> None:
     with pytest.raises(ValueError, match="held-out"):
-        select_personas(["v1-TIGHT-07"], include_held_out=False)
-    assert select_personas(["v1-TIGHT-07"], include_held_out=True) == ["v1-TIGHT-07"]
+        select_personas(["v2-TIGHT-04"], include_held_out=False)
+    assert select_personas(["v2-TIGHT-04"], include_held_out=True) == ["v2-TIGHT-04"]
     assert set(select_personas(None, include_held_out=True)) == set(PERSONA_IDS)
 
 
@@ -286,15 +286,15 @@ def test_the_work_files_are_removed_after_a_persona(tmp_path: Path) -> None:
 
 
 def test_a_held_out_persona_run_is_labelled_in_its_records(tmp_path: Path) -> None:
-    run_persona("v1-SAL-04", tmp_path / "out", origins()[:1], FUTURES, seed=42,
+    run_persona("v2-SAL-04", tmp_path / "out", origins()[:1], FUTURES, seed=42,
                 work_dir=tmp_path / "work", allow_held_out=True)  # fmt: skip
-    record = json.loads((tmp_path / "out" / "v1-SAL-04.jsonl").read_text().splitlines()[0])
+    record = json.loads((tmp_path / "out" / "v2-SAL-04.jsonl").read_text().splitlines()[0])
     assert record["held_out"] is True
 
 
 def test_the_runner_refuses_a_held_out_persona_unless_told_to(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="held-out"):
-        run_persona("v1-SAL-04", tmp_path / "out", origins()[:1], FUTURES, seed=42,
+        run_persona("v2-SAL-04", tmp_path / "out", origins()[:1], FUTURES, seed=42,
                     work_dir=tmp_path / "work")  # fmt: skip
 
 

@@ -9,7 +9,7 @@ and the throw-away database is deleted before the next persona starts.
 
     python -m eval.backtest --quick                 # 3 personas, 4 origins, 100 futures
     python -m eval.backtest                         # the 20 development personas, all origins
-    python -m eval.backtest --only v1-SAL-04 --held-out   # a held-out persona: say so
+    python -m eval.backtest --only v2-SAL-04 --held-out   # a held-out persona: say so
     python -m eval.backtest --summary               # counts of what is saved (no amounts)
 
 Held-out personas run only with --held-out, and only for the final test. This module never reads

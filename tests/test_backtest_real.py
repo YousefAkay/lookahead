@@ -23,7 +23,7 @@ ACCOUNT = "my-private-chequing"  # a name that must never be printed
 @pytest.fixture(scope="module")
 def made_up_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     folder = tmp_path_factory.mktemp("real")
-    persona = build_persona("v1-TIGHT-01")
+    persona = build_persona("v2-TIGHT-01")
     export, _ = write_persona(persona.persona, folder, 42, START, END)
     conn = connect(folder / "made_up.db")
     store_exports(conn, ACCOUNT, [(export.name, parse_export(export))], datetime(2026, 10, 1))
