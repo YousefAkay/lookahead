@@ -19,6 +19,7 @@ people who are not students.
 """
 
 import argparse
+import math
 import sys
 import zlib
 from dataclasses import dataclass, replace
@@ -44,7 +45,7 @@ from lookahead.generator.schedules import (
     Shift,
     _post,
 )
-from lookahead.generator.spending import SpendingProfile
+from lookahead.generator.spending import CURRENCY_RATES, SpendingProfile
 
 MIX = "v2"
 START = date(2025, 10, 1)  # twelve months of history
@@ -149,16 +150,36 @@ PERSONA_SPECS: dict[str, StudentSpec] = {
 # total monthly cost, drawn separately), purchases a day, wage, hours a week, opening balance.
 STUDENT_SHAPE = {
     "IFAM": dict(
-        bills=(4, 6), subs=(2, 5), sub_cost=(20, 80), ppd=(0.9, 1.4), opening=(2000, 8000)
+        coverage=(1.05, 1.3),
+        bills=(4, 6),
+        subs=(2, 5),
+        sub_cost=(20, 80),
+        ppd=(0.9, 1.4),
+        opening=(2000, 8000),
     ),
     "ITIGHT": dict(
-        bills=(3, 5), subs=(1, 3), sub_cost=(10, 40), ppd=(0.8, 1.2), opening=(2000, 8000)
+        coverage=(0.9, 1.05),
+        bills=(3, 5),
+        subs=(1, 3),
+        sub_cost=(10, 40),
+        ppd=(0.8, 1.2),
+        opening=(2000, 8000),
     ),
     "DHOME": dict(
-        bills=(2, 4), subs=(3, 7), sub_cost=(30, 110), ppd=(1.3, 1.9), opening=(300, 1500)
+        coverage=(1.0, 1.3),
+        bills=(2, 4),
+        subs=(3, 7),
+        sub_cost=(30, 110),
+        ppd=(1.3, 1.9),
+        opening=(300, 1500),
     ),
     "DRENT": dict(
-        bills=(3, 5), subs=(2, 5), sub_cost=(20, 80), ppd=(1.0, 1.5), opening=(300, 2000)
+        coverage=(0.95, 1.15),
+        bills=(3, 5),
+        subs=(2, 5),
+        sub_cost=(20, 80),
+        ppd=(1.0, 1.5),
+        opening=(300, 2000),
     ),
 }
 
@@ -376,18 +397,121 @@ class HourlyPay:
         return out
 
 
-def _hourly(pid: str, rng: np.random.Generator, wage: tuple[int, int], term: tuple[int, int],
-            break_hours: tuple[int, int] | None, spec: StudentSpec,
-            dips: bool) -> HourlyPay:  # fmt: skip
-    wage_dollars = float(rng.uniform(wage[0], wage[1]))
+DAYS_PER_MONTH = 30.44
+_PER_MONTH = {"weekly": 52 / 12, "biweekly": 26 / 12, "semimonthly": 2.0, "monthly": 1.0}
+
+
+def expected_monthly_spending(profile: SpendingProfile) -> int:
+    """What the profile spends in an average month, in cents, before any cutting back: purchases a
+    day (times the average weekday factor), the average purchase (log-normal, so a long tail of
+    larger ones raises the mean above the median), and the cash withdrawals."""
+    weights = [m.weight for m in profile.merchants]
+
+    def cad(m) -> float:  # type: ignore[no-untyped-def]
+        rate = 1.0 if m.currency == "CAD" else sum(CURRENCY_RATES[m.currency]) / 2
+        return m.median_cents * math.exp(profile.amount_sigma**2 / 2) * rate
+
+    mean_purchase = sum(w * cad(m) for w, m in zip(weights, profile.merchants, strict=True)) / sum(
+        weights
+    )
+    per_day = profile.purchases_per_day * sum(profile.weekday_factors) / 7
+    cash = (
+        profile.cash_per_month * sum(profile.cash_amounts_cents) / len(profile.cash_amounts_cents)
+    )
+    return round(per_day * DAYS_PER_MONTH * mean_purchase + cash)
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """Regular monthly income against monthly costs, in cents, in a regular term month."""
+
+    income_cents: int
+    costs_cents: int
+
+    @property
+    def ratio(self) -> float:
+        return self.income_cents / self.costs_cents
+
+
+def _monthly_costs(sources: list[Source], spending: SpendingProfile | None) -> float:
+    """Rent, bills and subscriptions (recurring outflows that are not transfers to oneself) plus
+    expected everyday spending. One-off purchases and tuition are not in the costs."""
+    costs = 0.0
+    for s in sources:
+        if (
+            isinstance(s, RecurringSchedule)
+            and s.amount.typical_cents < 0
+            and s.category != "Transfers"
+        ):
+            costs += -s.amount.typical_cents * _PER_MONTH[s.cadence]
+    return costs + (expected_monthly_spending(spending) if spending is not None else 0)
+
+
+def _aid_regular_monthly(sources: list[Source]) -> float:
+    """Aid that counts as regular income: all of it, except the part that equals the tuition it
+    funds (tuition and its funding stay outside the coverage ratio)."""
+    tuition = aid = 0
+    for s in sources:
+        if isinstance(s, DatedSeries):
+            if s.series_id.endswith("-tuition"):
+                tuition += -sum(i.amount_cents for i in s.items)
+            elif s.series_id.endswith("-aid"):
+                aid += sum(i.amount_cents for i in s.items)
+    return max(0, aid - tuition) / 12
+
+
+def coverage(persona: Persona) -> Coverage:
+    """The persona's coverage ratio, recomputed from its sources: regular income (allowance, family
+    transfers, wages, pay, the aid that is not tuition funding) over costs (rent, bills,
+    subscriptions, expected everyday spending). Tuition and the deposits that fund it are
+    outside."""
+    income = 0.0
+    for s in persona.sources:
+        if isinstance(s, RecurringSchedule) and s.amount.typical_cents > 0:
+            income += s.amount.typical_cents * _PER_MONTH[s.cadence]
+        elif isinstance(s, HourlyPay):
+            income += s.net_cents_per_hour * s.term_hours * 2 * 26 / 12
+        elif isinstance(s, IrregularSeries) and s.category == "Income":
+            low, high = s.amount_range_cents
+            income += (low + high) / 2 * DAYS_PER_MONTH / ((s.gap_days[0] + s.gap_days[1]) / 2)
+        elif (
+            isinstance(s, DatedSeries)
+            and s.category == "Income"
+            and not s.series_id.endswith(("-aid", "-tuition-funding"))
+        ):
+            income += sum(i.amount_cents for i in s.items) / 12
+    income += _aid_regular_monthly(list(persona.sources))
+    return Coverage(round(income), round(_monthly_costs(list(persona.sources), persona.spending)))
+
+
+def split_income(target: float, wage: float, family: float, wage_cap: float) -> tuple[float, float]:
+    """Split a target monthly income between wages and family transfers in proportion to the drawn
+    wage and family amounts, but wages never above `wage_cap` (the 24 hours a week cap): what the
+    wages cannot cover is made up by the family."""
+    wages = min(target * wage / (wage + family), wage_cap)
+    return wages, target - wages
+
+
+def _net_per_hour(rng: np.random.Generator, wage: tuple[int, int]) -> int:
+    return round(float(rng.uniform(wage[0], wage[1])) * 100 * NET_SHARE)
+
+
+def _monthly_per_hour(net_per_hour: int) -> float:
+    """What one weekly hour is worth in a month: two weeks per pay, 26 pays a year."""
+    return net_per_hour * 2 * 26 / 12
+
+
+def _hourly(
+    pid: str, rng: np.random.Generator, net_per_hour: int, term_hours: float,
+    break_hours: tuple[int, int] | None, spec: StudentSpec, dips: bool,
+) -> HourlyPay:  # fmt: skip
     breaks = (SUMMER_TERM_BREAKS if spec.summer else BREAKS) if break_hours else ()
-    term_hours = int(rng.integers(term[0], term[1] + 1))
     return HourlyPay(
         series_id=f"{pid}-pay",
         merchant=_EMPLOYERS[int(rng.integers(len(_EMPLOYERS)))],
         anchor=date(2025, 10, 3) + timedelta(days=int(rng.integers(0, 5))),
-        net_cents_per_hour=round(wage_dollars * 100 * NET_SHARE),
-        term_hours=term_hours,
+        net_cents_per_hour=net_per_hour,
+        term_hours=round(term_hours, 2),
         break_hours=(
             int(rng.integers(break_hours[0], break_hours[1] + 1)) if break_hours else term_hours
         ),
@@ -487,38 +611,55 @@ def _aid_sources(pid: str, rng: np.random.Generator, spec: StudentSpec) -> list[
 
 
 def _student(pid: str, rng: np.random.Generator, archetype: str) -> Persona:
+    """Costs first, then regular income scaled to the coverage ratio drawn for the persona."""
     spec = PERSONA_SPECS[pid]
     shape = STUDENT_SHAPE[archetype]
-    sources: list[Source] = []
+    spending = _spending(rng, _SPENDING_A, *shape["ppd"])
+    fixed: list[Source] = []
+    if spec.rent is not None:
+        fixed.append(_rent(pid, rng, _dollars(rng, *spec.rent, 25)))
+    fixed += _student_bills(pid, rng, shape["bills"], archetype)
+    fixed += _subscriptions(pid, rng, shape["subs"], shape["sub_cost"])
+    extras = (
+        _one_offs(rng) + _tuition_sources(pid, rng, spec, archetype) + _aid_sources(pid, rng, spec)
+    )
+    costs = _monthly_costs(fixed, spending)
+    target = float(rng.uniform(*shape["coverage"])) * costs  # the regular income to reach
+    aid = _aid_regular_monthly(extras)
+    income: list[Source] = []
     if archetype == "IFAM":
         family = _FAMILY[int(rng.integers(len(_FAMILY)))]
-        sources.append(RecurringSchedule(  # the steady monthly allowance
+        income.append(RecurringSchedule(  # the steady monthly allowance
             series_id=f"{pid}-allowance", merchant=family, category="Income", flow_type="income",
             txn_type="credit memo", cadence="monthly",
             anchor=date(2025, 10, int(rng.integers(1, 6))),
-            amount=Amount(_dollars(rng, 800, 1800, 50)), shift="later",
+            amount=Amount(round(target / 1000) * 1000), shift="later",
         ))  # fmt: skip
     elif archetype == "ITIGHT":
-        sources.append(_hourly(pid, rng, (16, 17), (10, TERM_HOURS_CAP), (25, 40), spec, False))
-        sources.append(IrregularSeries(  # irregular family transfers
+        net = _net_per_hour(rng, (16, 17))
+        per_hour = _monthly_per_hour(net)
+        drawn = int(rng.integers(10, TERM_HOURS_CAP + 1))  # hours a week the persona would work
+        wages, family = split_income(target, drawn * per_hour, 115_000, TERM_HOURS_CAP * per_hour)
+        income.append(_hourly(pid, rng, net, wages / per_hour, (25, 40), spec, False))
+        mean = family * 30 / DAYS_PER_MONTH  # a transfer every 15-45 days, 30 on average
+        low = max(5_000, round(0.4 * mean / 5_000) * 5_000)
+        high = max(low + 5_000, round(1.6 * mean / 5_000) * 5_000)
+        income.append(IrregularSeries(  # irregular family transfers
             series_id=f"{pid}-family", merchant=_FAMILY[int(rng.integers(len(_FAMILY)))],
             category="Income", flow_type="income", txn_type="credit memo", gap_days=(15, 45),
-            amount_range_cents=(30_000, 200_000), round_to_cents=5_000,
+            amount_range_cents=(low, high), round_to_cents=5_000,
         ))  # fmt: skip
     elif archetype == "DHOME":
-        sources.append(_hourly(pid, rng, (16, 20), (8, 20), None, spec, False))
-    else:  # DRENT
-        sources.append(_hourly(pid, rng, (16, 21), (12, 30), None, spec, True))
-    sources += _tuition_sources(pid, rng, spec, archetype) + _aid_sources(pid, rng, spec)
-    if spec.rent is not None:
-        sources.append(_rent(pid, rng, _dollars(rng, *spec.rent, 25)))
-    sources += _student_bills(pid, rng, shape["bills"], archetype)
-    sources += _subscriptions(pid, rng, shape["subs"], shape["sub_cost"])
-    sources += _one_offs(rng)
+        net = _net_per_hour(rng, (16, 20))
+        income.append(_hourly(pid, rng, net, target / _monthly_per_hour(net), None, spec, False))
+    else:  # DRENT: wages make up what the aid does not
+        net = _net_per_hour(rng, (16, 21))
+        wages = max(target - aid, 0.25 * target)
+        income.append(_hourly(pid, rng, net, wages / _monthly_per_hour(net), None, spec, True))
     return Persona(
-        persona_id=pid, description=ARCHETYPES[archetype].description, sources=tuple(sources),
-        opening_balance_cents=_dollars(rng, *shape["opening"], 50),
-        spending=_spending(rng, _SPENDING_A, *shape["ppd"]),
+        persona_id=pid, description=ARCHETYPES[archetype].description,
+        sources=tuple(income + fixed + extras),
+        opening_balance_cents=_dollars(rng, *shape["opening"], 50), spending=spending,
         quiet_months=frozenset({7, 8, 12}) if spec.away else frozenset(),
         quiet_activity=0.15 if spec.away else 1.0,
     )  # fmt: skip

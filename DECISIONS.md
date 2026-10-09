@@ -725,6 +725,44 @@ SAL, SEM, TIGHT and FREE keep the parameter ranges recorded in the superseded en
 - Because costs are now drawn before income, each persona's random stream is used in a different order: the same ids give new personas. Nothing was run on the old draws.
 - **Not changed:** SAL and SEM. TIGHT and FREE are not changed either: I measured their current ratios and decide on them separately.
 
+### 2026-10-08: The 30 personas after the coverage-ratio revision (generated balances only)
+Seen before any forecast error, coverage or alert result. Made with `python -m eval.persona_report` (seed 42, generation only; nothing here runs a forecast). "Below" counts the weekly origins that start below the persona's buffer, which the metrics report separately.
+
+| Persona | Set | Coverage | Buffer | Lowest | Closing | Origins starting below the buffer |
+|---|---|---|---|---|---|---|
+| v2-IFAM-01 | dev | 1.17 | $300.00 | $4350.00 | $10992.87 | 0 of 40 |
+| v2-IFAM-02 | dev | 1.11 | $300.00 | $4948.48 | $15094.67 | 0 of 40 |
+| v2-IFAM-03 | dev | 1.16 | $300.00 | $5103.12 | $9369.80 | 0 of 40 |
+| v2-IFAM-04 | held-out | 1.27 | $300.00 | $1530.65 | $31662.78 | 0 of 40 |
+| v2-ITIGHT-01 | dev | 0.96 | $100.00 | $2114.61 | $7323.07 | 0 of 40 |
+| v2-ITIGHT-02 | dev | 1.05 | $100.00 | $5344.86 | $12377.13 | 0 of 40 |
+| v2-ITIGHT-03 | dev | 0.98 | $100.00 | -$14706.30 | -$13992.21 | 13 of 40 |
+| v2-ITIGHT-04 | held-out | 0.99 | $100.00 | -$3714.45 | -$2334.75 | 30 of 40 |
+| v2-ITIGHT-05 | held-out | 1.03 | $100.00 | -$2222.28 | -$1979.89 | 0 of 40 |
+| v2-DHOME-01 | dev | 1.22 | $150.00 | $55.02 | $3712.87 | 0 of 40 |
+| v2-DHOME-02 | dev | 1.24 | $150.00 | $1035.42 | $3684.27 | 0 of 40 |
+| v2-DHOME-03 | dev | 1.08 | $150.00 | $451.49 | $783.19 | 0 of 40 |
+| v2-DHOME-04 | held-out | 1.04 | $150.00 | $60.19 | $1505.52 | 0 of 40 |
+| v2-DRENT-01 | dev | 1.14 | $150.00 | $126.75 | $4266.45 | 1 of 40 |
+| v2-DRENT-02 | dev | 1.12 | $150.00 | $786.96 | $1554.84 | 0 of 40 |
+| v2-DRENT-03 | dev | 1.06 | $150.00 | -$497.02 | $2502.27 | 17 of 40 |
+| v2-DRENT-04 | held-out | 0.98 | $150.00 | -$795.28 | -$510.59 | 18 of 40 |
+| v2-DRENT-05 | held-out | 1.06 | $150.00 | -$767.90 | $1966.22 | 11 of 40 |
+| v2-SAL-01 | dev | 1.98 | $300.00 | $2950.00 | $32180.04 | 0 of 40 |
+| v2-SAL-02 | dev | 2.24 | $300.00 | $3000.00 | $34203.27 | 0 of 40 |
+| v2-SAL-03 | dev | 1.55 | $300.00 | $3010.56 | $13757.93 | 0 of 40 |
+| v2-SAL-04 | held-out | 2.29 | $300.00 | $2137.17 | $36847.99 | 0 of 40 |
+| v2-SEM-01 | dev | 1.19 | $300.00 | $796.64 | $3459.58 | 0 of 40 |
+| v2-SEM-02 | held-out | 1.65 | $300.00 | $596.81 | $16036.26 | 0 of 40 |
+| v2-TIGHT-01 | dev | 0.99 | $100.00 | -$1475.00 | $1847.12 | 5 of 40 |
+| v2-TIGHT-02 | dev | 0.97 | $100.00 | -$1020.80 | $277.69 | 4 of 40 |
+| v2-TIGHT-03 | dev | 0.91 | $100.00 | -$1733.25 | $1266.76 | 13 of 40 |
+| v2-TIGHT-04 | held-out | 0.89 | $100.00 | -$1202.14 | $611.92 | 14 of 40 |
+| v2-FREE-01 | dev | 0.89 | $200.00 | -$764.44 | $688.26 | 0 of 40 |
+| v2-FREE-02 | held-out | 0.84 | $200.00 | -$1838.24 | $1093.10 | 26 of 40 |
+
+What I read from it, without changing anything: IFAM are all comfortable, as the archetype says. ITIGHT-01 and -02 are still comfortable (opening balances of $2,000-8,000 and, for -02, no tuition from chequing), while ITIGHT-03 falls to about -$14,700 (three semesters of partly funded tuition) and ITIGHT-04 is below its buffer at 30 of 40 origins. DRENT-03, -04 and -05 are below their buffers at 11 to 18 origins. SAL and SEM were left alone and have coverage ratios of 1.2 to 2.3. TIGHT is at 0.89-0.99 and FREE at 0.84-0.89 (FREE-02 is below its buffer at 26 of 40 origins). Open questions (ITIGHT opening balance and partial tuition funding, TIGHT and FREE) are not decided yet.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

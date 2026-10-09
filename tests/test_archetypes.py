@@ -252,7 +252,7 @@ def test_international_wages_are_16_to_17_an_hour_capped_at_24_hours_in_term() -
     for pid in [p for p in PERSONA_IDS if "-ITIGHT-" in p]:
         pay = sources(build_persona(pid), HourlyPay)[0]
         assert 16.0 <= pay.net_cents_per_hour / 100 / 0.85 <= 17.01
-        assert 10 <= pay.term_hours <= 24  # the cap applies during term
+        assert 0 < pay.term_hours <= 24  # the cap applies during term
         assert pay.break_hours >= 25 and pay.break_hours > pay.term_hours  # more in breaks
         assert pay.hours_on(date(2026, 3, 13)) == pay.term_hours
         assert pay.hours_on(date(2025, 12, 26)) == pay.break_hours  # winter break
@@ -263,11 +263,11 @@ def test_international_wages_are_16_to_17_an_hour_capped_at_24_hours_in_term() -
 def test_domestic_wages_and_exam_dips() -> None:
     for pid in [p for p in PERSONA_IDS if "-DHOME-" in p]:
         pay = sources(build_persona(pid), HourlyPay)[0]
-        assert 16.0 <= pay.net_cents_per_hour / 100 / 0.85 <= 20.01 and 8 <= pay.term_hours <= 20
+        assert 16.0 <= pay.net_cents_per_hour / 100 / 0.85 <= 20.01 and pay.term_hours > 0
         assert pay.dip_factor == 1.0
     for pid in [p for p in PERSONA_IDS if "-DRENT-" in p]:
         pay = sources(build_persona(pid), HourlyPay)[0]
-        assert 16.0 <= pay.net_cents_per_hour / 100 / 0.85 <= 21.01 and 12 <= pay.term_hours <= 30
+        assert 16.0 <= pay.net_cents_per_hour / 100 / 0.85 <= 21.01 and pay.term_hours > 0
         assert 0.5 <= pay.dip_factor <= 0.7
         assert pay.hours_on(date(2025, 12, 12)) == pytest.approx(pay.term_hours * pay.dip_factor)
         assert pay.hours_on(date(2026, 4, 17)) == pytest.approx(pay.term_hours * pay.dip_factor)
@@ -499,3 +499,100 @@ def test_the_recorded_dates_are_in_the_window() -> None:
     for pid in STUDENT_IDS:
         for s in sources(build_persona(pid), DatedSeries):
             assert all(START <= i.due <= END + timedelta(days=45) for i in s.items), pid
+
+
+# --- Regular income tied to costs: the coverage ratio (DECISIONS.md, "Mix v2 revised") ---
+
+COVERAGE = {"IFAM": (1.05, 1.30), "ITIGHT": (0.90, 1.05), "DHOME": (1.00, 1.30),
+            "DRENT": (0.95, 1.15)}  # fmt: skip
+
+
+@pytest.mark.parametrize("pid", STUDENT_IDS)
+def test_every_student_persona_has_its_archetypes_coverage_ratio(pid: str) -> None:
+    from lookahead.generator.archetypes import coverage
+
+    low, high = COVERAGE[pid.split("-")[1]]
+    ratio = coverage(build_persona(pid).persona).ratio
+    assert low - 0.02 <= ratio <= high + 0.02, (pid, ratio)  # rounding of the allowance to $10
+
+
+def test_the_reliable_international_students_are_covered_and_the_stretched_ones_are_not() -> None:
+    from lookahead.generator.archetypes import coverage
+
+    ifam = [coverage(build_persona(p).persona).ratio for p in STUDENT_IDS if "-IFAM-" in p]
+    itight = [coverage(build_persona(p).persona).ratio for p in STUDENT_IDS if "-ITIGHT-" in p]
+    assert min(ifam) > max(itight)  # the contrast the archetypes exist for
+
+
+def test_the_coverage_ratio_is_recomputed_from_the_persona_not_stored() -> None:
+    from lookahead.generator.archetypes import coverage
+
+    p = build_persona("v2-IFAM-01").persona
+    assert coverage(p).income_cents > 0 and coverage(p).costs_cents > 0
+    assert coverage(p).ratio == pytest.approx(coverage(p).income_cents / coverage(p).costs_cents)
+
+
+def test_itight_wages_stay_under_the_cap_and_the_family_makes_up_the_rest() -> None:
+    from lookahead.generator.archetypes import split_income
+
+    assert split_income(1000, 300, 700, wage_cap=500) == (300, 700)  # in proportion, under the cap
+    assert split_income(2000, 600, 400, wage_cap=900) == (900, 1100)  # capped: family makes up
+    wages, family = split_income(1500, 100, 100, wage_cap=10_000)
+    assert wages + family == 1500 and wages == family
+    for pid in [p for p in PERSONA_IDS if "-ITIGHT-" in p]:
+        pay = sources(build_persona(pid), HourlyPay)[0]
+        assert pay.term_hours <= 24 + 1e-9, pid  # whatever the target, the cap holds
+
+
+def test_the_expected_everyday_spending_matches_what_the_profile_really_spends() -> None:
+    import numpy as np
+
+    from lookahead.generator.archetypes import expected_monthly_spending
+
+    profile = build_persona("v2-DRENT-01").persona.spending
+    assert profile is not None
+    rng = np.random.default_rng(7)
+    days, total = 6_000, 0
+    for k in range(days):
+        made = date(2026, 1, 1) + timedelta(days=k)
+        total += -sum(t.amount_cents for t in profile.day(made, rng, 1.0))
+    simulated = total / days * 30.44
+    assert expected_monthly_spending(profile) == pytest.approx(simulated, rel=0.06)
+
+
+def test_tuition_and_the_deposits_that_fund_it_are_outside_the_ratio() -> None:
+    """Dropping tuition and its funding from a persona does not change its coverage ratio."""
+    from dataclasses import replace
+
+    from lookahead.generator.archetypes import coverage
+
+    persona = build_persona("v2-IFAM-01").persona
+    plain = replace(
+        persona,
+        sources=tuple(
+            s
+            for s in persona.sources
+            if not (isinstance(s, DatedSeries) and "tuition" in s.series_id)  # fmt: skip
+        ),
+    )
+    assert coverage(plain) == coverage(persona)
+
+
+def _aid_and_tuition(pid: str) -> tuple[list, int, int]:  # type: ignore[type-arg]
+    srcs = list(build_persona(pid).persona.sources)
+    aid = sum(i.amount_cents for s in srcs if isinstance(s, DatedSeries)
+              and s.series_id.endswith("-aid") for i in s.items)  # fmt: skip
+    tuition = -sum(i.amount_cents for s in srcs if isinstance(s, DatedSeries)
+                   and s.series_id.endswith("-tuition") for i in s.items)  # fmt: skip
+    return srcs, aid, tuition
+
+
+def test_aid_that_funds_tuition_is_outside_the_ratio_and_the_rest_counts() -> None:
+    from lookahead.generator.archetypes import _aid_regular_monthly
+
+    srcs, aid, tuition = _aid_and_tuition("v2-DRENT-05")  # tuition not from chequing
+    assert tuition == 0 and _aid_regular_monthly(srcs) == pytest.approx(aid / 12)  # all counts
+    srcs, aid, tuition = _aid_and_tuition("v2-DRENT-03")  # aid funds the tuition
+    assert tuition > 0
+    assert _aid_regular_monthly(srcs) == pytest.approx(max(0, aid - tuition) / 12)
+    assert _aid_regular_monthly(srcs) < aid / 12  # the tuition part is left out
