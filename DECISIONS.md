@@ -705,6 +705,26 @@ SAL, SEM, TIGHT and FREE keep the parameter ranges recorded in the superseded en
 - **Limits, written in the module.** Dismissals are not replayed (the replay shows the alert as if nothing had been dismissed); the safety buffer is the stored one for every date (the app keeps one buffer, not a history of it); the forecast does not use the categorizer, so nothing is retrained along the way (a model that does would have to be retrained inside the replay on rows up to each date). Dates must be in increasing order, and each needs eight weeks of history.
 - **Cost, measured.** 40 weekly steps at 500 futures for one persona took 13 seconds and 0.17 MB; a snapshot holds the date the data runs to, the range, the single-path estimate, the alert state and its evidence, and no text from the data.
 
+### 2026-10-08: Mix v2 revised: regular income tied to costs by a coverage ratio (before the first full backtest)
+**Why.** I revised this after looking at generated balances only (the lowest and closing balance of each persona), before any forecast error, coverage or alert result existed, because several personas contradicted their own archetype in both directions. International students with "reliable family funding" went broke (v2-IFAM-01 closes the year near -$5,700), while the "stretched family" ones (v2-ITIGHT-01 and -02) closed at +$15,000 and +$10,600 and never fell below about +$3,300. Drawing income and costs independently cannot give the contrast the archetypes exist for. This replaces the independent income ranges (the IFAM allowance of $800-1,800, the ITIGHT family-transfer amounts and the wage hours of ITIGHT, DHOME and DRENT) in the entries above. Everything else stays.
+
+**The rule.** For each student persona I draw a **coverage ratio** = regular income / (rent + bills + subscriptions + expected everyday spending), per month in a regular term month, and scale the regular income to match it:
+
+| Archetype | Coverage ratio | What is scaled |
+|---|---|---|
+| IFAM | 1.05-1.30 | the monthly allowance |
+| ITIGHT | 0.90-1.05 | wages first, then family transfers (see below) |
+| DHOME | 1.00-1.30 | wage hours |
+| DRENT | 0.95-1.15 | wage hours, after the aid |
+
+- **Regular income** is the allowance, family transfers, wages and aid. **Tuition and the family deposits that fund it stay as they were and are outside the ratio** (they are not in the costs, and the deposits are not in the income).
+- **Expected everyday spending** is computed from the persona's spending profile before any cutting back (purchases a day, average purchase including the long tail of larger ones, cash withdrawals); one-off larger purchases are not in the costs.
+- **ITIGHT keeps the 24 hours a week cap in term.** Wages are drawn at 10 to 24 hours, then the target income is split in proportion; wages may not exceed the cap, and what wages cannot cover is made up by the family transfers (irregular, every 15-45 days, scaled so their monthly average makes up the rest).
+- **Aid.** For a DRENT persona whose tuition is paid from chequing and funded by aid (DRENT-01, -03), the part of the aid that equals the tuition is tuition funding, outside the ratio; only the rest counts as regular income. For DRENT-05, whose tuition is not paid from chequing, all of the aid is regular income. This is how I read "tuition and the deposits that fund it stay outside the ratio". Wages are at least a quarter of the target, so a persona with a lot of aid still works.
+- The ratio is defined on a regular term month. Exam dips, breaks and the months away change the real month, on purpose. The ratio is a property of the persona (a test recomputes it from the persona's sources and checks it is in the range).
+- Because costs are now drawn before income, each persona's random stream is used in a different order: the same ids give new personas. Nothing was run on the old draws.
+- **Not changed:** SAL and SEM. TIGHT and FREE are not changed either: I measured their current ratios and decide on them separately.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
