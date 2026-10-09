@@ -172,3 +172,28 @@ def test_the_metrics_flag_prints_summary_numbers_for_the_real_column_only(
     assert "Synthetic (development): none" in text  # no synthetic numbers here
     assert ACCOUNT not in text and "account-1" not in text
     assert not re.search(r"\d{4}-\d{2}-\d{2}", text)  # no date of any transaction or origin
+
+
+# --- The quick and the full run never share a folder ---
+
+
+def test_quick_and_full_runs_save_to_their_own_folders_and_do_not_collide(
+    made_up_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eval.backtest_real as backtest_real
+
+    monkeypatch.setattr(backtest_real, "DEFAULT_OUT", tmp_path / "backtest")
+    main(["--db", str(made_up_db), "--quick", "--futures", "40"])
+    main(["--db", str(made_up_db), "--futures", "20"])  # other settings: used to raise ValueError
+    quick = list((tmp_path / "backtest" / "quick").glob("*.jsonl"))
+    full = list((tmp_path / "backtest" / "full").glob("*.jsonl"))
+    assert len(quick) == 1 and len(full) == 1
+    assert not list((tmp_path / "backtest").glob("*.jsonl"))  # nothing in the shared folder
+    n_quick = len(quick[0].read_text(encoding="utf-8").splitlines())
+    n_full = len(full[0].read_text(encoding="utf-8").splitlines())
+    assert n_quick == 4 and n_full > n_quick
+
+
+def test_an_explicit_out_folder_is_used_as_given(made_up_db: Path, tmp_path: Path) -> None:
+    main(["--db", str(made_up_db), "--out", str(tmp_path / "mine"), "--quick", "--futures", "40"])
+    assert list((tmp_path / "mine").glob("*.jsonl"))

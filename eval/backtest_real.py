@@ -1,12 +1,15 @@
 """The backtest on the account holder's real data. Run by the account holder only.
 
     python -m eval.backtest_real --quick        # 4 origins per account, 100 futures
-    python -m eval.backtest_real                # every weekly origin that fits
+    python -m eval.backtest_real                # every weekly origin that fits, 500 futures
+
+The quick run saves to data/private/backtest/quick and the full run to data/private/backtest/full,
+so the two never meet (their settings differ).
 
 It opens the database read-only (the file is not changed), makes the same forecasts as the
 synthetic runner at every Monday that has eight weeks of history before it and thirty observed
-days after it, and saves one record per origin under data/private/backtest/ (private, never
-committed, files named by number and not by account). It prints counts only: how many accounts
+days after it, and saves one record per origin there (private, never committed, files named by
+number and not by account). It prints counts only: how many accounts
 and origins, and how many origins were followed by a balance below the buffer or below zero. It
 never prints a row, an amount, a date of a transaction or an account name. Real results are a
 separate column from synthetic ones in every report; one person's history is a case study.
@@ -111,7 +114,8 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )  # fmt: skip
     parser.add_argument("--db", type=Path, default=None)
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument("--out", type=Path, default=None,
+                        help=f"default {DEFAULT_OUT}/quick or {DEFAULT_OUT}/full")  # fmt: skip
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--futures", type=int, default=None)
     parser.add_argument("--metrics", action="store_true",
@@ -122,16 +126,17 @@ def main(argv: list[str] | None = None) -> int:
         print("No database found. Import your exports first.")
         return 1
     futures = args.futures or (QUICK_FUTURES if args.quick else FUTURES)
-    counts = run_real(db_path, args.out, futures, args.quick)
+    out = args.out or DEFAULT_OUT / ("quick" if args.quick else "full")  # never the same folder
+    counts = run_real(db_path, out, futures, args.quick)
     if counts["archived_older"]:
         print(f"Saved results were from an older version of the backtest: moved them to "
-              f"{args.out / 'older'} and starting fresh.")  # fmt: skip
-    print_counts(counts, args.out)
+              f"{out / 'older'} and starting fresh.")  # fmt: skip
+    print_counts(counts, out)
     if args.metrics:
         from eval.metrics import load_records, report_text
 
         print()
-        print(report_text([], load_records(args.out)))  # summary numbers only, never rows
+        print(report_text([], load_records(out)))  # summary numbers only, never rows
     return 0
 
 

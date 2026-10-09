@@ -11,6 +11,7 @@ import pytest
 from eval import metrics
 from eval.backtest import FORMAT, LOGIC
 from eval.metrics import (
+    MERGE_GAP_DAYS,
     alert_metrics,
     by_archetype,
     by_history_bucket,
@@ -253,7 +254,28 @@ def test_shortfall_episodes_are_runs_of_days_below_the_buffer() -> None:
                                         (date(2026, 3, 20), date(2026, 3, 25))])  # fmt: skip
     records = series_records(balances, first, 10)
     episodes = shortfall_episodes(records)
-    assert episodes == [date(2026, 2, 10), date(2026, 2, 14), date(2026, 3, 20)]
+    # Feb 13 is the only day back above the buffer: Feb 10-12 and Feb 14 are one episode
+    assert episodes == [date(2026, 2, 10), date(2026, 3, 20)]
+
+
+def test_dips_with_three_days_or_fewer_above_the_buffer_between_them_are_one_episode() -> None:
+    first = date(2026, 1, 5)
+    assert MERGE_GAP_DAYS == 3
+    # Feb 10-11 and Feb 15-16 have three days above between them (12, 13, 14): one episode.
+    # Feb 21 has four days above before it (17 to 20): a second episode.
+    balances = make_series(first, 120, [(date(2026, 2, 10), date(2026, 2, 11)),
+                                        (date(2026, 2, 15), date(2026, 2, 16)),
+                                        (date(2026, 2, 21), date(2026, 2, 21))])  # fmt: skip
+    records = series_records(balances, first, 10)
+    assert shortfall_episodes(records) == [date(2026, 2, 10), date(2026, 2, 21)]
+
+
+def test_a_run_of_merged_dips_stays_one_episode_however_many_there_are() -> None:
+    first = date(2026, 1, 5)
+    days = [date(2026, 2, 10) + timedelta(days=3 * k) for k in range(5)]  # every third day
+    balances = make_series(first, 120, [(d, d) for d in days])  # two days above in between
+    records = series_records(balances, first, 10)
+    assert shortfall_episodes(records) == [date(2026, 2, 10)]
 
 
 def test_an_episode_that_began_before_the_first_origin_is_not_counted() -> None:
@@ -263,6 +285,15 @@ def test_an_episode_that_began_before_the_first_origin_is_not_counted() -> None:
                            [early, (date(2026, 2, 20), date(2026, 2, 22))])  # fmt: skip
     records = series_records(balances, first, 5)
     assert shortfall_episodes(records) == [date(2026, 2, 20)]  # the early one began earlier
+
+
+def test_a_dip_soon_after_an_episode_that_began_before_the_first_origin_is_not_new() -> None:
+    first = date(2026, 1, 5)
+    early = (first - timedelta(days=2), first + timedelta(days=3))
+    again = (first + timedelta(days=6), first + timedelta(days=7))  # two days above in between
+    balances = make_series(first - timedelta(days=5), 120, [early, again])
+    records = series_records(balances, first, 5)
+    assert shortfall_episodes(records) == []
 
 
 # --- Alerts ---
@@ -333,8 +364,8 @@ def test_alerts_raised_while_already_in_shortfall_have_their_own_row() -> None:
 
 
 def test_one_alert_can_catch_two_shortfall_episodes_within_30_days_of_it() -> None:
-    # two dips a day apart; the alert at the ordinary origin of Jan 12 comes before both
-    dips = [(date(2026, 1, 20), date(2026, 1, 21)), (date(2026, 1, 23), date(2026, 1, 24))]
+    # two dips six days apart; the alert at the ordinary origin of Jan 12 comes before both
+    dips = [(date(2026, 1, 20), date(2026, 1, 21)), (date(2026, 1, 28), date(2026, 1, 29))]
     records = scenario({date(2026, 1, 12): 0.9}, dips)
     m = alert_metrics(records)
     assert m["shortfall_episodes"] == 2
@@ -461,3 +492,13 @@ def test_the_30_day_window_is_inclusive_at_30_and_closed_at_31() -> None:
 def test_negative_dollars_read_minus_dollar_not_dollar_minus() -> None:
     assert metrics._d(-158.8) == "-$158.80" and metrics._d(1882.84) == "$1,882.84"
     assert metrics._d(None) == "-"
+
+
+def test_real_results_are_read_from_the_full_folder_when_there_is_one(tmp_path: Path) -> None:
+    from eval.metrics import real_results_dir
+
+    (tmp_path / "quick").mkdir()
+    assert real_results_dir(tmp_path) == tmp_path  # only a quick run: the folder as named
+    (tmp_path / "full").mkdir()
+    assert real_results_dir(tmp_path) == tmp_path / "full"
+    assert real_results_dir(tmp_path / "quick") == tmp_path / "quick"  # named: read as named

@@ -9,7 +9,7 @@ engine. Origins already in shortfall are on their own row. Synthetic and real ar
 and every section says its n. This module prints summary numbers and counts, never rows.
 
     python -m eval.metrics                                  # synthetic, from data/backtest/full
-    python -m eval.metrics --real data/private/backtest     # beside the real column
+    python -m eval.metrics --real data/private/backtest     # beside the real column (its full/)
     python -m eval.metrics --threshold 0.30 --no-median     # another alert rule (step 5 chooses)
 """
 
@@ -18,7 +18,7 @@ import sqlite3
 import statistics
 import sys
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +39,7 @@ BIN_EDGES = 5  # reliability bins: 0-20, 20-40, 40-60, 60-80, 80-100 percent
 BUCKETS = ("under 8 weeks", "8-12 weeks", "12-26 weeks", "26+ weeks")
 GROUPS = ("all", "ordinary", "already in shortfall")
 PROVISIONAL_THRESHOLD = 0.20
+MERGE_GAP_DAYS = 3  # dips with this many days (or fewer) back above the buffer are one episode
 
 Record = dict[str, Any]
 
@@ -63,6 +64,12 @@ def load_records(out_dir: Path, final_test: bool = False) -> list[Record]:
     if held and not final_test:
         raise ValueError(f"held-out personas are only for the final test: {', '.join(held)}")
     return records
+
+
+def real_results_dir(path: Path) -> Path:
+    """Real results: the `full` subfolder when there is one (the quick run is in `quick`, and
+    is read only when named)."""
+    return path / "full" if (path / "full").is_dir() else path
 
 
 def restate(record: Record, buffer_cents: int) -> Record:
@@ -174,19 +181,29 @@ def daily_realized(records: list[Record]) -> dict[date, int]:
 
 
 def shortfall_episodes(records: list[Record]) -> list[date]:
-    """The first day of each shortfall episode (a run of days below the buffer) of one persona.
-    An episode that began on or before the first origin is not counted."""
+    """The first day of each shortfall episode of one persona: a run of days below the buffer,
+    joined to the next run when at most MERGE_GAP_DAYS days at or above the buffer lie between
+    them. An episode that began on or before the first origin is not counted, and a dip soon after
+    it is part of it."""
     ordered = sorted(records, key=lambda x: x["origin"])
     buffer = ordered[0]["buffer_cents"]
     daily = daily_realized(ordered)
+    days = sorted(daily)
     previous_below = ordered[0]["start_balance_cents"] < buffer
-    starts = []
-    for day in sorted(daily):
+    # each episode: [first day or None if it began before the first origin, last day below]
+    runs: list[list[date | None]] = [[None, days[0] - timedelta(days=1)]] if previous_below else []
+    for day in days:
         below = daily[day] < buffer
         if below and not previous_below:
-            starts.append(day)
+            last = runs[-1][1] if runs else None
+            if last is not None and (day - last).days - 1 <= MERGE_GAP_DAYS:
+                runs[-1][1] = day
+            else:
+                runs.append([day, day])
+        elif below:
+            runs[-1][1] = day
         previous_below = below
-    return starts
+    return [first for first, _ in runs if first is not None]  # type: ignore[misc]
 
 
 # --- Alerts ---
@@ -460,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--final-test", action="store_true", help="allow held-out personas")
     args = parser.parse_args(argv)
     synthetic = [] if args.no_synthetic else load_records(args.dir, args.final_test)
-    real = load_records(args.real) if args.real else []
+    real = load_records(real_results_dir(args.real)) if args.real else []
     print(report_text(synthetic, real, args.threshold, not args.no_median))
     return 0
 

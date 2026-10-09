@@ -858,6 +858,7 @@ Generated balances only; no forecast error, coverage or alert result exists. Mad
 **Not claimed:** no confidence intervals on these numbers yet (origins within a persona overlap, so the number of independent periods is smaller than the number of origins; the persona and episode counts shown are the honest n), and nothing here says how the alert threshold should be chosen.
 
 ### 2026-10-09: First development backtest (provisional alert rule; nothing tuned)
+Run once with the frozen mix: 20 development personas, 40 weekly origins each (800 origins), 500 futures, generated histories with seed 42, the weekday-average estimate. Held-out personas untouched (in this run ITIGHT is its three development personas, -01, -02 and -03; -04 and -05 join at the final test). The full summary is `docs/results/backtest_development_2026-10-09.txt` (made with `python -m eval.metrics`). Synthetic only, no real column yet. **Nothing was changed after seeing these numbers.** (Later the same day the episode definition was tightened, see "Shortfall episodes: dips three days apart or less are one episode" under "Backtest housekeeping": the alert rows of the results file now read 52 episodes, 26 caught, recall 50 percent, lead time 16.9 days. The 55, 27, 49 percent and 17.2 below are the numbers as first printed.)
 
 **Headline numbers (origins not already in shortfall unless stated; n = 726 origins, 20 personas):**
 - **Balance error** of the middle future, mean (median): $667 ($117) at 7 days, $1,204 ($227) at 14, $1,901 ($423) at 30. The naive baseline (the balance stays) is $986, $1,342, $1,925, so skill is **0.32, 0.10, 0.01**: a clear gain at a week, almost none at 30 days.
@@ -872,6 +873,22 @@ Generated balances only; no forecast error, coverage or alert result exists. Mad
 - n is small where it matters: 55 shortfall episodes from 8 personas that have any; the persona and episode counts are the honest n, not 726.
 
 **What this does and does not say.** These are the numbers of the provisional rule on development personas. The interval undercoverage is a finding for the calibration step (validation periods only), not something fixed here. Step 5 chooses the alert threshold on these development personas; the held-out personas get one run at the end. The command for the real column is `python -m eval.backtest_real --metrics` (first with `--quick`).
+
+## Backtest housekeeping (2026-10-09)
+
+### Quick and full real-data runs no longer share a folder
+- Problem: `--quick` (100 futures) and the full run (500) wrote `account-1.jsonl` and `account-1.meta.json` into the same folder; the second run found settings that differed from the first and stopped with an error.
+- Decision: `eval.backtest_real` writes to `data/private/backtest/quick/` or `data/private/backtest/full/` (the same split as the synthetic runner has). `--out` still overrides and is then used as given. `python -m eval.metrics --real data/private/backtest` reads the `full/` subfolder when there is one; to look at the quick run, name `.../quick`. Nothing is deleted: files the quick run made earlier in `data/private/backtest/` itself stay where they are and are simply no longer read.
+- Lost: deleting the old settings file or letting a mismatch overwrite it (it would silently mix 100-future and 500-future records).
+
+### Shortfall episodes: dips three days apart or less are one episode
+- Question (from a real quick run): a balance hovering around the buffer may be counted as many episodes.
+- Check on the 20 development personas (synthetic only, counts only): 55 shortfall episodes (runs of days below the buffer), 47 gaps from the end of one to the start of the next. A gap is the number of whole days at or above the buffer in between. Gaps of 1 day: 1; up to 3 days: 3; up to 5: 7; up to 7: 12; up to 10: 17; up to 14: 24. The three short gaps are at DRENT (1) and ITIGHT (2); TIGHT has none within 3 days. So hovering is rare in the development personas, and a real account may differ.
+- Decision: **two runs below the buffer separated by 3 days or fewer at or above it are one episode, which starts on the first day of the first run.** Three days because a balance back above the buffer for less than half a week has not really recovered (one payday or refund can lift it for a day or two); this is a definition, chosen from the gap counts above and from nothing about alerts or recall. Gaps of 7 days would merge 12 of 47 and start to join separate pay cycles. The 3-day rule is a constant (`MERGE_GAP_DAYS`) in `eval/metrics.py`.
+- What changes: only the metrics code, not the saved records (no `LOGIC` change). Development numbers before and after (provisional alert rule, threshold unchanged): shortfall episodes 55 → 52, caught 27 → 26, recall 49.1 → 50.0 percent, alert episodes 31 and false alerts 7 (precision 77 percent) unchanged, lead time mean 17.2 → 16.9 days. With a 7-day rule it would have been 43 episodes, 22 caught, recall 51.2 percent: recall hardly moves, only the count does. The alert side has its own merge rule (a new look within 10 days of an open alert's low is the same alert) and is not touched.
+- A run that began before the first origin still does not count, and a dip within 3 days of its end is part of it, not a new one.
+- A caution for the real quick run: its 4 origins are far apart, so the 30-day windows do not join into one daily series; an episode count from it says little. The full run (weekly origins, windows overlap) is the one to read.
+- Lost: no merging (what we had: counts every one-day bounce); 7 days (joins different pay cycles); merging by amount (a dip's depth is not a reason to call it a second episode).
 
 ## Tests
 

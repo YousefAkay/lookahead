@@ -46,13 +46,13 @@ Origins already in shortfall: forecast
 Alerts (ordinary origins; already-in-shortfall on their own rows)
                                                   Synthetic (development)
   n                                               20 persona(s), 800 origins (726 ordinary)
-  Shortfall episodes (ordinary origins)           55
-  Caught / missed                                 27 / 28
-  Recall (caught / shortfall episodes)            49%
+  Shortfall episodes (ordinary origins)           52
+  Caught / missed                                 26 / 26
+  Recall (caught / shortfall episodes)            50%
   Alert episodes / false                          31 / 7
   Precision (alert episodes that were not false)  77%
   False alerts per 30 days                        0.04
-  Lead time, days: mean (median)                  17.2 (21.0)
+  Lead time, days: mean (median)                  16.9 (21.0)
   Already in shortfall at the origin: origins     74
   Alerts raised while already in shortfall        39
 
