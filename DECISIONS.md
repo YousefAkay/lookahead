@@ -857,6 +857,22 @@ Generated balances only; no forecast error, coverage or alert result exists. Mad
 
 **Not claimed:** no confidence intervals on these numbers yet (origins within a persona overlap, so the number of independent periods is smaller than the number of origins; the persona and episode counts shown are the honest n), and nothing here says how the alert threshold should be chosen.
 
+### 2026-10-09: First development backtest (provisional alert rule; nothing tuned)
+
+**Headline numbers (origins not already in shortfall unless stated; n = 726 origins, 20 personas):**
+- **Balance error** of the middle future, mean (median): $667 ($117) at 7 days, $1,204 ($227) at 14, $1,901 ($423) at 30. The naive baseline (the balance stays) is $986, $1,342, $1,925, so skill is **0.32, 0.10, 0.01**: a clear gain at a week, almost none at 30 days.
+- **80 percent band: pointwise coverage 57, 51, 41 percent at 7, 14, 30 days (52 percent over all days); whole-path coverage 8 percent.** The nominal figure is 80, so the bands are far too narrow and get worse with the horizon. Mean width $394, $591, $849.
+- **Lowest balance:** the forecast is too optimistic by $724 on average (typical miss $1,007).
+- **Brier score of the shortfall probability** 0.059, reference 0.143, skill 0.58 (0.66 over all origins). Reliability: forecasts of 0-20 percent happened 5 percent of the time (611 origins), 20-40 percent happened 63 percent (19), 40-60 percent 60 percent (15), 60-80 percent 75 percent (16), 80-100 percent 97 percent (65).
+- **Alerts** (provisional rule, ordinary origins): 55 shortfall episodes, **caught 27 (recall 49 percent)**, missed 28; 31 alert episodes, 7 false (**precision 77 percent**); **0.04 false alerts per 30 days**; lead time mean 17.2 days (median 21). 74 origins at 8 personas were already in shortfall (reported separately); 39 alert episodes opened while already in shortfall are not in the counts above.
+
+**Read with care (the too-good and the too-bad):**
+- The Brier skill of 0.58-0.66 is **inflated by easy personas**: IFAM, SAL, SEM and FREE have a Brier of 0.000 because the dip never happens and the forecast says so. It is not leakage (the rule-zero tests pass, including a test that rewrites the future), but it is not evidence of skill either. The mid-range probabilities are underconfident (20-40 percent forecasts came true 63 percent of the time).
+- Early origins are worse (8-12 weeks of history: 30-day error $2,959, Brier 0.153; 26+ weeks: $2,017, 0.038), as expected from recurring detection with few repeats.
+- n is small where it matters: 55 shortfall episodes from 8 personas that have any; the persona and episode counts are the honest n, not 726.
+
+**What this does and does not say.** These are the numbers of the provisional rule on development personas. The interval undercoverage is a finding for the calibration step (validation periods only), not something fixed here. Step 5 chooses the alert threshold on these development personas; the held-out personas get one run at the end. The command for the real column is `python -m eval.backtest_real --metrics` (first with `--quick`).
+
 ## Tests
 
 ### 2026-10-01: Slow marker

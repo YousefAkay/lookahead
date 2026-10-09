@@ -456,3 +456,8 @@ def test_the_30_day_window_is_inclusive_at_30_and_closed_at_31() -> None:
     late = scenario({first: 0.9}, [(first + timedelta(days=31), first + timedelta(days=32))], n=10)
     m = alert_metrics(late)
     assert m["caught"] == 0 and m["false_alerts"] == 1  # too far ahead to count either way
+
+
+def test_negative_dollars_read_minus_dollar_not_dollar_minus() -> None:
+    assert metrics._d(-158.8) == "-$158.80" and metrics._d(1882.84) == "$1,882.84"
+    assert metrics._d(None) == "-"

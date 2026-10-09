@@ -1,0 +1,82 @@
+BACKTEST SUMMARY (summary numbers and counts only)
+  Synthetic (development): 20 persona(s), 800 origins
+  Real: no real data yet
+  Real, buffer $0: no real data yet
+  Alert rule used: chance above 20%, or median lowest balance below the buffer (provisional until the threshold is chosen)
+
+All origins: forecast
+                                                                 Synthetic (development)
+  n                                                              800 origins, 20 persona(s)
+  Error, middle future: mean (median), 7 / 14 / 30 days          $673.15 ($118.53) / $1,213.36 ($228.34) / $1,882.84 ($420.19)
+  Error, single path: mean, 7 / 14 / 30 days                     $680.59 / $1,236.37 / $1,939.96
+  Error, naive baseline (balance stays): mean, 7 / 14 / 30 days  $994.07 / $1,359.40 / $1,922.07
+  Skill vs naive, middle future, 7 / 14 / 30 days                0.32 / 0.11 / 0.02
+  Lowest balance: bias / typical miss                            $642.09 / $939.82
+  80% band coverage, 7 / 14 / 30 days / all days (nominal 80%)   57% / 52% / 43% / 52%
+  80% band width: mean, 7 / 14 / 30 days                         $387.51 / $585.75 / $841.01
+  Path-level coverage (all 30 days inside the band)              8%
+  Brier score of the shortfall probability                       0.062 (reference 0.184, skill 0.66)
+
+Origins not already in shortfall: forecast
+                                                                 Synthetic (development)
+  n                                                              726 origins, 20 persona(s)
+  Error, middle future: mean (median), 7 / 14 / 30 days          $667.15 ($116.63) / $1,204.41 ($226.59) / $1,900.80 ($422.75)
+  Error, single path: mean, 7 / 14 / 30 days                     $674.64 / $1,229.74 / $1,958.40
+  Error, naive baseline (balance stays): mean, 7 / 14 / 30 days  $986.05 / $1,342.01 / $1,925.04
+  Skill vs naive, middle future, 7 / 14 / 30 days                0.32 / 0.10 / 0.01
+  Lowest balance: bias / typical miss                            $723.73 / $1,007.09
+  80% band coverage, 7 / 14 / 30 days / all days (nominal 80%)   57% / 51% / 41% / 52%
+  80% band width: mean, 7 / 14 / 30 days                         $393.67 / $591.34 / $848.95
+  Path-level coverage (all 30 days inside the band)              8%
+  Brier score of the shortfall probability                       0.059 (reference 0.143, skill 0.58)
+
+Origins already in shortfall: forecast
+                                                                 Synthetic (development)
+  n                                                              74 origins, 8 persona(s)
+  Error, middle future: mean (median), 7 / 14 / 30 days          $732.05 ($127.34) / $1,301.17 ($262.97) / $1,706.72 ($416.75)
+  Error, single path: mean, 7 / 14 / 30 days                     $738.96 / $1,301.42 / $1,759.11
+  Error, naive baseline (balance stays): mean, 7 / 14 / 30 days  $1,072.74 / $1,530.02 / $1,893.00
+  Skill vs naive, middle future, 7 / 14 / 30 days                0.32 / 0.15 / 0.10
+  Lowest balance: bias / typical miss                            -$158.81 / $279.80
+  80% band coverage, 7 / 14 / 30 days / all days (nominal 80%)   53% / 57% / 54% / 54%
+  80% band width: mean, 7 / 14 / 30 days                         $327.01 / $530.87 / $763.12
+  Path-level coverage (all 30 days inside the band)              7%
+  Brier score of the shortfall probability                       0.087 (reference 0.063, skill -0.37)
+
+Alerts (ordinary origins; already-in-shortfall on their own rows)
+                                                  Synthetic (development)
+  n                                               20 persona(s), 800 origins (726 ordinary)
+  Shortfall episodes (ordinary origins)           55
+  Caught / missed                                 27 / 28
+  Recall (caught / shortfall episodes)            49%
+  Alert episodes / false                          31 / 7
+  Precision (alert episodes that were not false)  77%
+  False alerts per 30 days                        0.04
+  Lead time, days: mean (median)                  17.2 (21.0)
+  Already in shortfall at the origin: origins     74
+  Alerts raised while already in shortfall        39
+
+Reliability of the shortfall probability, origins not already in shortfall (bin: n, mean forecast, observed)
+  Synthetic (development): 0-20%: 611, 1%, 5%; 20-40%: 19, 31%, 63%; 40-60%: 15, 51%, 60%; 60-80%: 16, 66%, 75%; 80-100%: 65, 97%, 97%
+
+Synthetic (development): by history length (all origins)
+  group | origins, personas | error p50 7/14/30 days | band coverage all days | path coverage | Brier
+  8-12 weeks | 80, 20 | $899.65 / $1,746.27 / $2,958.73 | 37% | 5% | 0.153
+  12-26 weeks | 280, 20 | $718.54 / $1,017.43 / $1,364.29 | 57% | 10% | 0.074
+  26+ weeks | 440, 20 | $603.09 / $1,241.15 / $2,017.22 | 52% | 8% | 0.038
+
+Synthetic (development): by archetype (all origins)
+  group | origins, personas | error p50 7/14/30 days | band coverage all days | path coverage | Brier
+  DHOME | 120, 3 | $264.23 / $441.00 / $619.87 | 48% | 8% | 0.015
+  DRENT | 120, 3 | $374.75 / $559.14 / $929.97 | 45% | 2% | 0.085
+  FREE | 40, 1 | $577.94 / $809.79 / $1,344.22 | 74% | 15% | 0.000
+  IFAM | 120, 3 | $959.29 / $1,769.11 / $2,816.89 | 51% | 7% | 0.000
+  ITIGHT | 120, 3 | $2,120.18 / $4,115.58 / $6,563.79 | 30% | 2% | 0.226
+  SAL | 120, 3 | $257.30 / $417.69 / $533.33 | 64% | 17% | 0.000
+  SEM | 40, 1 | $364.59 / $624.10 / $714.46 | 49% | 8% | 0.000
+  TIGHT | 120, 3 | $197.75 / $308.55 / $402.22 | 70% | 12% | 0.085
+
+Synthetic (development): alert episodes by history length of the opening origin
+  8-12 weeks: 5 not false, 0 false
+  12-26 weeks: 12 not false, 4 false
+  26+ weeks: 7 not false, 3 false

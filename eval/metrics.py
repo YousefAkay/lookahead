@@ -280,7 +280,9 @@ def alert_metrics(
 
 
 def _d(x: float | None) -> str:
-    return "-" if x is None else f"${x:,.2f}"
+    if x is None:
+        return "-"
+    return f"-${-x:,.2f}" if x < 0 else f"${x:,.2f}"
 
 
 def _pct(x: float | None) -> str:
