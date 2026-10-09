@@ -763,6 +763,23 @@ Seen before any forecast error, coverage or alert result. Made with `python -m e
 
 What I read from it, without changing anything: IFAM are all comfortable, as the archetype says. ITIGHT-01 and -02 are still comfortable (opening balances of $2,000-8,000 and, for -02, no tuition from chequing), while ITIGHT-03 falls to about -$14,700 (three semesters of partly funded tuition) and ITIGHT-04 is below its buffer at 30 of 40 origins. DRENT-03, -04 and -05 are below their buffers at 11 to 18 origins. SAL and SEM were left alone and have coverage ratios of 1.2 to 2.3. TIGHT is at 0.89-0.99 and FREE at 0.84-0.89 (FREE-02 is below its buffer at 26 of 40 origins). Open questions (ITIGHT opening balance and partial tuition funding, TIGHT and FREE) are not decided yet.
 
+### 2026-10-09: Last revision of the generator before the backtest, with acceptance checks written before regenerating
+**Why.** I made this revision after looking at generated balances only (lowest, closing, and the origins that start below the buffer), before any forecast error, coverage or alert result existed. The table in the previous entry showed two things I did not want: the stretched-family persona v2-ITIGHT-01 and -02 were still comfortable (opening balances of $2,000-8,000 and, for -02, no tuition from chequing), while v2-ITIGHT-03 fell to about -$14,700 because three semesters of partly funded tuition were never made up; and v2-FREE-02 was below its buffer at 26 of 40 origins.
+
+**What changes (and nothing else).**
+- **ITIGHT:** the opening balance is $300-2,000 (was $2,000-8,000). When tuition is paid from chequing and the family deposit before it covers less than the whole tuition, a **second family transfer** arrives 15-45 days after the tuition payment in about 70 percent of terms (each term is drawn at random with probability 0.7) and covers part of the gap: 50-100 percent of what was missing, to the $50. It is a separate series in the answer key (`<id>-tuition-topup`) with the same `link_id` as the tuition it helps pay.
+- **FREE:** the deposit amounts are scaled so the coverage ratio is 0.95-1.15 (income over rent, bills and expected everyday spending, as for the students), keeping the shape of the old range (lowest deposit about a quarter of the average, highest about 1.75 times it). Costs are drawn before income for FREE too, so the same ids give new FREE personas.
+- **TIGHT:** unchanged. Its coverage ratios are 0.89-0.99, within about 0.06 of 0.95-1.05, and the generator already halves everyday spending when the balance runs low, so these personas end up near zero, which is what the archetype says.
+- **SAL and SEM:** unchanged (their histories must come out identical; this is checked).
+
+**Acceptance checks, fixed now, before regenerating** (computed by `python -m eval.persona_report --check` from generated balances only; "origins below the buffer" is the number of the 40 weekly origins whose starting balance is under the persona's buffer):
+1. **IFAM:** each persona is below its buffer at no more than 3 of the 40 origins.
+2. **ITIGHT:** each persona dips near or below its buffer at some point in the year (its lowest balance is at most its buffer plus $300), and none runs away (its lowest balance is at least -$3,000).
+3. **DHOME, DRENT, TIGHT and FREE:** no persona is below its buffer at more than 20 of the 40 origins.
+4. **SAL and SEM:** each persona's lowest and closing balance are exactly what they were in the previous entry's table.
+
+**What happens after regenerating.** The mix is frozen whatever comes out, unless an archetype contradicts its own description. If a check fails I say which and why, and nothing is adjusted further: a persona that fails is recorded here as a **known limitation**, not another round of changes. The origins, the split, the held-out list and everything else in the earlier entries stand.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
