@@ -828,6 +828,35 @@ Generated balances only; no forecast error, coverage or alert result exists. Mad
 
 **The mix is frozen from here: the 30 personas, their ids, ranges, assignments, buffers, the held-out list, the origins and the split.** Any later change needs a new entry and starts a new set of results. The next step is the first full backtest.
 
+### 2026-10-09: Week 4 step 4: the backtest metrics, defined before anything is computed
+**Record fix.** v2-ITIGHT-01 (lowest -$3,594) failed the no-runaway half of the ITIGHT check, together with -03 and -04; it was already named in the known limitations above, and this line makes it explicit. **When results are reported, ITIGHT means all five personas, with -01, -03 and -04 named, never excluded.**
+
+**What is computed.** From the saved backtest records (one per persona and weekly origin), development personas only: the held-out personas stay untouched, and the metrics code refuses a held-out persona unless it is told it is the final test. Synthetic and real are separate columns and are never pooled. Every number has its n beside it: personas (accounts for real), origins, and shortfall episodes. Real data is one person's history, a case study.
+
+**Three groups of origins.** An origin is *already in shortfall* if the balance at the origin is below the buffer. Forecast metrics are given for all origins, for the origins not already in shortfall, and for the ones already in shortfall, each on its own row. Alert metrics use only origins not already in shortfall, with the already-in-shortfall origins on their own row.
+
+**Breakdowns.** Every forecast metric is also given by history bucket (under 8 weeks, 8-12, 12-26, 26+ weeks of rows before the origin) and by archetype. Alert counts are given overall and by archetype, and the alert episodes by the history bucket of the origin that opened them.
+
+**Forecast metrics** (dollars from cents; the forecast is the one the app makes: the middle future p50, the 80 percent band from p10 to p90, and the single-path estimate):
+- **Balance error at 7, 14 and 30 days:** the absolute difference between the forecast balance and the balance that was observed that many days after the origin. Reported as mean and median for the middle future (p50) and for the single-path estimate. A **naive baseline** is given beside them: "the balance stays what it was at the origin". Skill = 1 minus (mean error divided by the naive mean error); above 0 beats the baseline.
+- **Lowest-balance error:** (forecast median lowest balance across the futures) minus (the lowest observed balance over the 30 days). The mean is the bias (negative: the forecast was too pessimistic) and the mean absolute value is the typical miss.
+- **80 percent band coverage:** the share of (origin, day) pairs where the observed balance lies from p10 to p90 inclusive, at 7, 14 and 30 days and over all 30 days; the **width** is the mean of p90 minus p10 at the same days. **Path-level coverage** is the share of origins whose observed balance stays inside the band on all 30 days. Pointwise coverage is not whole-path coverage, so both are shown. Nominal pointwise coverage is 80 percent.
+- **Brier score of the shortfall probability:** forecast = the share of futures whose lowest balance is below the buffer; outcome = 1 if the observed balance was below the buffer on any of the next 30 days, else 0. Brier = the mean of (forecast minus outcome) squared. The reference is the constant base rate (the share of origins with outcome 1); the skill = 1 minus (Brier divided by the reference Brier). A **reliability table** gives five forecast bins (0-20, 20-40, 40-60, 60-80, 80-100 percent) with the number of origins, the mean forecast and the observed share.
+
+**Alert metrics.** The alert rule is the provisional one: alert when the share of futures below the buffer is above 20 percent, or the median lowest balance is below the buffer (the threshold is a parameter, so step 5 can choose it on development personas; nothing here chooses it). The engine is the app's own (`record_snapshot`, with its episodes and suppression): the records of a persona are fed to it in order of origin, so consecutive alerts about the same low merge into one *alert episode*.
+- **Shortfall episode:** a maximal run of consecutive days with an observed balance below the buffer. The daily observed balances come from joining the 30-day windows of the persona's records (they overlap and agree). Episodes that begin on or before the first origin are not counted (their start was not forecastable).
+- **Alert episode, ordinary or not:** an alert episode belongs to the origin where it opened. If the account was already in shortfall at that origin it goes to the already-in-shortfall row and is not counted below.
+- **Caught:** a shortfall episode whose first day D has an ordinary-origin alert episode that opened at an origin O with O earlier than D and D no more than 30 days after O (it started at least one day before). **Lead time** is D minus O for the earliest such alert episode (mean and median). A shortfall episode with no such alert episode is **missed**.
+- **False alert episode:** an ordinary-origin alert episode with no shortfall day in the 30 days after the origin where it opened.
+- **Recall** = caught divided by shortfall episodes. **Precision** = alert episodes that were not false divided by ordinary alert episodes. **False alerts per 30 days** = false alert episodes divided by (ordinary origins times 7 days) times 30, since each weekly origin stands for a week.
+- Shortfall episodes that begin while an earlier episode is still on (an origin inside it is already in shortfall) cannot be caught by an ordinary origin; they count as missed, and that is intended.
+
+**Real data** gets two columns: the account's own saved buffer, and a buffer of $0 (the overdraft periods are the real shortfall episodes). The kept lowest balance of every future lets the shortfall probability, the observed dips and the alert condition be restated for any buffer. The real script prints these as summary numbers and counts, never rows. (Rule of 2026-10-12: aggregate metrics over many forecasts may be printed in my terminal and shared; never rows, dates, names or individual transaction amounts, and never written into the repository.)
+
+**Saved-record format.** Each saved record carries a format and logic version. A saved result from an older version is never mixed with new ones: the synthetic runner refuses it, and the real script moves it aside and starts fresh, with one line saying so.
+
+**Not claimed:** no confidence intervals on these numbers yet (origins within a persona overlap, so the number of independent periods is smaller than the number of origins; the persona and episode counts shown are the honest n), and nothing here says how the alert threshold should be chosen.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
