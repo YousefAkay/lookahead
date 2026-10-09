@@ -430,7 +430,7 @@ def test_non_student_personas_are_inside_their_recorded_ranges(pid: str) -> None
 def test_student_opening_balances_and_buffers(pid: str) -> None:
     code = pid.split("-")[1]
     p = build_persona(pid)
-    low, high = {"IFAM": (2000, 8000), "ITIGHT": (2000, 8000), "DHOME": (300, 1500),
+    low, high = {"IFAM": (2000, 8000), "ITIGHT": (300, 2000), "DHOME": (300, 1500),
                  "DRENT": (300, 2000)}[code]  # fmt: skip
     assert low <= dollars(p.persona.opening_balance_cents) <= high
     assert p.buffer_cents == RECORDED[code][2] and p.archetype == code
@@ -596,3 +596,73 @@ def test_aid_that_funds_tuition_is_outside_the_ratio_and_the_rest_counts() -> No
     assert tuition > 0
     assert _aid_regular_monthly(srcs) == pytest.approx(max(0, aid - tuition) / 12)
     assert _aid_regular_monthly(srcs) < aid / 12  # the tuition part is left out
+
+
+# --- The last revision: ITIGHT second transfer and low opening balance, FREE scaled ---
+
+
+def test_itight_second_transfer_is_15_to_45_days_after_tuition_and_part_of_the_gap() -> None:
+    present = absent = 0
+    for pid in [p for p in PERSONA_IDS if "-ITIGHT-" in p and PERSONA_SPECS[p].from_chequing]:
+        p = build_persona(pid)
+        tuition, funding = tuition_and_funding(pid)
+        top = [s for s in sources(p, DatedSeries) if s.series_id.endswith("-tuition-topup")]
+        topups = {i.link_id: i for s in top for i in s.items}
+        assert tuition is not None and funding is not None
+        for deposit in funding.items:
+            term = deposit.link_id
+            paid = sum(-i.amount_cents for i in tuition.items if i.link_id == term)
+            gap = paid - deposit.amount_cents
+            if term in topups:
+                present += 1
+                extra = topups[term]
+                first = min(i.due for i in tuition.items if i.link_id == term)
+                assert 15 <= (extra.due - first).days <= 45
+                assert 0 < extra.amount_cents <= gap  # part of the gap, never more than it
+                assert extra.amount_cents >= min(gap, 5_000)
+            else:
+                absent += 1
+    assert present >= 3 and absent >= 1  # about 70 percent of the terms that have a gap
+
+
+def test_no_second_transfer_when_the_family_pays_the_university_or_the_deposit_covers_it() -> None:
+    for pid in PERSONA_IDS:
+        has = any(
+            isinstance(s, DatedSeries) and s.series_id.endswith("-tuition-topup")
+            for s in build_persona(pid).persona.sources
+        )
+        if "-ITIGHT-" not in pid or not PERSONA_SPECS[pid].from_chequing:
+            assert not has, pid  # only ITIGHT with tuition from chequing
+
+
+def test_the_second_transfer_is_outside_the_coverage_ratio() -> None:
+    from dataclasses import replace
+
+    from lookahead.generator.archetypes import coverage
+
+    persona = build_persona("v2-ITIGHT-03").persona
+    plain = replace(
+        persona,
+        sources=tuple(
+            s
+            for s in persona.sources
+            if not (
+                isinstance(s, DatedSeries) and s.series_id.endswith("-tuition-topup")
+            )  # fmt: skip
+        ),
+    )
+    assert coverage(plain) == coverage(persona)
+
+
+@pytest.mark.parametrize("pid", [p for p in PERSONA_IDS if "-FREE-" in p])
+def test_freelancer_deposits_are_scaled_to_a_coverage_ratio_of_95_to_115_percent(pid: str) -> None:
+    from lookahead.generator.archetypes import coverage
+
+    assert 0.95 - 0.04 <= coverage(build_persona(pid).persona).ratio <= 1.15 + 0.04
+
+
+def test_freelancer_deposits_keep_the_shape_of_the_old_range() -> None:
+    for pid in [p for p in PERSONA_IDS if "-FREE-" in p]:
+        series = sources(build_persona(pid), IrregularSeries)[0]
+        low, high = series.amount_range_cents
+        assert series.gap_days == (5, 20) and low >= 5_000 and 3 <= high / low <= 12

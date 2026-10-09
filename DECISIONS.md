@@ -780,6 +780,54 @@ What I read from it, without changing anything: IFAM are all comfortable, as the
 
 **What happens after regenerating.** The mix is frozen whatever comes out, unless an archetype contradicts its own description. If a check fails I say which and why, and nothing is adjusted further: a persona that fails is recorded here as a **known limitation**, not another round of changes. The origins, the split, the held-out list and everything else in the earlier entries stand.
 
+### 2026-10-09: Result of the last generator revision, and the mix is frozen
+Generated balances only; no forecast error, coverage or alert result exists. Made with `python -m eval.persona_report --check` (seed 42).
+
+| Persona | Set | Coverage | Buffer | Lowest | Closing | Origins starting below the buffer |
+|---|---|---|---|---|---|---|
+| v2-IFAM-01 | dev | 1.17 | $300.00 | $4350.00 | $10992.87 | 0 of 40 |
+| v2-IFAM-02 | dev | 1.11 | $300.00 | $4948.48 | $15094.67 | 0 of 40 |
+| v2-IFAM-03 | dev | 1.16 | $300.00 | $5103.12 | $9369.80 | 0 of 40 |
+| v2-IFAM-04 | held-out | 1.27 | $300.00 | $1530.65 | $31662.78 | 0 of 40 |
+| v2-ITIGHT-01 | dev | 0.91 | $100.00 | -$3594.31 | -$385.68 | 5 of 40 |
+| v2-ITIGHT-02 | dev | 1.05 | $100.00 | -$260.34 | $6994.96 | 4 of 40 |
+| v2-ITIGHT-03 | dev | 1.00 | $100.00 | -$11464.42 | -$10738.55 | 25 of 40 |
+| v2-ITIGHT-04 | held-out | 0.99 | $100.00 | -$5352.12 | -$3771.28 | 24 of 40 |
+| v2-ITIGHT-05 | held-out | 0.95 | $100.00 | -$1431.40 | $310.50 | 4 of 40 |
+| v2-DHOME-01 | dev | 1.22 | $150.00 | $55.02 | $3712.87 | 0 of 40 |
+| v2-DHOME-02 | dev | 1.24 | $150.00 | $1035.42 | $3684.27 | 0 of 40 |
+| v2-DHOME-03 | dev | 1.08 | $150.00 | $451.49 | $783.19 | 0 of 40 |
+| v2-DHOME-04 | held-out | 1.04 | $150.00 | $60.19 | $1505.52 | 0 of 40 |
+| v2-DRENT-01 | dev | 1.14 | $150.00 | $126.75 | $4266.45 | 1 of 40 |
+| v2-DRENT-02 | dev | 1.12 | $150.00 | $786.96 | $1554.84 | 0 of 40 |
+| v2-DRENT-03 | dev | 1.06 | $150.00 | -$497.02 | $2502.27 | 17 of 40 |
+| v2-DRENT-04 | held-out | 0.98 | $150.00 | -$795.28 | -$510.59 | 18 of 40 |
+| v2-DRENT-05 | held-out | 1.06 | $150.00 | -$767.90 | $1966.22 | 11 of 40 |
+| v2-SAL-01 | dev | 1.98 | $300.00 | $2950.00 | $32180.04 | 0 of 40 |
+| v2-SAL-02 | dev | 2.24 | $300.00 | $3000.00 | $34203.27 | 0 of 40 |
+| v2-SAL-03 | dev | 1.55 | $300.00 | $3010.56 | $13757.93 | 0 of 40 |
+| v2-SAL-04 | held-out | 2.29 | $300.00 | $2137.17 | $36847.99 | 0 of 40 |
+| v2-SEM-01 | dev | 1.19 | $300.00 | $796.64 | $3459.58 | 0 of 40 |
+| v2-SEM-02 | held-out | 1.65 | $300.00 | $596.81 | $16036.26 | 0 of 40 |
+| v2-TIGHT-01 | dev | 0.99 | $100.00 | -$1475.00 | $1847.12 | 5 of 40 |
+| v2-TIGHT-02 | dev | 0.97 | $100.00 | -$1020.80 | $277.69 | 4 of 40 |
+| v2-TIGHT-03 | dev | 0.91 | $100.00 | -$1733.25 | $1266.76 | 13 of 40 |
+| v2-TIGHT-04 | held-out | 0.89 | $100.00 | -$1202.14 | $611.92 | 14 of 40 |
+| v2-FREE-01 | dev | 1.05 | $200.00 | -$191.48 | $6165.43 | 0 of 40 |
+| v2-FREE-02 | held-out | 1.01 | $200.00 | -$946.65 | $3390.61 | 9 of 40 |
+
+**Acceptance checks (fixed in the entry above before regenerating):**
+1. IFAM, at most 3 origins below the buffer: **pass** (0 at every persona).
+2. ITIGHT, dips near the buffer and no runaway: every persona dips to its buffer plus $300 or lower (pass for that half), but **three fail the no-runaway half**: v2-ITIGHT-01 (lowest -$3,594, just past the -$3,000 line), v2-ITIGHT-03 (lowest -$11,464) and v2-ITIGHT-04 (lowest -$5,352, held out).
+3. DHOME, DRENT, TIGHT, FREE, at most 20 origins below the buffer: **pass** (the highest is DRENT-04 at 18).
+4. SAL and SEM unchanged: **pass** (identical lowest and closing balances).
+
+**Why ITIGHT fails check 2.** The family deposit before each tuition payment covers 60-105 percent of it, and the second transfer comes only 15-45 days after the payment and covers only part of what is missing (and arrives in about 70 percent of terms). So the account falls by the whole gap, often $4,000 to $12,000, between the tuition payment and the second transfer, from an opening balance of $300-2,000. ITIGHT-03 and -04 have a summer term (three semesters), and ITIGHT-03's second semester left a gap of $11,500 for weeks. The coverage ratios themselves are right (0.91-1.05).
+
+**Known limitations, not another round of changes**: v2-ITIGHT-01, -03 and -04 run below -$3,000 at some point (-03 and -04 for much of the year: below the buffer at 25 and 24 of 40 origins). ITIGHT-04 is a held-out persona, so the held-out test has almost no ahead-of-time signal from it; results for ITIGHT must be read with that in mind and reported per archetype, with these three named. Other things read from the table without changing anything: ITIGHT-02, -05 and the other archetypes behave as described; FREE-02 now starts below its buffer at 9 of 40 origins (was 26); TIGHT was left as it was.
+
+**The mix is frozen from here: the 30 personas, their ids, ranges, assignments, buffers, the held-out list, the origins and the split.** Any later change needs a new entry and starts a new set of results. The next step is the first full backtest.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

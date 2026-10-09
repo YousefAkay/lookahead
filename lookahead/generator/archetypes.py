@@ -163,7 +163,7 @@ STUDENT_SHAPE = {
         subs=(1, 3),
         sub_cost=(10, 40),
         ppd=(0.8, 1.2),
-        opening=(2000, 8000),
+        opening=(300, 2000),
     ),
     "DHOME": dict(
         coverage=(1.0, 1.3),
@@ -477,7 +477,7 @@ def coverage(persona: Persona) -> Coverage:
         elif (
             isinstance(s, DatedSeries)
             and s.category == "Income"
-            and not s.series_id.endswith(("-aid", "-tuition-funding"))
+            and not s.series_id.endswith(("-aid", "-tuition-funding", "-tuition-topup"))
         ):
             income += sum(i.amount_cents for i in s.items) / 12
     income += _aid_regular_monthly(list(persona.sources))
@@ -546,6 +546,7 @@ def _tuition_sources(
     dates = _tuition_dates(rng, spec.summer)
     payments: list[DatedItem] = []
     deposits: list[DatedItem] = []
+    topups: list[DatedItem] = []
     funded = spec.aid is None  # aid-funded personas are funded by their aid
     for n, due in enumerate(dates):
         link = f"{pid}-tuition-{n}"
@@ -562,7 +563,20 @@ def _tuition_sources(
                 "ITIGHT": float(rng.uniform(0.60, 1.05)),  # often partial
             }.get(archetype, float(rng.uniform(0.80, 1.10)))  # a family contribution
             arrives = due - timedelta(days=int(rng.integers(1, 31)))  # 1-30 days before
-            deposits.append(DatedItem(arrives, round(tuition * share / 5_000) * 5_000, link))
+            amount = round(tuition * share / 5_000) * 5_000
+            deposits.append(DatedItem(arrives, amount, link))
+            if (
+                archetype == "ITIGHT"
+            ):  # about 70 percent of terms: a second transfer, part of the gap
+                comes, later, part = (
+                    rng.random() < 0.7,
+                    int(rng.integers(15, 46)),
+                    rng.uniform(0.5, 1.0),
+                )
+                gap = tuition - amount
+                if comes and gap >= 5_000:
+                    cents = min(gap, max(5_000, int(gap * part / 5_000) * 5_000))
+                    topups.append(DatedItem(due + timedelta(days=later), cents, link))
     family = _FAMILY[int(rng.integers(len(_FAMILY)))]
     sources: list[Source] = [
         DatedSeries(
@@ -579,6 +593,11 @@ def _tuition_sources(
         sources.append(DatedSeries(
             series_id=f"{pid}-tuition-funding", merchant=family, category="Income",
             flow_type="income", txn_type="credit memo", shift="later", items=tuple(deposits),
+        ))  # fmt: skip
+    if topups:
+        sources.append(DatedSeries(
+            series_id=f"{pid}-tuition-topup", merchant=family, category="Income",
+            flow_type="income", txn_type="credit memo", shift="later", items=tuple(topups),
         ))  # fmt: skip
     return sources
 
@@ -697,25 +716,29 @@ def _tight(pid: str, rng: np.random.Generator) -> Persona:
     )  # fmt: skip
 
 
+FREE_COVERAGE = (0.95, 1.15)
+
+
 def _freelancer(pid: str, rng: np.random.Generator) -> Persona:
-    sources: list[Source] = [
-        IrregularSeries(
-            series_id=f"{pid}-gigs",
-            merchant="Interac e-Transfer",
-            category="Income",
-            flow_type="income",
-            txn_type="deposit",
-            gap_days=(5, 20),
-            amount_range_cents=(20_000, 150_000),
-            round_to_cents=5_000,
-        ),
-        _rent(pid, rng, _dollars(rng, 700, 1200, 25)),
-    ]
-    sources += _bills(pid, rng, savings=False) + _one_offs(rng)
+    """Costs first, then the deposits scaled so the coverage ratio is in FREE_COVERAGE. The shape
+    of the old range is kept: the lowest deposit about a quarter of the average, the highest about
+    1.75 times it."""
+    spending = _spending(rng, _SPENDING_B, 1.0, 1.4)
+    fixed: list[Source] = [_rent(pid, rng, _dollars(rng, 700, 1200, 25))]
+    fixed += _bills(pid, rng, savings=False)
+    extras = _one_offs(rng)
+    target = float(rng.uniform(*FREE_COVERAGE)) * _monthly_costs(fixed, spending)
+    mean = target * 12.5 / DAYS_PER_MONTH  # a deposit every 5-20 days, 12.5 on average
+    low = max(5_000, round(0.235 * mean / 5_000) * 5_000)
+    high = max(low + 5_000, round((2 * mean - low) / 5_000) * 5_000)
+    gigs = IrregularSeries(
+        series_id=f"{pid}-gigs", merchant="Interac e-Transfer", category="Income",
+        flow_type="income", txn_type="deposit", gap_days=(5, 20),
+        amount_range_cents=(low, high), round_to_cents=5_000,
+    )  # fmt: skip
     return Persona(
-        persona_id=pid, description="freelancer", sources=tuple(sources),
-        opening_balance_cents=_dollars(rng, 500, 2000, 50),
-        spending=_spending(rng, _SPENDING_B, 1.0, 1.4),
+        persona_id=pid, description="freelancer", sources=tuple([gigs] + fixed + extras),
+        opening_balance_cents=_dollars(rng, 500, 2000, 50), spending=spending,
     )  # fmt: skip
 
 
