@@ -203,6 +203,19 @@ def record_run(conn: sqlite3.Connection, account: str, forecast: Forecast) -> Ru
     """Apply the rule to this forecast and keep the episode record up to date. Looking again at
     numbers already recorded adds nothing."""
     snap = snapshot_of(forecast)
+    return record_snapshot(
+        conn, account, snap, forecast.start.data_last_updated,
+        build_evidence(forecast) if snap is not None else None,
+    )  # fmt: skip
+
+
+def record_snapshot(
+    conn: sqlite3.Connection, account: str, snap: Snapshot | None, data_date: date,
+    evidence: dict[str, Any] | None,
+) -> RunResult:  # fmt: skip
+    """The episode record after one look: `snap` is what the rule said (None: it did not alert),
+    `data_date` the look's own data date, `evidence` what stood behind it. The same function
+    rebuilds the record from saved looks, so a replay can resume."""
     open_row = conn.execute(
         "SELECT episode_id, dismissed_on FROM alert_episodes WHERE account = ?"
         " AND closed_on IS NULL ORDER BY episode_id DESC LIMIT 1",
@@ -211,7 +224,7 @@ def record_run(conn: sqlite3.Connection, account: str, forecast: Forecast) -> Ru
     if snap is None:
         if open_row is not None:
             with conn:
-                day = forecast.start.data_last_updated.isoformat()
+                day = data_date.isoformat()
                 conn.execute(
                     "UPDATE alert_episodes SET closed_on = ?, last_seen_on = ?"
                     " WHERE episode_id = ?",
@@ -258,7 +271,7 @@ def record_run(conn: sqlite3.Connection, account: str, forecast: Forecast) -> Ru
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (episode_id, account, snap.data_date.isoformat(), snap.low_day.isoformat(),
              snap.low_cents, snap.median_lowest_cents, snap.probability, snap.buffer_cents,
-             int(notified), reason or "", json.dumps(build_evidence(forecast))),
+             int(notified), reason or "", json.dumps(evidence)),
         )  # fmt: skip
     return RunResult(episode_id, notified, reason or "")
 
@@ -365,6 +378,6 @@ def _day(day: date) -> str:
 __all__ = [
     "BANDS", "DATE_SHIFT_DAYS", "MATERIAL_LOW_CENTS", "PROVISIONAL", "SAME_LOW_DAYS", "Episode",
     "RunResult", "Snapshot", "active_alert", "alert_message", "band_of", "build_evidence",
-    "dismiss", "episodes", "material_change", "record_run", "restore", "should_alert",
-    "snapshot_of", "worse_after_dismissal",
+    "dismiss", "episodes", "material_change", "record_run", "record_snapshot", "restore",
+    "should_alert", "snapshot_of", "worse_after_dismissal",
 ]  # fmt: skip
