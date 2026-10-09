@@ -24,9 +24,11 @@ from eval.backtest import (
     QUICK_FUTURES,
     _check_settings,
     _saved_origins,
+    archive_older,
     read_records,
     run_origin,
     split_by_shortfall,
+    version_settings,
 )
 from lookahead.db import connect_readonly
 from lookahead.ui import private_db_path
@@ -50,6 +52,7 @@ def real_origins(first_date: date, last_date: date) -> list[date]:
 
 def run_real(db_path: Path, out_dir: Path, futures: int, quick: bool = False) -> dict[str, int]:
     """Run every account of the database. Returns counts (accounts, new origins, saved)."""
+    archived = 1 if archive_older(out_dir) else 0  # older results are set aside, never mixed in
     conn = connect_readonly(db_path)
     out_dir.mkdir(parents=True, exist_ok=True)
     new = 0
@@ -65,7 +68,8 @@ def run_real(db_path: Path, out_dir: Path, futures: int, quick: bool = False) ->
                 days = days[:: max(1, len(days) // 4)][:4]
             path = out_dir / f"account-{number}.jsonl"
             _check_settings(
-                out_dir / f"account-{number}.meta.json", {"futures": futures, "method": "weekday"}
+                out_dir / f"account-{number}.meta.json",
+                {"futures": futures, "method": "weekday", **version_settings()},
             )
             with path.open("a", encoding="utf-8") as out:
                 for origin in [d for d in days if d.isoformat() not in _saved_origins(path)]:
@@ -80,6 +84,7 @@ def run_real(db_path: Path, out_dir: Path, futures: int, quick: bool = False) ->
         "accounts": len(names),
         "new_origins": new,
         "origins_saved": len(read_records(out_dir)),
+        "archived_older": archived,
     }
 
 
@@ -116,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     futures = args.futures or (QUICK_FUTURES if args.quick else FUTURES)
     counts = run_real(db_path, args.out, futures, args.quick)
+    if counts["archived_older"]:
+        print(f"Saved results were from an older version of the backtest: moved them to "
+              f"{args.out / 'older'} and starting fresh.")  # fmt: skip
     print_counts(counts, args.out)
     return 0
 

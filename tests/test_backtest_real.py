@@ -57,7 +57,7 @@ def test_the_run_saves_records_labelled_real_and_leaves_the_database_alone(
     before = digest(db)
     counts = run_real(db, tmp_path / "out", futures=40, quick=True)
     assert digest(db) == before  # read-only: not a byte changed
-    assert counts == {"accounts": 1, "new_origins": 4, "origins_saved": 4}
+    assert counts == {"accounts": 1, "new_origins": 4, "origins_saved": 4, "archived_older": 0}
     [path] = list((tmp_path / "out").glob("*.jsonl"))
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert len(records) == 4
@@ -97,3 +97,66 @@ def test_a_missing_database_says_so_without_a_path(
 ) -> None:
     assert main(["--db", str(tmp_path / "nope.db"), "--out", str(tmp_path / "out")]) == 1
     assert "nope.db" not in capsys.readouterr().out
+
+
+# --- Saved results from an older version are never mixed with new ones ---
+
+
+def old_format_results(out: Path) -> None:
+    """What the earlier --quick run left: records without the newer fields, a meta file without
+    a format."""
+    out.mkdir(parents=True)
+    record = {"dataset": "real", "persona": "account-1", "origin": "2026-01-05", "buffer_cents": 0,
+              "realized": [1, 2], "realized_below_zero": False,
+              "realized_first_below_buffer": None}  # fmt: skip
+    (out / "account-1.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    (out / "account-1.meta.json").write_text(
+        json.dumps({"futures": 40, "method": "weekday"}), encoding="utf-8"
+    )
+
+
+def test_results_from_an_older_version_are_set_aside_and_the_run_starts_fresh(
+    made_up_db: Path, tmp_path: Path
+) -> None:
+    out = tmp_path / "out"
+    old_format_results(out)
+    counts = run_real(made_up_db, out, futures=40, quick=True)
+    assert counts["archived_older"] == 1  # one batch of old results was set aside
+    assert counts["new_origins"] == 4 and counts["origins_saved"] == 4  # not 5: no mixing
+    older = list((out / "older").rglob("*.jsonl"))
+    assert len(older) == 1 and "2026-01-05" in older[0].read_text(
+        encoding="utf-8"
+    )  # kept, not lost
+    fresh = [json.loads(x) for x in (out / "account-1.jsonl").read_text().splitlines()]
+    assert all(r["format"] == 2 and "history_days" in r for r in fresh)
+
+
+def test_the_command_says_so_in_one_line_and_prints_counts_only(
+    made_up_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "out"
+    old_format_results(out)
+    main(["--db", str(made_up_db), "--out", str(out), "--quick", "--futures", "40"])
+    text = capsys.readouterr().out
+    lines = [x for x in text.splitlines() if "older version" in x]
+    assert len(lines) == 1 and "starting fresh" in lines[0]
+    assert ACCOUNT not in text and "$" not in text and not re.search(r"\d{4}-\d{2}-\d{2}", text)
+
+
+def test_current_results_are_not_set_aside(made_up_db: Path, tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    run_real(made_up_db, out, futures=40, quick=True)
+    again = run_real(made_up_db, out, futures=40, quick=True)
+    assert again["archived_older"] == 0 and not (out / "older").exists()
+
+
+def test_a_logic_version_change_also_counts_as_older(
+    made_up_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eval.backtest as backtest
+
+    out = tmp_path / "out"
+    run_real(made_up_db, out, futures=40, quick=True)
+    monkeypatch.setattr(backtest, "LOGIC", backtest.LOGIC + 1)  # the forecast logic changed
+    counts = run_real(made_up_db, out, futures=40, quick=True)
+    assert counts["archived_older"] == 1 and counts["origins_saved"] == 4

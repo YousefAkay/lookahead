@@ -376,3 +376,22 @@ def test_the_summary_counts_already_in_shortfall_origins_and_history_lengths_sep
     text = capsys.readouterr().out
     assert "already below the buffer at the origin" in text
     assert "8-12 weeks" in text  # the first origins have the shortest history
+
+
+def test_the_synthetic_runner_refuses_to_mix_with_results_from_an_older_version(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / f"{PID}.meta.json").write_text(
+        json.dumps({"futures": FUTURES, "seed": 42, "method": "weekday"}), encoding="utf-8"
+    )  # a meta file from before the format was recorded
+    with pytest.raises(ValueError, match="different settings"):
+        run_persona(PID, out, origins()[:1], FUTURES, seed=42, work_dir=tmp_path / "work")
+
+
+def test_every_record_carries_the_format_and_logic_version(conn: sqlite3.Connection) -> None:
+    from eval.backtest import FORMAT, LOGIC
+
+    record = run_origin(conn, PID, "synthetic", ORIGIN, FUTURES)
+    assert record["format"] == FORMAT and record["logic"] == LOGIC

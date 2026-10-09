@@ -44,11 +44,16 @@ from lookahead.generator.archetypes import (
 from lookahead.generator.writer import write_persona
 from lookahead.ingest.scotiabank import parse_export
 from lookahead.ingest.store import store_exports
+from lookahead.recurring_store import LOGIC_VERSION
 from lookahead.settings import set_safety_buffer_cents
 
 FIRST_ORIGIN = date(2025, 12, 1)  # eight weeks of history behind the first origin
 LAST_ORIGIN = date(2026, 8, 31)  # thirty observed days after the last one
 HORIZON = 30
+# Saved results carry these. FORMAT changes when the fields of a record change; LOGIC follows the
+# detection and forecast logic. Results made with other values are never mixed with new ones.
+FORMAT = 2  # 2: history_days, in_shortfall_at_origin and n_series_detected were added
+LOGIC = LOGIC_VERSION
 FUTURES = 500
 QUICK_FUTURES = 100
 METHOD = "weekday"
@@ -167,6 +172,7 @@ def run_origin(
     history_days = (origin - date.fromisoformat(first_posted)).days + 1
     below = [d for d, b in zip(sim.days, realized, strict=True) if b < buffer]
     return {
+        "format": FORMAT, "logic": LOGIC,
         "dataset": dataset, "persona": persona_id, "archetype": archetype, "held_out": held_out,
         "origin": origin.isoformat(), "data_date": forecast.start.data_last_updated.isoformat(),
         "futures": futures, "buffer_cents": buffer, "version": code_version(),
@@ -186,6 +192,41 @@ def run_origin(
         "realized_first_below_buffer": below[0].isoformat() if below else None,
         "realized_below_zero": min(realized) < 0,
     }  # fmt: skip
+
+
+def version_settings() -> dict[str, int]:
+    return {"format": FORMAT, "logic": LOGIC}
+
+
+def saved_is_older(out_dir: Path) -> bool:
+    """True if anything saved under `out_dir` was made with another format or logic version (or
+    before versions were recorded)."""
+    for meta in out_dir.glob("*.meta.json"):
+        saved = json.loads(meta.read_text(encoding="utf-8"))
+        if saved.get("format") != FORMAT or saved.get("logic") != LOGIC:
+            return True
+    for path in out_dir.glob("*.jsonl"):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                record = json.loads(line)
+                if record.get("format") != FORMAT or record.get("logic") != LOGIC:
+                    return True
+    return False
+
+
+def archive_older(out_dir: Path) -> bool:
+    """Move saved results from an older version into `out_dir/older/<n>` (nothing is deleted).
+    Returns True if anything was moved."""
+    if not out_dir.exists() or not saved_is_older(out_dir):
+        return False
+    n = 1
+    while (out_dir / "older" / str(n)).exists():
+        n += 1
+    target = out_dir / "older" / str(n)
+    target.mkdir(parents=True)
+    for path in [*out_dir.glob("*.jsonl"), *out_dir.glob("*.meta.json")]:
+        shutil.move(str(path), str(target / path.name))
+    return True
 
 
 def _saved_origins(path: Path) -> set[str]:
@@ -217,7 +258,8 @@ def run_persona(
     out_dir.mkdir(parents=True, exist_ok=True)
     result_path = out_dir / f"{persona_id}.jsonl"
     _check_settings(out_dir / f"{persona_id}.meta.json",
-                    {"futures": futures, "seed": seed, "method": METHOD})  # fmt: skip
+                    {"futures": futures, "seed": seed, "method": METHOD,
+                     **version_settings()})  # fmt: skip
     todo = [d for d in days if d.isoformat() not in _saved_origins(result_path)]
     if not todo:
         return 0
