@@ -114,6 +114,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--futures", type=int, default=None)
+    parser.add_argument("--metrics", action="store_true",
+                        help="then print the metrics summary of the real results")  # fmt: skip
     args = parser.parse_args(argv)
     db_path = args.db or private_db_path()
     if not db_path.exists():
@@ -125,6 +127,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Saved results were from an older version of the backtest: moved them to "
               f"{args.out / 'older'} and starting fresh.")  # fmt: skip
     print_counts(counts, args.out)
+    if args.metrics:
+        from eval.metrics import load_records, report_text
+
+        print()
+        print(report_text([], load_records(args.out)))  # summary numbers only, never rows
     return 0
 
 

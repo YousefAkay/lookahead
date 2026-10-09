@@ -160,3 +160,15 @@ def test_a_logic_version_change_also_counts_as_older(
     monkeypatch.setattr(backtest, "LOGIC", backtest.LOGIC + 1)  # the forecast logic changed
     counts = run_real(made_up_db, out, futures=40, quick=True)
     assert counts["archived_older"] == 1 and counts["origins_saved"] == 4
+
+
+def test_the_metrics_flag_prints_summary_numbers_for_the_real_column_only(
+    made_up_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(["--db", str(made_up_db), "--out", str(tmp_path / "out"), "--quick", "--futures", "40",
+          "--metrics"])  # fmt: skip
+    text = capsys.readouterr().out
+    assert "BACKTEST SUMMARY" in text and "Real" in text and "Real, buffer $0" in text
+    assert "Synthetic (development): none" in text  # no synthetic numbers here
+    assert ACCOUNT not in text and "account-1" not in text
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", text)  # no date of any transaction or origin
