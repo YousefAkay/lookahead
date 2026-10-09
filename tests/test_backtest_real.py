@@ -3,6 +3,7 @@ database; it must leave the database untouched and print counts, never rows or n
 
 import hashlib
 import json
+import re
 import shutil
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -87,10 +88,8 @@ def test_the_command_prints_only_counts(
     text = capsys.readouterr().out
     assert ACCOUNT not in text and "$" not in text and "cents" not in text
     assert "1 account" in text and "4 origins" in text
-    for line in text.splitlines():  # counts and a folder name: no dates of transactions
-        assert not any(ch.isdigit() for ch in line.replace("account", "")) or (
-            "origin" in line or "saved in" in line
-        )
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", text)  # no date of any transaction or origin
+    assert "tight-budget" not in text  # nothing about the content of the data
 
 
 def test_a_missing_database_says_so_without_a_path(

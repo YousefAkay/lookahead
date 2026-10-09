@@ -26,6 +26,7 @@ from eval.backtest import (
     _saved_origins,
     read_records,
     run_origin,
+    split_by_shortfall,
 )
 from lookahead.db import connect_readonly
 from lookahead.ui import private_db_path
@@ -85,14 +86,17 @@ def run_real(db_path: Path, out_dir: Path, futures: int, quick: bool = False) ->
 def print_counts(counts: dict[str, Any], out_dir: Path) -> None:
     """Counts only."""
     records = read_records(out_dir)
-    below = sum(r["realized_first_below_buffer"] is not None for r in records)
-    zero = sum(r["realized_below_zero"] for r in records)
+    ordinary, already = split_by_shortfall(records)
+    below = sum(r["realized_first_below_buffer"] is not None for r in ordinary)
+    zero = sum(r["realized_below_zero"] for r in ordinary)
     n = counts["accounts"]
     print(
         f"{n} account{'s' if n != 1 else ''}, {counts['origins_saved']} origins saved "
         f"({counts['new_origins']} new this run)"
     )
-    print(f"origins followed by a balance below the buffer: {below}; below zero: {zero}")
+    print(f"{len(already)} origins were already below the buffer (reported separately)")
+    print(f"of the other {len(ordinary)}: followed by a balance below the buffer {below}, "
+          f"below zero {zero}")  # fmt: skip
     print(f"saved in {out_dir} (private: never commit)")
 
 

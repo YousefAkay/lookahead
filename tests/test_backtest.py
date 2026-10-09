@@ -309,3 +309,70 @@ def test_the_summary_has_counts_and_no_amounts(
     text = capsys.readouterr().out
     assert "1 persona" in text and "2 origins" in text
     assert "$" not in text and "cents" not in text  # counts only
+
+
+# --- Rules for the metrics: already in shortfall, history length, early recurring detection ---
+
+
+def test_a_record_says_how_much_history_stood_behind_it(conn: sqlite3.Connection) -> None:
+    first = conn.execute(
+        "SELECT MIN(posted_date) FROM transactions WHERE account = ?", (PID,)
+    ).fetchone()[0]
+    record = run_origin(conn, PID, "synthetic", ORIGIN, FUTURES)
+    assert record["history_days"] == (ORIGIN - date.fromisoformat(first)).days + 1
+    early = run_origin(conn, PID, "synthetic", FIRST_ORIGIN, FUTURES)
+    assert early["history_days"] < record["history_days"]
+    assert early["history_days"] >= 8 * 7  # at least eight weeks behind the first origin
+
+
+def test_history_buckets_are_short_medium_and_long() -> None:
+    from eval.backtest import history_bucket
+
+    assert history_bucket(56) == "8-12 weeks" and history_bucket(83) == "8-12 weeks"
+    assert history_bucket(84) == "12-26 weeks" and history_bucket(181) == "12-26 weeks"
+    assert history_bucket(182) == "26+ weeks" and history_bucket(400) == "26+ weeks"
+    assert history_bucket(20) == "under 8 weeks"
+
+
+def test_a_record_says_whether_the_account_was_already_below_the_buffer(
+    conn: sqlite3.Connection,
+) -> None:
+    calm = run_origin(conn, PID, "synthetic", ORIGIN, FUTURES)
+    assert calm["in_shortfall_at_origin"] is (calm["start_balance_cents"] < calm["buffer_cents"])
+    set_safety_buffer_cents(conn, calm["start_balance_cents"] + 50_000)  # far above the balance
+    assert run_origin(conn, PID, "synthetic", ORIGIN, FUTURES)["in_shortfall_at_origin"] is True
+    set_safety_buffer_cents(conn, max(0, calm["start_balance_cents"] - 1))
+    assert run_origin(conn, PID, "synthetic", ORIGIN, FUTURES)["in_shortfall_at_origin"] is False
+
+
+def test_a_record_counts_the_recurring_series_known_at_the_origin(
+    conn: sqlite3.Connection,
+) -> None:
+    early = run_origin(conn, PID, "synthetic", FIRST_ORIGIN, FUTURES)
+    late = run_origin(conn, PID, "synthetic", LAST_ORIGIN, FUTURES)
+    assert early["n_series_detected"] <= late["n_series_detected"] + 3
+    assert late["n_series_detected"] >= 3  # rent, pay, bills are found by then
+    assert "series_keys" not in late  # no text from the data goes into the record
+
+
+def test_records_split_into_ordinary_and_already_in_shortfall() -> None:
+    from eval.backtest import split_by_shortfall
+
+    records = [
+        {"in_shortfall_at_origin": False, "origin": "a"},
+        {"in_shortfall_at_origin": True, "origin": "b"},
+        {"in_shortfall_at_origin": False, "origin": "c"},
+    ]
+    ordinary, already = split_by_shortfall(records)
+    assert [r["origin"] for r in ordinary] == ["a", "c"]
+    assert [r["origin"] for r in already] == ["b"]
+
+
+def test_the_summary_counts_already_in_shortfall_origins_and_history_lengths_separately(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_persona(PID, tmp_path / "out", origins()[:3], FUTURES, seed=42, work_dir=tmp_path / "work")
+    backtest.print_summary(tmp_path / "out")
+    text = capsys.readouterr().out
+    assert "already below the buffer at the origin" in text
+    assert "8-12 weeks" in text  # the first origins have the shortest history

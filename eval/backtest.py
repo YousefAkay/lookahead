@@ -111,6 +111,26 @@ def realized_balances(
     return out
 
 
+def history_bucket(days: int) -> str:
+    """How much history stood behind an origin, for reporting errors by history length: recurring
+    detection needs a few repeats, so early origins are expected to be worse."""
+    if days < 8 * 7:
+        return "under 8 weeks"
+    if days < 12 * 7:
+        return "8-12 weeks"
+    return "12-26 weeks" if days < 26 * 7 else "26+ weeks"
+
+
+def split_by_shortfall(
+    records: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(ordinary origins, origins already below the buffer). An alert about a shortfall that has
+    already begun is not a warning ahead of time, so the two are reported separately."""
+    ordinary = [r for r in records if not r["in_shortfall_at_origin"]]
+    already = [r for r in records if r["in_shortfall_at_origin"]]
+    return ordinary, already
+
+
 @functools.cache
 def code_version() -> str:
     """The commit the results came from (informational), or "unknown"."""
@@ -140,6 +160,11 @@ def run_origin(
     sim = forecast.simulation
     buffer = forecast.buffer_cents
     realized = realized_balances(conn, persona_id, origin)
+    first_posted = conn.execute(
+        "SELECT MIN(posted_date) FROM transactions WHERE account = ? AND posted_date <= ?",
+        (persona_id, origin.isoformat()),
+    ).fetchone()[0]
+    history_days = (origin - date.fromisoformat(first_posted)).days + 1
     below = [d for d, b in zip(sim.days, realized, strict=True) if b < buffer]
     return {
         "dataset": dataset, "persona": persona_id, "archetype": archetype, "held_out": held_out,
@@ -153,6 +178,9 @@ def run_origin(
         "shortfall_probability": sim.shortfall_probability,
         "median_lowest_cents": sim.median_lowest_cents,
         "n_items": len(forecast.items), "has_income": forecast.has_income,
+        "history_days": history_days,  # rows before the origin span this many days
+        "in_shortfall_at_origin": forecast.start.balance_cents < buffer,
+        "n_series_detected": sum(1 for s in forecast.series if s.active and s.status != "rejected"),
         "weeks_drawn_from": sim.weeks_drawn_from,
         "realized": realized, "realized_lowest_cents": min(realized),
         "realized_first_below_buffer": below[0].isoformat() if below else None,
@@ -239,9 +267,16 @@ def print_summary(out_dir: Path) -> None:
         print(f"  {len(held)} held-out persona(s) among them")
     for code, n in sorted(by_archetype.items()):
         print(f"  {code}: {n} origins")
-    bad = sum(r["realized_below_zero"] for r in records)
-    below = sum(r["realized_first_below_buffer"] is not None for r in records)
-    print(f"  origins followed by a balance below the buffer: {below}; below zero: {bad}")
+    ordinary, already = split_by_shortfall(records)
+    bad = sum(r["realized_below_zero"] for r in ordinary)
+    below = sum(r["realized_first_below_buffer"] is not None for r in ordinary)
+    print(
+        f"  {len(already)} origin(s) already below the buffer at the origin (reported separately)"
+    )
+    print(f"  of the other {len(ordinary)}: followed by a balance below the buffer {below}, "
+          f"below zero {bad}")  # fmt: skip
+    for bucket, n in sorted(Counter(history_bucket(r["history_days"]) for r in records).items()):
+        print(f"  history {bucket}: {n} origins")
 
 
 def main(argv: list[str] | None = None) -> int:
