@@ -11,6 +11,7 @@ and the throw-away database is deleted before the next persona starts.
     python -m eval.backtest                         # the 20 development personas, all origins
     python -m eval.backtest --only v2-SAL-04 --held-out   # a held-out persona: say so
     python -m eval.backtest --summary               # counts of what is saved (no amounts)
+    python -m eval.backtest --set long              # the 24-month set v2L, data/backtest/long
 
 Held-out personas run only with --held-out, and only for the final test. This module never reads
 data/private; the real-data script (eval/backtest_real.py) is run by the account holder.
@@ -33,13 +34,14 @@ from lookahead.db import connect
 from lookahead.forecast.path import build_forecast
 from lookahead.forecast.start import forecast_start
 from lookahead.generator.archetypes import (
+    ALL_HELD_OUT,
     END,
-    HELD_OUT,
+    LONG_IDS,
     PERSONA_IDS,
     QUICK_IDS,
-    START,
     build_persona,
     development_ids,
+    is_long,
 )
 from lookahead.generator.writer import write_persona
 from lookahead.ingest.scotiabank import parse_export
@@ -53,11 +55,20 @@ HORIZON = 30
 # Saved results carry these. FORMAT changes when the fields of a record change; LOGIC follows the
 # detection and forecast logic. Results made with other values are never mixed with new ones.
 FORMAT = 2  # 2: history_days, in_shortfall_at_origin and n_series_detected were added
+# The 24-month set (v2L) has its own marker, so its records can never be mixed with the 12-month
+# set's (DECISIONS.md, 2026-10-11, step A).
+FORMAT_LONG = "2L"
 LOGIC = LOGIC_VERSION
 FUTURES = 500
 QUICK_FUTURES = 100
 METHOD = "weekday"
 DEFAULT_OUT = Path("data/backtest")
+LONG_OUT = Path("data/backtest/long")  # the 24-month set: its own folder
+
+
+def format_of(persona_id: str) -> int | str:
+    """The record format marker of a persona: FORMAT_LONG for the 24-month set."""
+    return FORMAT_LONG if is_long(persona_id) else FORMAT
 
 
 def origins(first: date | None = None, last: date | None = None) -> list[date]:
@@ -77,13 +88,17 @@ def quick_origins() -> list[date]:
 
 
 def select_personas(
-    only: list[str] | None, include_held_out: bool, quick: bool = False
+    only: list[str] | None, include_held_out: bool, quick: bool = False, long: bool = False,
 ) -> list[str]:  # fmt: skip
-    """Which personas to run. Held-out ones only when asked for, in the final test."""
+    """Which personas to run (of the 24-month set if `long`). Held-out ones only when asked
+    for, in the final test."""
     if quick:
-        return list(QUICK_IDS)
-    chosen = list(only) if only else (list(PERSONA_IDS) if include_held_out else development_ids())
-    held = sorted(set(chosen) & HELD_OUT)
+        return [pid.replace("v2-", "v2L-", 1) for pid in QUICK_IDS] if long else list(QUICK_IDS)
+    every = list(LONG_IDS if long else PERSONA_IDS)
+    chosen = list(only) if only else (every if include_held_out else development_ids(long))
+    if [pid for pid in chosen if is_long(pid) != long]:
+        raise ValueError("the 12-month and the 24-month sets are never mixed in one run")
+    held = sorted(set(chosen) & ALL_HELD_OUT)
     if held and not include_held_out:
         raise ValueError(f"held-out personas run only with --held-out: {', '.join(held)}")
     return chosen
@@ -183,7 +198,7 @@ def run_origin_with_paths(
     history_days = (origin - date.fromisoformat(first_posted)).days + 1
     below = [d for d, b in zip(sim.days, realized, strict=True) if b < buffer]
     return {
-        "format": FORMAT, "logic": LOGIC,
+        "format": format_of(persona_id) if dataset == "synthetic" else FORMAT, "logic": LOGIC,
         "dataset": dataset, "persona": persona_id, "archetype": archetype, "held_out": held_out,
         "origin": origin.isoformat(), "data_date": forecast.start.data_last_updated.isoformat(),
         "futures": futures, "buffer_cents": buffer, "version": code_version(),
@@ -205,8 +220,8 @@ def run_origin_with_paths(
     }, sim.paths  # fmt: skip
 
 
-def version_settings() -> dict[str, int]:
-    return {"format": FORMAT, "logic": LOGIC}
+def version_settings(persona_id: str = "") -> dict[str, int | str]:
+    return {"format": format_of(persona_id), "logic": LOGIC}
 
 
 def saved_is_older(out_dir: Path) -> bool:
@@ -263,14 +278,14 @@ def run_persona(
 ) -> int:  # fmt: skip
     """Run the origins `days` for one persona, saving each as it is made. Returns how many were
     newly computed (those already saved are skipped, so a stopped run resumes)."""
-    if persona_id in HELD_OUT and not allow_held_out:
+    if persona_id in ALL_HELD_OUT and not allow_held_out:
         raise ValueError(f"held-out personas run only with --held-out: {persona_id}")
     persona = build_persona(persona_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     result_path = out_dir / f"{persona_id}.jsonl"
     _check_settings(out_dir / f"{persona_id}.meta.json",
                     {"futures": futures, "seed": seed, "method": METHOD,
-                     **version_settings()})  # fmt: skip
+                     **version_settings(persona_id)})  # fmt: skip
     todo = [d for d in days if d.isoformat() not in _saved_origins(result_path)]
     if not todo:
         return 0
@@ -278,7 +293,7 @@ def run_persona(
     folder.mkdir(parents=True, exist_ok=True)
     conn = None
     try:
-        export, _ = write_persona(persona.persona, folder, seed, START, END)
+        export, _ = write_persona(persona.persona, folder, seed, persona.start, END)
         conn = connect(folder / "run.db")
         store_exports(
             conn, persona_id, [(export.name, parse_export(export))], datetime(2026, 10, 1)
@@ -346,15 +361,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--work", type=Path, default=None, help="where the throw-away databases go")
     parser.add_argument("--summary", action="store_true")
+    parser.add_argument("--set", choices=("12", "long"), default="12",
+                        help="the 12-month mix (default) or the 24-month set v2L")  # fmt: skip
     args = parser.parse_args(argv)
-    out = args.out or DEFAULT_OUT / ("quick" if args.quick else "full")
+    long = args.set == "long"
+    out = args.out or (LONG_OUT if long else DEFAULT_OUT) / ("quick" if args.quick else "full")
     if args.summary:
         print_summary(out)
         return 0
     futures = args.futures or (QUICK_FUTURES if args.quick else FUTURES)
     days = quick_origins() if args.quick else origins()
     work = args.work or out / "work"
-    ids = select_personas(args.only, args.held_out, args.quick)
+    ids = select_personas(args.only, args.held_out, args.quick, long)
     for n, pid in enumerate(ids, start=1):
         done = run_persona(pid, out, days, futures, args.seed, work, allow_held_out=args.held_out)
         print(f"[{n}/{len(ids)}] {pid}: {done} new origins", flush=True)

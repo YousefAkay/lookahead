@@ -1030,6 +1030,37 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 - **Continue only if** the 12-month personas are unchanged (the export and answer key of every development persona hash to what they were before this change; the hashes were taken first) and every development persona of the long set generates and reconciles (importer PASS).
 - **Stop line b)** (write up the table, the 12-month set stays the only set) if: more than half of the development personas that pay tuition from chequing have fewer than two tuition payments from one payee posted on or before the last origin (2026-08-31); or a development persona's closing balance (2026-09-30) is below -$20,000 (the plan's proposal). I read "ends below" as the closing balance and report the lowest balance beside it.
 
+### 2026-10-11: Step A result: the 24-month set generates, its gates pass, line b) continues
+Generated balances only; no forecast was looked at. `python -m eval.persona_report --check --set long` (seed 42, 20 development personas; held-out ids not generated).
+
+| Persona | Coverage | Buffer | Lowest | Closing | Origins starting below the buffer | Tuition payments by 2026-08-31 |
+|---|---|---|---|---|---|---|
+| v2L-IFAM-01 | 1.17 | $300 | $4,350.00 | $16,660.49 | 0 of 40 | 3 |
+| v2L-IFAM-02 | 1.11 | $300 | $5,068.40 | $23,906.75 | 0 of 40 | 10 (two installments, summer term) |
+| v2L-IFAM-03 | 1.16 | $300 | $5,258.34 | $14,607.96 | 0 of 40 | none (family pays the university) |
+| v2L-ITIGHT-01 | 0.91 | $100 | -$5,154.79 | -$2,269.02 | 4 of 40 | 3 |
+| v2L-ITIGHT-02 | 1.05 | $100 | $235.49 | $15,887.17 | 0 of 40 | none |
+| v2L-ITIGHT-03 | 1.00 | $100 | -$18,876.74 | -$18,698.81 | 35 of 40 | 5 |
+| v2L-DHOME-01 | 1.22 | $150 | $55.86 | $7,236.57 | 0 of 40 | none (CEGEP) |
+| v2L-DHOME-02 | 1.24 | $150 | $1,158.98 | $7,151.72 | 0 of 40 | 5 |
+| v2L-DHOME-03 | 1.08 | $150 | $409.08 | $970.84 | 0 of 40 | none |
+| v2L-DRENT-01 | 1.14 | $150 | -$395.91 | $4,492.08 | 0 of 40 | 5 |
+| v2L-DRENT-02 | 1.12 | $150 | -$36.09 | $682.14 | 0 of 40 | none |
+| v2L-DRENT-03 | 1.06 | $150 | -$65.59 | $2,219.24 | 0 of 40 | 3 |
+| v2L-SAL-01 | 1.98 | $300 | $2,881.77 | $64,288.63 | 0 of 40 | none |
+| v2L-SAL-02 | 2.24 | $300 | $2,833.83 | $63,424.86 | 0 of 40 | none |
+| v2L-SAL-03 | 1.55 | $300 | $2,202.50 | $25,853.13 | 0 of 40 | none |
+| v2L-SEM-01 | 1.19 | $300 | $1,539.16 | $4,731.16 | 0 of 40 | none |
+| v2L-TIGHT-01 | 0.99 | $100 | -$1,475.00 | $1,400.25 | 8 of 40 | none |
+| v2L-TIGHT-02 | 0.97 | $100 | -$1,345.19 | $798.75 | 6 of 40 | none |
+| v2L-TIGHT-03 | 0.91 | $100 | -$1,715.08 | $1,365.28 | 20 of 40 | none |
+| v2L-FREE-01 | 1.05 | $200 | -$667.27 | $220.10 | 10 of 40 | none |
+
+- **Continue-only-if checks: pass.** The 12-month exports and answer keys of all 20 development personas hash exactly as before the change (`tests/test_long_set.py`; a mutation that adds one draw to the base stream makes it fail). Every development persona of the long set imports and reconciles.
+- **Stop rules for line b): not triggered.** All 7 development personas that pay tuition from chequing have at least 2 tuition payments to one payee by 2026-08-31 (3 to 10). No closing balance is below -$20,000; the lowest closing is v2L-ITIGHT-03 at -$18,699, close to the line.
+- **Acceptance checks as for the frozen mix:** IFAM at most 3 origins below the buffer: pass. DHOME, DRENT, TIGHT, FREE at most 20: pass (TIGHT-03 exactly 20). ITIGHT: every persona dips to its buffer plus $300 or lower, but **v2L-ITIGHT-01 (-$5,155) and v2L-ITIGHT-03 (-$18,877) run past -$3,000**, the same two development personas that failed in the frozen mix, for the same reason (tuition gaps that the family only partly fills); with a second year the gap of v2L-ITIGHT-03 adds up further, and it starts below its buffer at 35 of 40 origins. **Known limitation, nothing adjusted.** Alert results for ITIGHT on this set have almost no ordinary origins at -03.
+- The coverage ratios are the 12-month namesakes' (the same parameters, by design).
+
 ## Tests
 
 ### 2026-10-01: Slow marker

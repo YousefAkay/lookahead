@@ -87,15 +87,36 @@ HELD_OUT: frozenset[str] = frozenset(
 # `--quick` runs: three development personas of different kinds.
 QUICK_IDS: tuple[str, ...] = ("v2-SAL-01", "v2-ITIGHT-01", "v2-DRENT-01")
 
+# The 24-month set (DECISIONS.md, 2026-10-11, step A): the same 30 specs, ids `v2L-...`, history
+# from LONG_START to END. A separate set of results, never pooled with the 12-month set.
+LONG_MIX = "v2L"
+LONG_START = date(2024, 10, 1)
+LONG_IDS: tuple[str, ...] = tuple(pid.replace(f"{MIX}-", f"{LONG_MIX}-", 1) for pid in PERSONA_IDS)
+LONG_HELD_OUT: frozenset[str] = frozenset(
+    pid.replace(f"{MIX}-", f"{LONG_MIX}-", 1) for pid in HELD_OUT
+)
+ALL_HELD_OUT: frozenset[str] = HELD_OUT | LONG_HELD_OUT
 
-def development_ids() -> list[str]:
-    """The personas that may be used for tuning and validation."""
-    return [pid for pid in PERSONA_IDS if pid not in HELD_OUT]
+
+def is_long(persona_id: str) -> bool:
+    """True for a persona of the 24-month set."""
+    return persona_id.startswith(f"{LONG_MIX}-")
+
+
+def base_id(persona_id: str) -> str:
+    """The 12-month namesake of a 24-month persona (the id itself for a 12-month persona)."""
+    return persona_id.replace(f"{LONG_MIX}-", f"{MIX}-", 1) if is_long(persona_id) else persona_id
+
+
+def development_ids(long: bool = False) -> list[str]:
+    """The personas that may be used for tuning and validation (of the 24-month set if `long`)."""
+    return [pid for pid in (LONG_IDS if long else PERSONA_IDS) if pid not in ALL_HELD_OUT]
 
 
 def assert_development_only(ids: list[str] | tuple[str, ...]) -> None:
-    """Tuning code calls this first: a held-out persona must never be used to choose anything."""
-    bad = sorted(set(ids) & HELD_OUT)
+    """Tuning code calls this first: a held-out persona (of either set) must never be used to
+    choose anything."""
+    bad = sorted(set(ids) & ALL_HELD_OUT)
     if bad:
         raise ValueError(f"held-out personas are never used for tuning: {', '.join(bad)}")
 
@@ -106,6 +127,7 @@ class MixPersona:
     buffer_cents: int  # the persona's own safety buffer for the backtest
     archetype: str
     held_out: bool
+    start: date = START  # the first day of the history (LONG_START for the 24-month set)
 
 
 @dataclass(frozen=True)
@@ -743,10 +765,25 @@ def _freelancer(pid: str, rng: np.random.Generator) -> Persona:
 
 
 def build_persona(persona_id: str) -> MixPersona:
-    """The persona with this id. The same id always gives the same persona."""
+    """The persona with this id. The same id always gives the same persona. A `v2L-` id is the
+    24-month persona: the parameters of its `v2-` namesake, lengthened by one year (`_lengthen`)."""
     parts = persona_id.split("-")
-    if len(parts) != 3 or parts[0] != MIX or parts[1] not in ARCHETYPES or not parts[2].isdigit():
+    if (
+        len(parts) != 3
+        or parts[0] not in (MIX, LONG_MIX)
+        or parts[1] not in ARCHETYPES
+        or not parts[2].isdigit()
+    ):
         raise ValueError(f"unknown persona id {persona_id!r}")
+    if parts[0] == LONG_MIX:
+        base_id = f"{MIX}-{parts[1]}-{parts[2]}"
+        base = build_persona(base_id)
+        earlier = np.random.default_rng(
+            np.random.SeedSequence([PARAM_SEED, zlib.crc32(persona_id.encode())])
+        )
+        persona = _lengthen(base.persona, base_id, persona_id, earlier)
+        return MixPersona(persona, base.buffer_cents, base.archetype, persona_id in ALL_HELD_OUT,
+                          LONG_START)  # fmt: skip
     archetype = ARCHETYPES[parts[1]]
     if not 1 <= int(parts[2]) <= archetype.n:
         raise ValueError(f"unknown persona id {persona_id!r}")
@@ -765,6 +802,142 @@ def build_persona(persona_id: str) -> MixPersona:
     else:
         persona = _freelancer(persona_id, rng)
     return MixPersona(persona, archetype.buffer_cents, code, persona_id in HELD_OUT)
+
+
+# --- The 24-month set: the same rules one year earlier (DECISIONS.md, 2026-10-11, step A) ---
+
+YEAR_WEEKS = timedelta(weeks=52)  # weekly and biweekly schedules keep their weekday and phase
+
+
+def _year_back(day: date) -> date:
+    """The same calendar day one year earlier (no recorded date is a February 29)."""
+    return day.replace(year=day.year - 1)
+
+
+def _windows_back(windows: tuple[tuple[date, date], ...]) -> tuple[tuple[date, date], ...]:
+    """The windows repeated one year earlier, followed by the windows themselves."""
+    return tuple((_year_back(a), _year_back(b)) for a, b in windows) + windows
+
+
+def _rename(text: str | None, base_id: str, long_id: str) -> str | None:
+    return None if text is None else text.replace(base_id, long_id, 1)
+
+
+def _earlier_tuition(
+    sources: list[Source], base_id: str, rng: np.random.Generator, spec: StudentSpec,
+    archetype: str,
+) -> dict[str, list[DatedItem]]:  # fmt: skip
+    """The tuition, family deposits and second transfers of the year before (Winter 2025,
+    Summer 2025 for a summer persona, Fall 2025), by the same rules as `_tuition_sources`: the
+    same tuition amount (no yearly rise), dates drawn the same way one year earlier, the same
+    funding rules. Keyed by the suffix of the series they belong to."""
+    by_id = {s.series_id: s for s in sources if isinstance(s, DatedSeries)}
+    tuition_series = by_id.get(f"{base_id}-tuition")
+    if tuition_series is None:
+        return {}
+    link0 = f"{base_id}-tuition-0"
+    tuition = -sum(i.amount_cents for i in tuition_series.items if i.link_id == link0)
+    dates = [_year_back(d) for d in _tuition_dates(rng, spec.summer)]
+    out: dict[str, list[DatedItem]] = {"tuition": [], "funding": [], "topup": []}
+    funded = spec.aid is None
+    for n, due in enumerate(dates):
+        link = f"{base_id}-tuition-p{n}"  # "p": a term of the previous year
+        if spec.installments == 2:
+            first = tuition // 2
+            out["tuition"] += [DatedItem(due, -first, link),
+                               DatedItem(due + timedelta(days=int(rng.integers(30, 46))),
+                                         -(tuition - first), link)]  # fmt: skip
+        else:
+            out["tuition"].append(DatedItem(due, -tuition, link))
+        if funded:
+            share = {
+                "IFAM": float(rng.uniform(1.00, 1.40)),
+                "ITIGHT": float(rng.uniform(0.60, 1.05)),
+            }.get(archetype, float(rng.uniform(0.80, 1.10)))
+            arrives = due - timedelta(days=int(rng.integers(1, 31)))
+            amount = round(tuition * share / 5_000) * 5_000
+            out["funding"].append(DatedItem(arrives, amount, link))
+            if archetype == "ITIGHT":
+                comes, later, part = (
+                    rng.random() < 0.7,
+                    int(rng.integers(15, 46)),
+                    rng.uniform(0.5, 1.0),
+                )
+                gap = tuition - amount
+                if comes and gap >= 5_000:
+                    cents = min(gap, max(5_000, int(gap * part / 5_000) * 5_000))
+                    out["topup"].append(DatedItem(due + timedelta(days=later), cents, link))
+    return out
+
+
+def _earlier_aid(rng: np.random.Generator, spec: StudentSpec) -> list[DatedItem]:
+    """The aid of the year before, by the same rules as `_aid_sources`, one year earlier."""
+    if spec.aid is None:
+        return []
+    starts = [WINTER_START] + ([SUMMER_START] if spec.summer else []) + [FALL_START]
+    starts = [_year_back(d) for d in starts]
+    if spec.aid == "loans":
+        return [DatedItem(d, _dollars(rng, 2500, 4500, 50)) for d in starts]
+    items = [DatedItem(d, _dollars(rng, 3500, 6000, 50)) for d in starts]
+    monthly = [date(2025, 10, 5), date(2025, 11, 5), date(2025, 12, 5), date(2026, 2, 5),
+               date(2026, 3, 5), date(2026, 4, 5)]  # fmt: skip
+    if spec.summer:
+        monthly += [date(2026, 6, 5), date(2026, 7, 5), date(2026, 8, 5)]
+    items += [DatedItem(_year_back(d), _dollars(rng, 300, 900, 50)) for d in monthly]
+    return items
+
+
+def _lengthen(
+    base: Persona, base_id: str, long_id: str, rng: np.random.Generator
+) -> Persona:  # fmt: skip
+    """The 24-month persona: the base persona's sources with the same rules applied to the year
+    before. Recurring schedules start 12 months earlier (weekly and biweekly ones 52 weeks
+    earlier); wage breaks, exam dips and months away repeat one year earlier; the earlier year's
+    tuition, family money and aid are added (`rng` only: the base draws are untouched); 1 to 3
+    more larger one-off purchases fall in the earlier year. Series ids carry the long id."""
+    spec = PERSONA_SPECS.get(base_id)
+    archetype = base_id.split("-")[1]
+    earlier = _earlier_tuition(list(base.sources), base_id, rng, spec, archetype) if spec else {}
+    aid = _earlier_aid(rng, spec) if spec else []
+    sources: list[Source] = []
+    for s in base.sources:
+        if isinstance(s, RecurringSchedule):
+            back = (
+                s.anchor - YEAR_WEEKS
+                if s.cadence in ("weekly", "biweekly")
+                else _year_back(s.anchor)
+            )
+            s = replace(s, anchor=back)
+        elif isinstance(s, HourlyPay):
+            s = replace(s, anchor=s.anchor - YEAR_WEEKS, breaks=_windows_back(s.breaks),
+                        off=_windows_back(s.off), dips=_windows_back(s.dips))  # fmt: skip
+        elif isinstance(s, DatedSeries):
+            suffix = s.series_id.removeprefix(base_id + "-")
+            extra = {
+                "tuition": earlier.get("tuition", []), "aid": aid,
+                "tuition-funding": earlier.get("funding", []),
+                "tuition-topup": earlier.get("topup", []),
+            }.get(suffix, [])  # fmt: skip
+            s = replace(s, items=tuple(extra) + s.items)
+        if hasattr(s, "series_id"):
+            s = replace(s, series_id=_rename(s.series_id, base_id, long_id))  # type: ignore[type-var]
+        if isinstance(s, DatedSeries):
+            s = replace(s, items=tuple(replace(i, link_id=_rename(i.link_id, base_id, long_id))
+                                       for i in s.items))  # fmt: skip
+        sources.append(s)
+    present = {s.series_id for s in sources if isinstance(s, DatedSeries)}
+    topup_id = f"{long_id}-tuition-topup"
+    if earlier.get("topup") and topup_id not in present:  # the base year had no second transfer
+        funding = next(s for s in sources if isinstance(s, DatedSeries)
+                       and s.series_id == f"{long_id}-tuition-funding")  # fmt: skip
+        sources.append(DatedSeries(
+            series_id=topup_id, merchant=funding.merchant, category="Income", flow_type="income",
+            txn_type="credit memo", shift="later",
+            items=tuple(replace(i, link_id=_rename(i.link_id, base_id, long_id))
+                        for i in earlier["topup"]),
+        ))  # fmt: skip
+    earlier_one_offs = [replace(o, due=_year_back(o.due)) for o in _one_offs(rng)]
+    return replace(base, persona_id=long_id, sources=tuple(sources + earlier_one_offs))
 
 
 def main(argv: list[str] | None = None) -> int:

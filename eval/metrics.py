@@ -26,13 +26,14 @@ from eval.backtest import (
     DEFAULT_OUT,
     FORMAT,
     LOGIC,
+    format_of,
     history_bucket,
     read_records,
     split_by_shortfall,
 )
 from lookahead.alerts import Snapshot, episodes, record_snapshot
 from lookahead.db import SCHEMA
-from lookahead.generator.archetypes import HELD_OUT
+from lookahead.generator.archetypes import ALL_HELD_OUT, is_long
 
 HORIZONS = (7, 14, 30)
 BIN_EDGES = 5  # reliability bins: 0-20, 20-40, 40-60, 60-80, 80-100 percent
@@ -55,11 +56,17 @@ def load_records(out_dir: Path, final_test: bool = False) -> list[Record]:
     """Every saved record. Refuses results from an older version, and held-out personas unless
     this is the final test."""
     records = read_records(out_dir)
-    if any(r.get("format") != FORMAT or r.get("logic") != LOGIC for r in records):
+
+    def expected(r: Record) -> int | str:
+        return format_of(r["persona"]) if r["dataset"] == "synthetic" else FORMAT
+
+    if any(r.get("format") != expected(r) or r.get("logic") != LOGIC for r in records):
         raise ValueError(f"the results in {out_dir} are from an older version: run them again")
+    if len({is_long(r["persona"]) for r in records if r["dataset"] == "synthetic"}) > 1:
+        raise ValueError("the 12-month and the 24-month sets are never pooled")
     held = sorted({
         r["persona"] for r in records
-        if r.get("held_out") or (r["dataset"] == "synthetic" and r["persona"] in HELD_OUT)
+        if r.get("held_out") or (r["dataset"] == "synthetic" and r["persona"] in ALL_HELD_OUT)
     })  # fmt: skip
     if held and not final_test:
         raise ValueError(f"held-out personas are only for the final test: {', '.join(held)}")
