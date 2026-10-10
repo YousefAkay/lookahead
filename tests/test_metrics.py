@@ -522,14 +522,22 @@ def test_one_alert_open_across_two_dips_catches_the_second_only_under_the_new_de
     assert m["recall"] == 0.5 and m["recall_on"] == 1.0
 
 
-def test_an_episode_that_opened_inside_a_shortfall_does_not_count_even_while_it_stays_on() -> None:
-    # Below the buffer Jan 28 to Feb 3: the alert opens at Feb 2 (already in shortfall) and is
-    # still on at Feb 9 and Feb 16, which are ordinary; the dip of Mar 1 is not caught.
+def test_an_episode_that_opened_inside_a_shortfall_counts_once_it_is_on_at_an_ordinary_origin() -> (
+    None
+):
+    # The reading decided on 2026-10-12. Below the buffer Jan 28 to Feb 3: the alert opens at
+    # Feb 2 (already in shortfall) and is still on at Feb 9 and Feb 16, which are ordinary
+    # origins; the dip of Mar 1 is within 30 days of both, so it is caught under the new
+    # definition. Under the original one (an episode that opened ahead of it) it is not, and
+    # the episode is not an ordinary alert: it stays on its own line, never a false alert.
     on = {date(2026, 2, 2): 0.9, date(2026, 2, 9): 0.9, date(2026, 2, 16): 0.9}
     dips = [(date(2026, 1, 28), date(2026, 2, 3)), (date(2026, 3, 1), date(2026, 3, 2))]
     m = alert_metrics(scenario(on, dips), median_rule=False)
     assert m["alerts_while_in_shortfall"] == 1 and m["alert_episodes"] == 0
-    assert m["caught"] == 0 and m["caught_on"] == 0
+    assert m["false_alerts"] == 0 and m["precision"] is None  # precision is unchanged
+    assert m["caught"] == 0 and m["caught_on"] == 1
+    assert m["caught_on_episodes"] == [("p", "2026-03-01")]
+    assert m["lead_times_on"] == [(date(2026, 3, 1) - date(2026, 2, 9)).days]
 
 
 def test_an_origin_already_in_shortfall_is_never_the_origin_that_warns() -> None:

@@ -266,10 +266,11 @@ def is_on(span: tuple[date, date | None], day: date) -> bool:
 def caught_on_ahead(
     first_day: date, spans: list[tuple[date, date | None]], ordinary: list[date]
 ) -> list[date]:  # fmt: skip
-    """The new definition (DECISIONS.md 2026-10-11, step 1): the ordinary origins O, earliest
-    first, with O < first_day, first_day - O <= 30 days, and an alert on at O. `spans` must be
-    the episodes that opened at ordinary origins: one that opened while already in shortfall
-    never counts."""
+    """The new definition (DECISIONS.md 2026-10-11, step 1; the reading of 2026-10-12): the
+    ordinary origins O, earliest first, with O < first_day, first_day - O <= 30 days, and an
+    alert on at O. `spans` are all the alert episodes, including one that opened while the
+    account was already below the buffer: what counts is that an alert is on at an ordinary
+    origin, not where the episode began. An origin already in shortfall is never O."""
     return [
         o for o in ordinary
         if o < first_day and (first_day - o).days <= 30 and any(is_on(s, o) for s in spans)
@@ -298,15 +299,15 @@ def alert_metrics(
         totals["ordinary_origins"] += sum(not r["in_shortfall_at_origin"] for r in rows)
         totals["already"] += sum(r["in_shortfall_at_origin"] for r in rows)
         opened_ordinary: list[date] = []
-        spans_ordinary: list[tuple[date, date | None]] = []
+        spans_all: list[tuple[date, date | None]] = []  # also those opened while in shortfall
         ordinary_days = sorted(d for d, r in at.items() if not r["in_shortfall_at_origin"])
         for opened, closed in _alert_spans(rows, threshold, median_rule):
             origin = at[opened]
+            spans_all.append((opened, closed))
             if origin["in_shortfall_at_origin"]:
                 totals["alerts_while_in_shortfall"] += 1
                 continue
             opened_ordinary.append(opened)
-            spans_ordinary.append((opened, closed))
             totals["alert_episodes"] += 1
             false = origin["realized_first_below_buffer"] is None
             totals["false"] += false
@@ -319,7 +320,7 @@ def alert_metrics(
                 totals["caught"] += 1
                 leads.append((first_day - min(ahead)).days)
                 caught_days.append((rows[0]["persona"], first_day.isoformat()))
-            on = caught_on_ahead(first_day, spans_ordinary, ordinary_days)
+            on = caught_on_ahead(first_day, spans_all, ordinary_days)
             if on:
                 totals["caught_on"] += 1
                 leads_on.append((first_day - on[0]).days)
