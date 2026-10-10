@@ -81,6 +81,7 @@ def _pattern_items(s: Stored, start: ForecastStart) -> list[ScheduledItem]:
         s.cadence, s.anchor, first + timedelta(days=1), start.last_day, s.direction,
         card=s.kind == "e-transfer",
     )  # fmt: skip
+    later = [d for d in later if d > first]  # a holiday can move a later due date onto `first`
     return [
         ScheduledItem(day, s.expected_cents, s.key, s.name, _basis(s), note if day == first else
                       "from its detected pattern")

@@ -167,3 +167,20 @@ def test_rent_wraps_across_a_year_end() -> None:
     items = scheduled_items([rent(("p",))], posted, start_on(date(2026, 12, 28)))
     # the December window is open and unpaid; January's starts on the last forecast day
     assert days_of(items) == [date(2026, 12, 29), date(2027, 1, 27)]
+
+
+def test_a_pay_date_moved_earlier_by_a_holiday_is_placed_once() -> None:
+    # Paid every Friday. Christmas Day 2026 is a Friday: the pay posts on Thursday 24 December,
+    # which is also the series' next expected date. It must not be placed a second time.
+    pay = series("pay", direction="in", cadence="weekly", anchor=date(2026, 12, 18),
+                 anchor_day=None, expected_cents=150000,
+                 next_expected=date(2026, 12, 24))  # fmt: skip
+    items = scheduled_items([pay], {}, start_on(date(2026, 12, 20)))
+    assert days_of(items) == [date(2026, 12, 24), date(2026, 12, 31), date(2027, 1, 8),
+                              date(2027, 1, 15)]  # fmt: skip
+    biweekly = series("pay2", direction="in", cadence="biweekly", anchor=date(2026, 12, 11),
+                      anchor_day=None, expected_cents=150000,
+                      next_expected=date(2026, 12, 24))  # fmt: skip
+    items = scheduled_items([biweekly], {}, start_on(date(2026, 12, 20)))
+    assert days_of(items) == [date(2026, 12, 24), date(2027, 1, 8)]
+    assert sum(i.cents for i in items) == 2 * 150000
