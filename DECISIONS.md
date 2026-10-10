@@ -955,6 +955,12 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 - The page says "Synthetic data" in the top bar, as a tag beside the title and in the footer, and that the data is made up. Alerts use the app's provisional rule (the threshold work changed nothing in the app). Dismissals are not replayed, as in the back end.
 - The buttons move by calendar days to the nearest saved date, so a run saved every few days still steps sensibly.
 
+### Model report page
+- A page that shows the test results from saved files, in plain words: the categorizer's holdout results (copied from the step 7b entry into `docs/results/categorizer_results.json`, with rows and merchants), the 30-day forecast metrics, the alerts under the provisional rule, the reliability table, the threshold curve on calibrated chances, and the breakdowns by archetype and by history length, with n everywhere, and a "known limitations" section.
+- Columns: synthetic development, synthetic held out ("not run yet": the final test has not been run), real, and real at a $0 buffer. Synthetic and real are never pooled.
+- Synthetic numbers come from `docs/results/report_synthetic.json`, written by `python -m eval.report_data` from the calibration step's saved run. Real numbers are computed when the page opens, from `data/private/backtest` (its `full/` folder) if it exists, and are never written anywhere; without it the real columns say "run locally". The page imports `eval` for this; it is a report on the evaluation, so I accepted that.
+- The top bar on this page says "Saved test results" instead of a data date (it is not about one account's data).
+
 ## Tests
 
 ### 2026-10-01: Slow marker

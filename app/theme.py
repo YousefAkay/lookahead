@@ -177,11 +177,13 @@ PAGES = [
     ("Recurring", "/Recurring"),
     ("Forecast", "/Forecast"),
     ("Time machine", "/Time_machine"),
+    ("Model report", "/Model_report"),
 ]
 
 
 def top_bar_html(
     active: str, pages: list[tuple[str, str]], data_to: date | None, source: str, query: str = "",
+    until: str | None = None,
 ) -> str:  # fmt: skip
     """The green bar: wordmark, page links (the current page marked), the date the data runs to,
     and which data is shown (Synthetic demo or My data). `query` ("data=...&account=...") is added
@@ -193,7 +195,8 @@ def top_bar_html(
         current = ' aria-current="page"' if label == active else ""
         href = html.escape(path + suffix)
         links.append(f'<a href="{href}" target="_self"{current}>{html.escape(label)}</a>')
-    until = f"Data to {fmt_date(data_to)}" if data_to is not None else "No data yet"
+    if until is None:  # a page that is not about one account's data says so in `until`
+        until = f"Data to {fmt_date(data_to)}" if data_to is not None else "No data yet"
     return (
         '<header class="la-bar"><div class="la-bar-inner">'
         f'<a href="{html.escape("/" + suffix)}" target="_self" class="la-brand">'
@@ -602,11 +605,12 @@ def apply(title: str) -> None:
 
 
 def top_bar(slot: "st.delta_generator.DeltaGenerator", active: str, data_to: date | None,
-            source: str) -> None:  # fmt: skip
+            source: str, until: str | None = None) -> None:  # fmt: skip
     """Draw the green bar into the container `slot` (made first, filled once the data is known)."""
     with slot:
         st.markdown(
-            top_bar_html(active, PAGES, data_to, source, choice_query()), unsafe_allow_html=True
+            top_bar_html(active, PAGES, data_to, source, choice_query(), until),
+            unsafe_allow_html=True,
         )
 
 

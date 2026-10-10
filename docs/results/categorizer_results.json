@@ -1,0 +1,15 @@
+{
+ "source": "DECISIONS.md, 2026-10-01, Holdout protocol (step 7b), run 1, final. One person's labelled bank rows; counts and rates only.",
+ "trained_on": "development labels: 447 rows",
+ "rows": [
+  {"set": "Test A (later rows of merchants seen in training)", "rows": 114, "groups": 35, "hybrid_accuracy": 0.912, "hybrid_macro_f1": 0.696, "llm_accuracy": 0.965, "llm_macro_f1": 0.878},
+  {"set": "Test B, all new merchants", "rows": 107, "groups": 27, "hybrid_accuracy": 0.879, "hybrid_macro_f1": 0.526, "llm_accuracy": 0.925, "llm_macro_f1": 0.677},
+  {"set": "Test B, merchants in the synthetic list (pre-taught)", "rows": 59, "groups": 1, "hybrid_accuracy": 1.0, "hybrid_macro_f1": 1.0, "llm_accuracy": 1.0, "llm_macro_f1": 1.0},
+  {"set": "Test B, merchants not pre-taught (the generalization number)", "rows": 48, "groups": 26, "hybrid_accuracy": 0.729, "hybrid_macro_f1": 0.498, "llm_accuracy": 0.833, "llm_macro_f1": 0.677}
+ ],
+ "notes": [
+  "The trained hybrid is the default; the LLM fallback is opt-in and off by default.",
+  "Test B, all is inflated: one pre-taught chain has 59 of its 107 rows.",
+  "Small n everywhere. No choice was made from these numbers."
+ ]
+}
