@@ -1243,6 +1243,26 @@ Scored with `python -m eval.proposals_score` (full tables in `docs/results/propo
 - **The proposals run's Step 3 stop: the sanity check's expectation was wrong, not the code.** The check expected the holiday fix to show at two personas; it shows at 16 of 20, because the fix removes any later due date that shifting moves onto the first placed day, which also happens with weekends and with every income series (the same finding as in the keeps-coming result entry). The per-persona half of that check is withdrawn. The arms were not read; they are run again on the merged code, with keeps-coming as the baseline.
 - **Rule change (mine): what real-data reports may show.** Replaces "reports on real data print counts only". New rule: *aggregate metrics over many forecasts may be printed in my terminal and shared; never rows, dates, names or individual transaction amounts, and never written into the repository.* Why: counts alone made it impossible to compare errors and spreads, and the scripts already print only aggregates. The printing code is not changed. What stays: nothing from my accounts is written into the repository (results here are described in words), and no automated tool ever opens, reads or runs anything on `data/private/`. `docs/PLAN.md` and the "Week 4 step 4" entry are updated to match.
 
+## Overnight run (2026-10-12, branch `overnight-2026-10-12`)
+
+### 2026-10-12: The run follows `docs/plans/overnight_2026-10-12.md`, on its own branch
+- The run follows the plan step by step (R, 1, 2, 3, 4, 5), with its "continue only if" checks and its stopping rule, and then my Step 6 (blending with "the balance stays the same"), which I pre-register in its own entry once Steps 2 to 4 are finished. Synthetic development personas only, both sets; no held-out persona, no final test. Status after every step in `docs/results/overnight_2026-10-12.md`.
+- The plan names the branch `overnight-1012`; I asked for `overnight-2026-10-12`, so that is the branch.
+
+### 2026-10-12: R4, shortfall episodes walk calendar days (a definition change, written before the fix)
+- **What changes.** `shortfall_episodes` in `eval/metrics.py` joined the observed days of a persona's 30-day windows and walked only those days, so when two windows did not touch (origins more than 30 days apart, as in a `--quick` run) a dip before the gap and one after it could be merged into one episode, or a run below the buffer could carry on across days nobody observed. From now on it walks every calendar day from the first observed day to the last: **an unobserved day ends a run below the buffer, and a dip after unobserved days is a new episode, never merged with one before them** (the 3-day merge applies only across observed days). Everything else in the episode definition stays.
+- **Old and new counts on the synthetic development set** (computed with the new rule in a scratch script before the fix; records of the merged forecaster, keeps-coming on, options off, 500 futures, seed 42):
+
+| Records | Old rule | New rule |
+|---|---|---|
+| 12-month set: 20 personas, 40 weekly origins (800) | 52 episodes | 52 episodes |
+| 24-month set: 20 personas, 40 weekly origins (800) | 51 episodes | 51 episodes |
+| 12-month set thinned to the 4 quick origins (80) | 20 episodes | 22 episodes |
+| 24-month set thinned to the 4 quick origins (80) | 19 episodes | 22 episodes |
+
+- With weekly origins the windows overlap, every day is observed (checked: no persona has an unobserved day), so the full development numbers do not move. Only runs whose windows leave gaps change: a quick run, and a real account with gaps between origins.
+- **Reports that become stale:** none of the recorded full-run synthetic results (their windows overlap). Any episode count from a `--quick` run, synthetic or real, computed before this change, is stale and must not be compared with one computed after it.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
