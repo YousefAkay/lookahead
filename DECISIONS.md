@@ -967,6 +967,13 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 - Changed after one trial run: one name in the first-names list also matched the product names of AI tools mentioned in older entries, so it left that list and those mentions got their own section (masked like the rest). Nothing else was tuned.
 - It is a heuristic. A clean section is not proof that nothing is there.
 
+### 2026-10-10: Calibration shelved after the real-account run; income prototype not merged
+- What I ran: the saved calibration applied to my own account (evaluation only, nothing fitted on it), and the same on the income-prototype branch. Real results are not written here, only what they showed.
+- **Calibration is shelved, not adopted.** It did not help on my account. Widening does not touch the synthetic cause (tuition money not forecast).
+- Consequences: the app stays on the provisional alert rule (20 percent, or a median low under the buffer). The 95 percent threshold from the threshold curve was chosen on calibrated chances, so it is not adopted either; the curve stays as a development result. The code, the pages and the results files stay in the repository as a documented method that lost. A calibration may be revisited after the forecaster itself is fixed, and must then be refitted (the fit is only valid for the forecaster it was made on).
+- **Income prototype: not merged.** On the synthetic personas it moved the forecast the optimistic way and lost some recall. It is an idea to build on (see the next proposal), not a change to ship, and it stays on its branch, which I will delete before the repository goes public (an early commit on it quoted figures from my account).
+- Lost: calibrating the band and the chance as the next forecaster step; resampling lump-sum deposits at random as the final answer to irregular income.
+
 ### LightGBM spending model (branch `lightgbm-prototype`, experiment only): design, written before training
 - **What it predicts:** cumulative everyday spending D(t, h) from the day after the origin t through h days later, the same stream the weekday baseline forecasts (card purchases, cash, transfers and bill payments in no series, less returns; big one-time rows and pass-throughs left out). A direct model per horizon: one row per origin and horizon, h in {7, 14, 21, 30}, the horizon as a feature, and D for the days in between interpolated linearly from D(t, 0) = 0.
 - **What happened** (the target): the same stream classified as of t + 30 (recurring series and the big-row rule as of the end of the window), summed over the h days after t.
