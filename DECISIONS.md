@@ -1069,6 +1069,24 @@ Generated balances only; no forecast was looked at. `python -m eval.persona_repo
 - **Prediction, written before computing:** under the new definition recall rises at low thresholds, mostly at the personas that hover near the buffer (DRENT-03, TIGHT-02, TIGHT-03), and moves little at high thresholds; precision, false alerts per 30 days, the number of alert episodes and the number of shortfall episodes do not change at all.
 - **Stop line c)** (report the table and a diagnosis, choose no threshold; step 3 then reports the original definition only) if any of: recall under the new definition is lower than under the old at any threshold (a bug: the new caught set always contains the old one); precision, false alerts per 30 days, alert episodes or shortfall episodes differ between the two definitions; recall at thresholds of 80 percent and above rises by more than 5 percentage points; the leave-one-out folds choose more than three different thresholds across the 20 folds.
 
+### 2026-10-11: Step 1 result: c) passes its checks; on raw chances the objective picks 90 percent (development, nothing changes in the app)
+Fresh development backtest of the current forecaster (12-month set: 20 development personas, 800 origins of which 726 ordinary, 500 futures, seed 42, weekday method); 52 shortfall episodes. Full curve in `docs/results/thresholds_raw_2026-10-11.md` (`python -m eval.thresholds_raw`).
+
+| Rule | Recall, opened ahead (original) | Recall, on ahead (new) | Precision | False alerts per 30 days |
+|---|---|---|---|---|
+| 5 percent | 50% (26/52) | 58% (30/52) | 49% (22/45) | 0.136 |
+| 20 percent | 50% (26/52) | 58% (30/52) | 71% (22/31) | 0.053 |
+| 50 percent | 46% (24/52) | 52% (27/52) | 81% (21/26) | 0.030 |
+| 90 percent (chosen) | 60% (31/52) | 62% (32/52) | 96% (24/25) | 0.006 |
+| 95 percent | 56% (29/52) | 56% (29/52) | 96% (22/23) | 0.006 |
+| provisional rule (20 percent or median low under the buffer) | 50% (26/52) | 58% (30/52) | 71% (22/31) | 0.053 |
+
+- **Stop conditions: none holds.** The new caught set contains the old one at every threshold; precision, false alerts, alert episodes and shortfall episodes are the same quantities for both definitions; at 80 percent and above recall rises by 0 to 2 points (at most 5 allowed); the leave-one-out folds chose 2 thresholds (65 and 90 percent; at most 3 allowed).
+- **Prediction against result.** Recall rises at low thresholds (+8 points from 2 to 20 percent), as predicted, but at two of the three hovering personas only: DRENT-03 (+3) and TIGHT-03 (+1); TIGHT-02 gains none. At high thresholds it moves 0 to 2 points, as predicted. The rise is much smaller than the 15 dips that motivated the change, because under my reading an alert episode that opened while the account was already below the buffer never counts, even when it is still on at a later ordinary origin. Under the other reading (count it once it is on at an ordinary origin), 18 more dips would count at 5 percent and 9 more at 90 percent (TIGHT-03, DRENT-03, TIGHT-02, ITIGHT-03). That count was computed after seeing the table, for my own question only; it is not part of the method and nothing was chosen from it.
+- **Threshold, development result:** on all 20 personas the objective picks **90 percent**: recall (new) 62 percent (32 of 52), precision 96 percent (24 of 25), 0.006 false alerts per 30 days, lead time 15.2 days (median 14). Leave one persona out (65 or 90 percent chosen on the other 19): recall (new) 56 percent (29 of 52), precision 91 percent (21 of 23), 0.012 false alerts per 30 days.
+- The provisional rule's precision is 71 percent here, against 77 percent in the first backtest (2 more false alerts, 9 against 7): this backtest includes the holiday fix. The step 3 sanity check looks at which personas changed.
+- Nothing changes in the app. The held-out run, when it comes, uses the definition and threshold fixed by then.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
