@@ -921,6 +921,15 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 - **Real data, evaluation only.** `python -m eval.calibrate apply --real <folder>` applies the saved calibration to a real backtest folder and prints summary numbers before and after (own buffer and $0). It never fits on real data. The band needs only the saved records. The shortfall probability and the lowest balance need every future's path, which the real script now saves with `--paths` (its own folder, `data/private/backtest/paths`).
 - What I expect, and why it may not carry over: on synthetic the bands are too narrow and the middle too optimistic, so s(h) should be above 1 and grow with h. My account may differ, so a calibration fitted here may not carry over to it.
 
+### Alert threshold: objective, written before computing anything
+- Rule studied: alert when the calibrated shortfall probability is above a threshold t. The median-lowest clause of the provisional rule is dropped here: on widened futures it is the same as a widened chance of about 50 percent, and after the probability map it would be a second, unmapped rule. The alerts go through the app's own engine (episodes and suppression), as in the metrics.
+- Calibrated probabilities are the leave-one-persona-out ones from the calibration step (each persona's chances come from a calibration fitted without it), with the probability map the calibration step chose.
+- **Objective:** the threshold with the highest recall subject to precision of at least 70 percent and at most 0.1 false alerts per 30 days, on ordinary origins only (as defined in the metrics entry). Ties: higher precision, then the higher threshold.
+- Thresholds tried: 2, 5, 10, 15, ... 95 percent.
+- **Leave one persona out for the choice too:** for each development persona, the threshold is chosen by the objective on the other 19, then applied to that persona; the 20 held-back results are added up and reported. The curve (recall, precision, false alerts per 30 days, lead time) is also shown for every threshold over all 20 personas, and the threshold the objective picks on all 20 is the one I would carry forward.
+- If no threshold meets both constraints I report the closest options: the best recall meeting each constraint alone, and the threshold nearest to meeting both. The app keeps its provisional rule either way.
+- Command: `python -m eval.thresholds`, output `docs/results/thresholds_2026-10-10.md`.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
