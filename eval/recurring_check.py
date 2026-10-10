@@ -24,7 +24,8 @@ from eval.backtest_real import real_origins
 from eval.diagnose_real import MATCH_DAYS, day_index, match_recurring
 from lookahead.db import connect_readonly
 from lookahead.flows import Txn, flow_types
-from lookahead.forecast.path import build_forecast
+from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
+from lookahead.forecast.recurring_filter import RecurringFix
 from lookahead.recurring_store import Stored, series_as_of
 from lookahead.resolve import load_user_decisions
 from lookahead.ui import private_db_path
@@ -32,6 +33,17 @@ from lookahead.views import accounts
 
 PERIOD_DAYS = {"weekly": 7, "biweekly": 14, "semimonthly": 15, "monthly": 30, "yearly": 365}
 _ETRANSFER_REASONS = {"outgoing e-Transfer", "incoming e-Transfer"}
+
+
+def family_of(key: str) -> str:
+    """The key without a trailing amount: a card cluster's key ends in the median amount of its
+    purchases (`merchant|out|<name>|<amount>`), which moves as purchases arrive; its family does
+    not. A key without an amount is its own family."""
+    parts = key.split("|")
+    base = 2 if parts[0] == "own transfer" else 3
+    if len(parts) > base and parts[-1].lstrip("-").isdigit():
+        return "|".join(parts[:-1])
+    return key
 
 
 def status_name(s: Stored | None) -> str:
@@ -100,11 +112,14 @@ def attributes(
     }  # fmt: skip
 
 
-def origin_rows(conn: Any, account: str, origin: date, today: Mapping[str, Stored],
-                ) -> dict[str, Any]:  # fmt: skip
+def origin_rows(
+    conn: Any, account: str, origin: date, today: Mapping[str, Stored],
+    options: ForecastOptions = DEFAULT_OPTIONS,
+) -> dict[str, Any]:  # fmt: skip
     """Placed and extra payments of one origin, each with its group attributes."""
     end = origin + timedelta(days=HORIZON)
-    forecast = build_forecast(conn, account, METHOD, origin, None, HORIZON, 0, keeps=None)
+    forecast = build_forecast(conn, account, METHOD, origin, None, HORIZON, 0, options=options,
+                              keeps=None)  # fmt: skip
     if forecast is None:
         raise ValueError("no forecast for this origin")
     raw = conn.execute(
@@ -143,13 +158,30 @@ def origin_rows(conn: Any, account: str, origin: date, today: Mapping[str, Store
     # which placed payment is which: `match_recurring` returns (day, cents) pairs, so the same
     # greedy one-to-one outcome is rebuilt over the full tuples
     outcome = _outcomes(placed, actual)
+    # the same matching with a series' family instead of its key (the key of a card cluster
+    # moves with the median amount of its purchases)
+    outcome_f = _outcomes(
+        [(k, c, family_of(key)) for k, c, key in placed],
+        [(k, c, family_of(key)) for k, c, key in actual],
+    )  # fmt: skip
+    extra_f = set(outcome_f["extra"])
+    families_at_end: dict[str, set[str]] = {}
+    for key in at_end:
+        families_at_end.setdefault(family_of(key), set()).add(key)
+    changed = sum(
+        1 for key in at_origin
+        if key not in at_end and any(k != key for k in families_at_end.get(family_of(key), ()))
+    )  # fmt: skip
     rows_placed = []
     for idx, (_, _, key) in enumerate(placed):
         s = at_origin[key]
         attrs = attributes(s, today, last_paid(s), origin, reasons(s))
         attrs["how it was placed"] = placement_kind(notes[idx])
         res = outcome["placed"][idx]
-        rows_placed.append({"attrs": attrs, "result": res["result"], "elsewhere": res["elsewhere"]})
+        rows_placed.append({
+            "attrs": attrs, "result": res["result"], "elsewhere": res["elsewhere"],
+            "result_family": outcome_f["placed"][idx]["result"],
+        })  # fmt: skip
     rows_extra = []
     placed_keys = {key for _, _, key in placed}
     for idx in outcome["extra"]:
@@ -169,11 +201,12 @@ def origin_rows(conn: Any, account: str, origin: date, today: Mapping[str, Store
             where = "detected and placed, but more than 10 days from the real payment"
         else:
             where = "detected, but not placed in the window"
-        rows_extra.append({"attrs": attrs, "where": where})
+        rows_extra.append({"attrs": attrs, "where": where, "extra_by_family": idx in extra_f})
     assert len(pairs) + len(missed) == len(placed) and len(extra) == len(rows_extra)
     return {
         "in_shortfall": forecast.start.balance_cents < forecast.buffer_cents,
         "placed": rows_placed, "extra": rows_extra,
+        "series_known": len(at_origin), "keys_changed": changed,
     }  # fmt: skip
 
 
@@ -263,13 +296,59 @@ def summary_lines(rows: list[dict[str, Any]], title: str) -> list[str]:
     return lines
 
 
+def family_lines(rows: list[dict[str, Any]], title: str) -> list[str]:
+    """The same placed and real payments matched by key and by family (DECISIONS.md, 2026-10-12)."""
+    placed = [p for r in rows for p in r["placed"]]
+    extra = [e for r in rows for e in r["extra"]]
+    lines = [f"  {title}, matched by key and by family (the key without its trailing amount):"]
+    groups = (
+        ("all series", lambda p: True),
+        ("weekly series", lambda p: p["attrs"]["cadence"] == "weekly"),
+        ("weekly series of card purchases", lambda p: p["attrs"]["cadence"] == "weekly"
+         and p["attrs"]["what its payments are"] == "card purchase"),
+    )  # fmt: skip
+    for name, keep in groups:
+        mine = [p for p in placed if keep(p)]
+        if not mine:
+            lines.append(f"    {name}: no placed payments")
+            continue
+        by_key = sum(p["result"] == "matched" for p in mine)
+        by_family = sum(p["result_family"] == "matched" for p in mine)
+        lines.append(
+            f"    {name}: {len(mine)} placed; matched by key {by_key} "
+            f"({_pct(by_key / len(mine))}), by family {by_family} "
+            f"({_pct(by_family / len(mine))})"
+        )
+    missed = [p for p in placed if p["result"] == "missed"]
+    saved = sum(p["result_family"] == "matched" for p in missed)
+    lines.append(f"    of the {len(missed)} payments missed by key, {saved} are matched by family "
+                 f"(the same series under another key)")  # fmt: skip
+    stay = sum(1 for e in extra if e["extra_by_family"])
+    lines.append(
+        f"    of the {len(extra)} extra real payments by key, {len(extra) - stay} are matched by "
+        f"family (a placed payment of the same series under another key); {stay} stay extra"
+    )
+    weekly_card = [e for e in extra if e["attrs"]["cadence"] == "weekly"
+                   and e["attrs"]["what its payments are"] == "card purchase"]  # fmt: skip
+    if weekly_card:
+        left = sum(1 for e in weekly_card if e["extra_by_family"])
+        lines.append(f"    of the {len(weekly_card)} extra weekly card payments, {left} stay extra "
+                     f"when matched by family")  # fmt: skip
+    known = sum(r["series_known"] for r in rows)
+    changed = sum(r["keys_changed"] for r in rows)
+    lines.append(f"    series known at an origin: {known} (counted once per origin); of them "
+                 f"{changed} have, 30 days later, the same family under another key")  # fmt: skip
+    return lines
+
+
 def collect(conn: Any, account: str, days: Sequence[date],
-            progress: Callable[[int], None] | None = None) -> list[dict[str, Any]]:  # fmt: skip
+            progress: Callable[[int], None] | None = None,
+            options: ForecastOptions = DEFAULT_OPTIONS) -> list[dict[str, Any]]:  # fmt: skip
     today_series, _ = series_as_of(conn, account, None, None)
     today = {s.key: s for s in today_series}
     rows = []
     for n, origin in enumerate(days, start=1):
-        rows.append(origin_rows(conn, account, origin, today))
+        rows.append(origin_rows(conn, account, origin, today, options))
         if progress is not None:
             progress(n)
     return rows
@@ -279,7 +358,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.recurring_check", description=__doc__)
     parser.add_argument("--db", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=None, help="only every n-th origin")
+    parser.add_argument(
+        "--by-family",
+        action="store_true",
+        help="also match by series family: the key without its trailing amount",
+    )
+    parser.add_argument("--recurring-fix", choices=("off", "b"), default="off",
+                        help="the forecast with (b) possibly ended series not placed")  # fmt: skip
     args = parser.parse_args(argv)
+    options = ForecastOptions(recurring_fix=RecurringFix() if args.recurring_fix == "b" else None)
     db_path = args.db or private_db_path()
     if not db_path.exists():
         print("No database found. Import your exports first.")
@@ -302,10 +389,16 @@ def main(argv: list[str] | None = None) -> int:
                 account,
                 days,
                 lambda n: print(f"  ... {n}", flush=True) if n % 20 == 0 else None,
+                options,
             )
+            ordinary = [r for r in rows if not r["in_shortfall"]]
+            if args.by_family:
+                for line in family_lines(rows, "All origins"):
+                    print(line)
+                for line in family_lines(ordinary, "Origins not already below the buffer"):
+                    print(line)
             for line in summary_lines(rows, "All origins"):
                 print(line)
-            ordinary = [r for r in rows if not r["in_shortfall"]]
             for line in summary_lines(ordinary, "Origins not already below the buffer"):
                 print(line)
     finally:

@@ -145,3 +145,73 @@ def test_a_series_with_no_payments_is_its_own_kind() -> None:
     assert payment_kind(S(), ["card purchase", "card purchase", "bill payment"]) == "card purchase"  # type: ignore[arg-type]
     assert payment_kind(S(), ["incoming e-Transfer"]) == "e-Transfer"  # type: ignore[arg-type]
     assert payment_kind(S(), ["credit memo"]) == "other"  # type: ignore[arg-type]
+
+
+# --- The family check (DECISIONS.md, 2026-10-12) ---
+
+
+def test_the_family_of_a_key_drops_a_trailing_amount_only() -> None:
+    from eval.recurring_check import family_of
+
+    assert family_of("merchant|out|Corner Cafe|1204") == "merchant|out|Corner Cafe"
+    assert family_of("merchant|out|Corner Cafe") == "merchant|out|Corner Cafe"
+    assert family_of("e-transfer|out|PERSON_ab12|45000") == "e-transfer|out|PERSON_ab12"
+    assert family_of("e-transfer|out|unnamed") == "e-transfer|out|unnamed"
+    assert family_of("own transfer|out|20000") == "own transfer|out"
+    assert family_of("own transfer|in") == "own transfer|in"
+    assert family_of("merchant|out|Shop 24") == "merchant|out|Shop 24"  # digits in a name stay
+    assert family_of("user|17") == "user|17"
+
+
+def test_a_series_whose_key_moved_is_matched_by_family_and_not_by_key() -> None:
+    placed = [(5, -1204, "merchant|out|Cafe|1204"), (12, -1204, "merchant|out|Cafe|1204")]
+    actual = [(6, -1200, "merchant|out|Cafe|1200"), (13, -1200, "merchant|out|Cafe|1200")]
+    by_key = _outcomes(placed, actual)
+    assert [p["result"] for p in by_key["placed"]] == ["missed", "missed"]
+    assert by_key["extra"] == [0, 1]
+    from eval.recurring_check import family_of
+
+    fam = _outcomes(
+        [(k, c, family_of(key)) for k, c, key in placed],
+        [(k, c, family_of(key)) for k, c, key in actual],
+    )
+    assert [p["result"] for p in fam["placed"]] == ["matched", "matched"] and fam["extra"] == []
+
+
+def test_matching_by_family_equals_matching_by_key_when_no_two_keys_share_a_family() -> None:
+    """When keys do not share a family the two matchings are the same. (When they do, nearest
+    first over a shared pool can in rare cases pair fewer payments than the separate pools, so
+    "never fewer" is not claimed.)"""
+    import random
+
+    from eval.recurring_check import family_of
+
+    rng = random.Random(11)
+    keys = ["merchant|out|A|100", "merchant|out|B|900", "merchant|out|C", "own transfer|out|50"]
+    assert len({family_of(k) for k in keys}) == len(keys)
+    for _ in range(300):
+        placed = [(rng.randint(1, 30), -rng.randint(1, 9), rng.choice(keys)) for _ in range(6)]
+        actual = [(rng.randint(1, 30), -rng.randint(1, 9), rng.choice(keys)) for _ in range(6)]
+        fam = _outcomes(
+            [(k, c, family_of(x)) for k, c, x in placed],
+            [(k, c, family_of(x)) for k, c, x in actual],
+        )
+        assert fam == _outcomes(placed, actual)
+
+
+@pytest.mark.slow
+def test_the_family_lines_have_the_counts_and_no_names(
+    synthetic_db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:  # fmt: skip
+    assert main(["--db", str(synthetic_db), "--limit", "10", "--by-family"]) == 0
+    out = capsys.readouterr().out
+    assert "matched by key and by family" in out
+    assert "have, 30 days later, the same family under another key" in out
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", out)
+    conn = connect_readonly(synthetic_db)
+    try:
+        rows = collect(conn, "acct", ORIGINS)
+    finally:
+        conn.close()
+    placed = [p for r in rows for p in r["placed"]]
+    assert {p["result_family"] for p in placed} <= {"matched", "missed"}
