@@ -25,7 +25,14 @@ from eval.personas_db import PersonaDb, persona_db
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.start import forecast_start
 from lookahead.generator.archetypes import assert_development_only, development_ids
-from lookahead.proposals import big_outflows, lump_proposals, repeated_outflows, sender_of
+from lookahead.generator.schedules import GeneratedTxn
+from lookahead.proposals import (
+    LumpProposal,
+    big_outflows,
+    lump_proposals,
+    repeated_outflows,
+    sender_of,
+)
 from lookahead.recurring_store import series_as_of
 from lookahead.resolve import load_user_decisions
 
@@ -38,6 +45,34 @@ OUT = Path("docs/results/proposals_scores_2026-10-11.md")
 RAW = Path("data/backtest/proposals")
 
 Record = dict[str, Any]
+
+
+def right_lump(
+    p: LumpProposal, origin: date, labels: dict[int, GeneratedTxn], fp_row: dict[str, int],
+    by_series: dict[str, list[tuple[date, int]]],
+) -> tuple[list[str], tuple[str, tuple[date, int]] | None]:  # fmt: skip
+    """The answer key for a lump proposal: its planted income series, and the nearest of their
+    next rows (after the origin) that falls inside the window, if any (then it is right)."""
+    planted = sorted({labels[fp_row[fp]].series_id or "" for fp in p.evidence}
+                     & {s for s in by_series if s.endswith(INCOME_KINDS)})  # fmt: skip
+    hits = []
+    for s in planted:
+        nxt = next(((d, c) for d, c in by_series[s] if d > origin), None)
+        if nxt is not None and p.first <= nxt[0] <= p.last:
+            hits.append((s, nxt))
+    best = min(hits, key=lambda h: abs((h[1][0] - p.expected).days)) if hits else None
+    return planted, best
+
+
+def series_rows(labels: dict[int, GeneratedTxn]) -> dict[str, list[tuple[date, int]]]:
+    """Each planted series' rows as (posted date, cents), oldest first."""
+    by_series: dict[str, list[tuple[date, int]]] = defaultdict(list)
+    for t in labels.values():
+        if t.series_id:
+            by_series[t.series_id].append((t.posted_date, t.amount_cents))
+    for rows in by_series.values():
+        rows.sort()
+    return by_series
 
 
 def _inputs(db: PersonaDb, origin: date) -> tuple[list[Txn], dict, set[int], dict[int, str], Any]:
@@ -69,12 +104,7 @@ def score_persona(persona_id: str, n_origins: int | None = None) -> Record:
     with persona_db(persona_id, RAW / "work") as db:
         out["archetype"] = db.persona.archetype
         labels = db.labels
-        by_series: dict[str, list[tuple[date, int]]] = defaultdict(list)
-        for t in labels.values():
-            if t.series_id:
-                by_series[t.series_id].append((t.posted_date, t.amount_cents))
-        for rows in by_series.values():
-            rows.sort()
+        by_series = series_rows(labels)
         stored = db.conn.execute(
             "SELECT id, fingerprint FROM transactions WHERE account = ?", (persona_id,)
         )
@@ -95,16 +125,11 @@ def score_persona(persona_id: str, n_origins: int | None = None) -> Record:
                                      "named": bool(sender_of(t.text))})  # fmt: skip
             right_series: set[str] = set()
             for p in proposals:
-                planted = sorted({labels[fp_row[fp]].series_id or "" for fp in p.evidence}
-                                 & {s for s in by_series if s.endswith(INCOME_KINDS)})  # fmt: skip
-                hits = []
+                planted, best = right_lump(p, origin, labels, fp_row, by_series)
                 for s in planted:
                     nxt = next_row(s, origin)
                     if nxt is not None and p.first <= nxt[0] <= p.last:
-                        hits.append((s, nxt))
-                for s, _ in hits:
-                    right_series.add(s)
-                best = min(hits, key=lambda h: abs((h[1][0] - p.expected).days)) if hits else None
+                        right_series.add(s)
                 out["a"].append({
                     "origin": origin.isoformat(), "key": p.key, "lumps": len(p.evidence),
                     "right": best is not None, "planted": planted,

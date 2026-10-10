@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from lookahead.db import connect
-from lookahead.forecast.path import build_forecast
+from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
 from lookahead.forecast.start import forecast_start
 from lookahead.generator.archetypes import (
     ALL_HELD_OUT,
@@ -165,6 +165,7 @@ def code_version() -> str:
 def run_origin(
     conn: sqlite3.Connection, persona_id: str, dataset: str, origin: date, futures: int,
     archetype: str | None = None, held_out: bool | None = None,
+    options: ForecastOptions = DEFAULT_OPTIONS,
 ) -> dict[str, Any]:  # fmt: skip
     """The forecast made as of `origin` and what really happened afterwards, as one record.
 
@@ -172,20 +173,21 @@ def run_origin(
     realized balances are read afterwards, from later rows, and never go back into the forecast.
     `dataset` is "synthetic" or "real": the two are never mixed in a report."""
     record, _ = run_origin_with_paths(conn, persona_id, dataset, origin, futures, archetype,
-                                      held_out, keep_paths=False)  # fmt: skip
+                                      held_out, keep_paths=False, options=options)  # fmt: skip
     return record
 
 
 def run_origin_with_paths(
     conn: sqlite3.Connection, persona_id: str, dataset: str, origin: date, futures: int,
     archetype: str | None = None, held_out: bool | None = None, keep_paths: bool = True,
+    options: ForecastOptions = DEFAULT_OPTIONS,
 ) -> tuple[dict[str, Any], tuple[tuple[int, ...], ...]]:  # fmt: skip
     """`run_origin`, and every future's daily balance (for the calibration step)."""
     if dataset == "synthetic" and archetype is None:
         persona = build_persona(persona_id)
         archetype, held_out = persona.archetype, persona.held_out
     forecast = build_forecast(conn, persona_id, METHOD, origin, None, HORIZON, futures,
-                              keep_paths=keep_paths)  # fmt: skip
+                              keep_paths=keep_paths, options=options)  # fmt: skip
     if forecast is None or forecast.simulation is None:
         raise ValueError(f"no forecast for {persona_id} as of {origin}")
     sim = forecast.simulation
