@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.spending import (
+    lump_rows,
     recent_average_path,
     spending_by_day,
     weekday_average_path,
@@ -618,3 +619,31 @@ def test_several_types_in_one_week_are_listed_largest_first() -> None:
 def test_deposits_of_an_income_series_are_not_in_the_weeks() -> None:
     rows = ordinary()[:12] + [txn(1, date(2026, 9, 25), 120000, "deposit", "Payroll ")]
     assert sum(w.total for w in weeks_for(rows, series_rows={1})) == 0
+
+
+# --- Lump deposits: the large deposits of the last year, with the rows themselves ---
+
+
+def lumps_of(rows: list[Txn], series_rows: set[int] | None = None, as_of: date = AS_OF):  # type: ignore[no-untyped-def]
+    return lump_rows(rows, flow_types(rows), series_rows or set(), as_of)
+
+
+def test_a_large_deposit_older_than_13_weeks_is_still_a_lump_within_the_year() -> None:
+    old = txn(1, date(2026, 2, 3), 1500000, "credit memo", "Family ")
+    recent = txn(2, date(2026, 9, 5), 1200000, "credit memo", "Family ")
+    too_old = txn(3, date(2025, 8, 1), 1500000, "credit memo", "Family ")  # over 365 days back
+    assert [t.row_id for t, _, _ in lumps_of(ordinary() + [old, recent, too_old])] == [1, 2]
+
+
+def test_small_deposits_series_rows_and_pass_throughs_are_not_lumps() -> None:
+    small = txn(1, date(2026, 8, 1), 40000, "deposit", FRIEND)  # under the floor
+    in_series = txn(2, date(2026, 8, 3), 1500000, "credit memo", "Family ")
+    paid_out = txn(3, date(2026, 9, 2), 1500000, "credit memo", "Family ")
+    tuition = txn(4, date(2026, 9, 4), -1500000, "bill payment", UNI)  # pays it straight out
+    rows = ordinary() + [small, in_series, paid_out, tuition]
+    assert lumps_of(rows, series_rows={2}) == []
+
+
+def test_rows_posted_after_the_forecast_date_are_never_lumps() -> None:
+    later = txn(1, date(2026, 10, 5), 1500000, "credit memo", "Family ")
+    assert lumps_of(ordinary() + [later]) == []

@@ -214,6 +214,37 @@ def _streams(
     return _Streams([r for r in kept_out if r[0].row_id not in paired], kept_in, events)
 
 
+LUMP_LOOKBACK_DAYS = 365  # lump deposits are looked for in the last year
+
+
+def lump_rows(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
+    lookback_days: int = LUMP_LOOKBACK_DAYS,
+) -> list[Row]:  # fmt: skip
+    """The lump deposits of the last `lookback_days` up to `as_of`, oldest first: deposits the
+    forecaster sets aside as large deposits (at least $500 and 5 times the typical row of the
+    last 13 weeks, in no series, not paid straight back out within 14 days). Pass-throughs are
+    left out, because the outflow that paid them out is set aside too. Only rows posted on or
+    before `as_of` are read (rule zero)."""
+    out_rows = _counted(txns, flows, series_rows, as_of)
+    in_rows = _money_in(txns, flows, series_rows, as_of)
+    recent = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
+    everything = [r[2] for r in out_rows + in_rows if r[2] > 0 and r[0].posted_date >= recent]
+    own_in = [c for t, _, c in in_rows if c > 0 and t.posted_date >= recent]
+    own_out = [c for t, _, c in out_rows if c > 0 and t.posted_date >= recent]
+    cut_in = large_cutoff(own_in if len(own_in) >= TYPICAL_MIN_ROWS else everything)
+    cut_out = large_cutoff(own_out if len(own_out) >= TYPICAL_MIN_ROWS else everything)
+    first = as_of - timedelta(days=lookback_days - 1)
+    big_in = [r for r in in_rows if r[2] >= cut_in and r[0].posted_date >= first]
+    candidates = [
+        r for r in out_rows if r[2] > 0 and (
+            r[2] >= cut_out or r[1].flow_type == "transfer" or r[1].reason == "bill payment")
+    ]  # fmt: skip
+    paired = {dep[0].row_id for dep, _ in _pass_through(big_in, candidates)}
+    return sorted((r for r in big_in if r[0].row_id not in paired),
+                  key=lambda r: (r[0].posted_date, r[0].row_id))  # fmt: skip
+
+
 def spending_by_day(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
 ) -> dict[date, int]:
