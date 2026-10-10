@@ -106,3 +106,27 @@ def test_the_real_generated_personas_get_a_verdict_on_each_of_the_four_checks() 
     results = acceptance_checks([persona_line(pid) for pid in PERSONA_IDS])
     assert [r.name.split()[0].rstrip(":,") for r in results] == ["IFAM", "ITIGHT", "DHOME", "SAL"]
     assert all(isinstance(r.passed, bool) for r in results)
+
+
+# --- With --only, a check that did not see all its personas is skipped, not passed (R6) ---
+
+
+def test_a_check_run_on_part_of_its_personas_says_it_was_skipped() -> None:
+    from eval.persona_report import verdict_line
+
+    every = list(PERSONA_IDS)
+    lines = [persona_line("v2-SAL-01")]
+    by_name = {r.name.split(":")[0]: r for r in acceptance_checks(lines)}
+    ifam = verdict_line(by_name["IFAM"], ["v2-SAL-01"], every)
+    assert ifam.startswith("SKIPPED") and "v2-IFAM-01" in ifam  # it saw no IFAM persona at all
+    sal = verdict_line(by_name["SAL, SEM"], ["v2-SAL-01"], every)
+    assert sal.startswith("SKIPPED") and "v2-SEM-01" in sal and "v2-SAL-01," not in sal
+    assert verdict_line(by_name["IFAM"], every, every).startswith("PASS")
+
+
+def test_the_command_with_only_prints_skipped_checks(capsys) -> None:  # type: ignore[no-untyped-def]
+    from eval.persona_report import main
+
+    main(["--only", "v2-SAL-01", "--check"])
+    text = capsys.readouterr().out
+    assert "SKIPPED  IFAM" in text and "PASS  IFAM" not in text

@@ -92,6 +92,7 @@ class CheckResult:
     name: str
     passed: bool
     details: list[str]  # the personas that failed, and why
+    codes: tuple[str, ...] = ()  # the archetypes the check is about; () means every persona
 
 
 # SAL and SEM were left alone: their lowest and closing balance (cents) must be unchanged.
@@ -133,13 +134,32 @@ def acceptance_checks(lines: list[PersonaLine]) -> list[CheckResult]:
         ):
             same.append(f"{ln.persona_id}: lowest or closing balance changed")
     return [
-        CheckResult("IFAM: at most 3 origins below the buffer", not ifam, ifam),
-        CheckResult("ITIGHT: dips near the buffer, no runaway", not itight, itight),
+        CheckResult("IFAM: at most 3 origins below the buffer", not ifam, ifam, ("IFAM",)),
+        CheckResult("ITIGHT: dips near the buffer, no runaway", not itight, itight, ("ITIGHT",)),
         CheckResult(
-            "DHOME, DRENT, TIGHT, FREE: at most 20 origins below the buffer", not others, others
+            "DHOME, DRENT, TIGHT, FREE: at most 20 origins below the buffer",
+            not others,
+            others,
+            ("DHOME", "DRENT", "TIGHT", "FREE"),
         ),  # fmt: skip
-        CheckResult("SAL, SEM: unchanged", not same, same),
+        CheckResult("SAL, SEM: unchanged", not same, same, ("SAL", "SEM")),
     ]
+
+
+def missing_for(result: CheckResult, ids: list[str], every: list[str]) -> list[str]:
+    """The personas a check is about that are not among `ids` (run with --only): a check that
+    did not see all of them is skipped, not passed."""
+    return [pid for pid in every if pid not in ids
+            and (not result.codes or pid.split("-")[1] in result.codes)]  # fmt: skip
+
+
+def verdict_line(result: CheckResult, ids: list[str], every: list[str]) -> str:
+    """PASS, FAIL, or SKIPPED with the personas it would need."""
+    missing = missing_for(result, ids, every)
+    if missing:
+        return f"SKIPPED  {result.name} (not run on all its personas; missing: " \
+               f"{', '.join(missing)})"  # fmt: skip
+    return f"{'PASS' if result.passed else 'FAIL'}  {result.name}"
 
 
 LAST_ORIGIN = date(2026, 8, 31)
@@ -225,10 +245,13 @@ def main(argv: list[str] | None = None) -> int:
         # Check 4 (SAL and SEM unchanged) is about the 12-month mix only.
         checks = acceptance_checks(lines)[:3] + long_set_gates(lines) if long else (
             acceptance_checks(lines))  # fmt: skip
+        every = development_ids(long=True) if long else list(PERSONA_IDS)
         for result in checks:
-            print(f"{'PASS' if result.passed else 'FAIL'}  {result.name}")
-            for detail in result.details:
-                print(f"        {detail}")
+            line = verdict_line(result, ids, every)
+            print(line)
+            if not line.startswith("SKIPPED"):
+                for detail in result.details:
+                    print(f"        {detail}")
         if long:
             for ln in lines:
                 n = tuition_payments(ln.persona_id)
