@@ -12,7 +12,6 @@ amount, no text, no name.
 """
 
 import argparse
-import re
 import sqlite3
 import sys
 from collections import Counter
@@ -23,21 +22,11 @@ from pathlib import Path
 from lookahead.db import connect_readonly
 from lookahead.flows import Flow, Txn, flow_types
 from lookahead.forecast.spending import lump_rows
+from lookahead.proposals import sender_of
 from lookahead.recurring_store import series_as_of
 from lookahead.resolve import load_user_decisions
 from lookahead.ui import private_db_path
 from lookahead.views import accounts
-
-_BANK_WORDS = frozenset({"free", "interac", "e-transfer", "etransfer", "e-transfert", "from"})
-_SLOT = re.compile(r"^\s*\d+/")  # a credit memo's text starts with a slot such as "1/"
-
-
-def sender_of(text: str) -> str:
-    """The sender name in a deposit's text, case-folded; empty if the bank prints none. Only
-    letters decide: card-style codes, slots like "1/" and the fixed e-Transfer words are no name."""
-    words = [w for w in _SLOT.sub("", text.casefold()).split() if w not in _BANK_WORDS]
-    name = " ".join(words)
-    return name if re.search(r"[^\W\d_]", name) else ""
 
 
 def count_lumps(

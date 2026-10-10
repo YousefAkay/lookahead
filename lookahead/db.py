@@ -173,6 +173,16 @@ CREATE TABLE IF NOT EXISTS own_account_payees (
     is_own       INTEGER NOT NULL,
     decided_at   TEXT    NOT NULL
 );
+-- What I decided about a proposal (expected lump income) or a placement (a repeated large
+-- payment): "looks right" or "not this time", dated, replayed as of a date (rule zero). The
+-- latest decision for a key wins. Nothing reads it unless the forecaster's option is on.
+CREATE TABLE IF NOT EXISTS proposal_decisions (
+    decision_id  INTEGER PRIMARY KEY,
+    account      TEXT    NOT NULL,
+    proposal_key TEXT    NOT NULL,
+    action       TEXT    NOT NULL CHECK (action IN ('looks right', 'not this time')),
+    decided_at   TEXT    NOT NULL
+);
 -- App settings (step 8d). A missing row means the default; the LLM fallback defaults to off.
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,

@@ -275,14 +275,18 @@ def lump_rows(
 def lump_arrivals(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
     history_start: date | None, lookback_days: int = LUMP_LOOKBACK_DAYS,
+    exclude: Collection[int] = (),
 ) -> tuple[float, tuple[int, ...]]:  # fmt: skip
     """The random lump arrivals' inputs (an option, off by default): the chance of a lump on any
     day, the lumps of the window divided by its days (from the later of the first posted row and
     `lookback_days` back, to `as_of`, both included), and the observed lump sizes in cents,
-    oldest first. No history: rate 0. Only rows posted on or before `as_of` (rule zero)."""
+    oldest first. No history: rate 0. Only rows posted on or before `as_of` (rule zero). Lumps in
+    `exclude` (row ids) are left out of both: a sender whose deposit is confirmed or declined as a
+    proposal is not drawn at random as well."""
     if history_start is None or history_start > as_of:
         return 0.0, ()
-    lumps = lump_rows(txns, flows, series_rows, as_of, lookback_days)
+    lumps = [r for r in lump_rows(txns, flows, series_rows, as_of, lookback_days)
+             if r[0].row_id not in exclude]  # fmt: skip
     first = max(history_start, as_of - timedelta(days=lookback_days - 1))
     days = (as_of - first).days + 1
     return len(lumps) / days, tuple(cents for _, _, cents in lumps)

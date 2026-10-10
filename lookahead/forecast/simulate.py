@@ -28,7 +28,7 @@ at least one day. It is what the futures say, not a tuned number.
 
 import random
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from lookahead.forecast.schedule import MOVED_NOTE, OVERDUE_MARK, ScheduledItem
@@ -159,6 +159,9 @@ class SimulationInputs:
     # and the observed lump sizes in cents. A rate of 0 draws nothing.
     lump_rate: float = 0.0
     lump_sizes: tuple[int, ...] = ()
+    # Proposals (an option, off by default): series key -> (days before, days after) its placed
+    # day inside which the day is drawn uniformly in each future. Empty: nothing changes.
+    item_windows: Mapping[str, tuple[int, int]] = field(default_factory=dict)
 
 
 def simulate(
@@ -197,7 +200,14 @@ def run(
         scheduled = [0] * horizon
         for item in inputs.items:
             stream = _stream(seed, future, "item", item.series_key, item.slot or item.day)
-            day = sample_item_day(item, by_key.get(item.series_key), inputs.posted, start, stream)
+            window = inputs.item_windows.get(item.series_key)
+            if window is not None and item.note != MOVED_NOTE:
+                offset = stream.randint(-window[0], window[1])
+                day = max(item.day + timedelta(days=offset), start.first_day)
+            else:
+                day = sample_item_day(
+                    item, by_key.get(item.series_key), inputs.posted, start, stream
+                )
             k = (day - start.first_day).days
             if 0 <= k < horizon:
                 scheduled[k] += item.cents

@@ -1113,6 +1113,32 @@ Fresh development backtest of the current forecaster (12-month set: 20 developme
 
 **Tests for both:** rule zero (deleting or rewriting every later row leaves proposals and placements identical; a decision dated after t is ignored and one dated on t is used), a mutation check, determinism with a fixed seed, no name in any key (tokens only), "not this time" behaves as defined, one deposit or payment is never counted twice (a confirmed lump and its pool).
 
+### 2026-10-11: Step 2 result: a) passes its gate on the 12-month set; b) fails its gate and stops
+Scored with `python -m eval.proposals_score` (full tables in `docs/results/proposals_scores_2026-10-11.md`), 20 development personas per set, 40 weekly origins each. Counts are of (origin, proposal), (origin, series) or (origin, payment) pairs; origins within a persona overlap, so the persona and series counts are the honest n.
+
+**a) Lump proposals.**
+
+| Set | Proposals | Precision | Findable (origin, series) | Recall | Date error, median | Size error, median | False proposals per persona-year |
+|---|---|---|---|---|---|---|---|
+| 12-month | 49 | 82% (40/49) | 63 (7 series, 7 personas) | 56% (35/63) | 3 days | 39% | 0.2 |
+| 24-month | 81 | 69% (56/81) | 118 (9 series, 7 personas) | 38% (45/118) | 8 days | 29% | 0.7 |
+
+- **Gate: pass** (precision at least 70 percent and recall at least 50 percent on the 12-month set). The a) arms (2 and 3) run in step 3.
+- Which archetypes: almost all of it is ITIGHT (12-month: 42 of 49 proposals, 33 right, recall 31 of 56 pairs; 24-month: 56 of 81, 39 right) and IFAM (12-month 6 of 6 right, recall 3 of 6; 24-month 9 of 13 right, recall 6 of 20). DHOME-02's family contributions (24-month: 8 of 8 right) and one DRENT aid sender (12-month: 1 of 1) add a little. SAL, SEM, TIGHT and FREE get no proposals (FREE's deposits have no sender name: 4 of 4 lump pairs unnamed). Lumps without a sender are rare otherwise (12-month 4 of 651 origin-lump pairs, 24-month 0 of 1,379).
+- **Prediction against result.** Precision falls where a sender mixes kinds, as predicted: the DRENT aid sender on the 24-month set (0 of 4: its next deposit is the small monthly bursary, not the next lump) and v2L-IFAM-01 (0 of 4). **Recall was predicted to be better on the long set and is worse** (38 against 56 percent). What I see without testing it: the long set's ITIGHT personas are different draws (v2L-ITIGHT-03 has 11 findable pairs and 2 hits, its balance below the buffer most of the time), and the lumps of 365 days mix a sender's tuition funding, top-ups and irregular transfers, so the median gap and size fit no single kind. Size errors are large (median 29 to 39 percent; ITIGHT 36 to 75 percent).
+
+**b) Repeated large outflows (default next-date rule: the earliest of "a year after the latest" and "the latest plus the median gap").**
+
+| Set | Placements (tuition) | Precision | Recall, payee with 2+ payments | Recall, all tuition payments in a horizon | First-time cases |
+|---|---|---|---|---|---|
+| 24-month | 57 (57) | 68% (39/57) | 46% (37/81) | 46% (37/81) | 0 |
+| 12-month | 9 (9) | 67% (6/9) | 26% (6/23) | 7% (6/81) | 28 |
+
+- **Gate: fail** on the 24-month set: recall 46 percent (below 50) and precision 68 percent (below my 70). **Line b) stops: arms 4 and 5 are not run.** Nothing was tuned or changed after seeing this.
+- Why, from the per-persona counts (24-month): the four summer-term personas (three terms a year, about 120 days apart: v2L-IFAM-02, -ITIGHT-03, -DHOME-02, -DRENT-01) get 39 of 44 placements right and 37 of 58 payments caught. The three two-term personas (January and September: v2L-IFAM-01, -ITIGHT-01, -DRENT-03) get 0 of 13 right and 0 of 23 caught: their gaps alternate between about 240 and 125 days, so the median gap lands between terms, and "a year after the latest" is never the next term when there is more than one term a year. The "year" rule alone placed nothing on either set, the "gap" rule alone gave exactly the default's placements.
+- **Prediction against result.** High recall for the summer-term personas: yes. A second year of tuition helping: no, because the rule only looks a year after the *latest* payment, not a year after the same term. Installments: the 60-day minimum kept the second installments from counting as repeats (v2L-IFAM-02, two installments, is 12 of 12 right).
+- No placement fell on a non-tuition payee (57 of 57 are tuition).
+
 ## Tests
 
 ### 2026-10-01: Slow marker
