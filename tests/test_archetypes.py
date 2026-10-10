@@ -86,6 +86,19 @@ def test_ids_have_the_recorded_form_and_the_old_mix_is_gone() -> None:
         build_persona("v1-SAL-01")  # superseded
 
 
+@pytest.mark.parametrize("bad", ["v2-SAL-1", "v2-SAL-001", "v2L-SAL-1", "v2-SAL-05", "v2L-SAL-05",
+                                 "v2-sal-01", " v2-SAL-01"])  # fmt: skip
+def test_an_id_that_is_not_in_the_recorded_lists_is_refused(bad: str) -> None:
+    with pytest.raises(ValueError, match="unknown persona id"):
+        build_persona(bad)
+
+
+def test_every_recorded_id_of_both_sets_builds() -> None:
+    from lookahead.generator.archetypes import LONG_IDS
+
+    assert build_persona(PERSONA_IDS[0]).persona and build_persona(LONG_IDS[-1]).persona
+
+
 def test_tuning_code_refuses_a_held_out_persona() -> None:
     assert_development_only(["v2-SAL-01", "v2-TIGHT-01"])  # fine
     with pytest.raises(ValueError, match="held-out"):

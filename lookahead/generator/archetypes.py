@@ -768,6 +768,9 @@ def build_persona(persona_id: str) -> MixPersona:
     """The persona with this id. The same id always gives the same persona. A `v2L-` id is the
     24-month persona: the parameters of its `v2-` namesake, lengthened by one year (`_lengthen`)."""
     parts = persona_id.split("-")
+    if persona_id not in PERSONA_IDS and persona_id not in LONG_IDS:
+        # "v2-SAL-1" or "v2-SAL-001" would seed a different, unrecorded persona
+        raise ValueError(f"unknown persona id {persona_id!r}")
     if (
         len(parts) != 3
         or parts[0] not in (MIX, LONG_MIX)
