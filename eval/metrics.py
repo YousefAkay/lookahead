@@ -135,7 +135,8 @@ def forecast_metrics(records: list[Record]) -> dict[str, Any]:
         naive = [abs(r["start_balance_cents"] - r["realized"][i]) / 100 for r in records]
         error[h] = {
             "mean_p50": _mean(p50), "median_p50": statistics.median(p50),
-            "mean_point": _mean(point), "mean_naive": _mean(naive),
+            "mean_point": _mean(point), "median_point": statistics.median(point),
+            "mean_naive": _mean(naive),
             "skill_p50": None if _mean(naive) == 0 else 1 - _mean(p50) / _mean(naive),
         }  # fmt: skip
     out["error"] = error
@@ -386,7 +387,10 @@ def _forecast_rows(m: dict[str, Any]) -> list[tuple[str, str]]:
             _FORECAST_LABELS[1],
             " / ".join(f"{_d(e[h]['mean_p50'])} ({_d(e[h]['median_p50'])})" for h in HORIZONS),
         ),  # fmt: skip
-        (_FORECAST_LABELS[2], three(_d, "mean_point")),
+        (
+            _FORECAST_LABELS[2],
+            " / ".join(f"{_d(e[h]['mean_point'])} ({_d(e[h]['median_point'])})" for h in HORIZONS),
+        ),  # fmt: skip
         (_FORECAST_LABELS[3], three(_d, "mean_naive")),
         (_FORECAST_LABELS[4], three(_num, "skill_p50")),
         (_FORECAST_LABELS[5], f"{_d(m['lowest']['bias'])} / {_d(m['lowest']['mae'])}"),
@@ -404,7 +408,7 @@ def _forecast_rows(m: dict[str, Any]) -> list[tuple[str, str]]:
 _FORECAST_LABELS = (
     "n",
     "Error, middle future: mean (median), 7 / 14 / 30 days",
-    "Error, single path: mean, 7 / 14 / 30 days",
+    "Error, single path: mean (median), 7 / 14 / 30 days",
     "Error, naive baseline (balance stays): mean, 7 / 14 / 30 days",
     "Skill vs naive, middle future, 7 / 14 / 30 days",
     "Lowest balance: bias / typical miss",
@@ -499,31 +503,42 @@ def report_text(
                      f"{_pct(b['observed'])}" for i, b in enumerate(bins)]  # fmt: skip
             out.append(f"  {name}: " + "; ".join(cells))
     for name, rows in shown:
-        out.append("")
-        out += _breakdown(f"{name}: by history length (all origins)", by_history_bucket(rows))
-        kinds = by_archetype(rows)
-        if kinds:
-            out.append("")
-            out += _breakdown(f"{name}: by archetype (all origins)", kinds)
-        out.append("")
-        out += _alert_by_bucket(f"{name}: alert episodes by history length of the opening origin",
-                                alert_metrics(rows, threshold, median_rule))  # fmt: skip
+        out += breakdown_text(name, rows, threshold, median_rule)
     return "\n".join(out)
 
 
-def _breakdown(title: str, groups: dict[str, list[Record]]) -> list[str]:
-    lines = [title, "  group | origins, personas | error p50 7/14/30 days | band coverage all days "
-                    "| path coverage | Brier"]  # fmt: skip
-    for key, rows in groups.items():
-        m = forecast_metrics(rows)
-        e = m["error"]
-        lines.append(
-            f"  {key} | {m['n_origins']}, {m['n_personas']} | "
-            + " / ".join(_d(e[h]["mean_p50"]) for h in HORIZONS)
-            + f" | {_pct(m['coverage']['all'])} | {_pct(m['path_coverage'])} | "
-            + _num(m["brier"]["brier"], 3)
-        )
-    return lines
+def breakdown_text(
+    name: str, rows: list[Record], threshold: float = PROVISIONAL_THRESHOLD,
+    median_rule: bool = True,
+) -> list[str]:  # fmt: skip
+    """The breakdowns promised in DECISIONS.md (2026-10-09, "Week 4 step 4"): every forecast
+    metric by history bucket and by archetype, for each of the three groups of origins; alert
+    counts by archetype; alert episodes by the history bucket of the origin that opened them."""
+    out: list[str] = []
+    kinds = by_archetype(rows)
+    for group, label in (("all", "all origins"), ("ordinary", "origins not already in shortfall"),
+                         ("already in shortfall", "origins already in shortfall")):  # fmt: skip
+        members = group_origins(rows)[group]
+        splits = [("history length", by_history_bucket(members))]
+        if kinds:
+            splits.append(("archetype", by_archetype(members)))
+        for what, groups in splits:
+            out.append("")
+            if not groups:
+                out.append(f"{name}: by {what}, {label}: none")
+                continue
+            columns = [(key, _forecast_rows(forecast_metrics(g))) for key, g in groups.items()]
+            out += _table(f"{name}: by {what}, {label}: forecast", columns)
+    if kinds:
+        out.append("")
+        columns = [(key, _alert_rows(alert_metrics(g, threshold, median_rule)))
+                   for key, g in kinds.items()]  # fmt: skip
+        out += _table(f"{name}: alerts by archetype (ordinary origins; already-in-shortfall on "
+                      "their own rows)", columns)  # fmt: skip
+    out.append("")
+    out += _alert_by_bucket(f"{name}: alert episodes by history length of the opening origin",
+                            alert_metrics(rows, threshold, median_rule))  # fmt: skip
+    return out
 
 
 def _alert_by_bucket(title: str, m: dict[str, Any]) -> list[str]:

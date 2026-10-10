@@ -609,3 +609,49 @@ def test_the_new_caught_set_always_contains_the_old_and_nothing_else_changes() -
             m = alert_metrics(records, threshold, median_rule=False)
             assert set(m["caught_episodes"]) <= set(m["caught_on_episodes"])
             assert m["caught_on"] >= m["caught"] and m["missed_on"] <= m["missed"]
+
+
+# --- The breakdowns promised in "Week 4 step 4" (review item R5) ---
+
+
+def test_the_single_path_error_has_a_median_too() -> None:
+    records = [rec(point=[50_000 + d] * 30) for d in (1_000, -3_000, 8_000)]
+    m = forecast_metrics(records)
+    assert m["error"][30]["median_point"] == pytest.approx(30.0)
+    assert m["error"][30]["mean_point"] == pytest.approx(40.0)
+
+
+def test_every_forecast_metric_is_broken_down_by_history_and_archetype_for_all_three_groups() -> (
+    None
+):
+    from eval.metrics import breakdown_text
+
+    tight = {"archetype": "TIGHT", "persona": "v2-TIGHT-01"}
+    records = [rec(history_days=60), rec(history_days=300, **tight),  # type: ignore[arg-type]
+               rec(origin=date(2026, 6, 1), start=5_000, realized=[5_000] * 30,
+                   history_days=150, **tight)]  # type: ignore[arg-type]  # fmt: skip
+    text = "\n".join(breakdown_text("Synthetic", records))
+    for what in ("history length", "archetype"):
+        for group in ("all origins", "origins not already in shortfall",
+                      "origins already in shortfall"):  # fmt: skip
+            assert f"by {what}, {group}: forecast" in text
+    # every forecast metric row appears in each breakdown table
+    labels = (
+        "Error, single path: mean (median)",
+        "Skill vs naive",
+        "Lowest balance",
+        "80% band coverage",
+        "80% band width",
+        "Path-level coverage",
+        "Brier",
+    )
+    for label in labels:
+        assert text.count(label) == 6
+    assert "alerts by archetype" in text and "Shortfall episodes (ordinary origins)" in text
+
+
+def test_the_report_carries_the_breakdowns() -> None:
+    synthetic = scenario({date(2026, 1, 26): 0.9}, [(date(2026, 2, 18), date(2026, 2, 19))])
+    text = report_text(synthetic, [])
+    assert "by archetype, origins already in shortfall" in text
+    assert "alerts by archetype" in text
