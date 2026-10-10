@@ -72,7 +72,8 @@ def test_the_run_saves_records_labelled_real_and_leaves_the_database_alone(
     assert {r["dataset"] for r in records} == {"real"}  # never mixed with synthetic
     assert all(r["held_out"] is None and r["archetype"] is None for r in records)
     assert all(r["buffer_cents"] == 0 for r in records)  # the account's own saved buffer
-    assert all(r["persona"] == "account-1" for r in records)  # the name stays out of the files
+    assert len({r["persona"] for r in records}) == 1  # the name stays out of the files:
+    assert re.fullmatch(r"account-[0-9a-f]{10}", records[0]["persona"])  # a salted key
 
 
 def test_the_output_files_do_not_carry_the_account_name_in_their_names(
@@ -80,7 +81,7 @@ def test_the_output_files_do_not_carry_the_account_name_in_their_names(
 ) -> None:
     run_real(made_up_db, private(tmp_path) / "out", futures=40, quick=True)
     names = [p.name for p in (private(tmp_path) / "out").iterdir()]
-    assert not any(ACCOUNT in n for n in names)  # account-1, account-2, ...
+    assert not any(ACCOUNT in n for n in names)  # account-<salted key>
 
 
 def test_a_second_run_does_nothing_new(made_up_db: Path, tmp_path: Path) -> None:
@@ -136,7 +137,8 @@ def test_results_from_an_older_version_are_set_aside_and_the_run_starts_fresh(
     assert len(older) == 1 and "2026-01-05" in older[0].read_text(
         encoding="utf-8"
     )  # kept, not lost
-    fresh = [json.loads(x) for x in (out / "account-1.jsonl").read_text().splitlines()]
+    [path] = list(out.glob("account-*.jsonl"))
+    fresh = [json.loads(x) for x in path.read_text().splitlines()]
     assert all(r["format"] == 2 and "history_days" in r for r in fresh)
 
 
@@ -180,7 +182,7 @@ def test_the_metrics_flag_prints_summary_numbers_for_the_real_column_only(
     text = capsys.readouterr().out
     assert "BACKTEST SUMMARY" in text and "Real" in text and "Real, buffer $0" in text
     assert "Synthetic (development): none" in text  # no synthetic numbers here
-    assert ACCOUNT not in text and "account-1" not in text
+    assert ACCOUNT not in text and "account-" not in text
     assert not re.search(r"\d{4}-\d{2}-\d{2}", text)  # no date of any transaction or origin
 
 
@@ -273,3 +275,65 @@ def test_the_default_forecaster_has_its_own_folder_apart_from_the_old_one(
     assert len(list((root / "keeps-coming-with-own" / "quick").glob("*.jsonl"))) == 1
     assert len(list((root / "keeps-coming-without-own" / "quick").glob("*.jsonl"))) == 1
     assert len(list((root / "quick").glob("*.jsonl"))) == 1  # the old forecaster, untouched
+
+
+# --- Result files are named by a stable key, not by list position (review item R3) ---
+
+
+def add_account(db: Path, name: str, folder: Path) -> None:
+    """A second account in the database, with another persona's rows."""
+    export, _ = write_persona(build_persona("v2-SAL-01").persona, folder, 42, START, END)
+    c = connect(db)
+    store_exports(c, name, [(export.name, parse_export(export))], datetime(2026, 10, 1))
+    c.close()
+
+
+def test_adding_an_account_that_sorts_first_keeps_every_file_with_its_account(
+    made_up_db: Path, tmp_path: Path
+) -> None:
+    db = private(tmp_path) / "two.db"
+    shutil.copy(made_up_db, db)
+    out = private(tmp_path) / "out"
+    run_real(db, out, futures=40, quick=True)
+    [first] = list(out.glob("*.jsonl"))
+    before = first.read_text(encoding="utf-8")
+    add_account(db, "aaa-sorts-first", tmp_path / "export")  # sorts before the first account
+    counts = run_real(db, out, futures=40, quick=True)
+    assert counts["accounts"] == 2 and counts["new_origins"] == 4  # only the new account's
+    assert first.read_text(encoding="utf-8") == before  # the old file is still that account's
+    [second] = [p for p in out.glob("*.jsonl") if p != first]
+
+    def starts(path: Path) -> list[int]:
+        return [json.loads(x)["start_balance_cents"] for x in path.read_text().splitlines()]
+
+    assert starts(second) != starts(first)  # the new account's own forecasts, not a copy
+    assert not list(out.rglob("*aaa-sorts-first*")) and not list(out.rglob(f"*{ACCOUNT}*"))
+    personas = {json.loads(line)["persona"] for p in out.glob("*.jsonl")
+                for line in p.read_text(encoding="utf-8").splitlines()}  # fmt: skip
+    assert len(personas) == 2 and not [p for p in personas if "aaa" in p or ACCOUNT in p]
+
+
+def test_the_salt_is_kept_in_data_private_and_the_key_is_stable(
+    made_up_db: Path, tmp_path: Path
+) -> None:
+    from eval.backtest_real import SALT_FILE, account_key
+
+    root = private(tmp_path)
+    key = account_key(ACCOUNT, root / "backtest" / "full")
+    assert (root / SALT_FILE).exists()  # made on first use, in the data/private folder
+    assert account_key(ACCOUNT, root / "backtest" / "quick") == key  # same account, same key
+    assert account_key("another", root / "backtest" / "full") != key
+    assert ACCOUNT not in key and re.fullmatch(r"account-[0-9a-f]{10}", key)
+
+
+def test_files_named_by_list_position_are_set_aside_not_read_as_another_account(
+    made_up_db: Path, tmp_path: Path
+) -> None:
+    out = private(tmp_path) / "out"
+    run_real(made_up_db, out, futures=40, quick=True)
+    [current] = list(out.glob("*.jsonl"))
+    numbered = out / "account-1.jsonl"  # what an older version wrote
+    numbered.write_text(current.read_text(encoding="utf-8"), encoding="utf-8")
+    counts = run_real(made_up_db, out, futures=40, quick=True)
+    assert counts["archived_older"] == 1 and counts["origins_saved"] == 4  # not 8
+    assert not numbered.exists() and list((out / "older").rglob("account-1.jsonl"))

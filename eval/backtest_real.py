@@ -16,15 +16,22 @@ origins are done, and an account already saved there is skipped.
 It refuses a database or an output folder outside data/private, before anything is created.
 It opens the database read-only (the file is not changed), makes the same forecasts as the
 synthetic runner at every Monday that has eight weeks of history before it and thirty observed
-days after it, and saves one record per origin there (private, never committed, files named by
-number and not by account). It prints counts only: how many accounts
-and origins, and how many origins were followed by a balance below the buffer or below zero. It
-never prints a row, an amount, a date of a transaction or an account name. Real results are a
-separate column from synthetic ones in every report; one person's history is a case study.
+days after it, and saves one record per origin there (private, never committed). Files and
+records are named by a short salted hash of the account (`account-<10 hex digits>`; the salt is a
+random value kept in data/private), never by the account's name or by its position in the list,
+so adding an account never attaches old results to another one; files named by position by an
+older version are moved to `older/`. It prints counts only: how many accounts and origins, and
+how many origins were followed by a balance below the buffer or below zero. It never prints a
+row, an amount, a date of a transaction or an account name. Real results are a separate column
+from synthetic ones in every report; one person's history is a case study.
 """
 
 import argparse
+import hashlib
 import json
+import re
+import secrets
+import shutil
 import sqlite3
 import sys
 from datetime import date, timedelta
@@ -56,6 +63,8 @@ from lookahead.ui import private_db_path
 from lookahead.views import accounts
 
 DEFAULT_OUT = Path("data/private/backtest")
+SALT_FILE = "backtest_account_salt.txt"  # kept in the data/private folder, made on first use
+NUMBERED = re.compile(r"account-\d+\.(jsonl|meta\.json|paths\.npz)")
 HISTORY = timedelta(weeks=8)
 HORIZON_DAYS = 30
 
@@ -95,6 +104,43 @@ def check_private(db_path: Path, out_dir: Path) -> None:
         raise ValueError("refusing to write real-data results outside data/private/")
 
 
+def _private_root(path: Path) -> Path:
+    """The data/private folder that `path` lies in."""
+    for folder in [path.resolve(), *path.resolve().parents]:
+        if folder.name.casefold() == "private" and folder.parent.name.casefold() == "data":
+            return folder
+    raise ValueError("not inside data/private/")
+
+
+def account_key(account: str, out_dir: Path) -> str:
+    """A short name for an account's result files and records: a salted hash of the account,
+    stable when other accounts are added or removed (a list position is not). The salt is a
+    random value kept in the data/private folder, made on first use, so the key cannot be
+    recomputed from a list of account names elsewhere."""
+    salt_path = _private_root(out_dir) / SALT_FILE
+    if not salt_path.exists():
+        salt_path.write_text(secrets.token_hex(16), encoding="utf-8")
+    salt = salt_path.read_text(encoding="utf-8").strip()
+    return "account-" + hashlib.sha256(f"{salt}:{account}".encode()).hexdigest()[:10]
+
+
+def archive_numbered(out_dir: Path) -> bool:
+    """Results named by list position (account-1, account-2, before the stable keys) are moved
+    into `out_dir/older/<n>` (nothing is deleted), so they are never read as another account's.
+    Returns True if anything was moved."""
+    old = [p for p in out_dir.glob("account-*") if NUMBERED.fullmatch(p.name)]
+    if not old:
+        return False
+    n = 1
+    while (out_dir / "older" / str(n)).exists():
+        n += 1
+    target = out_dir / "older" / str(n)
+    target.mkdir(parents=True)
+    for path in old:
+        shutil.move(str(path), str(target / path.name))
+    return True
+
+
 def run_real(
     db_path: Path, out_dir: Path, futures: int, quick: bool = False, paths: bool = False,
     arm: int = 0, keeps: KeepsComing | None = DEFAULT_KEEPS,
@@ -102,14 +148,18 @@ def run_real(
     """Run every account of the database. Returns counts (accounts, new origins, saved). The
     database and `out_dir` must both be inside data/private."""
     check_private(db_path, out_dir)
-    archived = 1 if archive_older(out_dir) else 0  # older results are set aside, never mixed in
+    # Older results, and files named by list position, are set aside, never mixed in.
+    older = archive_older(out_dir)
+    numbered = out_dir.exists() and archive_numbered(out_dir)
+    archived = 1 if older or numbered else 0
     conn = connect_readonly(db_path)
     out_dir.mkdir(parents=True, exist_ok=True)
     new = 0
     names = accounts(conn)
     options = real_arm_options(arm)
     try:
-        for number, account in enumerate(names, start=1):
+        for account in names:
+            name = account_key(account, out_dir)  # the account's name stays out of the files
             first, last = conn.execute(
                 "SELECT MIN(posted_date), MAX(posted_date) FROM transactions WHERE account = ?",
                 (account,),
@@ -117,24 +167,22 @@ def run_real(
             days = real_origins(date.fromisoformat(first), date.fromisoformat(last))
             if quick:
                 days = days[:: max(1, len(days) // 4)][:4]
-            path = out_dir / f"account-{number}.jsonl"
+            path = out_dir / f"{name}.jsonl"
             settings: dict[str, Any] = {"futures": futures, "method": "weekday",
                                         **version_settings()}  # fmt: skip
             if arm:
                 settings["arm"] = arm  # an arm never shares a folder with another
             if keeps:
                 settings["keeps_coming"] = keeps_name(keeps)
-            _check_settings(out_dir / f"account-{number}.meta.json", settings)
+            _check_settings(out_dir / f"{name}.meta.json", settings)
             if paths:
-                new += _run_with_paths(
-                    conn, account, number, days, futures, out_dir, keeps, options
-                )
+                new += _run_with_paths(conn, account, name, days, futures, out_dir, keeps, options)
                 continue
             with path.open("a", encoding="utf-8") as out:
                 for origin in [d for d in days if d.isoformat() not in _saved_origins(path)]:
                     record = run_origin(conn, account, "real", origin, futures, None, None,
                                         options, keeps)  # fmt: skip
-                    record["persona"] = f"account-{number}"  # the name stays out of the files
+                    record["persona"] = name  # the name stays out of the files
                     out.write(json.dumps(record) + "\n")
                     out.flush()
                     new += 1
@@ -149,21 +197,21 @@ def run_real(
 
 
 def _run_with_paths(
-    conn: sqlite3.Connection, account: str, number: int, days: list[date], futures: int,
+    conn: sqlite3.Connection, account: str, name: str, days: list[date], futures: int,
     out_dir: Path, keeps: KeepsComing | None = DEFAULT_KEEPS,
     options: ForecastOptions = DEFAULT_OPTIONS,
 ) -> int:  # fmt: skip
     """All origins of one account, then its records and paths written together. Skipped if both
     are there already."""
-    path = out_dir / f"account-{number}.jsonl"
-    npz = out_dir / f"account-{number}.paths.npz"
+    path = out_dir / f"{name}.jsonl"
+    npz = out_dir / f"{name}.paths.npz"
     if path.exists() and npz.exists():
         return 0
     records, kept = [], []
     for origin in days:
         record, p = run_origin_with_paths(conn, account, "real", origin, futures, None, None,
                                           keeps=keeps, options=options)  # fmt: skip
-        record["persona"] = f"account-{number}"  # the name stays out of the files
+        record["persona"] = name  # the name stays out of the files
         records.append(record)
         kept.append(p)
     path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")

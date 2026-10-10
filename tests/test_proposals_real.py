@@ -84,5 +84,5 @@ def test_a_real_arm_saves_to_its_own_folder(
         == 0
     )
     saved = list((tmp_path / "data/private/backtest/arms/arm1/quick").glob("*.jsonl"))
-    assert [p.name for p in saved] == ["account-1.jsonl"]
+    assert len(saved) == 1 and re.fullmatch(r"account-[0-9a-f]{10}\.jsonl", saved[0].name)
     assert ACCOUNT not in capsys.readouterr().out

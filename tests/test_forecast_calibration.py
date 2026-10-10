@@ -160,6 +160,13 @@ def test_fit_multipliers_reaches_80_percent_on_its_own_records() -> None:
         assert sum(lo <= r["realized"][k] <= hi for r in records) / 300 >= 0.8
 
 
+def one(folder: Path, suffix: str) -> Path:
+    """The one account's file with this suffix (named by a salted key, not by the account)."""
+    [path] = [p for p in folder.iterdir() if p.name.endswith(suffix) and
+              not p.name.endswith(".meta.json")]  # fmt: skip
+    return path
+
+
 @pytest.fixture(scope="module")
 def real_like_folder(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A made-up "real" backtest folder with paths, from a synthetic export."""
@@ -177,8 +184,8 @@ def real_like_folder(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.mark.slow
 def test_paths_are_saved_beside_the_records_and_a_rerun_skips(real_like_folder: Path) -> None:
-    data = np.load(real_like_folder / "account-1.paths.npz")
-    records = [json.loads(x) for x in (real_like_folder / "account-1.jsonl").read_text(
+    data = np.load(one(real_like_folder, ".paths.npz"))
+    records = [json.loads(x) for x in (one(real_like_folder, ".jsonl")).read_text(
         encoding="utf-8").splitlines()]  # fmt: skip
     assert data["paths"].shape == (4, 40, 30)
     assert [str(o) for o in data["origins"]] == [r["origin"] for r in records]
@@ -204,9 +211,9 @@ def test_apply_to_a_real_folder_prints_numbers_and_writes_nothing(
 
 @pytest.mark.slow
 def test_apply_widens_the_band_of_a_saved_record(real_like_folder: Path) -> None:
-    record = json.loads((real_like_folder / "account-1.jsonl").read_text(
+    record = json.loads((one(real_like_folder, ".jsonl")).read_text(
         encoding="utf-8").splitlines()[0])  # fmt: skip
-    paths = np.load(real_like_folder / "account-1.paths.npz")["paths"][0]
+    paths = np.load(one(real_like_folder, ".paths.npz"))["paths"][0]
     out = apply(record, paths, Calibration(tuple([2.0] * 30)))
     assert all(a <= b for a, b in zip(out["p10"], record["p10"], strict=True))
     assert all(a >= b for a, b in zip(out["p90"], record["p90"], strict=True))
