@@ -947,6 +947,14 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 - **Recall goes up with the threshold**, which looks wrong, so I checked: at low thresholds one alert episode opens (often while the account is already below the buffer) and stays open through the recovery and into the next dip, so no new episode opens ahead of that dip; the metric counts a dip as caught only by an episode that opens in the 30 days before it. Of the dips caught at 95 percent and missed at 5 percent, all 15 are at DRENT-03, TIGHT-02 and TIGHT-03, personas that hover near the buffer. So low thresholds are penalized by the episode rules, not only by false alarms; recall at low thresholds understates how often a warning was on.
 - Caveat: a 95 percent threshold on an isotonic map means "the top step of the map", which covers the origins where almost every widened future dips. n is small (52 episodes, 8 personas with any). The app keeps its provisional rule.
 
+### Time machine page (synthetic personas only)
+- A page on top of `lookahead/timemachine.py`: pick a synthetic persona, step through dates (a week or a day back and forward, and a slider), and see what the app would have shown on each date: the 80 percent band and middle future from that day's closing balance, the alert state and its evidence, and four number cards. A toggle draws what really happened next as a dotted line; the forecast never saw it.
+- Steps are precomputed (`python -m lookahead.timemachine_snapshots`, every day by default, a few minutes) and the page only reads them. Lost: building forecasts on the page (about 0.2 seconds a date, too slow to step through a year).
+- Personas: the three demo personas and four development personas of the mix (TIGHT-03, ITIGHT-01, FREE-01, SAL-01). Held-out personas are refused by the code. Each persona gets its own database under `data/timemachine/` (not committed), so the page never touches the demo database or my data.
+- The what-if runs at the current date on the persona's own database (read-only), with the same futures as the saved step, so an empty scenario gives exactly the saved band (a test checks it). Fewer controls than the Forecast page: spend less by a percent, one purchase or deposit a week ahead, money in arriving later, no other money.
+- The page says "Synthetic data" in the top bar, as a tag beside the title and in the footer, and that the data is made up. Alerts use the app's provisional rule (the threshold work changed nothing in the app). Dismissals are not replayed, as in the back end.
+- The buttons move by calendar days to the nearest saved date, so a run saved every few days still steps sensibly.
+
 ## Tests
 
 ### 2026-10-01: Slow marker

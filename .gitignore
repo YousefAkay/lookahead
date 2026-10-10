@@ -31,3 +31,6 @@ Thumbs.db
 # Generated synthetic histories and backtest results (big, rebuilt from seeds)
 data/synthetic_v1/
 data/backtest/
+
+# Time machine snapshots (synthetic, rebuilt with python -m lookahead.timemachine_snapshots)
+data/timemachine/

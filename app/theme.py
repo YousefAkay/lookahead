@@ -176,6 +176,7 @@ PAGES = [
     ("To check", "/To_check"),
     ("Recurring", "/Recurring"),
     ("Forecast", "/Forecast"),
+    ("Time machine", "/Time_machine"),
 ]
 
 
@@ -906,6 +907,7 @@ ROLES: dict[str, dict] = {  # type: ignore[type-arg]
     "median": {"line": {"color": COLORS.green, "width": 3, "dash": "solid"}},
     "median_without": {"visible": False},  # the design shows one middle line; the data stays
     "estimate": {"visible": False},
+    "realized": {"line": {"color": COLORS.muted, "width": 2, "dash": "dot"}},  # Time machine
     "original_band": {"line": {"width": 0}, "fillcolor": _rgba(COLORS.muted, 0.15)},
     "original_median": {"line": {"color": COLORS.muted, "width": 2, "dash": "dashdot"}},
     "modified_band": {"line": {"width": 0}, "fillcolor": _BLUE_BAND},
