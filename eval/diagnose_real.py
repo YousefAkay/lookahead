@@ -26,6 +26,7 @@ from lookahead.flows import Flow, Txn, flow_types
 from lookahead.forecast.path import build_forecast
 from lookahead.forecast.simulate import BLOCK, pool_week_starts
 from lookahead.forecast.spending import (
+    DEFAULT_KEEPS,
     FEE_REASONS,
     FEE_REVERSAL,
     KEEPS_EARLIER,
@@ -160,7 +161,8 @@ def recurring_split(
 
 
 def origin_record(
-    conn: Any, account: str, origin: date, futures: int, keeps: KeepsComing | None = None
+    conn: Any, account: str, origin: date, futures: int,
+    keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> dict[str, Any]:  # fmt: skip
     """The parts for one origin: expected and happened (cumulated by day), the two errors split.
     With `keeps` the forecast draws big money that keeps coming as random arrivals, and the rows
@@ -455,15 +457,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--limit", type=int, default=None, help="only every n-th origin (quick look)"
     )
-    parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default=None,
-                        help="forecast big money that keeps coming as random arrivals, with or "
-                             "without transfers in from my own accounts")  # fmt: skip
+    parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default="with-own",
+                        help="big money that keeps coming forecast as random arrivals (the "
+                             "default, with transfers from my own accounts counted), without "
+                             "them, or 'off' for the old forecaster")  # fmt: skip
     args = parser.parse_args(argv)
     db_path = args.db or private_db_path()
     if not db_path.exists():
         print("No database found. Import your exports first.")
         return 1
-    keeps = KEEPS_NAMES.get(args.keeps_coming or "")
+    keeps = KEEPS_NAMES[args.keeps_coming]
     conn = connect_readonly(db_path)
     try:
         for number, account in enumerate(accounts(conn), start=1):

@@ -44,7 +44,7 @@ from eval.backtest import (
     version_settings,
 )
 from lookahead.db import connect_readonly
-from lookahead.forecast.spending import KeepsComing
+from lookahead.forecast.spending import DEFAULT_KEEPS, KeepsComing
 from lookahead.ui import private_db_path
 from lookahead.views import accounts
 
@@ -66,7 +66,7 @@ def real_origins(first_date: date, last_date: date) -> list[date]:
 
 def run_real(
     db_path: Path, out_dir: Path, futures: int, quick: bool = False, paths: bool = False,
-    keeps: KeepsComing | None = None,
+    keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> dict[str, int]:  # fmt: skip
     """Run every account of the database. Returns counts (accounts, new origins, saved)."""
     archived = 1 if archive_older(out_dir) else 0  # older results are set aside, never mixed in
@@ -111,7 +111,7 @@ def run_real(
 
 def _run_with_paths(
     conn: sqlite3.Connection, account: str, number: int, days: list[date], futures: int,
-    out_dir: Path, keeps: KeepsComing | None = None,
+    out_dir: Path, keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> int:  # fmt: skip
     """All origins of one account, then its records and paths written together. Skipped if both
     are there already."""
@@ -168,9 +168,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--futures", type=int, default=None)
     parser.add_argument("--paths", action="store_true",
                         help="keep every future's daily balance (saved to .../paths)")  # fmt: skip
-    parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default=None,
-                        help="forecast big money that keeps coming as random arrivals, with or "
-                             "without transfers in from my own accounts (own folder)")  # fmt: skip
+    parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default="with-own",
+                        help="big money that keeps coming forecast as random arrivals (the "
+                             "default, with transfers from my own accounts counted), without "
+                             "them, or 'off' for the old forecaster. Each has its own "
+                             "folder.")  # fmt: skip
     parser.add_argument("--metrics", action="store_true",
                         help="then print the metrics summary of the real results")  # fmt: skip
     args = parser.parse_args(argv)
@@ -180,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     futures = args.futures or (QUICK_FUTURES if args.quick else FUTURES)
     folder = "paths" if args.paths else "quick" if args.quick else "full"
-    keeps = KEEPS_NAMES.get(args.keeps_coming or "")
+    keeps = KEEPS_NAMES[args.keeps_coming]
     base = DEFAULT_OUT / f"keeps-coming-{args.keeps_coming}" if keeps else DEFAULT_OUT
     out = args.out or base / folder  # never the same folder
     counts = run_real(db_path, out, futures, args.quick, args.paths, keeps)

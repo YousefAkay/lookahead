@@ -23,6 +23,7 @@ from lookahead.forecast.simulate import (
     run,
 )
 from lookahead.forecast.spending import (
+    DEFAULT_KEEPS,
     Arrivals,
     BigEvent,
     BreakdownRow,
@@ -77,7 +78,7 @@ class Forecast:
     deposit_weeks: tuple[DepositWeek, ...] = ()  # the weeks the futures draw deposits from
     inputs: SimulationInputs | None = None  # what the futures were made from (for scenarios)
     received: frozenset[int] = frozenset()  # planned items a real transaction has matched
-    arrivals: Arrivals = Arrivals()  # big money that keeps coming (off unless asked for)
+    arrivals: Arrivals = Arrivals()  # big money that keeps coming (None: off)
 
     @property
     def large_deposits(self) -> tuple[BigEvent, ...]:
@@ -128,7 +129,7 @@ def project_balance(
 def build_forecast(
     conn: sqlite3.Connection, account: str, method: str = "weekday", as_of: date | None = None,
     key: bytes | None = None, horizon_days: int = HORIZON_DAYS, futures: int = N_FUTURES,
-    keep_paths: bool = False, keeps: KeepsComing | None = None,
+    keep_paths: bool = False, keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> Forecast | None:  # fmt: skip
     """A forecast from what is stored, with no confirmations needed: every active series is used
     as detected unless I changed it. `as_of=None` is a live forecast (all rows, all decisions);
@@ -168,7 +169,7 @@ def build_forecast(
     fee_rate = recent_fee_rate(txns, flows, start.data_last_updated, first_posted)
     fees = constant_path(fee_rate, horizon)
     arrivals = Arrivals()
-    if keeps is not None:  # big money that keeps coming, forecast as random arrivals
+    if keeps is not None:  # on by default; `keeps=None` is the old forecaster exactly
         arrivals = keeps_coming_arrivals(txns, flows, in_series, start.data_last_updated, keeps)
     simulation = inputs = None
     if futures > 0:

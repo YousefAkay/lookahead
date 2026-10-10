@@ -256,6 +256,9 @@ class KeepsComing:
     own_account: bool = True
 
 
+DEFAULT_KEEPS = KeepsComing()  # the forecaster's default (DECISIONS.md, 2026-10-11); None = off
+
+
 @dataclass(frozen=True)
 class Arrivals:
     in_rate: float = 0.0  # chance a day of a recurring-size big deposit

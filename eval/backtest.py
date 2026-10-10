@@ -31,7 +31,7 @@ from typing import Any
 
 from lookahead.db import connect
 from lookahead.forecast.path import build_forecast
-from lookahead.forecast.spending import KeepsComing
+from lookahead.forecast.spending import DEFAULT_KEEPS, KeepsComing
 from lookahead.forecast.start import forecast_start
 from lookahead.generator.archetypes import (
     END,
@@ -59,7 +59,9 @@ FUTURES = 500
 QUICK_FUTURES = 100
 METHOD = "weekday"
 DEFAULT_OUT = Path("data/backtest")
-KEEPS_NAMES = {"with-own": KeepsComing(own_account=True), "without-own": KeepsComing(False)}
+KEEPS_NAMES: dict[str, KeepsComing | None] = {
+    "with-own": KeepsComing(own_account=True), "without-own": KeepsComing(False), "off": None,
+}  # fmt: skip
 
 
 def keeps_name(keeps: KeepsComing | None) -> str | None:
@@ -158,7 +160,8 @@ def code_version() -> str:
 
 def run_origin(
     conn: sqlite3.Connection, persona_id: str, dataset: str, origin: date, futures: int,
-    archetype: str | None = None, held_out: bool | None = None, keeps: KeepsComing | None = None,
+    archetype: str | None = None, held_out: bool | None = None,
+    keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> dict[str, Any]:  # fmt: skip
     """The forecast made as of `origin` and what really happened afterwards, as one record.
 
@@ -173,7 +176,7 @@ def run_origin(
 def run_origin_with_paths(
     conn: sqlite3.Connection, persona_id: str, dataset: str, origin: date, futures: int,
     archetype: str | None = None, held_out: bool | None = None, keep_paths: bool = True,
-    keeps: KeepsComing | None = None,
+    keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> tuple[dict[str, Any], tuple[tuple[int, ...], ...]]:  # fmt: skip
     """`run_origin`, and every future's daily balance (for the calibration step)."""
     if dataset == "synthetic" and archetype is None:
@@ -271,7 +274,7 @@ def _check_settings(meta_path: Path, settings: dict[str, Any]) -> None:
 
 def run_persona(
     persona_id: str, out_dir: Path, days: list[date], futures: int, seed: int, work_dir: Path,
-    allow_held_out: bool = False, keeps: KeepsComing | None = None,
+    allow_held_out: bool = False, keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> int:  # fmt: skip
     """Run the origins `days` for one persona, saving each as it is made. Returns how many were
     newly computed (those already saved are skipped, so a stopped run resumes)."""
@@ -358,11 +361,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--work", type=Path, default=None, help="where the throw-away databases go")
     parser.add_argument("--summary", action="store_true")
-    parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default=None,
-                        help="forecast big money that keeps coming as random arrivals "
-                             "(own folder)")  # fmt: skip
+    parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default="with-own",
+                        help="big money that keeps coming forecast as random arrivals (the "
+                             "default, with transfers from my own accounts counted); 'off' is "
+                             "the old forecaster. Each has its own folder.")  # fmt: skip
     args = parser.parse_args(argv)
-    keeps = KEEPS_NAMES.get(args.keeps_coming or "")
+    keeps = KEEPS_NAMES[args.keeps_coming]
     base = DEFAULT_OUT / f"keeps-coming-{args.keeps_coming}" if keeps else DEFAULT_OUT
     out = args.out or base / ("quick" if args.quick else "full")
     if args.summary:

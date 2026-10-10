@@ -183,8 +183,9 @@ def test_quick_and_full_runs_save_to_their_own_folders_and_do_not_collide(
     import eval.backtest_real as backtest_real
 
     monkeypatch.setattr(backtest_real, "DEFAULT_OUT", tmp_path / "backtest")
-    main(["--db", str(made_up_db), "--quick", "--futures", "40"])
-    main(["--db", str(made_up_db), "--futures", "20"])  # other settings: used to raise ValueError
+    off = ["--keeps-coming", "off"]  # the plain folders are the old forecaster's
+    main(["--db", str(made_up_db), "--quick", "--futures", "40", *off])
+    main(["--db", str(made_up_db), "--futures", "20", *off])  # other settings: used to raise
     quick = list((tmp_path / "backtest" / "quick").glob("*.jsonl"))
     full = list((tmp_path / "backtest" / "full").glob("*.jsonl"))
     assert len(quick) == 1 and len(full) == 1
@@ -197,3 +198,18 @@ def test_quick_and_full_runs_save_to_their_own_folders_and_do_not_collide(
 def test_an_explicit_out_folder_is_used_as_given(made_up_db: Path, tmp_path: Path) -> None:
     main(["--db", str(made_up_db), "--out", str(tmp_path / "mine"), "--quick", "--futures", "40"])
     assert list((tmp_path / "mine").glob("*.jsonl"))
+
+
+def test_the_default_forecaster_has_its_own_folder_apart_from_the_old_one(
+    made_up_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eval.backtest_real as backtest_real
+
+    monkeypatch.setattr(backtest_real, "DEFAULT_OUT", tmp_path / "backtest")
+    main(["--db", str(made_up_db), "--quick", "--futures", "40"])  # the default: keeps coming on
+    main(["--db", str(made_up_db), "--quick", "--futures", "40", "--keeps-coming", "off"])
+    main(["--db", str(made_up_db), "--quick", "--futures", "40", "--keeps-coming", "without-own"])
+    root = tmp_path / "backtest"
+    assert len(list((root / "keeps-coming-with-own" / "quick").glob("*.jsonl"))) == 1
+    assert len(list((root / "keeps-coming-without-own" / "quick").glob("*.jsonl"))) == 1
+    assert len(list((root / "quick").glob("*.jsonl"))) == 1  # the old forecaster, untouched

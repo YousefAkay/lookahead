@@ -203,7 +203,7 @@ def test_switched_on_with_nothing_that_keeps_coming_gives_exactly_the_same_forec
     persona_db,  # type: ignore[no-untyped-def]
 ) -> None:
     origin = date(2026, 5, 4)
-    off = build_forecast(persona_db, "acct", "weekday", origin, None, 30, 60)
+    off = build_forecast(persona_db, "acct", "weekday", origin, None, 30, 60, keeps=None)
     on = build_forecast(persona_db, "acct", "weekday", origin, None, 30, 60, keeps=ON)
     assert off is not None and on is not None
     assert on.arrivals.members == frozenset()  # a salaried persona has no big irregular money
@@ -230,3 +230,15 @@ def test_an_own_account_transfer_is_not_an_arrival_without_them_even_after_real_
     without = arrivals(rows, KeepsComing(own_account=False))
     assert with_own.in_sizes[-1] == 83000 and 70 in with_own.members
     assert 70 not in without.members and 83000 not in without.in_sizes
+
+
+@pytest.mark.slow
+def test_keeps_coming_is_the_default_and_none_gives_the_old_forecaster(
+    persona_db,  # type: ignore[no-untyped-def]
+) -> None:
+    origin = date(2026, 5, 4)
+    default = build_forecast(persona_db, "acct", "weekday", origin, None, 30, 60)
+    on = build_forecast(persona_db, "acct", "weekday", origin, None, 30, 60, keeps=ON)
+    assert default is not None and on is not None and default.simulation == on.simulation
+    off = build_forecast(persona_db, "acct", "weekday", origin, None, 30, 60, keeps=None)
+    assert off is not None and off.arrivals.members == frozenset() and off.arrivals.in_rate == 0
