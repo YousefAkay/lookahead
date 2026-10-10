@@ -156,10 +156,21 @@ def run_origin(
     Everything under "forecast" keys is built from rows posted on or before `origin`; the
     realized balances are read afterwards, from later rows, and never go back into the forecast.
     `dataset` is "synthetic" or "real": the two are never mixed in a report."""
+    record, _ = run_origin_with_paths(conn, persona_id, dataset, origin, futures, archetype,
+                                      held_out, keep_paths=False)  # fmt: skip
+    return record
+
+
+def run_origin_with_paths(
+    conn: sqlite3.Connection, persona_id: str, dataset: str, origin: date, futures: int,
+    archetype: str | None = None, held_out: bool | None = None, keep_paths: bool = True,
+) -> tuple[dict[str, Any], tuple[tuple[int, ...], ...]]:  # fmt: skip
+    """`run_origin`, and every future's daily balance (for the calibration step)."""
     if dataset == "synthetic" and archetype is None:
         persona = build_persona(persona_id)
         archetype, held_out = persona.archetype, persona.held_out
-    forecast = build_forecast(conn, persona_id, METHOD, origin, None, HORIZON, futures)
+    forecast = build_forecast(conn, persona_id, METHOD, origin, None, HORIZON, futures,
+                              keep_paths=keep_paths)  # fmt: skip
     if forecast is None or forecast.simulation is None:
         raise ValueError(f"no forecast for {persona_id} as of {origin}")
     sim = forecast.simulation
@@ -191,7 +202,7 @@ def run_origin(
         "realized": realized, "realized_lowest_cents": min(realized),
         "realized_first_below_buffer": below[0].isoformat() if below else None,
         "realized_below_zero": min(realized) < 0,
-    }  # fmt: skip
+    }, sim.paths  # fmt: skip
 
 
 def version_settings() -> dict[str, int]:

@@ -2,9 +2,13 @@
 
     python -m eval.backtest_real --quick        # 4 origins per account, 100 futures
     python -m eval.backtest_real                # every weekly origin that fits, 500 futures
+    python -m eval.backtest_real --paths        # the same, also keeping every future's daily
+                                                # balance (for eval.calibrate apply)
 
 The quick run saves to data/private/backtest/quick and the full run to data/private/backtest/full,
-so the two never meet (their settings differ).
+so the two never meet (their settings differ). A run with --paths saves to
+data/private/backtest/paths: records and paths of an account are written together once all its
+origins are done, and an account already saved there is skipped.
 
 It opens the database read-only (the file is not changed), makes the same forecasts as the
 synthetic runner at every Monday that has eight weeks of history before it and thirty observed
@@ -17,10 +21,13 @@ separate column from synthetic ones in every report; one person's history is a c
 
 import argparse
 import json
+import sqlite3
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from eval.backtest import (
     FUTURES,
@@ -30,6 +37,7 @@ from eval.backtest import (
     archive_older,
     read_records,
     run_origin,
+    run_origin_with_paths,
     split_by_shortfall,
     version_settings,
 )
@@ -53,7 +61,9 @@ def real_origins(first_date: date, last_date: date) -> list[date]:
     return out
 
 
-def run_real(db_path: Path, out_dir: Path, futures: int, quick: bool = False) -> dict[str, int]:
+def run_real(
+    db_path: Path, out_dir: Path, futures: int, quick: bool = False, paths: bool = False
+) -> dict[str, int]:  # fmt: skip
     """Run every account of the database. Returns counts (accounts, new origins, saved)."""
     archived = 1 if archive_older(out_dir) else 0  # older results are set aside, never mixed in
     conn = connect_readonly(db_path)
@@ -74,6 +84,9 @@ def run_real(db_path: Path, out_dir: Path, futures: int, quick: bool = False) ->
                 out_dir / f"account-{number}.meta.json",
                 {"futures": futures, "method": "weekday", **version_settings()},
             )
+            if paths:
+                new += _run_with_paths(conn, account, number, days, futures, out_dir)
+                continue
             with path.open("a", encoding="utf-8") as out:
                 for origin in [d for d in days if d.isoformat() not in _saved_origins(path)]:
                     record = run_origin(conn, account, "real", origin, futures, None, None)
@@ -89,6 +102,28 @@ def run_real(db_path: Path, out_dir: Path, futures: int, quick: bool = False) ->
         "origins_saved": len(read_records(out_dir)),
         "archived_older": archived,
     }
+
+
+def _run_with_paths(
+    conn: sqlite3.Connection, account: str, number: int, days: list[date], futures: int,
+    out_dir: Path,
+) -> int:  # fmt: skip
+    """All origins of one account, then its records and paths written together. Skipped if both
+    are there already."""
+    path = out_dir / f"account-{number}.jsonl"
+    npz = out_dir / f"account-{number}.paths.npz"
+    if path.exists() and npz.exists():
+        return 0
+    records, kept = [], []
+    for origin in days:
+        record, p = run_origin_with_paths(conn, account, "real", origin, futures, None, None)
+        record["persona"] = f"account-{number}"  # the name stays out of the files
+        records.append(record)
+        kept.append(p)
+    path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    np.savez_compressed(npz, origins=np.array([r["origin"] for r in records]),
+                        paths=np.array(kept, dtype=np.int64))  # fmt: skip
+    return len(records)
 
 
 def print_counts(counts: dict[str, Any], out_dir: Path) -> None:
@@ -118,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"default {DEFAULT_OUT}/quick or {DEFAULT_OUT}/full")  # fmt: skip
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--futures", type=int, default=None)
+    parser.add_argument("--paths", action="store_true",
+                        help="keep every future's daily balance (saved to .../paths)")  # fmt: skip
     parser.add_argument("--metrics", action="store_true",
                         help="then print the metrics summary of the real results")  # fmt: skip
     args = parser.parse_args(argv)
@@ -126,8 +163,9 @@ def main(argv: list[str] | None = None) -> int:
         print("No database found. Import your exports first.")
         return 1
     futures = args.futures or (QUICK_FUTURES if args.quick else FUTURES)
-    out = args.out or DEFAULT_OUT / ("quick" if args.quick else "full")  # never the same folder
-    counts = run_real(db_path, out, futures, args.quick)
+    folder = "paths" if args.paths else "quick" if args.quick else "full"
+    out = args.out or DEFAULT_OUT / folder  # never the same folder
+    counts = run_real(db_path, out, futures, args.quick, args.paths)
     if counts["archived_older"]:
         print(f"Saved results were from an older version of the backtest: moved them to "
               f"{out / 'older'} and starting fresh.")  # fmt: skip
