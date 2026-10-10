@@ -64,6 +64,12 @@ REPORT = Path("docs/results/calibration_2026-10-10.md")
 HORIZON = 30
 KEEP_MARGIN = 0.002  # a recalibration must lower the Brier score by at least this much
 VARIANTS = ("widened", "logistic", "isotonic")
+LOPO_KEYS = (  # what the leave-one-persona-out records keep (enough for every metric)
+    "persona", "archetype", "origin", "buffer_cents", "in_shortfall_at_origin", "history_days",
+    "realized_first_below_buffer", "shortfall_probability", "median_lowest_cents", "p50", "days",
+    "realized", "start_balance_cents", "p10", "p90", "point", "realized_lowest_cents", "dataset",
+    "futures",
+)  # fmt: skip
 
 Record = dict[str, Any]
 
@@ -517,15 +523,12 @@ def main(argv: list[str] | None = None) -> int:
     final = fit(records, paths, chosen)
     args.calibration.parent.mkdir(parents=True, exist_ok=True)
     args.calibration.write_text(final.to_json(), encoding="utf-8")
+    (args.out / "calibration.json").write_text(final.to_json(), encoding="utf-8")  # for compare
     (args.out / "lopo").mkdir(exist_ok=True)
     with (args.out / "lopo" / "lopo.jsonl").open("w", encoding="utf-8") as f:
         for v, rows in lopo.items():
             for r in rows:
-                slim = {k: r[k] for k in ("persona", "archetype", "origin", "buffer_cents",
-                                          "in_shortfall_at_origin", "history_days",
-                                          "realized_first_below_buffer", "shortfall_probability",
-                                          "median_lowest_cents", "p50", "days", "realized",
-                                          "start_balance_cents")}  # fmt: skip
+                slim = {k: r[k] for k in LOPO_KEYS}
                 f.write(json.dumps({"variant": v, **slim}) + "\n")
     raw_scores = raw_map_scores(records)
     args.report.write_text(report(records, lopo, folds, chosen, scores, final, raw_scores),
