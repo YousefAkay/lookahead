@@ -890,6 +890,18 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 - A caution for the real quick run: its 4 origins are far apart, so the 30-day windows do not join into one daily series; an episode count from it says little. The full run (weekly origins, windows overlap) is the one to read.
 - Lost: no merging (what we had: counts every one-day bounce); 7 days (joins different pay cycles); merging by amount (a dip's depth is not a reason to call it a second episode).
 
+## Diagnosis and calibration (2026-10-10)
+
+### Where the 30-day error comes from: method, written before computing it
+- Question: which kinds of money make the 30-day error and the optimistic lowest balance, and what the forecaster does with irregular income. No change to the forecaster.
+- Personas: development only. ITIGHT-01 to -03, IFAM-01 to -03 and FREE-01 (irregular money), and SAL-01 to -03 and TIGHT-01 to -03 as a comparison. All 40 origins, the same settings as the first development backtest (seed 42, 500 futures, weekday method).
+- Parts. Each row goes in one part by the generator's answer key: tuition payments; family deposits and top-ups (tuition funding, the second transfer, ITIGHT's irregular family transfers); other irregular income (FREE's deposits, student aid); regular income (pay, IFAM's monthly allowance); recurring bills (rent, bills, subscriptions, savings transfers: every other series); big one-time events (rows the key marks one-off); fees; everyday spending (everything else, returns included). Regular income and fees are two parts the request did not list; without them the parts would not add up.
+- What happened in a part: the sum of its rows posted in the 30 days after the origin.
+- What the forecast expected in a part: the mean over the futures. I use the mean, not the middle future, because a mean splits into parts and a percentile does not; the middle future's error is printed beside it so the gap shows. Placed payments go to the part of the rows their series was detected from (the most common part among its evidence). The weekly draw is split by the part of each row in the weeks it draws from, at its expected value (each day ahead takes the average of that day of the week over the pool weeks). Fees at their daily rate. Placed payments are counted on their placed day; the date jitter is ignored.
+- Error of a part = expected minus happened. Positive means the forecast was too optimistic about that part. The parts add up to the error of the mean future at 30 days.
+- Irregular income, how it is treated: at each origin, every row of family deposits and top-ups and other irregular income posted in the 13 weeks before it is counted as one of: in a detected series (placed on dates), in the deposit stream (resampled by the weekly draw), set aside as a large deposit, set aside as a pass-through. Older rows are outside the draw by construction.
+- Reported per archetype with n (personas, origins, rows or windows). The command is `python -m eval.diagnose`; the output goes to `docs/results/diagnosis_2026-10-10.md`.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
