@@ -124,6 +124,7 @@ def project_balance(
 def build_forecast(
     conn: sqlite3.Connection, account: str, method: str = "weekday", as_of: date | None = None,
     key: bytes | None = None, horizon_days: int = HORIZON_DAYS, futures: int = N_FUTURES,
+    keep_paths: bool = False,
 ) -> Forecast | None:  # fmt: skip
     """A forecast from what is stored, with no confirmations needed: every active series is used
     as detected unless I changed it. `as_of=None` is a live forecast (all rows, all decisions);
@@ -169,7 +170,7 @@ def build_forecast(
             start, tuple(items), tuple(series), posted, daily, deposits, first_posted,
             safety_buffer_cents(conn), fee_rate, futures,
         )  # fmt: skip
-        simulation = run(inputs)
+        simulation = run(inputs, keep_paths=keep_paths)
     return Forecast(
         start, BASELINES[method], project_balance(start, items, spending, fees), items,
         any(s.direction == "in" and s.active and s.status != "rejected" for s in series),

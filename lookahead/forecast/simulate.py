@@ -55,6 +55,7 @@ class Simulation:
     median_lowest_without_cents: int
     weeks_drawn_from: int  # how many different past weeks the futures could draw
     lowest_cents: tuple[int, ...] = ()  # each future's lowest balance (with deposits), sorted
+    paths: tuple[tuple[int, ...], ...] = ()  # each future's daily balance, only when asked for
 
 
 def sample_item_day(
@@ -170,8 +171,12 @@ def simulate(
     )  # fmt: skip
 
 
-def run(inputs: SimulationInputs, spending_cut: SpendingCut | None = None) -> Simulation:
-    """Run the futures for these inputs, optionally with a cut in everyday spending."""
+def run(
+    inputs: SimulationInputs, spending_cut: SpendingCut | None = None, keep_paths: bool = False
+) -> Simulation:  # fmt: skip
+    """Run the futures for these inputs, optionally with a cut in everyday spending.
+    `keep_paths` keeps every future's daily balance (with deposits), for the calibration step;
+    the app does not ask for them."""
     start, futures, seed = inputs.start, inputs.futures, inputs.seed
     horizon = (start.last_day - start.first_day).days + 1
     days = tuple(start.first_day + timedelta(days=k) for k in range(horizon))
@@ -225,4 +230,5 @@ def run(inputs: SimulationInputs, spending_cut: SpendingCut | None = None) -> Si
         _percentile([min(p) for p in with_dep], 0.5) if with_dep else start.balance_cents,
         _percentile([min(p) for p in without], 0.5) if without else start.balance_cents,
         len(pool), tuple(sorted(min(p) for p in with_dep)),
+        tuple(tuple(p) for p in with_dep) if keep_paths else (),
     )  # fmt: skip
