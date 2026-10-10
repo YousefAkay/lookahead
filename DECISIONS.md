@@ -1000,6 +1000,22 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 - **By the rule fixed before training, the weekday baseline stays.** No setting was changed after seeing these numbers.
 - Kept: the baseline. Only these two entries are on main; the code, its test and the results file stay on the branch `lightgbm-prototype`, which is kept for now and not merged.
 
+## Proposals run (2026-10-11, branch `proposals`)
+
+### 2026-10-11: The overnight run follows `docs/plans/overnight_2026-10-11.md`, with two additions of mine
+- The run follows the plan step by step, with its "continue only if" checks and its stopping rule. Synthetic development personas only; no held-out persona, no final test. Results go to `docs/results/overnight_2026-10-11.md` (status after every step) and `docs/results/proposals_2026-10-11.md`.
+- **My addition 1, for b) (repeated large outflows placed by default):** the gate also requires a precision of placements of at least 70 percent on the answer key, beside the recall of at least 50 percent in the plan. Why: a wrong detection placed by default, with no click, becomes a false alarm.
+- **My addition 2, what a) is for:** a) is aimed at the student personas with large family transfers and tuition (IFAM, ITIGHT), not at my account. a) and b) are judged on the synthetic answer key, the report says which archetypes they help, and nothing is claimed about my account.
+
+### 2026-10-11: Step 0: the random lump arrivals, rebuilt as a switch that is off by default (written before the code)
+- The income prototype's branch is gone and its code was not brought over, so I write it again from its recorded design (Appendix A of the plan), as an option of the forecaster that is **off by default**. The app does not turn it on.
+- **Lump:** a deposit the forecaster sets aside as a large deposit (`lump_rows`: in no series; at least $500 and 5 times the typical row of the 13 weeks before the forecast date; not paid straight back out within 14 days), posted in the 365 days up to the forecast date. Pass-throughs are not lumps. Tuition and other big payments stay set aside.
+- **Rate:** the number of lumps divided by the days of the window (from the later of the first posted row and 365 days back, to the forecast date, both included). No history: rate 0.
+- **Draw:** in each future, each forecast day gets a lump with probability equal to the rate (at most one a day), its size drawn at random from the observed lump sizes. Each future uses its own random stream named by the seed, the future and the word "lumps", so no other draw moves when lumps are switched on. Concretely: for each day in order, one uniform number decides whether a lump comes, and only if it does a second draw picks its size.
+- **Where it counts:** lumps are irregular deposits: they are in the futures "with deposits", not in the median "without irregular deposits"; the what-if "no other money expected" turns them off. The single-path estimate does not change. Rule zero: only rows posted by the forecast date.
+- **How it is switched:** `build_forecast(..., options=ForecastOptions(lump_arrivals=True))`; `SimulationInputs` gains `lump_rate` (0.0) and `lump_sizes` (empty).
+- **Check before anything uses it:** with the switch off, the simulated output on three synthetic personas (v2-ITIGHT-01, v2-IFAM-02, v2-SAL-01; three origins each; 100 futures) must be identical to the forecaster before this change. I took the fingerprints of that output with the unchanged code before writing anything, and a test compares them. The prototype's tests are rebuilt too (Appendix A). If the identity or the rule-zero and own-stream tests fail, everything that needs arrivals (arms 1 to 5) stops.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
