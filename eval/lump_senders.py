@@ -24,6 +24,7 @@ from lookahead.db import connect_readonly
 from lookahead.flows import Flow, Txn, flow_types
 from lookahead.forecast.spending import lump_rows
 from lookahead.recurring_store import series_as_of
+from lookahead.resolve import load_user_decisions
 from lookahead.ui import private_db_path
 from lookahead.views import accounts
 
@@ -56,8 +57,12 @@ def count_lumps(
     }  # fmt: skip
 
 
-def count_account(conn: sqlite3.Connection, account: str) -> dict[str, int] | None:
-    """`count_lumps` for one account as of its last posting date; None if it has no rows."""
+def load_inputs(
+    conn: sqlite3.Connection, account: str
+) -> tuple[list[Txn], dict[int, Flow], set[int], date] | None:
+    """What the forecast reads at the account's last posting date, the same way it reads it:
+    the rows, their flow types with my saved decisions applied, the rows of the recurring series,
+    and that date. None if the account has no rows."""
     rows = conn.execute(
         "SELECT id, posted_date, amount_cents, description, sub_description, fingerprint"
         " FROM transactions WHERE account = ?",
@@ -72,7 +77,17 @@ def count_account(conn: sqlite3.Connection, account: str) -> dict[str, int] | No
     in_series = {
         row_of[fp] for s in series if s.status != "rejected" for fp in s.evidence if fp in row_of
     }
-    return count_lumps(txns, flow_types(txns), in_series, as_of)
+    flows = flow_types(txns, load_user_decisions(conn, as_of))
+    return txns, flows, in_series, as_of
+
+
+def count_account(conn: sqlite3.Connection, account: str) -> dict[str, int] | None:
+    """`count_lumps` for one account as of its last posting date; None if it has no rows."""
+    loaded = load_inputs(conn, account)
+    if loaded is None:
+        return None
+    txns, flows, in_series, as_of = loaded
+    return count_lumps(txns, flows, in_series, as_of)
 
 
 def main(argv: list[str] | None = None) -> int:

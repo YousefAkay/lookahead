@@ -77,3 +77,51 @@ def test_the_command_prints_counts_only(
         assert counts is not None and counts["lumps"] == counts["named"] + counts["unnamed"]
     finally:
         conn.close()
+
+
+def test_the_filters_add_up_and_each_removes_what_it_says() -> None:
+    from eval.lump_diagnose import funnel
+
+    rows = background() + [
+        Txn(1, date(2026, 3, 3), 1500000, "credit memo", "1/Person A "),  # a lump
+        Txn(2, date(2026, 4, 3), 1400000, "credit memo", "1/Person A "),  # in a series
+        Txn(3, date(2025, 8, 3), 1400000, "credit memo", "1/Person A "),  # over a year back
+        Txn(4, date(2026, 6, 3), 40000, "credit memo", "1/Person B "),  # under the cutoff
+        Txn(5, date(2026, 9, 2), 1500000, "credit memo", "1/Person A "),  # paid straight out
+        Txn(6, date(2026, 9, 4), -1500000, "bill payment", "City University "),
+        Txn(7, date(2026, 9, 6), 3000, "pos return", CARD.format("Shop")),  # a return
+    ]  # fmt: skip
+    f = funnel(rows, flow_types(rows), {2}, AS_OF)
+    assert f["deposits"] == 6
+    assert f["wrong_type"] == {"refund": 1}
+    assert (f["in_series"], f["outside_window"], f["under_cutoff"]) == (1, 1, 1)
+    assert (f["pass_through"], f["lumps"], f["other"]) == (1, 1, 0)
+    assert f["big_any_date"] == 3  # the lump, the old one and the paid-out one, any date
+    assert f["newest_big_days_before_anchor"] == 28
+
+
+def test_the_anchor_moves_the_window(capsys: pytest.CaptureFixture[str]) -> None:
+    from eval.lump_diagnose import funnel
+
+    rows = background() + [Txn(1, date(2025, 11, 3), 1500000, "credit memo", "1/Person A ")]
+    flows = flow_types(rows)
+    assert funnel(rows, flows, set(), date(2026, 9, 30))["lumps"] == 1
+    assert funnel(rows, flows, set(), date(2026, 12, 1))["lumps"] == 0  # a year on: out of it
+
+
+def test_the_report_applies_my_saved_decisions_like_the_forecast(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:  # fmt: skip
+    import eval.lump_senders as module
+
+    export, _ = write_persona(build_persona("v2-ITIGHT-01").persona, tmp_path, 42, START, END)
+    conn = connect(tmp_path / "d.db")
+    store_exports(conn, "acct", [(export.name, parse_export(export))], datetime(2026, 10, 1))
+    seen: list[object] = []
+    real = module.flow_types
+    monkeypatch.setattr(
+        module, "flow_types", lambda t, user=None: (seen.append(user), real(t, user))[1]
+    )
+    assert module.load_inputs(conn, "acct") is not None
+    conn.close()
+    assert seen and seen[0] is not None  # the decisions were passed, not left out

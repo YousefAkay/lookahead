@@ -217,32 +217,59 @@ def _streams(
 LUMP_LOOKBACK_DAYS = 365  # lump deposits are looked for in the last year
 
 
-def lump_rows(
+@dataclass(frozen=True)
+class LumpStages:
+    """Every step of the lump detection, so that a count of what each filter removed can be
+    printed and `lump_rows` cannot drift from it."""
+
+    money_in: list[Row]  # money in of a kind the forecaster counts, in no series, by the date
+    in_window: list[Row]  # of those, posted within the lookback
+    big: list[Row]  # of those, at or above the big-deposit cutoff
+    lumps: list[Row]  # of those, not paired as a pass-through: the lumps
+    cutoff_is_floor: bool  # the cutoff is the $500 floor, not 5 times the typical row
+    own_yardstick: bool  # the typical row is that of the deposits (5 or more in 13 weeks)
+    first_day: date  # the first day of the lookback window
+    cutoff_cents: int  # the size from which a deposit is big (never printed by the reports)
+
+
+def lump_stages(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
     lookback_days: int = LUMP_LOOKBACK_DAYS,
-) -> list[Row]:  # fmt: skip
-    """The lump deposits of the last `lookback_days` up to `as_of`, oldest first: deposits the
-    forecaster sets aside as large deposits (at least $500 and 5 times the typical row of the
-    last 13 weeks, in no series, not paid straight back out within 14 days). Pass-throughs are
-    left out, because the outflow that paid them out is set aside too. Only rows posted on or
-    before `as_of` are read (rule zero)."""
+) -> LumpStages:  # fmt: skip
+    """Run the lump detection and keep each stage: deposits the forecaster sets aside as large
+    deposits (at least $500 and 5 times the typical row of the last 13 weeks, in no series, not
+    paid straight back out within 14 days) posted in the last `lookback_days` up to `as_of`.
+    Pass-throughs are not lumps, because the outflow that paid them out is set aside too. Only
+    rows posted on or before `as_of` are read (rule zero)."""
     out_rows = _counted(txns, flows, series_rows, as_of)
     in_rows = _money_in(txns, flows, series_rows, as_of)
     recent = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
     everything = [r[2] for r in out_rows + in_rows if r[2] > 0 and r[0].posted_date >= recent]
     own_in = [c for t, _, c in in_rows if c > 0 and t.posted_date >= recent]
     own_out = [c for t, _, c in out_rows if c > 0 and t.posted_date >= recent]
-    cut_in = large_cutoff(own_in if len(own_in) >= TYPICAL_MIN_ROWS else everything)
+    own_yardstick = len(own_in) >= TYPICAL_MIN_ROWS
+    cut_in = large_cutoff(own_in if own_yardstick else everything)
     cut_out = large_cutoff(own_out if len(own_out) >= TYPICAL_MIN_ROWS else everything)
     first = as_of - timedelta(days=lookback_days - 1)
-    big_in = [r for r in in_rows if r[2] >= cut_in and r[0].posted_date >= first]
+    in_window = [r for r in in_rows if r[0].posted_date >= first]
+    big_in = [r for r in in_window if r[2] >= cut_in]
     candidates = [
         r for r in out_rows if r[2] > 0 and (
             r[2] >= cut_out or r[1].flow_type == "transfer" or r[1].reason == "bill payment")
     ]  # fmt: skip
     paired = {dep[0].row_id for dep, _ in _pass_through(big_in, candidates)}
-    return sorted((r for r in big_in if r[0].row_id not in paired),
-                  key=lambda r: (r[0].posted_date, r[0].row_id))  # fmt: skip
+    lumps = sorted((r for r in big_in if r[0].row_id not in paired),
+                   key=lambda r: (r[0].posted_date, r[0].row_id))  # fmt: skip
+    return LumpStages(in_rows, in_window, big_in, lumps, cut_in == LARGE_MIN_CENTS,
+                      own_yardstick, first, cut_in)  # fmt: skip
+
+
+def lump_rows(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
+    lookback_days: int = LUMP_LOOKBACK_DAYS,
+) -> list[Row]:  # fmt: skip
+    """The lump deposits of the last `lookback_days` up to `as_of`, oldest first."""
+    return lump_stages(txns, flows, series_rows, as_of, lookback_days).lumps
 
 
 def spending_by_day(
