@@ -163,7 +163,8 @@ def test_fit_multipliers_reaches_80_percent_on_its_own_records() -> None:
 @pytest.fixture(scope="module")
 def real_like_folder(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A made-up "real" backtest folder with paths, from a synthetic export."""
-    folder = tmp_path_factory.mktemp("real")
+    folder = tmp_path_factory.mktemp("real") / "data" / "private"  # real results stay private
+    folder.mkdir(parents=True)
     export, _ = write_persona(build_persona("v2-TIGHT-01").persona, folder, 42, START, END)
     conn = connect(folder / "made_up.db")
     store_exports(conn, "acct", [(export.name, parse_export(export))], datetime(2026, 10, 1))

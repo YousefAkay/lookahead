@@ -76,7 +76,8 @@ def test_a_real_arm_saves_to_its_own_folder(
     capsys: pytest.CaptureFixture[str],
 ) -> None:  # fmt: skip
     monkeypatch.chdir(tmp_path)
-    copy = tmp_path / "db.db"
+    copy = tmp_path / "data" / "private" / "db.db"  # private files only
+    copy.parent.mkdir(parents=True)
     copy.write_bytes(made_up_db.read_bytes())
     assert (
         backtest_real_main(["--db", str(copy), "--quick", "--arm", "1", "--keeps-coming", "off"])

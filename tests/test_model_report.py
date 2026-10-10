@@ -33,7 +33,8 @@ PAGE = ROOT / "app" / "pages" / "7_Model_report.py"
 @pytest.fixture(scope="module")
 def real_like(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A made-up "real" backtest folder (quick run of a synthetic export)."""
-    folder = tmp_path_factory.mktemp("private")
+    folder = tmp_path_factory.mktemp("real") / "data" / "private"  # real results stay private
+    folder.mkdir(parents=True)
     export, _ = write_persona(build_persona("v2-TIGHT-01").persona, folder, 42, START, END)
     conn = connect(folder / "made_up.db")
     store_exports(conn, "acct", [(export.name, parse_export(export))], datetime(2026, 10, 1))

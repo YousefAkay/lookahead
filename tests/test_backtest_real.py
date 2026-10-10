@@ -23,7 +23,8 @@ ACCOUNT = "my-private-chequing"  # a name that must never be printed
 
 @pytest.fixture(scope="module")
 def made_up_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    folder = tmp_path_factory.mktemp("real")
+    folder = tmp_path_factory.mktemp("real") / "data" / "private"
+    folder.mkdir(parents=True)
     persona = build_persona("v2-TIGHT-01")
     export, _ = write_persona(persona.persona, folder, 42, START, END)
     conn = connect(folder / "made_up.db")
@@ -31,6 +32,13 @@ def made_up_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     set_safety_buffer_cents(conn, 0)
     conn.close()
     return folder / "made_up.db"
+
+
+def private(tmp_path: Path) -> Path:
+    """A folder inside data/private, where the script may write."""
+    folder = tmp_path / "data" / "private"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
 
 
 def digest(path: Path) -> str:
@@ -52,13 +60,13 @@ def test_a_short_history_has_no_origins() -> None:
 def test_the_run_saves_records_labelled_real_and_leaves_the_database_alone(
     made_up_db: Path, tmp_path: Path
 ) -> None:
-    db = tmp_path / "copy.db"
+    db = private(tmp_path) / "copy.db"
     shutil.copy(made_up_db, db)
     before = digest(db)
-    counts = run_real(db, tmp_path / "out", futures=40, quick=True)
+    counts = run_real(db, private(tmp_path) / "out", futures=40, quick=True)
     assert digest(db) == before  # read-only: not a byte changed
     assert counts == {"accounts": 1, "new_origins": 4, "origins_saved": 4, "archived_older": 0}
-    [path] = list((tmp_path / "out").glob("*.jsonl"))
+    [path] = list((private(tmp_path) / "out").glob("*.jsonl"))
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert len(records) == 4
     assert {r["dataset"] for r in records} == {"real"}  # never mixed with synthetic
@@ -70,21 +78,22 @@ def test_the_run_saves_records_labelled_real_and_leaves_the_database_alone(
 def test_the_output_files_do_not_carry_the_account_name_in_their_names(
     made_up_db: Path, tmp_path: Path
 ) -> None:
-    run_real(made_up_db, tmp_path / "out", futures=40, quick=True)
-    names = [p.name for p in (tmp_path / "out").iterdir()]
+    run_real(made_up_db, private(tmp_path) / "out", futures=40, quick=True)
+    names = [p.name for p in (private(tmp_path) / "out").iterdir()]
     assert not any(ACCOUNT in n for n in names)  # account-1, account-2, ...
 
 
 def test_a_second_run_does_nothing_new(made_up_db: Path, tmp_path: Path) -> None:
-    run_real(made_up_db, tmp_path / "out", futures=40, quick=True)
-    again = run_real(made_up_db, tmp_path / "out", futures=40, quick=True)
+    run_real(made_up_db, private(tmp_path) / "out", futures=40, quick=True)
+    again = run_real(made_up_db, private(tmp_path) / "out", futures=40, quick=True)
     assert again["new_origins"] == 0 and again["origins_saved"] == 4
 
 
 def test_the_command_prints_only_counts(
     made_up_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    main(["--db", str(made_up_db), "--out", str(tmp_path / "out"), "--quick", "--futures", "40"])
+    out = private(tmp_path) / "out"
+    main(["--db", str(made_up_db), "--out", str(out), "--quick", "--futures", "40"])
     text = capsys.readouterr().out
     assert ACCOUNT not in text and "$" not in text and "cents" not in text
     assert "1 account" in text and "4 origins" in text
@@ -95,7 +104,7 @@ def test_the_command_prints_only_counts(
 def test_a_missing_database_says_so_without_a_path(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["--db", str(tmp_path / "nope.db"), "--out", str(tmp_path / "out")]) == 1
+    assert main(["--db", str(tmp_path / "nope.db"), "--out", str(private(tmp_path) / "out")]) == 1
     assert "nope.db" not in capsys.readouterr().out
 
 
@@ -118,7 +127,7 @@ def old_format_results(out: Path) -> None:
 def test_results_from_an_older_version_are_set_aside_and_the_run_starts_fresh(
     made_up_db: Path, tmp_path: Path
 ) -> None:
-    out = tmp_path / "out"
+    out = private(tmp_path) / "out"
     old_format_results(out)
     counts = run_real(made_up_db, out, futures=40, quick=True)
     assert counts["archived_older"] == 1  # one batch of old results was set aside
@@ -134,7 +143,7 @@ def test_results_from_an_older_version_are_set_aside_and_the_run_starts_fresh(
 def test_the_command_says_so_in_one_line_and_prints_counts_only(
     made_up_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    out = tmp_path / "out"
+    out = private(tmp_path) / "out"
     old_format_results(out)
     main(["--db", str(made_up_db), "--out", str(out), "--quick", "--futures", "40"])
     text = capsys.readouterr().out
@@ -144,7 +153,7 @@ def test_the_command_says_so_in_one_line_and_prints_counts_only(
 
 
 def test_current_results_are_not_set_aside(made_up_db: Path, tmp_path: Path) -> None:
-    out = tmp_path / "out"
+    out = private(tmp_path) / "out"
     run_real(made_up_db, out, futures=40, quick=True)
     again = run_real(made_up_db, out, futures=40, quick=True)
     assert again["archived_older"] == 0 and not (out / "older").exists()
@@ -155,7 +164,7 @@ def test_a_logic_version_change_also_counts_as_older(
 ) -> None:
     import eval.backtest as backtest
 
-    out = tmp_path / "out"
+    out = private(tmp_path) / "out"
     run_real(made_up_db, out, futures=40, quick=True)
     monkeypatch.setattr(backtest, "LOGIC", backtest.LOGIC + 1)  # the forecast logic changed
     counts = run_real(made_up_db, out, futures=40, quick=True)
@@ -165,7 +174,8 @@ def test_a_logic_version_change_also_counts_as_older(
 def test_the_metrics_flag_prints_summary_numbers_for_the_real_column_only(
     made_up_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    main(["--db", str(made_up_db), "--out", str(tmp_path / "out"), "--quick", "--futures", "40",
+    out = private(tmp_path) / "out"
+    main(["--db", str(made_up_db), "--out", str(out), "--quick", "--futures", "40",
           "--metrics"])  # fmt: skip
     text = capsys.readouterr().out
     assert "BACKTEST SUMMARY" in text and "Real" in text and "Real, buffer $0" in text
@@ -182,22 +192,72 @@ def test_quick_and_full_runs_save_to_their_own_folders_and_do_not_collide(
 ) -> None:
     import eval.backtest_real as backtest_real
 
-    monkeypatch.setattr(backtest_real, "DEFAULT_OUT", tmp_path / "backtest")
+    monkeypatch.setattr(backtest_real, "DEFAULT_OUT", private(tmp_path) / "backtest")
     off = ["--keeps-coming", "off"]  # the plain folders are the old forecaster's
     main(["--db", str(made_up_db), "--quick", "--futures", "40", *off])
     main(["--db", str(made_up_db), "--futures", "20", *off])  # other settings: used to raise
-    quick = list((tmp_path / "backtest" / "quick").glob("*.jsonl"))
-    full = list((tmp_path / "backtest" / "full").glob("*.jsonl"))
+    quick = list((private(tmp_path) / "backtest" / "quick").glob("*.jsonl"))
+    full = list((private(tmp_path) / "backtest" / "full").glob("*.jsonl"))
     assert len(quick) == 1 and len(full) == 1
-    assert not list((tmp_path / "backtest").glob("*.jsonl"))  # nothing in the shared folder
+    shared = private(tmp_path) / "backtest"
+    assert not list(shared.glob("*.jsonl"))  # nothing in the shared folder
     n_quick = len(quick[0].read_text(encoding="utf-8").splitlines())
     n_full = len(full[0].read_text(encoding="utf-8").splitlines())
     assert n_quick == 4 and n_full > n_quick
 
 
-def test_an_explicit_out_folder_is_used_as_given(made_up_db: Path, tmp_path: Path) -> None:
-    main(["--db", str(made_up_db), "--out", str(tmp_path / "mine"), "--quick", "--futures", "40"])
-    assert list((tmp_path / "mine").glob("*.jsonl"))
+def test_an_explicit_private_out_folder_is_used_as_given(made_up_db: Path, tmp_path: Path) -> None:
+    out = private(tmp_path) / "mine"
+    assert main(["--db", str(made_up_db), "--out", str(out), "--quick", "--futures", "40"]) == 0
+    assert list(out.glob("*.jsonl"))
+
+
+# --- Real data is read from and written to data/private only (review item R1) ---
+
+
+def test_an_out_folder_outside_data_private_is_refused_before_anything_is_made(
+    made_up_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "mine"
+    assert main(["--db", str(made_up_db), "--out", str(out), "--quick", "--futures", "40"]) == 1
+    assert "outside data/private" in capsys.readouterr().out
+    assert not out.exists()  # nothing created
+    with pytest.raises(ValueError, match="outside data/private"):
+        run_real(made_up_db, out, futures=40, quick=True)
+    assert not out.exists()
+
+
+def test_a_database_outside_data_private_is_refused(
+    made_up_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "elsewhere.db"
+    shutil.copy(made_up_db, db)
+    out = private(tmp_path) / "out"
+    assert main(["--db", str(db), "--out", str(out), "--quick", "--futures", "40"]) == 1
+    assert "database outside data/private" in capsys.readouterr().out
+    assert not out.exists()
+    with pytest.raises(ValueError, match="database outside data/private"):
+        run_real(db, out, futures=40, quick=True)
+
+
+@pytest.mark.parametrize("extra", [["--arm", "1"], ["--keeps-coming", "off"], ["--paths"]])
+def test_the_default_folders_of_arms_and_switches_must_be_private(
+    made_up_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], extra: list[str],
+) -> None:  # fmt: skip
+    import eval.backtest_real as backtest_real
+
+    monkeypatch.setattr(backtest_real, "DEFAULT_OUT", tmp_path / "backtest")  # not private
+    assert main(["--db", str(made_up_db), "--quick", "--futures", "40", *extra]) == 1
+    assert "outside data/private" in capsys.readouterr().out
+    assert not (tmp_path / "backtest").exists()
+
+
+def test_the_real_default_folder_is_private() -> None:
+    from eval.backtest_real import DEFAULT_OUT
+    from lookahead.merchants import is_private_path
+
+    assert is_private_path(DEFAULT_OUT / "arms" / "arm1" / "keeps-coming-off" / "quick")
 
 
 def test_the_default_forecaster_has_its_own_folder_apart_from_the_old_one(
@@ -205,11 +265,11 @@ def test_the_default_forecaster_has_its_own_folder_apart_from_the_old_one(
 ) -> None:
     import eval.backtest_real as backtest_real
 
-    monkeypatch.setattr(backtest_real, "DEFAULT_OUT", tmp_path / "backtest")
+    monkeypatch.setattr(backtest_real, "DEFAULT_OUT", private(tmp_path) / "backtest")
     main(["--db", str(made_up_db), "--quick", "--futures", "40"])  # the default: keeps coming on
     main(["--db", str(made_up_db), "--quick", "--futures", "40", "--keeps-coming", "off"])
     main(["--db", str(made_up_db), "--quick", "--futures", "40", "--keeps-coming", "without-own"])
-    root = tmp_path / "backtest"
+    root = private(tmp_path) / "backtest"
     assert len(list((root / "keeps-coming-with-own" / "quick").glob("*.jsonl"))) == 1
     assert len(list((root / "keeps-coming-without-own" / "quick").glob("*.jsonl"))) == 1
     assert len(list((root / "quick").glob("*.jsonl"))) == 1  # the old forecaster, untouched

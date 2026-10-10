@@ -13,6 +13,7 @@ so the two never meet (their settings differ). A run with --paths saves to
 data/private/backtest/paths: records and paths of an account are written together once all its
 origins are done, and an account already saved there is skipped.
 
+It refuses a database or an output folder outside data/private, before anything is created.
 It opens the database read-only (the file is not changed), makes the same forecasts as the
 synthetic runner at every Monday that has eight weeks of history before it and thirty observed
 days after it, and saves one record per origin there (private, never committed, files named by
@@ -49,6 +50,7 @@ from eval.backtest import (
 from lookahead.db import connect_readonly
 from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions
 from lookahead.forecast.spending import DEFAULT_KEEPS, KeepsComing
+from lookahead.merchants import is_private_path
 from lookahead.pseudonymize import pseudonym_key
 from lookahead.ui import private_db_path
 from lookahead.views import accounts
@@ -84,11 +86,22 @@ def real_arm_options(arm: int) -> ForecastOptions:
     raise ValueError("on real data only arms 0, 1 and 2 can be run")
 
 
+def check_private(db_path: Path, out_dir: Path) -> None:
+    """Real data and the records made from it live only in data/private (DECISIONS.md, privacy
+    rules): refuse a database or an output folder anywhere else, before anything is created."""
+    if not is_private_path(db_path):
+        raise ValueError("refusing a database outside data/private/")
+    if not is_private_path(out_dir):
+        raise ValueError("refusing to write real-data results outside data/private/")
+
+
 def run_real(
     db_path: Path, out_dir: Path, futures: int, quick: bool = False, paths: bool = False,
     arm: int = 0, keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> dict[str, int]:  # fmt: skip
-    """Run every account of the database. Returns counts (accounts, new origins, saved)."""
+    """Run every account of the database. Returns counts (accounts, new origins, saved). The
+    database and `out_dir` must both be inside data/private."""
+    check_private(db_path, out_dir)
     archived = 1 if archive_older(out_dir) else 0  # older results are set aside, never mixed in
     conn = connect_readonly(db_path)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -218,6 +231,11 @@ def main(argv: list[str] | None = None) -> int:
     root = DEFAULT_OUT / "arms" / f"arm{args.arm}" if args.arm else DEFAULT_OUT
     base = root / f"keeps-coming-{args.keeps_coming}" if keeps else root
     out = args.out or base / folder  # never the same folder
+    try:
+        check_private(db_path, out)
+    except ValueError as error:
+        print(f"{str(error).capitalize()}. Nothing was written.")
+        return 1
     counts = run_real(db_path, out, futures, args.quick, args.paths, args.arm, keeps)
     if counts["archived_older"]:
         print(f"Saved results were from an older version of the backtest: moved them to "
