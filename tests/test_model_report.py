@@ -116,6 +116,7 @@ def test_the_page_without_real_results_says_run_locally(
     text = "\n".join(str(m.value) for m in at.markdown)
     assert "Known limitations" in text and "Categorizer" in text
     assert "Not financial advice" in text
+    assert text.count("shelved: not used by the app") == 2  # reliability and threshold cards
 
 
 @pytest.mark.slow

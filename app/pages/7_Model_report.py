@@ -112,6 +112,9 @@ def column(summary: dict | None, key: str, values) -> list[str]:  # type: ignore
     return values(summary[key])
 
 
+SHELVED = tag_html("shelved: not used by the app", "neutral")
+
+
 with st.container(border=True, key="card-forecast"):
     st.markdown(
         '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
@@ -154,7 +157,8 @@ with st.container(border=True, key="card-alerts"):
 # --- Reliability ---
 with st.container(border=True, key="card-reliability"):
     st.markdown(
-        "<h2>Is the shortfall chance honest?</h2>"
+        '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
+        f"<h2>Is the shortfall chance honest?</h2>{SHELVED}</div>"
         '<p class="la-note">Origins grouped by the chance the forecast gave. If the chance is '
         "honest, what happened matches what was said.</p>",
         unsafe_allow_html=True,
@@ -163,20 +167,24 @@ with st.container(border=True, key="card-reliability"):
         bins = ["0-20%", "20-40%", "40-60%", "60-80%", "80-100%"]
         show_table(table(bins, {
             "Synthetic, development": reliability_values(synthetic["ordinary"]),
-            "Synthetic, calibrated": reliability_values(synthetic["calibrated"]["ordinary"]),
+            "Synthetic, calibrated (shelved)": reliability_values(
+                synthetic["calibrated"]["ordinary"]
+            ),
             "Real": column(real and real["own_buffer"], "ordinary", reliability_values),
         }), whole=True)  # fmt: skip
         st.markdown(
             '<p class="la-note">Calibrated: futures widened by a multiplier per day ahead and the '
             f"chance mapped ({synthetic['calibrated']['variant']}), fitted on 19 personas and "
-            "scored on the 20th, in turn. Not used by the app yet.</p>",
+            "scored on the 20th, in turn. Shelved: on the real account it made the bands "
+            "unusably wide, so the app does not use it.</p>",
             unsafe_allow_html=True,
         )
 
 # --- Threshold curve ---
 with st.container(border=True, key="card-threshold"):
     st.markdown(
-        "<h2>Alert threshold on the calibrated chance</h2>"
+        '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
+        f"<h2>Alert threshold on the calibrated chance</h2>{SHELVED}</div>"
         '<p class="la-note">Synthetic development personas, calibrated chances (each persona '
         "scored with a calibration fitted without it). The aim: the most dips caught with at "
         "least 70% of alerts right and at most 0.1 false alerts per 30 days.</p>",
@@ -219,7 +227,9 @@ with st.container(border=True, key="card-threshold"):
                "No threshold meets the aim. ")
             + "Caught goes up with the threshold because at low thresholds one alert stays on "
             "across several dips, and a dip only counts if an alert opened before it. The app "
-            "keeps its provisional rule. Real: run <code>python -m eval.calibrate apply</code> "
+            "keeps its provisional rule: this curve rests on the shelved calibration, so the "
+            "threshold will be chosen again on raw chances. Real: run "
+            "<code>python -m eval.calibrate apply</code> "
             "locally.</p>",
             unsafe_allow_html=True,
         )  # fmt: skip
