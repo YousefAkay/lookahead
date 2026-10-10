@@ -961,6 +961,12 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 - Synthetic numbers come from `docs/results/report_synthetic.json`, written by `python -m eval.report_data` from the calibration step's saved run. Real numbers are computed when the page opens, from `data/private/backtest` (its `full/` folder) if it exists, and are never written anywhere; without it the real columns say "run locally". The page imports `eval` for this; it is a report on the evaluation, so I accepted that.
 - The top bar on this page says "Saved test results" instead of a data date (it is not about one account's data).
 
+### Pre-public history scan (report only)
+- `python -m eval.history_scan` reads every file content ever committed on every branch, and every commit message, and writes `docs/results/history_scan.md`. It changes nothing in the history. Each finding names the first commit and path where that content appeared; matches are masked (first character kept, letters x, digits #), and dollar amounts are counted, not printed.
+- What it looks for: emails, phone numbers, card-like and account-like digit runs (8 to 19 digits, not inside a decimal number), secret-like strings, a common first name followed by a capitalized word when neither is in the synthetic vocabulary (every capitalized word in any version of the generator and test code), files under `data/private`, `.env`, databases, model and key files, files of 1 MB and more, mentions of an AI assistant or vendor, and dollar amounts on lines added to DECISIONS.md, flagged when the line talks about my own data.
+- Changed after one trial run: one name in the first-names list also matched the product names of AI tools mentioned in older entries, so it left that list and those mentions got their own section (masked like the rest). Nothing else was tuned.
+- It is a heuristic. A clean section is not proof that nothing is there.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
