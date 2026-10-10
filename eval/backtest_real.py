@@ -146,6 +146,13 @@ def print_counts(counts: dict[str, Any], out_dir: Path) -> None:
     print(f"{len(already)} origins were already below the buffer (reported separately)")
     print(f"of the other {len(ordinary)}: followed by a balance below the buffer {below}, "
           f"below zero {zero}")  # fmt: skip
+    if any(r.get("keeps_coming") for r in records):  # counts of the arrivals the forecast drew
+        with_in = sum(r["arrivals_in"] > 0 for r in records)
+        with_out = sum(r["arrivals_out"] > 0 for r in records)
+        print(
+            f"keeps-coming switch on ({records[0]['keeps_coming']}): origins with deposit "
+            f"arrivals {with_in}, with payment arrivals {with_out}, of {len(records)}"
+        )
     print(f"saved in {out_dir} (private: never commit)")
 
 
