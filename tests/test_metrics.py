@@ -191,6 +191,12 @@ def test_breakdowns_by_history_bucket_and_by_archetype() -> None:
 # --- Restating for another buffer (real data: $0) ---
 
 
+def test_restate_of_a_record_with_no_futures_says_why_instead_of_dividing_by_zero() -> None:
+    r = rec(lows=[], prob=0.0, median_low=0)
+    with pytest.raises(ValueError, match="0 futures"):
+        restate(r, 0)
+
+
 def test_restate_recomputes_everything_that_depends_on_the_buffer() -> None:
     lows = [-5_000, 1_000, 2_000, 30_000, 60_000]
     realized = [20_000] * 10 + [-500] * 3 + [20_000] * 17

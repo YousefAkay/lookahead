@@ -85,6 +85,9 @@ def restate(record: Record, buffer_cents: int) -> Record:
     already-in-shortfall flag are recomputed from the balances."""
     new = dict(record)
     lows = record["lowest_cents"]
+    if not lows:  # a forecast made with no futures: there is nothing to read the chance from
+        raise ValueError("this record keeps no future's lowest balance (made with 0 futures), "
+                         "so it cannot be restated for another buffer")  # fmt: skip
     new["buffer_cents"] = buffer_cents
     new["shortfall_probability"] = sum(low < buffer_cents for low in lows) / len(lows)
     below = [d for d, b in zip(record["days"], record["realized"], strict=True) if b < buffer_cents]
