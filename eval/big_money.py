@@ -79,16 +79,23 @@ def history_rows(
     """Every deposit and payment of at least $500 in no series: its size band, whether it was big
     on the day it arrived (cutoff from rows posted by that day), and how many earlier rows of
     similar size there were. Flow types come from all the rows (a label for the history)."""
-    deposits = [(t.posted_date, t.amount_cents) for t in txns if t.amount_cents > 0
-                and t.row_id not in series_rows and not flows[t.row_id].netted
-                and flows[t.row_id].flow_type in ("income", "transfer")]  # fmt: skip
-    payments = [(t.posted_date, -t.amount_cents) for t in txns if t.amount_cents < 0
-                and t.row_id not in series_rows and not flows[t.row_id].netted
-                and (flows[t.row_id].flow_type in ("everyday", "transfer")
-                     or flows[t.row_id].reason == "bill payment")]  # fmt: skip
+    deposits = [
+        (t.posted_date, t.amount_cents, flows[t.row_id].reason)
+        for t in txns
+        if t.amount_cents > 0 and t.row_id not in series_rows and not flows[t.row_id].netted
+        and flows[t.row_id].flow_type in ("income", "transfer")
+    ]  # fmt: skip
+    payments = [
+        (t.posted_date, -t.amount_cents, flows[t.row_id].reason)
+        for t in txns
+        if t.amount_cents < 0 and t.row_id not in series_rows and not flows[t.row_id].netted
+        and (flows[t.row_id].flow_type in ("everyday", "transfer")
+             or flows[t.row_id].reason == "bill payment")
+    ]  # fmt: skip
     out: dict[str, list[dict[str, Any]]] = {"deposits": [], "payments": []}
     for kind, rows in (("deposits", deposits), ("payments", payments)):
-        for day, cents in rows:
+        sizes = [(d, c) for d, c, _ in rows]
+        for day, cents, reason in rows:
             if cents < LARGE_MIN_CENTS:
                 continue
             by_then = [t for t in txns if t.posted_date <= day]
@@ -96,7 +103,7 @@ def history_rows(
             cut = cut_in if kind == "deposits" else cut_out
             out[kind].append({
                 "cents": cents, "band": band_of(cents), "big": cents >= cut,
-                "similar": similar_before(cents, day, rows),
+                "similar": similar_before(cents, day, sizes), "type": reason,
             })  # fmt: skip
     return out
 
@@ -165,6 +172,29 @@ def history_lines(rows: dict[str, list[dict[str, Any]]]) -> list[str]:
                     f"      of the big ones, {label}: {len(hit)} rows, "
                     f"{_pct(sum(r['cents'] for r in hit) / money)} of their money"
                 )  # fmt: skip
+    lines += type_lines(rows["deposits"])
+    return lines
+
+
+def type_lines(deposits: list[dict[str, Any]]) -> list[str]:
+    """The deposits by the bank's transaction type: how many were big on arrival, and how much
+    of the recurring-size money (big on arrival with 2 or more earlier rows of similar size) each
+    type makes up. Own-account transfers in are moves of my own money, not income."""
+    big = [r for r in deposits if r["big"]]
+    keeps = [r for r in big if r["similar"] >= 2]
+    lines = ["    deposits by type (the bank's name for the row):"]
+    if not keeps:
+        return [*lines, "      no big deposit has 2 or more earlier rows of similar size"]
+    money = sum(r["cents"] for r in keeps)
+    for kind in sorted({r["type"] for r in deposits}):
+        mine = [r for r in deposits if r["type"] == kind]
+        mine_big = [r for r in big if r["type"] == kind]
+        mine_keeps = [r for r in keeps if r["type"] == kind]
+        lines.append(
+            f"      {kind}: {len(mine)} rows of $500 or more, {len(mine_big)} big on arrival, "
+            f"{len(mine_keeps)} of those with 2 or more earlier rows of similar size = "
+            f"{_pct(sum(r['cents'] for r in mine_keeps) / money)} of the recurring-size money"
+        )  # fmt: skip
     return lines
 
 

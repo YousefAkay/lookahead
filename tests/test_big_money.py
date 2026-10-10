@@ -98,3 +98,23 @@ def test_the_command_prints_counts_and_no_dates_or_names(
     assert "The forecaster at each of" in out and "big-deposit cutoff" in out
     assert "were big on the day they arrived" in out
     assert not re.search(r"\d{4}-\d{2}-\d{2}", out)
+
+
+def test_deposits_by_type_split_the_recurring_size_money() -> None:
+    from eval.big_money import type_lines
+
+    def dep(kind: str, cents: int, similar: int, big: bool = True) -> dict:
+        return {"type": kind, "cents": cents, "similar": similar, "big": big}
+
+    deposits = [
+        dep("own-account transfer", 100000, 2), dep("own-account transfer", 100000, 3),
+        dep("credit memo", 200000, 2), dep("incoming e-Transfer", 80000, 0),
+        dep("deposit", 60000, 5, big=False),
+    ]  # fmt: skip
+    text = "\n".join(type_lines(deposits))
+    assert "own-account transfer: 2 rows of $500 or more, 2 big on arrival, 2 of those" in text
+    assert "= 50% of the recurring-size money" in text  # 2 x 1,000 of 4,000
+    assert "credit memo: 1 rows of $500 or more, 1 big on arrival, 1 of those" in text
+    assert "incoming e-Transfer: 1 rows of $500 or more, 1 big on arrival, 0 of those" in text
+    assert "deposit: 1 rows of $500 or more, 0 big on arrival, 0 of those" in text
+    assert type_lines([dep("deposit", 60000, 0)])[-1].startswith("      no big deposit has")
