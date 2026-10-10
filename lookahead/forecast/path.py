@@ -30,6 +30,7 @@ from lookahead.forecast.spending import (
     constant_path,
     deposit_weeks,
     deposits_by_day,
+    lump_arrivals,
     recent_average_path,
     recent_fee_rate,
     spending_breakdown,
@@ -46,6 +47,20 @@ BASELINES = {
     "recent": "average of the last 28 days",
     "weekday": "average for each weekday over the last 8 weeks",
 }
+
+
+@dataclass(frozen=True)
+class ForecastOptions:
+    """Experimental parts of the forecaster, all off by default; the app uses the defaults.
+
+    `lump_arrivals`: deposits set aside as large deposits (lumps) come back in the futures as
+    random arrivals, at their observed rate over the last 365 days and with their observed sizes
+    (DECISIONS.md, 2026-10-11, step 0)."""
+
+    lump_arrivals: bool = False
+
+
+DEFAULT_OPTIONS = ForecastOptions()
 
 
 @dataclass(frozen=True)
@@ -124,7 +139,7 @@ def project_balance(
 def build_forecast(
     conn: sqlite3.Connection, account: str, method: str = "weekday", as_of: date | None = None,
     key: bytes | None = None, horizon_days: int = HORIZON_DAYS, futures: int = N_FUTURES,
-    keep_paths: bool = False,
+    keep_paths: bool = False, options: ForecastOptions = DEFAULT_OPTIONS,
 ) -> Forecast | None:  # fmt: skip
     """A forecast from what is stored, with no confirmations needed: every active series is used
     as detected unless I changed it. `as_of=None` is a live forecast (all rows, all decisions);
@@ -166,9 +181,13 @@ def build_forecast(
     simulation = inputs = None
     if futures > 0:
         deposits = deposits_by_day(txns, flows, in_series, start.data_last_updated)
+        rate, sizes = (
+            lump_arrivals(txns, flows, in_series, start.data_last_updated, first_posted)
+            if options.lump_arrivals else (0.0, ())
+        )  # fmt: skip
         inputs = SimulationInputs(
             start, tuple(items), tuple(series), posted, daily, deposits, first_posted,
-            safety_buffer_cents(conn), fee_rate, futures,
+            safety_buffer_cents(conn), fee_rate, futures, lump_rate=rate, lump_sizes=sizes,
         )  # fmt: skip
         simulation = run(inputs, keep_paths=keep_paths)
     return Forecast(

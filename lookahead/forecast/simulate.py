@@ -10,6 +10,9 @@ date (rule zero):
   payment of a series that is only detected moves by one of its own past offsets (days early or
   late). Confirmed and entered dates stay where they are.
 - Fees at their recent daily average, the same in every future.
+- Random lump arrivals, only when that option is on (off by default; DECISIONS.md 2026-10-11):
+  each forecast day gets a lump with the observed daily rate of lumps, its size drawn from the
+  observed lump sizes, from the future's own "lumps" stream. Lumps are irregular deposits.
 
 Common random numbers: every week and every placed payment draws from its own stream, named by
 the seed, the future and what is being drawn. Changing one payment, or the spending in a period,
@@ -152,6 +155,10 @@ class SimulationInputs:
     fees_per_day: float = 0.0
     futures: int = N_FUTURES
     seed: int = 0
+    # Random lump arrivals (an option, off by default): the chance of a lump on any forecast day
+    # and the observed lump sizes in cents. A rate of 0 draws nothing.
+    lump_rate: float = 0.0
+    lump_sizes: tuple[int, ...] = ()
 
 
 def simulate(
@@ -201,6 +208,11 @@ def run(
             spend, dep = weeks_stream.choice(pool) if pool else ((0,) * BLOCK, (0,) * BLOCK)
             spend_daily += spend
             dep_daily += dep
+        if inputs.lump_rate > 0 and inputs.lump_sizes:
+            lumps = _stream(seed, future, "lumps")  # its own stream: no other draw moves
+            for k in range(horizon):
+                if lumps.random() < inputs.lump_rate:  # at most one lump a day
+                    dep_daily[k] += lumps.choice(inputs.lump_sizes)
         money = spent = money_in = 0
         a: list[int] = []
         b: list[int] = []
