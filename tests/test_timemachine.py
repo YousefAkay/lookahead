@@ -242,3 +242,77 @@ def test_precompute_refuses_other_settings(conn: sqlite3.Connection, tmp_path: P
     precompute(conn, PID, DAYS[:1], out, futures=FUTURES)
     with pytest.raises(ValueError, match="different settings"):
         precompute(conn, PID, DAYS[:1], out, futures=FUTURES + 1)
+
+
+# --- What a saved step may hold, where it may go, and versions (review item R2) ---
+
+SECRET_ACCOUNT = "my-private-chequing"  # an account name that must never be saved
+
+
+@pytest.fixture
+def named_db(year_db: Path, tmp_path: Path) -> Path:
+    """The persona's rows under an account name that must not reach a saved step, in a database
+    inside data/private."""
+    folder = tmp_path / "data" / "private"
+    folder.mkdir(parents=True)
+    db = folder / "named.db"
+    shutil.copy(year_db, db)
+    c = connect(db)
+    c.execute("UPDATE transactions SET account = ?", (SECRET_ACCOUNT,))
+    c.commit()
+    c.close()
+    return db
+
+
+def test_a_saved_step_holds_no_account_name_item_names_or_series_keys(named_db: Path) -> None:
+    c = connect_readonly(named_db)
+    days = [date(2025, 12, 1) + timedelta(weeks=k) for k in range(30)]
+    steps = list(replay(c, SECRET_ACCOUNT, days, futures=FUTURES))
+    c.close()
+    alerted = [s for s in steps if s.snapshot is not None]
+    assert alerted  # the tight persona alerts, so evidence is saved
+    names = {i.name for s in steps for i in s.forecast.items if i.name}
+    keys = {i.series_key for s in steps for i in s.forecast.items if i.series_key}
+    assert names and keys
+    for s in steps:
+        text = json.dumps(step_to_dict(s))
+        assert SECRET_ACCOUNT not in text
+        assert not [n for n in names if f'"{n}"' in text]
+        assert not [k for k in keys if k in text]
+        assert '"series_key"' not in text and '"name"' not in text and '"group"' not in text
+    saved = [step_to_dict(s)["alert"]["evidence"] for s in alerted]
+    payments = [p for ev in saved for p in ev["largest_payments"] + ev["assumption_items"]]
+    assert payments and all(set(p) == {"day", "cents", "basis"} for p in payments)
+    assert not [ev for ev in saved if "account" in ev]
+
+
+def test_steps_of_a_private_database_are_saved_in_data_private_only(
+    named_db: Path, tmp_path: Path
+) -> None:
+    c = connect_readonly(named_db)
+    with pytest.raises(ValueError, match="data/private"):
+        precompute(c, SECRET_ACCOUNT, DAYS[:1], tmp_path / "snap.jsonl", futures=FUTURES)
+    assert not (tmp_path / "snap.jsonl").exists() and not (tmp_path / "snap.meta.json").exists()
+    inside = named_db.parent / "tm" / "snap.jsonl"
+    assert precompute(c, SECRET_ACCOUNT, DAYS[:1], inside, futures=FUTURES) == 1
+    c.close()
+
+
+def test_the_meta_file_carries_versions_and_a_resume_across_versions_is_refused(
+    conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    from lookahead.recurring_store import LOGIC_VERSION
+    from lookahead.timemachine import STEP_FORMAT
+
+    out = tmp_path / "snap.jsonl"
+    precompute(conn, PID, DAYS[:1], out, futures=FUTURES)
+    meta = json.loads(out.with_suffix(".meta.json").read_text(encoding="utf-8"))
+    assert meta["format"] == STEP_FORMAT and meta["logic"] == LOGIC_VERSION
+    meta["logic"] = LOGIC_VERSION - 1  # made by older code
+    out.with_suffix(".meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(ValueError, match="older version"):
+        precompute(conn, PID, DAYS[:2], out, futures=FUTURES)
+    out.with_suffix(".meta.json").write_text(json.dumps({"futures": FUTURES, "method": "weekday"}),
+                                             encoding="utf-8")  # fmt: skip
+    with pytest.raises(ValueError, match="older version"):  # before versions were recorded
+        precompute(conn, PID, DAYS[:2], out, futures=FUTURES)

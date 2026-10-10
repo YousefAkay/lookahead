@@ -14,6 +14,11 @@ What it deliberately does not do:
   model that does would have to be retrained inside the replay on rows up to each date.
 
 Dates must be given in increasing order (the alert record depends on the order).
+
+A saved step holds counts, cents and dates only: no account name, no item or series names, no
+series keys. Steps made from a database in data/private are saved in data/private only, and a
+saved file carries the format and logic version it was made with (a resume across versions is
+refused).
 """
 
 import json
@@ -38,9 +43,12 @@ from lookahead.db import SCHEMA
 from lookahead.forecast.path import Forecast, build_forecast
 from lookahead.forecast.simulate import N_FUTURES
 from lookahead.forecast.start import HORIZON_DAYS
+from lookahead.merchants import is_private_path
+from lookahead.recurring_store import LOGIC_VERSION
 
 MIN_HISTORY = timedelta(weeks=8)  # the weekday baseline needs eight weeks behind the date
 METHOD = "weekday"
+STEP_FORMAT = 2  # 2: the saved evidence keeps no account name, item names or series keys
 
 
 @dataclass(frozen=True)
@@ -127,9 +135,24 @@ def _steps(
         )  # fmt: skip
 
 
+def _saved_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {"day": item["day"], "cents": item["cents"], "basis": item["basis"]}
+
+
+def saved_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    """The alert evidence as it may be saved: counts, cents and dates only. The account name, the
+    names and series keys of placed payments and the group names of big events are left out."""
+    out = {k: v for k, v in evidence.items() if k != "account"}
+    out["largest_payments"] = [_saved_item(i) for i in evidence["largest_payments"]]
+    out["assumption_items"] = [_saved_item(i) for i in evidence["assumption_items"]]
+    out["big_events"] = [{k: v for k, v in e.items() if k != "group"}
+                         for e in evidence["big_events"]]  # fmt: skip
+    return out
+
+
 def step_to_dict(step: Step) -> dict[str, Any]:
     """A step as plain data, to save for a demo. It says which date the data runs to, and holds no
-    text from the data (no merchant names, no series keys)."""
+    text from the data (no account name, no merchant or series names, no series keys)."""
     forecast, sim = step.forecast, step.forecast.simulation
     assert sim is not None
     snap = step.snapshot
@@ -161,7 +184,7 @@ def step_to_dict(step: Step) -> dict[str, Any]:
                 "buffer_cents": snap.buffer_cents,
                 "median_lowest_cents": snap.median_lowest_cents,
             },
-            "evidence": None if snap is None else build_evidence(forecast),
+            "evidence": None if snap is None else saved_evidence(build_evidence(forecast)),
         },
     }  # fmt: skip
 
@@ -180,17 +203,33 @@ def _restore_alerts(account: str, saved: list[dict[str, Any]]) -> sqlite3.Connec
     return alerts
 
 
+def _is_private_db(conn: sqlite3.Connection) -> bool:
+    """True if the main database of `conn` is a file inside data/private."""
+    files = [row[2] for row in conn.execute("PRAGMA database_list") if row[1] == "main"]
+    return bool(files and files[0]) and is_private_path(Path(files[0]))
+
+
 def precompute(
     conn: sqlite3.Connection, account: str, dates: Sequence[date], out_path: Path,
     futures: int = N_FUTURES, method: str = METHOD, key: bytes | None = None,
 ) -> int:  # fmt: skip
     """Save a step for each date as one JSON line, resuming where an earlier run stopped (dates
     already saved are skipped, and the alert record is rebuilt from them). Returns how many were
-    newly made. New dates must come after the saved ones."""
-    settings = {"futures": futures, "method": method}
+    newly made. New dates must come after the saved ones.
+
+    Steps of a database in data/private are saved in data/private only. The meta file records
+    the settings and the format and logic versions; saved steps from another version are never
+    continued."""
+    if _is_private_db(conn) and not is_private_path(out_path):
+        raise ValueError("steps of a private database are saved in data/private/ only")
+    settings = {"futures": futures, "method": method, "format": STEP_FORMAT,
+                "logic": LOGIC_VERSION}  # fmt: skip
     meta_path = out_path.with_suffix(".meta.json")
     if meta_path.exists():
-        if json.loads(meta_path.read_text(encoding="utf-8")) != settings:
+        saved = json.loads(meta_path.read_text(encoding="utf-8"))
+        if (saved.get("format"), saved.get("logic")) != (STEP_FORMAT, LOGIC_VERSION):
+            raise ValueError("these snapshots were made with an older version: make them again")
+        if saved != settings:
             raise ValueError("these snapshots were made with different settings")
     else:
         out_path.parent.mkdir(parents=True, exist_ok=True)
