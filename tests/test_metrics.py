@@ -296,6 +296,36 @@ def test_a_dip_soon_after_an_episode_that_began_before_the_first_origin_is_not_n
     assert shortfall_episodes(records) == []
 
 
+def two_windows(gap_days: int, below: list[date]) -> list[dict]:  # type: ignore[type-arg]
+    """Two records whose 30-day windows leave `gap_days` unobserved days between them."""
+    a = date(2026, 1, 5)
+    b = a + timedelta(days=30 + gap_days)
+
+    def window(origin: date) -> list[int]:
+        return [5_000 if origin + timedelta(days=k + 1) in below else 50_000 for k in range(30)]
+
+    return [rec(origin=a, realized=window(a)), rec(origin=b, realized=window(b))]
+
+
+def test_two_dips_with_5_unobserved_days_between_them_are_two_episodes() -> None:
+    a = date(2026, 1, 5)
+    # below on the last two days of the first window and the first two of the second, with five
+    # days nobody observed in between: not one long run
+    below = [a + timedelta(days=d) for d in (29, 30, 36, 37)]
+    assert shortfall_episodes(two_windows(5, below)) == [a + timedelta(days=29),
+                                                         a + timedelta(days=36)]  # fmt: skip
+
+
+def test_an_unobserved_day_is_never_merged_across_even_within_three_days() -> None:
+    a = date(2026, 1, 5)
+    below = [a + timedelta(days=d) for d in (30, 32)]  # one unobserved day (31) between
+    assert shortfall_episodes(two_windows(1, below)) == [a + timedelta(days=30),
+                                                         a + timedelta(days=32)]  # fmt: skip
+    later = [a + timedelta(days=d) for d in (29, 33)]  # day 30 above, 31-32 unobserved
+    assert shortfall_episodes(two_windows(2, later)) == [a + timedelta(days=29),
+                                                         a + timedelta(days=33)]  # fmt: skip
+
+
 # --- Alerts ---
 
 

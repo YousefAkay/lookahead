@@ -191,7 +191,11 @@ def shortfall_episodes(records: list[Record]) -> list[date]:
     """The first day of each shortfall episode of one persona: a run of days below the buffer,
     joined to the next run when at most MERGE_GAP_DAYS days at or above the buffer lie between
     them. An episode that began on or before the first origin is not counted, and a dip soon after
-    it is part of it."""
+    it is part of it.
+
+    Calendar days are walked one by one (DECISIONS.md, 2026-10-12, R4): a day that no window
+    observed ends a run below the buffer, and a dip after such days is a new episode, never
+    merged with one before them."""
     ordered = sorted(records, key=lambda x: x["origin"])
     buffer = ordered[0]["buffer_cents"]
     daily = daily_realized(ordered)
@@ -199,17 +203,25 @@ def shortfall_episodes(records: list[Record]) -> list[date]:
     previous_below = ordered[0]["start_balance_cents"] < buffer
     # each episode: [first day or None if it began before the first origin, last day below]
     runs: list[list[date | None]] = [[None, days[0] - timedelta(days=1)]] if previous_below else []
-    for day in days:
+    unobserved = False  # an unobserved day since the last run began: no merging across it
+    day = days[0]
+    while day <= days[-1]:
+        if day not in daily:
+            previous_below, unobserved = False, True
+            day += timedelta(days=1)
+            continue
         below = daily[day] < buffer
         if below and not previous_below:
             last = runs[-1][1] if runs else None
-            if last is not None and (day - last).days - 1 <= MERGE_GAP_DAYS:
+            if last is not None and not unobserved and (day - last).days - 1 <= MERGE_GAP_DAYS:
                 runs[-1][1] = day
             else:
                 runs.append([day, day])
+            unobserved = False
         elif below:
             runs[-1][1] = day
         previous_below = below
+        day += timedelta(days=1)
     return [first for first, _ in runs if first is not None]  # type: ignore[misc]
 
 
