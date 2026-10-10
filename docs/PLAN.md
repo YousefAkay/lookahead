@@ -24,7 +24,7 @@ A local-first cashflow planner: import bank CSVs, forecast the chequing balance,
 Privacy
 - Real data and anything derived from it (databases, trained models, caches holding merchant names) lives only in `data/private/`. Code that writes such files refuses other paths.
 - Tests never read private files. They use temporary paths and synthetic data.
-- Reports on real data print counts only.
+- Reports on real data: aggregate metrics over many forecasts may be printed in my terminal and shared in prompts; never rows, dates, names or individual transaction amounts, and never written into the repository (rule of 2026-10-12, replacing "counts only").
 - Anything leaving `data/private/` is pseudonymized first.
 - The LLM fallback is off by default, opt-in, and is sent the merchant name of a card purchase only: no amounts, dates or people's names. Claude Haiku 4.5 pinned, temperature 0, cached.
 - The app listens on localhost only and opens databases read-only.
