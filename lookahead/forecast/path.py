@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from lookahead.flows import Flow, Txn, flow_types
+from lookahead.forecast.recurring_filter import RecurringFix, possibly_ended_keys
 from lookahead.forecast.schedule import ScheduledItem, scheduled_items
 from lookahead.forecast.simulate import (
     N_FUTURES,
@@ -88,6 +89,9 @@ class ForecastOptions:
     outflow_placements: bool = False
     outflow_rule: str = "earliest"
     proposal_key: bytes | None = None
+    # The recurring-placement fix (DECISIONS.md, 2026-10-12): (b) a series whose last payment is
+    # more than 1.5 periods back is "possibly ended" and not placed. None: off.
+    recurring_fix: RecurringFix | None = None
 
 
 DEFAULT_OPTIONS = ForecastOptions()
@@ -209,8 +213,12 @@ def build_forecast(
         )
     planned = planned_as_of(conn, account, as_of)
     received = received_planned(conn, account, planned, start.data_last_updated)
+    placeable = series
+    if options.recurring_fix is not None and options.recurring_fix.possibly_ended:
+        ended = possibly_ended_keys(series, posted, start.data_last_updated)
+        placeable = [s for s in series if s.key not in ended]  # their rows stay in `in_series`
     items = scheduled_items(
-        series, posted, start, [p for p in planned if p.item_id not in received]
+        placeable, posted, start, [p for p in planned if p.item_id not in received]
     )  # a received item is in the balance already: placing it again would count it twice
     proposed = _proposals(conn, account, as_of, txns, flows, in_series, start, rows, options, key)
     items = sorted([*items, *proposed.items], key=lambda i: (i.day, i.series_key))
