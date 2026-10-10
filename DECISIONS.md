@@ -967,6 +967,24 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 - Changed after one trial run: one name in the first-names list also matched the product names of AI tools mentioned in older entries, so it left that list and those mentions got their own section (masked like the rest). Nothing else was tuned.
 - It is a heuristic. A clean section is not proof that nothing is there.
 
+### LightGBM spending model (branch `lightgbm-prototype`, experiment only): design, written before training
+- **What it predicts:** cumulative everyday spending D(t, h) from the day after the origin t through h days later, the same stream the weekday baseline forecasts (card purchases, cash, transfers and bill payments in no series, less returns; big one-time rows and pass-throughs left out). A direct model per horizon: one row per origin and horizon, h in {7, 14, 21, 30}, the horizon as a feature, and D for the days in between interpolated linearly from D(t, 0) = 0.
+- **What happened** (the target): the same stream classified as of t + 30 (recurring series and the big-row rule as of the end of the window), summed over the h days after t.
+- **Features, all known at t:** trailing spending over 7, 28 and 56 days; the standard deviation of daily spending over 28 days and of the last 8 weekly totals; how many of each weekday fall in the horizon; days until the next expected payday and the number of expected paydays in the horizon (from the income series detected by t; none: 60 and 0); balance minus buffer at t; the month of t; h.
+- **Normalization:** spending features, balance minus buffer and the target are divided by the persona's own trailing median weekly spending (the median of the last 8 weekly totals, at t; if that is 0, their mean; if that is 0 too, $1).
+- **Model:** LightGBM, fixed settings, no tuning: 300 trees, learning rate 0.05, 15 leaves, at least 50 rows a leaf, 80 percent of rows and of features per tree, seed 0. An L1 objective for the middle, and quantile objectives at 10 and 90 percent for a band of D.
+- **Training and evaluation:** pooled across the development personas, leave one persona out, with a 30-day gap: for a test persona and test origin t, the model is trained on the other 19 personas' rows whose origin is at least 30 days before t (so every target window used ends by t). Training rows come from every day from eight weeks after the history starts; test origins are the 40 backtest Mondays, kept only when at least 28 days of training origins exist before the gap (so about the last 31). The baseline is scored on the same test origins.
+- **Compared with the weekday baseline on:** the mean absolute error of D at 7, 14 and 30 days; the balance error at 7, 14 and 30 days and the lowest-balance error of the single-path forecast with each spending path (same recurring payments and fees); and the coverage and width of the 10th-90th band of D at 7, 14 and 30 days (baseline band: 500 draws of the same weekly blocks the forecaster uses). Per archetype too.
+- **Rule, fixed now:** LightGBM becomes a candidate only if its error of D at 30 days is at least 5 percent lower than the baseline's and its error at 7 days is not higher. Otherwise the baseline stays, and I say so. Development personas only; nothing merged.
+
+### LightGBM spending model: result (leave one persona out, 30-day gap; experiment only)
+640 test origins (the 32 backtest Mondays from 2026-01-26, 20 development personas), 22,296 training rows. Table in `docs/results/lightgbm_2026-10-10.md` (on the branch).
+- Error of everyday spending D at 7 / 14 / 30 days: weekday baseline $95 / $140 / $229, LightGBM $116 / $170 / $275. LightGBM is worse at every horizon and in 7 of 8 archetypes at 30 days (DHOME is the exception: $230 against $236).
+- Balance error of the single-path forecast: $511 / $1,017 / $1,672 against $523 / $1,025 / $1,688. Lowest balance: about the same ($357 / $822 against $356 / $819). Spending is a small part of the balance error; the big parts are the ones in the diagnosis.
+- Band of D: the baseline's weekly draw covers 72 / 73 / 67 percent at 7 / 14 / 30 days, LightGBM's quantile models 63 / 60 / 63 percent.
+- **By the rule fixed before training, the weekday baseline stays.** No setting was changed after seeing these numbers.
+- Kept: the baseline. Only these two entries are on main; the code, its test and the results file stay on the branch `lightgbm-prototype`, which is kept for now and not merged.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
