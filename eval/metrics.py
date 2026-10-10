@@ -26,13 +26,14 @@ from eval.backtest import (
     DEFAULT_OUT,
     FORMAT,
     LOGIC,
+    format_of,
     history_bucket,
     read_records,
     split_by_shortfall,
 )
 from lookahead.alerts import Snapshot, episodes, record_snapshot
 from lookahead.db import SCHEMA
-from lookahead.generator.archetypes import HELD_OUT
+from lookahead.generator.archetypes import ALL_HELD_OUT, is_long
 
 HORIZONS = (7, 14, 30)
 BIN_EDGES = 5  # reliability bins: 0-20, 20-40, 40-60, 60-80, 80-100 percent
@@ -55,11 +56,17 @@ def load_records(out_dir: Path, final_test: bool = False) -> list[Record]:
     """Every saved record. Refuses results from an older version, and held-out personas unless
     this is the final test."""
     records = read_records(out_dir)
-    if any(r.get("format") != FORMAT or r.get("logic") != LOGIC for r in records):
+
+    def expected(r: Record) -> int | str:
+        return format_of(r["persona"]) if r["dataset"] == "synthetic" else FORMAT
+
+    if any(r.get("format") != expected(r) or r.get("logic") != LOGIC for r in records):
         raise ValueError(f"the results in {out_dir} are from an older version: run them again")
+    if len({is_long(r["persona"]) for r in records if r["dataset"] == "synthetic"}) > 1:
+        raise ValueError("the 12-month and the 24-month sets are never pooled")
     held = sorted({
         r["persona"] for r in records
-        if r.get("held_out") or (r["dataset"] == "synthetic" and r["persona"] in HELD_OUT)
+        if r.get("held_out") or (r["dataset"] == "synthetic" and r["persona"] in ALL_HELD_OUT)
     })  # fmt: skip
     if held and not final_test:
         raise ValueError(f"held-out personas are only for the final test: {', '.join(held)}")
@@ -228,17 +235,45 @@ def _snapshot(record: Record) -> Snapshot:
     )  # fmt: skip
 
 
-def _alert_episodes(records: list[Record], threshold: float, median_rule: bool) -> list[date]:
-    """The dates (origins) at which the app's alert engine opened an alert episode, feeding it
-    this persona's records in order."""
+def _alert_spans(
+    records: list[Record], threshold: float, median_rule: bool
+) -> list[tuple[date, date | None]]:  # fmt: skip
+    """(opened, closed) of every alert episode the app's alert engine made, feeding it this
+    persona's records in order; closed is None while still open after the last record."""
     store = sqlite3.connect(":memory:")
     store.executescript(SCHEMA)
     for r in sorted(records, key=lambda x: x["origin"]):
         snap = _snapshot(r) if alert_condition(r, threshold, median_rule) else None
         record_snapshot(store, "p", snap, date.fromisoformat(r["origin"]), {} if snap else None)
-    opened = [e.opened_on for e in episodes(store, "p")]
+    spans = [(e.opened_on, e.closed_on) for e in episodes(store, "p")]
     store.close()
-    return sorted(opened)
+    return sorted(spans)
+
+
+def _alert_episodes(records: list[Record], threshold: float, median_rule: bool) -> list[date]:
+    """The dates (origins) at which the app's alert engine opened an alert episode, feeding it
+    this persona's records in order."""
+    return [opened for opened, _ in _alert_spans(records, threshold, median_rule)]
+
+
+def is_on(span: tuple[date, date | None], day: date) -> bool:
+    """An alert episode is on at `day` from the day it opened until the day it closed; the look
+    that closed it said "no alert", so the closing day is not on."""
+    opened, closed = span
+    return opened <= day and (closed is None or day < closed)
+
+
+def caught_on_ahead(
+    first_day: date, spans: list[tuple[date, date | None]], ordinary: list[date]
+) -> list[date]:  # fmt: skip
+    """The new definition (DECISIONS.md 2026-10-11, step 1): the ordinary origins O, earliest
+    first, with O < first_day, first_day - O <= 30 days, and an alert on at O. `spans` must be
+    the episodes that opened at ordinary origins: one that opened while already in shortfall
+    never counts."""
+    return [
+        o for o in ordinary
+        if o < first_day and (first_day - o).days <= 30 and any(is_on(s, o) for s in spans)
+    ]  # fmt: skip
 
 
 def alert_metrics(
@@ -249,6 +284,9 @@ def alert_metrics(
     counted on their own."""
     totals: Counter[str] = Counter()
     leads: list[int] = []
+    leads_on: list[int] = []
+    caught_days: list[tuple[str, str]] = []  # (persona, first day) of each caught episode
+    caught_on_days: list[tuple[str, str]] = []
     by_bucket: dict[str, Counter[str]] = {}
     personas: dict[str, list[Record]] = {}
     for r in records:
@@ -260,12 +298,15 @@ def alert_metrics(
         totals["ordinary_origins"] += sum(not r["in_shortfall_at_origin"] for r in rows)
         totals["already"] += sum(r["in_shortfall_at_origin"] for r in rows)
         opened_ordinary: list[date] = []
-        for opened in _alert_episodes(rows, threshold, median_rule):
+        spans_ordinary: list[tuple[date, date | None]] = []
+        ordinary_days = sorted(d for d, r in at.items() if not r["in_shortfall_at_origin"])
+        for opened, closed in _alert_spans(rows, threshold, median_rule):
             origin = at[opened]
             if origin["in_shortfall_at_origin"]:
                 totals["alerts_while_in_shortfall"] += 1
                 continue
             opened_ordinary.append(opened)
+            spans_ordinary.append((opened, closed))
             totals["alert_episodes"] += 1
             false = origin["realized_first_below_buffer"] is None
             totals["false"] += false
@@ -277,6 +318,12 @@ def alert_metrics(
             if ahead:
                 totals["caught"] += 1
                 leads.append((first_day - min(ahead)).days)
+                caught_days.append((rows[0]["persona"], first_day.isoformat()))
+            on = caught_on_ahead(first_day, spans_ordinary, ordinary_days)
+            if on:
+                totals["caught_on"] += 1
+                leads_on.append((first_day - on[0]).days)
+                caught_on_days.append((rows[0]["persona"], first_day.isoformat()))
     ordinary = totals["ordinary_origins"]
     alerts = totals["alert_episodes"]
     return {
@@ -284,6 +331,11 @@ def alert_metrics(
         "ordinary_origins": ordinary, "already_in_shortfall_origins": totals["already"],
         "shortfall_episodes": totals["shortfall"], "caught": totals["caught"],
         "missed": totals["shortfall"] - totals["caught"], "lead_times": sorted(leads),
+        # The new definition, "on ahead": an alert on at an ordinary origin ahead of the dip.
+        "caught_on": totals["caught_on"], "missed_on": totals["shortfall"] - totals["caught_on"],
+        "lead_times_on": sorted(leads_on),
+        "caught_episodes": sorted(caught_days), "caught_on_episodes": sorted(caught_on_days),
+        "recall_on": totals["caught_on"] / totals["shortfall"] if totals["shortfall"] else None,
         "alert_episodes": alerts, "false_alerts": totals["false"],
         "alerts_while_in_shortfall": totals["alerts_while_in_shortfall"],
         "recall": totals["caught"] / totals["shortfall"] if totals["shortfall"] else None,
@@ -359,14 +411,22 @@ def _alert_rows(m: dict[str, Any]) -> list[tuple[str, str]]:
             f"({m['ordinary_origins']} ordinary)",
         ),  # fmt: skip
         ("Shortfall episodes (ordinary origins)", str(m["shortfall_episodes"])),
-        ("Caught / missed", f"{m['caught']} / {m['missed']}"),
-        ("Recall (caught / shortfall episodes)", _pct(m["recall"])),
+        ("Caught / missed, opened ahead (original)", f"{m['caught']} / {m['missed']}"),
+        ("Recall (caught / shortfall episodes), opened ahead (original)", _pct(m["recall"])),
+        ("Caught / missed, on ahead (new)", f"{m['caught_on']} / {m['missed_on']}"),
+        ("Recall (caught / shortfall episodes), on ahead (new)", _pct(m["recall_on"])),
         ("Alert episodes / false", f"{m['alert_episodes']} / {m['false_alerts']}"),
         ("Precision (alert episodes that were not false)", _pct(m["precision"])),
         ("False alerts per 30 days", _num(m["false_per_30_days"])),
         (
-            "Lead time, days: mean (median)",
+            "Lead time, days: mean (median), opened ahead (original)",
             "-" if not leads else f"{_mean(leads):.1f} ({statistics.median(leads):.1f})",
+        ),  # fmt: skip
+        (
+            "Lead time, days: mean (median), on ahead (new)",
+            "-"
+            if not m["lead_times_on"]
+            else f"{_mean(m['lead_times_on']):.1f} ({statistics.median(m['lead_times_on']):.1f})",
         ),  # fmt: skip
         ("Already in shortfall at the origin: origins", str(m["already_in_shortfall_origins"])),
         ("Alerts raised while already in shortfall", str(m["alerts_while_in_shortfall"])),

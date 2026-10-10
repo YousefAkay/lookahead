@@ -10,6 +10,9 @@ date (rule zero):
   payment of a series that is only detected moves by one of its own past offsets (days early or
   late). Confirmed and entered dates stay where they are.
 - Fees at their recent daily average, the same in every future.
+- Random lump arrivals, only when that option is on (off by default; DECISIONS.md 2026-10-11):
+  each forecast day gets a lump with the observed daily rate of lumps, its size drawn from the
+  observed lump sizes, from the future's own "lumps" stream. Lumps are irregular deposits.
 
 Common random numbers: every week and every placed payment draws from its own stream, named by
 the seed, the future and what is being drawn. Changing one payment, or the spending in a period,
@@ -25,7 +28,7 @@ at least one day. It is what the futures say, not a tuned number.
 
 import random
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from lookahead.forecast.schedule import MOVED_NOTE, OVERDUE_MARK, ScheduledItem
@@ -157,6 +160,13 @@ class SimulationInputs:
     arrivals_in_sizes: tuple[int, ...] = ()
     arrivals_out_rate: float = 0.0
     arrivals_out_sizes: tuple[int, ...] = ()
+    # Random lump arrivals (an option, off by default): the chance of a lump on any forecast day
+    # and the observed lump sizes in cents. A rate of 0 draws nothing.
+    lump_rate: float = 0.0
+    lump_sizes: tuple[int, ...] = ()
+    # Proposals (an option, off by default): series key -> (days before, days after) its placed
+    # day inside which the day is drawn uniformly in each future. Empty: nothing changes.
+    item_windows: Mapping[str, tuple[int, int]] = field(default_factory=dict)
 
 
 def simulate(
@@ -209,7 +219,14 @@ def run(
         scheduled = [0] * horizon
         for item in inputs.items:
             stream = _stream(seed, future, "item", item.series_key, item.slot or item.day)
-            day = sample_item_day(item, by_key.get(item.series_key), inputs.posted, start, stream)
+            window = inputs.item_windows.get(item.series_key)
+            if window is not None and item.note != MOVED_NOTE:
+                offset = stream.randint(-window[0], window[1])
+                day = max(item.day + timedelta(days=offset), start.first_day)
+            else:
+                day = sample_item_day(
+                    item, by_key.get(item.series_key), inputs.posted, start, stream
+                )
             k = (day - start.first_day).days
             if 0 <= k < horizon:
                 scheduled[k] += item.cents
@@ -224,6 +241,11 @@ def run(
             spend, dep = weeks_stream.choice(pool) if pool else ((0,) * BLOCK, (0,) * BLOCK)
             spend_daily += spend
             dep_daily += dep
+        if inputs.lump_rate > 0 and inputs.lump_sizes:
+            lumps = _stream(seed, future, "lumps")  # its own stream: no other draw moves
+            for k in range(horizon):
+                if lumps.random() < inputs.lump_rate:  # at most one lump a day
+                    dep_daily[k] += lumps.choice(inputs.lump_sizes)
         money = spent = money_in = 0
         a: list[int] = []
         b: list[int] = []

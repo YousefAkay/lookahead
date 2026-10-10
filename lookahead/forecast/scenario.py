@@ -10,8 +10,8 @@ happen. Nothing here is saved; the controls are:
   thing, entered on the Forecast page);
 - money in arriving N days later (income series and planned deposits);
 - moving a bill or planned payment to another day;
-- no other money expected: irregular deposits off, so only income series, planned deposits and
-  deposits added here count as money in.
+- no other money expected: irregular deposits off (random lump arrivals too, when that option is
+  on), so only income series, planned deposits and deposits added here count as money in.
 """
 
 from dataclasses import dataclass, replace
@@ -177,6 +177,7 @@ def run_scenario(forecast: Forecast, scenario: Scenario) -> ScenarioResult:
         inputs, items=tuple(items),
         deposits_daily={} if scenario.no_other_money else inputs.deposits_daily,
         arrivals_in_rate=0.0 if scenario.no_other_money else inputs.arrivals_in_rate,
+        lump_rate=0.0 if scenario.no_other_money else inputs.lump_rate,
     )  # fmt: skip
     cut = scenario.spending.cut() if scenario.spending is not None else None
     return ScenarioResult(run(inputs), run(modified_inputs, cut), scenario.describe())

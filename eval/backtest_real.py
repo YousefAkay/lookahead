@@ -4,6 +4,9 @@
     python -m eval.backtest_real                # every weekly origin that fits, 500 futures
     python -m eval.backtest_real --paths        # the same, also keeping every future's daily
                                                 # balance (for eval.calibrate apply)
+    python -m eval.backtest_real --arm 1        # an arm of the 2026-10-11 plan (1: random lump
+                                                # arrivals; 2: every lump proposal confirmed),
+                                                # saved to data/private/backtest/arms/arm<n>
 
 The quick run saves to data/private/backtest/quick and the full run to data/private/backtest/full,
 so the two never meet (their settings differ). A run with --paths saves to
@@ -44,7 +47,9 @@ from eval.backtest import (
     version_settings,
 )
 from lookahead.db import connect_readonly
+from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions
 from lookahead.forecast.spending import DEFAULT_KEEPS, KeepsComing
+from lookahead.pseudonymize import pseudonym_key
 from lookahead.ui import private_db_path
 from lookahead.views import accounts
 
@@ -64,9 +69,24 @@ def real_origins(first_date: date, last_date: date) -> list[date]:
     return out
 
 
+def real_arm_options(arm: int) -> ForecastOptions:
+    """The forecaster options of an arm on real data: 0 the current forecaster, 1 random lump
+    arrivals, 2 every lump proposal confirmed with random arrivals for the rest (senders keyed by
+    the account holder's own pseudonym key). Arm 3 needs the generator's answer key, and b)
+    stopped at its gate, so those are not offered."""
+    if arm == 0:
+        return DEFAULT_OPTIONS
+    if arm == 1:
+        return ForecastOptions(lump_arrivals=True)
+    if arm == 2:
+        return ForecastOptions(lump_arrivals=True, lump_proposals=True, confirm_all_lumps=True,
+                               proposal_key=pseudonym_key())  # fmt: skip
+    raise ValueError("on real data only arms 0, 1 and 2 can be run")
+
+
 def run_real(
     db_path: Path, out_dir: Path, futures: int, quick: bool = False, paths: bool = False,
-    keeps: KeepsComing | None = DEFAULT_KEEPS,
+    arm: int = 0, keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> dict[str, int]:  # fmt: skip
     """Run every account of the database. Returns counts (accounts, new origins, saved)."""
     archived = 1 if archive_older(out_dir) else 0  # older results are set aside, never mixed in
@@ -74,6 +94,7 @@ def run_real(
     out_dir.mkdir(parents=True, exist_ok=True)
     new = 0
     names = accounts(conn)
+    options = real_arm_options(arm)
     try:
         for number, account in enumerate(names, start=1):
             first, last = conn.execute(
@@ -84,17 +105,22 @@ def run_real(
             if quick:
                 days = days[:: max(1, len(days) // 4)][:4]
             path = out_dir / f"account-{number}.jsonl"
-            _check_settings(
-                out_dir / f"account-{number}.meta.json",
-                {"futures": futures, "method": "weekday", **version_settings(),
-                 **({"keeps_coming": keeps_name(keeps)} if keeps else {})},
-            )  # fmt: skip
+            settings: dict[str, Any] = {"futures": futures, "method": "weekday",
+                                        **version_settings()}  # fmt: skip
+            if arm:
+                settings["arm"] = arm  # an arm never shares a folder with another
+            if keeps:
+                settings["keeps_coming"] = keeps_name(keeps)
+            _check_settings(out_dir / f"account-{number}.meta.json", settings)
             if paths:
-                new += _run_with_paths(conn, account, number, days, futures, out_dir, keeps)
+                new += _run_with_paths(
+                    conn, account, number, days, futures, out_dir, keeps, options
+                )
                 continue
             with path.open("a", encoding="utf-8") as out:
                 for origin in [d for d in days if d.isoformat() not in _saved_origins(path)]:
-                    record = run_origin(conn, account, "real", origin, futures, None, None, keeps)
+                    record = run_origin(conn, account, "real", origin, futures, None, None,
+                                        options, keeps)  # fmt: skip
                     record["persona"] = f"account-{number}"  # the name stays out of the files
                     out.write(json.dumps(record) + "\n")
                     out.flush()
@@ -112,6 +138,7 @@ def run_real(
 def _run_with_paths(
     conn: sqlite3.Connection, account: str, number: int, days: list[date], futures: int,
     out_dir: Path, keeps: KeepsComing | None = DEFAULT_KEEPS,
+    options: ForecastOptions = DEFAULT_OPTIONS,
 ) -> int:  # fmt: skip
     """All origins of one account, then its records and paths written together. Skipped if both
     are there already."""
@@ -122,7 +149,7 @@ def _run_with_paths(
     records, kept = [], []
     for origin in days:
         record, p = run_origin_with_paths(conn, account, "real", origin, futures, None, None,
-                                          keeps=keeps)  # fmt: skip
+                                          keeps=keeps, options=options)  # fmt: skip
         record["persona"] = f"account-{number}"  # the name stays out of the files
         records.append(record)
         kept.append(p)
@@ -168,6 +195,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--futures", type=int, default=None)
     parser.add_argument("--paths", action="store_true",
                         help="keep every future's daily balance (saved to .../paths)")  # fmt: skip
+    parser.add_argument("--arm", type=int, default=0, choices=(0, 1, 2),
+                        help="an arm of the 2026-10-11 plan (.../arms/arm<n>)")  # fmt: skip
     parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default="with-own",
                         help="big money that keeps coming forecast as random arrivals (the "
                              "default, with transfers from my own accounts counted), without "
@@ -181,11 +210,15 @@ def main(argv: list[str] | None = None) -> int:
         print("No database found. Import your exports first.")
         return 1
     futures = args.futures or (QUICK_FUTURES if args.quick else FUTURES)
+    if args.arm and args.paths:
+        print("--arm and --paths are not combined.")
+        return 1
     folder = "paths" if args.paths else "quick" if args.quick else "full"
     keeps = KEEPS_NAMES[args.keeps_coming]
-    base = DEFAULT_OUT / f"keeps-coming-{args.keeps_coming}" if keeps else DEFAULT_OUT
+    root = DEFAULT_OUT / "arms" / f"arm{args.arm}" if args.arm else DEFAULT_OUT
+    base = root / f"keeps-coming-{args.keeps_coming}" if keeps else root
     out = args.out or base / folder  # never the same folder
-    counts = run_real(db_path, out, futures, args.quick, args.paths, keeps)
+    counts = run_real(db_path, out, futures, args.quick, args.paths, args.arm, keeps)
     if counts["archived_older"]:
         print(f"Saved results were from an older version of the backtest: moved them to "
               f"{out / 'older'} and starting fresh.")  # fmt: skip

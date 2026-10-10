@@ -502,3 +502,72 @@ def test_real_results_are_read_from_the_full_folder_when_there_is_one(tmp_path: 
     (tmp_path / "full").mkdir()
     assert real_results_dir(tmp_path) == tmp_path / "full"
     assert real_results_dir(tmp_path / "quick") == tmp_path / "quick"  # named: read as named
+
+
+# --- c) Caught when an alert is on ahead of the dip (DECISIONS.md 2026-10-11, step 1) ---
+
+
+def test_one_alert_open_across_two_dips_catches_the_second_only_under_the_new_definition() -> None:
+    # One episode opened Jan 12 and stays on at every Monday to Feb 9 (the same low each week).
+    on = {date(2026, 1, 12) + timedelta(weeks=k): 0.9 for k in range(5)}
+    first_dip, second_dip = date(2026, 1, 20), date(2026, 2, 25)
+    records = scenario(on, [(first_dip, first_dip + timedelta(days=1)),
+                            (second_dip, second_dip + timedelta(days=1))])  # fmt: skip
+    m = alert_metrics(records)
+    assert m["alert_episodes"] == 1 and m["shortfall_episodes"] == 2
+    assert m["caught"] == 1 and m["caught_on"] == 2  # opened Jan 12: 44 days before Feb 25
+    # lead time: the earliest ordinary origin inside the 30 days with the alert on (Jan 26)
+    assert m["lead_times"] == [(first_dip - date(2026, 1, 12)).days]
+    assert m["lead_times_on"] == sorted([8, (second_dip - date(2026, 1, 26)).days])
+    assert m["recall"] == 0.5 and m["recall_on"] == 1.0
+
+
+def test_an_episode_that_opened_inside_a_shortfall_does_not_count_even_while_it_stays_on() -> None:
+    # Below the buffer Jan 28 to Feb 3: the alert opens at Feb 2 (already in shortfall) and is
+    # still on at Feb 9 and Feb 16, which are ordinary; the dip of Mar 1 is not caught.
+    on = {date(2026, 2, 2): 0.9, date(2026, 2, 9): 0.9, date(2026, 2, 16): 0.9}
+    dips = [(date(2026, 1, 28), date(2026, 2, 3)), (date(2026, 3, 1), date(2026, 3, 2))]
+    m = alert_metrics(scenario(on, dips), median_rule=False)
+    assert m["alerts_while_in_shortfall"] == 1 and m["alert_episodes"] == 0
+    assert m["caught"] == 0 and m["caught_on"] == 0
+
+
+def test_an_origin_already_in_shortfall_is_never_the_origin_that_warns() -> None:
+    # The episode opens at Jan 5 (ordinary) and is still on at Jan 12 and Jan 19, which are
+    # below the buffer (Jan 8 to Jan 20); it closes at Jan 26. The dip of Feb 10 is within 30
+    # days of Jan 12 and Jan 19 only, so it is not caught.
+    on = {date(2026, 1, 5): 0.9, date(2026, 1, 12): 0.9, date(2026, 1, 19): 0.9}
+    dips = [(date(2026, 1, 8), date(2026, 1, 20)), (date(2026, 2, 10), date(2026, 2, 11))]
+    m = alert_metrics(scenario(on, dips))
+    assert m["shortfall_episodes"] == 2
+    assert m["caught_on_episodes"] == [("p", "2026-01-08")]
+    assert m["caught_episodes"] == [("p", "2026-01-08")]
+
+
+def test_the_closing_look_is_not_on() -> None:
+    from eval.metrics import is_on
+
+    assert is_on((date(2026, 1, 5), date(2026, 1, 19)), date(2026, 1, 12))
+    assert not is_on((date(2026, 1, 5), date(2026, 1, 19)), date(2026, 1, 19))
+    assert is_on((date(2026, 1, 5), None), date(2026, 9, 1))
+    assert not is_on((date(2026, 1, 5), None), date(2026, 1, 4))
+
+
+def test_the_new_caught_set_always_contains_the_old_and_nothing_else_changes() -> None:
+    import random
+
+    rng = random.Random(7)
+    first = date(2026, 1, 5)
+    for trial in range(60):
+        dips = []
+        day = first + timedelta(days=rng.randint(1, 10))
+        while day < first + timedelta(days=100):
+            length = rng.randint(1, 6)
+            dips.append((day, day + timedelta(days=length - 1)))
+            day += timedelta(days=length + rng.randint(2, 25))
+        probs = {first + timedelta(weeks=k): rng.choice([0.0, 0.0, 0.3, 0.9]) for k in range(12)}
+        records = scenario(probs, dips, persona=f"t{trial}")
+        for threshold in (0.05, 0.5):
+            m = alert_metrics(records, threshold, median_rule=False)
+            assert set(m["caught_episodes"]) <= set(m["caught_on_episodes"])
+            assert m["caught_on"] >= m["caught"] and m["missed_on"] <= m["missed"]

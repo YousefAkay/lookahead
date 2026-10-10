@@ -2,6 +2,7 @@
 
     python -m eval.persona_report                 # all 30
     python -m eval.persona_report --only v2-SAL-01
+    python -m eval.persona_report --check --set long   # the 24-month set, development only
 
 For each persona: archetype, development or held-out, coverage ratio (regular income over costs),
 the lowest and closing balance of the generated year, and how many of the 40 weekly origins start
@@ -18,9 +19,11 @@ from eval.backtest import origins
 from lookahead.generator.archetypes import (
     END,
     PERSONA_IDS,
-    START,
+    base_id,
     build_persona,
     coverage,
+    development_ids,
+    is_long,
 )
 from lookahead.generator.writer import export_rows, money
 
@@ -43,7 +46,7 @@ class PersonaLine:
 def balances_by_day(persona_id: str, seed: int = SEED) -> tuple[dict[date, int], int, int]:
     """(closing balance of each day with a posting, opening balance, lowest balance)."""
     p = build_persona(persona_id)
-    rows = export_rows(p.persona, START, END, seed)
+    rows = export_rows(p.persona, p.start, END, seed)
     balance = low = p.persona.opening_balance_cents
     by_day: dict[date, int] = {}
     for t in rows:
@@ -65,8 +68,11 @@ def persona_line(persona_id: str, seed: int = SEED) -> PersonaLine:
         known = [d for d in days if d <= origin]
         start = by_day[known[-1]] if known else opening
         below += start < p.buffer_cents
+    # The coverage ratio is defined on a regular term month of the base year; a 24-month persona
+    # has the parameters of its 12-month namesake, so it is that persona's ratio.
+    ratio = coverage(build_persona(base_id(persona_id)).persona).ratio
     return PersonaLine(
-        persona_id, p.archetype, p.held_out, coverage(p.persona).ratio, p.buffer_cents, low,
+        persona_id, p.archetype, p.held_out, ratio, p.buffer_cents, low,
         by_day[days[-1]], below, len(days_origins),
     )  # fmt: skip
 
@@ -136,20 +142,98 @@ def acceptance_checks(lines: list[PersonaLine]) -> list[CheckResult]:
     ]
 
 
+LAST_ORIGIN = date(2026, 8, 31)
+MIN_TUITION_PAYMENTS = 2
+RUNAWAY_CLOSING_CENTS = -2_000_000  # -$20,000: the plan's proposal (DECISIONS.md, step A)
+
+
+def tuition_payments(persona_id: str, by: date = LAST_ORIGIN, seed: int = SEED) -> int | None:
+    """How many tuition payments to the one tuition payee were posted on or before `by`; None if
+    the persona pays no tuition from chequing."""
+    p = build_persona(persona_id)
+    rows = export_rows(p.persona, p.start, END, seed)
+    paid = [t for t in rows if (t.series_id or "").endswith("-tuition")]
+    if not paid:
+        return None
+    assert len({t.merchant for t in paid}) == 1  # one payee
+    return sum(t.posted_date <= by for t in paid)
+
+
+def reconciles(persona_id: str, seed: int = SEED) -> bool:
+    """The generated export imports and its balance chain reconciles (importer PASS)."""
+    import tempfile
+    from datetime import datetime
+    from pathlib import Path
+
+    from lookahead.db import connect
+    from lookahead.generator.writer import write_persona
+    from lookahead.ingest.reconcile import reconcile
+    from lookahead.ingest.scotiabank import parse_export
+    from lookahead.ingest.store import store_exports
+
+    p = build_persona(persona_id)
+    with tempfile.TemporaryDirectory() as folder:
+        export, _ = write_persona(p.persona, Path(folder), seed, p.start, END)
+        conn = connect(Path(folder) / "check.db")
+        try:
+            store_exports(conn, "acct", [(export.name, parse_export(export))],
+                          datetime(2026, 10, 1))  # fmt: skip
+            return reconcile(conn, "acct").ok
+        finally:
+            conn.close()
+
+
+def long_set_gates(lines: list[PersonaLine]) -> list[CheckResult]:
+    """The continue-only-if checks of the 24-month set (DECISIONS.md, 2026-10-11, step A):
+    every development persona reconciles; at most half of those that pay tuition from chequing
+    have fewer than two tuition payments by the last origin; no closing balance below -$20,000."""
+    broken = [ln.persona_id for ln in lines if not reconciles(ln.persona_id)]
+    counts = {ln.persona_id: tuition_payments(ln.persona_id) for ln in lines}
+    payers = {pid: n for pid, n in counts.items() if n is not None}
+    few = [f"{pid}: {n} tuition payment(s) by {LAST_ORIGIN}" for pid, n in payers.items()
+           if n < MIN_TUITION_PAYMENTS]  # fmt: skip
+    runaway = [f"{ln.persona_id}: closing {money(ln.closing_cents)}" for ln in lines
+               if ln.closing_cents < RUNAWAY_CLOSING_CENTS]  # fmt: skip
+    return [
+        CheckResult("Every development persona imports and reconciles", not broken, broken),
+        CheckResult(
+            f"Tuition payers with 2+ payments by {LAST_ORIGIN}: "
+            f"{len(payers) - len(few)} of {len(payers)} (stop if fewer than half)",
+            len(few) * 2 <= len(payers),
+            few,
+        ),  # fmt: skip
+        CheckResult("No closing balance below -$20,000", not runaway, runaway),
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.persona_report", description=__doc__)
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--check", action="store_true", help="run the acceptance checks")
+    parser.add_argument("--set", choices=("12", "long"), default="12",
+                        help="the 12-month mix, or the 24-month set (dev only)")  # fmt: skip
     args = parser.parse_args(argv)
-    lines = [persona_line(pid) for pid in args.only or PERSONA_IDS]
+    long = args.set == "long"
+    ids = args.only or (development_ids(long=True) if long else PERSONA_IDS)
+    if long and [pid for pid in ids if not is_long(pid)]:
+        raise ValueError("--set long takes v2L ids only")
+    lines = [persona_line(pid) for pid in ids]
     for ln in lines:
         print(format_line(ln))
     if args.check:
         print()
-        for result in acceptance_checks(lines):
+        # Check 4 (SAL and SEM unchanged) is about the 12-month mix only.
+        checks = acceptance_checks(lines)[:3] + long_set_gates(lines) if long else (
+            acceptance_checks(lines))  # fmt: skip
+        for result in checks:
             print(f"{'PASS' if result.passed else 'FAIL'}  {result.name}")
             for detail in result.details:
                 print(f"        {detail}")
+        if long:
+            for ln in lines:
+                n = tuition_payments(ln.persona_id)
+                if n is not None:
+                    print(f"  {ln.persona_id}: {n} tuition payments by {LAST_ORIGIN}")
     return 0
 
 

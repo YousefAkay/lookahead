@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from lookahead.db import connect
-from lookahead.generator.archetypes import END, START, MixPersona, assert_development_only
+from lookahead.generator.archetypes import END, MixPersona, assert_development_only
 from lookahead.generator.archetypes import build_persona as _build
 from lookahead.generator.schedules import GeneratedTxn
 from lookahead.generator.writer import export_rows, write_export
@@ -60,7 +60,7 @@ def persona_db(persona_id: str, work_dir: Path, seed: int = 42) -> Iterator[Pers
     folder.mkdir(parents=True, exist_ok=True)
     conn = None
     try:
-        rows = export_rows(persona.persona, START, END, seed)
+        rows = export_rows(persona.persona, persona.start, END, seed)
         export = folder / f"persona_{persona_id}.csv"
         write_export(rows, persona.persona.opening_balance_cents, export)
         conn = connect(folder / "run.db")
