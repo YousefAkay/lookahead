@@ -30,7 +30,7 @@ import plotly.graph_objects as go
 
 from lookahead.db import connect, connect_readonly
 from lookahead.forecast.path import build_forecast
-from lookahead.forecast.scenario import Scenario, ScenarioResult, run_scenario
+from lookahead.forecast.scenario import ExtraItem, Scenario, ScenarioResult, run_scenario
 from lookahead.forecast.simulate import N_FUTURES
 from lookahead.forecast.start import HORIZON_DAYS
 from lookahead.generator.archetypes import (
@@ -158,6 +158,15 @@ def load_steps(directory: Path, pid: str) -> list[dict[str, Any]]:
 def load_balances(directory: Path, pid: str) -> dict[date, int]:
     raw = json.loads((directory / f"{pid}.balances.json").read_text(encoding="utf-8"))
     return {date.fromisoformat(d): c for d, c in raw.items()}
+
+
+def whatif_extra(dollars: float, day: date) -> tuple[ExtraItem, ...]:
+    """The what-if's one added item. The app's sign rule: positive = money in (a deposit),
+    negative = money out (a purchase). Zero adds nothing."""
+    cents = round(dollars * 100)
+    if cents == 0:
+        return ()
+    return (ExtraItem(day, cents, "a deposit" if cents > 0 else "a purchase"),)
 
 
 def moved(dates: list[date], current: date, days: int) -> date:

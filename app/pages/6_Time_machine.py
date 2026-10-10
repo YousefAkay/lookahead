@@ -33,7 +33,7 @@ from app.theme import (  # noqa: E402
     tag_html,
     top_bar,
 )
-from lookahead.forecast.scenario import ExtraItem, Scenario, SpendingChange  # noqa: E402
+from lookahead.forecast.scenario import Scenario, SpendingChange  # noqa: E402
 from lookahead.timemachine_snapshots import (  # noqa: E402
     alert_view,
     available_personas,
@@ -48,6 +48,7 @@ from lookahead.timemachine_snapshots import (  # noqa: E402
     snapshot_dir,
     step_chart,
     step_low,
+    whatif_extra,
 )
 from lookahead.ui import DISCLAIMER  # noqa: E402
 
@@ -187,11 +188,11 @@ with what_if, st.container(border=True, key="card-whatif"):
         cut = st.number_input("Spend less on everyday things (percent, next 30 days)", 0, 100, 0,
                               step=5, key="tm_cut")  # fmt: skip
         extra = st.number_input(
-            "One purchase (+) or deposit (−) in a week ($)",
+            "One deposit (+) or purchase (−) in a week ($)",
             value=0.0,
             step=50.0,
             key="tm_extra",
-            help="A positive amount is money out, a negative one money in.",
+            help="A positive amount is money in, a negative one money out.",
         )
         late = st.number_input("Money in arrives this many days later", 0, 60, 0, key="tm_late")
         no_other = st.checkbox("No other money coming", key="tm_no_other")
@@ -201,9 +202,7 @@ with what_if, st.container(border=True, key="card-whatif"):
             scenario = Scenario(
                 spending=None if cut == 0 else SpendingChange(first_day, last_day,
                                                               percent=float(cut)),
-                extras=() if extra == 0 else (
-                    ExtraItem(as_of + timedelta(days=7), -round(extra * 100),
-                              "a purchase" if extra > 0 else "a deposit"),),
+                extras=whatif_extra(extra, as_of + timedelta(days=7)),
                 delay_money_in_days=int(late), no_other_money=bool(no_other),
             )  # fmt: skip
             with st.spinner("Running the futures again..."):

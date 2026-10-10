@@ -25,6 +25,7 @@ from lookahead.timemachine_snapshots import (
     scenario_at,
     step_chart,
     step_low,
+    whatif_extra,
 )
 
 PAGE = Path(__file__).resolve().parents[1] / "app" / "pages" / "6_Time_machine.py"
@@ -183,3 +184,12 @@ def test_the_page_steps_through_dates_and_runs_a_what_if(
     at.button[-1].click().run()
     assert not at.exception, at.exception
     assert any("Conditional scenario" in str(m.value) for m in at.markdown)
+
+
+def test_the_what_if_item_follows_the_apps_sign_rule() -> None:
+    day = date(2026, 3, 9)
+    (deposit,) = whatif_extra(50.0, day)
+    assert (deposit.cents, deposit.description) == (5000, "a deposit")  # positive = money in
+    (purchase,) = whatif_extra(-60.25, day)
+    assert (purchase.cents, purchase.description) == (-6025, "a purchase")  # negative = out
+    assert whatif_extra(0.0, day) == ()
