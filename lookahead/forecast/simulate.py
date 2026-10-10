@@ -152,6 +152,11 @@ class SimulationInputs:
     fees_per_day: float = 0.0
     futures: int = N_FUTURES
     seed: int = 0
+    # Big money that keeps coming (DECISIONS.md, 2026-10-11): random arrivals; off at rate 0
+    arrivals_in_rate: float = 0.0
+    arrivals_in_sizes: tuple[int, ...] = ()
+    arrivals_out_rate: float = 0.0
+    arrivals_out_sizes: tuple[int, ...] = ()
 
 
 def simulate(
@@ -169,6 +174,20 @@ def simulate(
                          seed),
         spending_cut,
     )  # fmt: skip
+
+
+def _arrivals(
+    seed: int, future: int, name: str, rate: float, sizes: tuple[int, ...], horizon: int
+) -> list[int]:  # fmt: skip
+    """Each day gets one arrival with chance `rate`, its size drawn from the observed `sizes`.
+    Its own random stream, named by what it is for, so no other draw moves."""
+    out = [0] * horizon
+    if rate > 0 and sizes:
+        stream = _stream(seed, future, name)
+        for k in range(horizon):
+            if stream.random() < rate:
+                out[k] = stream.choice(sizes)
+    return out
 
 
 def run(
@@ -194,6 +213,10 @@ def run(
             k = (day - start.first_day).days
             if 0 <= k < horizon:
                 scheduled[k] += item.cents
+        arrive_in = _arrivals(seed, future, "arrivals-in", inputs.arrivals_in_rate,
+                              inputs.arrivals_in_sizes, horizon)  # fmt: skip
+        arrive_out = _arrivals(seed, future, "arrivals-out", inputs.arrivals_out_rate,
+                               inputs.arrivals_out_sizes, horizon)  # fmt: skip
         weeks_stream = _stream(seed, future, "weeks")
         spend_daily: list[int] = []
         dep_daily: list[int] = []
@@ -209,8 +232,8 @@ def run(
             spend_today = spend_daily[k]
             if spending_cut is not None:
                 spend_today = spending_cut.apply(days[k], spend_today)
-            spent += spend_today
-            money_in += dep_daily[k]
+            spent += spend_today + arrive_out[k]  # a big payment is spending, never cut
+            money_in += dep_daily[k] + arrive_in[k]
             base = start.balance_cents + money - spent - fees[k]
             a.append(base + money_in)
             b.append(base)

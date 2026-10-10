@@ -23,13 +23,16 @@ from lookahead.forecast.simulate import (
     run,
 )
 from lookahead.forecast.spending import (
+    Arrivals,
     BigEvent,
     BreakdownRow,
     DepositWeek,
+    KeepsComing,
     big_events,
     constant_path,
     deposit_weeks,
     deposits_by_day,
+    keeps_coming_arrivals,
     recent_average_path,
     recent_fee_rate,
     spending_breakdown,
@@ -74,6 +77,7 @@ class Forecast:
     deposit_weeks: tuple[DepositWeek, ...] = ()  # the weeks the futures draw deposits from
     inputs: SimulationInputs | None = None  # what the futures were made from (for scenarios)
     received: frozenset[int] = frozenset()  # planned items a real transaction has matched
+    arrivals: Arrivals = Arrivals()  # big money that keeps coming (off unless asked for)
 
     @property
     def large_deposits(self) -> tuple[BigEvent, ...]:
@@ -124,7 +128,7 @@ def project_balance(
 def build_forecast(
     conn: sqlite3.Connection, account: str, method: str = "weekday", as_of: date | None = None,
     key: bytes | None = None, horizon_days: int = HORIZON_DAYS, futures: int = N_FUTURES,
-    keep_paths: bool = False,
+    keep_paths: bool = False, keeps: KeepsComing | None = None,
 ) -> Forecast | None:  # fmt: skip
     """A forecast from what is stored, with no confirmations needed: every active series is used
     as detected unless I changed it. `as_of=None` is a live forecast (all rows, all decisions);
@@ -163,12 +167,16 @@ def build_forecast(
     )  # a received item is in the balance already: placing it again would count it twice
     fee_rate = recent_fee_rate(txns, flows, start.data_last_updated, first_posted)
     fees = constant_path(fee_rate, horizon)
+    arrivals = Arrivals()
+    if keeps is not None:  # big money that keeps coming, forecast as random arrivals
+        arrivals = keeps_coming_arrivals(txns, flows, in_series, start.data_last_updated, keeps)
     simulation = inputs = None
     if futures > 0:
         deposits = deposits_by_day(txns, flows, in_series, start.data_last_updated)
         inputs = SimulationInputs(
             start, tuple(items), tuple(series), posted, daily, deposits, first_posted,
-            safety_buffer_cents(conn), fee_rate, futures,
+            safety_buffer_cents(conn), fee_rate, futures, 0, arrivals.in_rate, arrivals.in_sizes,
+            arrivals.out_rate, arrivals.out_sizes,
         )  # fmt: skip
         simulation = run(inputs, keep_paths=keep_paths)
     return Forecast(
@@ -176,12 +184,13 @@ def build_forecast(
         any(s.direction == "in" and s.active and s.status != "rejected" for s in series),
         safety_buffer_cents(conn), tuple(series),
         tuple(spending_breakdown(txns, flows, in_series, start.data_last_updated, first_posted)),
-        tuple(big_events(txns, flows, in_series, start.data_last_updated)),
+        tuple(big_events(txns, flows, in_series, start.data_last_updated, arrivals.members)),
         fee_rate,
         simulation,
         tuple(planned),
         tuple(deposit_weeks(txns, flows, in_series, start.data_last_updated,
-                            pool_week_starts(start, first_posted))),
+                            pool_week_starts(start, first_posted), arrivals.members)),
         inputs,
         received,
+        arrivals,
     )  # fmt: skip

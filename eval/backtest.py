@@ -31,6 +31,7 @@ from typing import Any
 
 from lookahead.db import connect
 from lookahead.forecast.path import build_forecast
+from lookahead.forecast.spending import KeepsComing
 from lookahead.forecast.start import forecast_start
 from lookahead.generator.archetypes import (
     END,
@@ -58,6 +59,14 @@ FUTURES = 500
 QUICK_FUTURES = 100
 METHOD = "weekday"
 DEFAULT_OUT = Path("data/backtest")
+KEEPS_NAMES = {"with-own": KeepsComing(own_account=True), "without-own": KeepsComing(False)}
+
+
+def keeps_name(keeps: KeepsComing | None) -> str | None:
+    """ "with-own" or "without-own" for a keeps-coming switch, None when it is off."""
+    if keeps is None:
+        return None
+    return "with-own" if keeps.own_account else "without-own"
 
 
 def origins(first: date | None = None, last: date | None = None) -> list[date]:
@@ -149,7 +158,7 @@ def code_version() -> str:
 
 def run_origin(
     conn: sqlite3.Connection, persona_id: str, dataset: str, origin: date, futures: int,
-    archetype: str | None = None, held_out: bool | None = None,
+    archetype: str | None = None, held_out: bool | None = None, keeps: KeepsComing | None = None,
 ) -> dict[str, Any]:  # fmt: skip
     """The forecast made as of `origin` and what really happened afterwards, as one record.
 
@@ -157,20 +166,21 @@ def run_origin(
     realized balances are read afterwards, from later rows, and never go back into the forecast.
     `dataset` is "synthetic" or "real": the two are never mixed in a report."""
     record, _ = run_origin_with_paths(conn, persona_id, dataset, origin, futures, archetype,
-                                      held_out, keep_paths=False)  # fmt: skip
+                                      held_out, keep_paths=False, keeps=keeps)  # fmt: skip
     return record
 
 
 def run_origin_with_paths(
     conn: sqlite3.Connection, persona_id: str, dataset: str, origin: date, futures: int,
     archetype: str | None = None, held_out: bool | None = None, keep_paths: bool = True,
+    keeps: KeepsComing | None = None,
 ) -> tuple[dict[str, Any], tuple[tuple[int, ...], ...]]:  # fmt: skip
     """`run_origin`, and every future's daily balance (for the calibration step)."""
     if dataset == "synthetic" and archetype is None:
         persona = build_persona(persona_id)
         archetype, held_out = persona.archetype, persona.held_out
     forecast = build_forecast(conn, persona_id, METHOD, origin, None, HORIZON, futures,
-                              keep_paths=keep_paths)  # fmt: skip
+                              keep_paths=keep_paths, keeps=keeps)  # fmt: skip
     if forecast is None or forecast.simulation is None:
         raise ValueError(f"no forecast for {persona_id} as of {origin}")
     sim = forecast.simulation
@@ -199,6 +209,8 @@ def run_origin_with_paths(
         "in_shortfall_at_origin": forecast.start.balance_cents < buffer,
         "n_series_detected": sum(1 for s in forecast.series if s.active and s.status != "rejected"),
         "weeks_drawn_from": sim.weeks_drawn_from,
+        "keeps_coming": keeps_name(keeps), "arrivals_in": len(forecast.arrivals.in_sizes),
+        "arrivals_out": len(forecast.arrivals.out_sizes),
         "realized": realized, "realized_lowest_cents": min(realized),
         "realized_first_below_buffer": below[0].isoformat() if below else None,
         "realized_below_zero": min(realized) < 0,
@@ -259,7 +271,7 @@ def _check_settings(meta_path: Path, settings: dict[str, Any]) -> None:
 
 def run_persona(
     persona_id: str, out_dir: Path, days: list[date], futures: int, seed: int, work_dir: Path,
-    allow_held_out: bool = False,
+    allow_held_out: bool = False, keeps: KeepsComing | None = None,
 ) -> int:  # fmt: skip
     """Run the origins `days` for one persona, saving each as it is made. Returns how many were
     newly computed (those already saved are skipped, so a stopped run resumes)."""
@@ -269,8 +281,8 @@ def run_persona(
     out_dir.mkdir(parents=True, exist_ok=True)
     result_path = out_dir / f"{persona_id}.jsonl"
     _check_settings(out_dir / f"{persona_id}.meta.json",
-                    {"futures": futures, "seed": seed, "method": METHOD,
-                     **version_settings()})  # fmt: skip
+                    {"futures": futures, "seed": seed, "method": METHOD, **version_settings(),
+                     **({"keeps_coming": keeps_name(keeps)} if keeps else {})})  # fmt: skip
     todo = [d for d in days if d.isoformat() not in _saved_origins(result_path)]
     if not todo:
         return 0
@@ -287,7 +299,7 @@ def run_persona(
         with result_path.open("a", encoding="utf-8") as out:
             for origin in todo:
                 record = run_origin(conn, persona_id, "synthetic", origin, futures,
-                                    persona.archetype, persona.held_out)  # fmt: skip
+                                    persona.archetype, persona.held_out, keeps)  # fmt: skip
                 out.write(json.dumps(record) + "\n")
                 out.flush()
     finally:
@@ -346,8 +358,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--work", type=Path, default=None, help="where the throw-away databases go")
     parser.add_argument("--summary", action="store_true")
+    parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default=None,
+                        help="forecast big money that keeps coming as random arrivals "
+                             "(own folder)")  # fmt: skip
     args = parser.parse_args(argv)
-    out = args.out or DEFAULT_OUT / ("quick" if args.quick else "full")
+    keeps = KEEPS_NAMES.get(args.keeps_coming or "")
+    base = DEFAULT_OUT / f"keeps-coming-{args.keeps_coming}" if keeps else DEFAULT_OUT
+    out = args.out or base / ("quick" if args.quick else "full")
     if args.summary:
         print_summary(out)
         return 0
@@ -356,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     work = args.work or out / "work"
     ids = select_personas(args.only, args.held_out, args.quick)
     for n, pid in enumerate(ids, start=1):
-        done = run_persona(pid, out, days, futures, args.seed, work, allow_held_out=args.held_out)
+        done = run_persona(pid, out, days, futures, args.seed, work, args.held_out, keeps)
         print(f"[{n}/{len(ids)}] {pid}: {done} new origins", flush=True)
     print_summary(out)
     return 0

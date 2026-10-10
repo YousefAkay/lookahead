@@ -19,7 +19,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from eval.backtest import HORIZON, METHOD, realized_balances
+from eval.backtest import HORIZON, KEEPS_NAMES, METHOD, realized_balances
 from eval.backtest_real import real_origins
 from lookahead.db import connect_readonly
 from lookahead.flows import Flow, Txn, flow_types
@@ -28,13 +28,12 @@ from lookahead.forecast.simulate import BLOCK, pool_week_starts
 from lookahead.forecast.spending import (
     FEE_REASONS,
     FEE_REVERSAL,
-    LARGE_WINDOW_DAYS,
+    KEEPS_EARLIER,
     RETURN_REASONS,
-    TYPICAL_MIN_ROWS,
-    _counted,
-    _money_in,
+    KeepsComing,
+    _similar_earlier,
     _streams,
-    large_cutoff,
+    big_cutoffs,
 )
 from lookahead.recurring_store import series_as_of
 from lookahead.resolve import load_user_decisions
@@ -43,8 +42,8 @@ from lookahead.views import accounts
 
 MATCH_DAYS = 10  # a placed payment and a real row of one series this close are the same payment
 PARTS = (
-    "recurring", "everyday", "irregular", "big_deposits", "big_payments", "fees", "netted",
-    "other_credits", "other_debits", "unexplained", "leftover",
+    "recurring", "everyday", "irregular", "big_deposits", "big_payments", "keeps_in", "keeps_out",
+    "fees", "netted", "other_credits", "other_debits", "unexplained", "leftover",
 )  # fmt: skip
 NAMES = {
     "recurring": "Recurring items",
@@ -52,6 +51,8 @@ NAMES = {
     "irregular": "Irregular deposits under the big cutoff",
     "big_deposits": "Big deposits (set aside, not forecast)",
     "big_payments": "Big payments (set aside, not forecast)",
+    "keeps_in": "Big deposits that keep coming (random arrivals; empty unless switched on)",
+    "keeps_out": "Big payments that keep coming (random arrivals; empty unless switched on)",
     "fees": "Bank fees",
     "netted": "Netted holds",
     "other_credits": "Other credits (not forecast)",
@@ -95,15 +96,7 @@ def cutoffs(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: set[int], as_of: date
 ) -> tuple[int, int]:
     """The big-deposit and big-payment cutoffs the forecaster uses at `as_of` (cents)."""
-    out_rows = _counted(txns, flows, series_rows, as_of)
-    in_rows = _money_in(txns, flows, series_rows, as_of)
-    recent = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
-    everything = [r[2] for r in out_rows + in_rows if r[2] > 0 and r[0].posted_date >= recent]
-    own_in = [c for t, _, c in in_rows if c > 0 and t.posted_date >= recent]
-    own_out = [c for t, _, c in out_rows if c > 0 and t.posted_date >= recent]
-    cut_in = large_cutoff(own_in if len(own_in) >= TYPICAL_MIN_ROWS else everything)
-    cut_out = large_cutoff(own_out if len(own_out) >= TYPICAL_MIN_ROWS else everything)
-    return cut_in, cut_out
+    return big_cutoffs(txns, flows, series_rows, as_of)
 
 
 def part_of(t: Txn, flow: Flow, in_series: bool, cut_in: int, cut_out: int) -> str:
@@ -167,11 +160,13 @@ def recurring_split(
 
 
 def origin_record(
-    conn: Any, account: str, origin: date, futures: int
+    conn: Any, account: str, origin: date, futures: int, keeps: KeepsComing | None = None
 ) -> dict[str, Any]:  # fmt: skip
-    """The parts for one origin: expected and happened (cumulated by day), the two errors split."""
+    """The parts for one origin: expected and happened (cumulated by day), the two errors split.
+    With `keeps` the forecast draws big money that keeps coming as random arrivals, and the rows
+    that would have been such arrivals are counted in their own parts instead of as big."""
     forecast = build_forecast(conn, account, METHOD, origin, None, HORIZON, futures,
-                              keep_paths=True)  # fmt: skip
+                              keep_paths=True, keeps=keeps)  # fmt: skip
     if forecast is None or forecast.simulation is None or forecast.inputs is None:
         raise ValueError("no forecast for this origin")
     sim, start = forecast.simulation, forecast.start
@@ -214,6 +209,15 @@ def origin_record(
         "irregular": cumulate(pool_expectation(deposits, weeks)),
         "fees": cumulate({k: -forecast.fees_per_day for k in range(1, HORIZON + 1)}),
     }
+    arrivals = forecast.arrivals
+    if arrivals.in_sizes:
+        mean_in = sum(arrivals.in_sizes) / len(arrivals.in_sizes)
+        expected["keeps_in"] = cumulate({k: arrivals.in_rate * mean_in
+                                         for k in range(1, HORIZON + 1)})  # fmt: skip
+    if arrivals.out_sizes:
+        mean_out = sum(arrivals.out_sizes) / len(arrivals.out_sizes)
+        expected["keeps_out"] = cumulate({k: -arrivals.out_rate * mean_out
+                                          for k in range(1, HORIZON + 1)})  # fmt: skip
     for part in PARTS:
         expected.setdefault(part, [0.0] * HORIZON)
     series_after, _ = series_as_of(conn, account, end, None)
@@ -223,11 +227,33 @@ def origin_record(
     }  # fmt: skip
     happened_by_day: dict[str, dict[int, float]] = {p: defaultdict(float) for p in PARTS}
     actual = []
+    earlier_in: list[tuple[date, int]] = []
+    earlier_out: list[tuple[date, int]] = []
+    if keeps is not None:  # the rows a "keeps coming" test compares with, from all rows by then
+        for t in all_txns:
+            f = flows_after[t.row_id]
+            if t.row_id in key_of or f.netted:
+                continue
+            if t.amount_cents > 0 and f.flow_type in ("income", "transfer"):
+                if keeps.own_account or f.reason != "own-account transfer":
+                    earlier_in.append((t.posted_date, t.amount_cents))
+            elif t.amount_cents < 0 and (f.flow_type in ("everyday", "transfer")
+                                         or f.reason == "bill payment"):  # fmt: skip
+                earlier_out.append((t.posted_date, -t.amount_cents))
     for t in all_txns:
         if t.posted_date <= origin:
             continue
         flow = flows_after[t.row_id]
         part = part_of(t, flow, t.row_id in key_of, cut_in, cut_out)
+        if keeps is not None and part in ("big_deposits", "big_payments"):
+            own_ok = keeps.own_account or flow.reason != "own-account transfer"
+            row = (t, flow, abs(t.amount_cents))
+            if part == "big_deposits" and own_ok and arrivals.in_sizes:
+                if _similar_earlier(row, earlier_in) >= KEEPS_EARLIER:
+                    part = "keeps_in"
+            elif part == "big_payments" and arrivals.out_sizes:
+                if _similar_earlier(row, earlier_out) >= KEEPS_EARLIER:
+                    part = "keeps_out"
         k = day_index(t.posted_date, origin)
         happened_by_day[part][k] += t.amount_cents
         if part == "recurring":
@@ -429,11 +455,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--limit", type=int, default=None, help="only every n-th origin (quick look)"
     )
+    parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default=None,
+                        help="forecast big money that keeps coming as random arrivals, with or "
+                             "without transfers in from my own accounts")  # fmt: skip
     args = parser.parse_args(argv)
     db_path = args.db or private_db_path()
     if not db_path.exists():
         print("No database found. Import your exports first.")
         return 1
+    keeps = KEEPS_NAMES.get(args.keeps_coming or "")
     conn = connect_readonly(db_path)
     try:
         for number, account in enumerate(accounts(conn), start=1):
@@ -449,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"account-{number}: {len(days)} origins, {args.futures} futures", flush=True)
             records = []
             for n, origin in enumerate(days, start=1):
-                records.append(origin_record(conn, account, origin, args.futures))
+                records.append(origin_record(conn, account, origin, args.futures, keeps))
                 if n % 10 == 0:
                     print(f"  ... {n} of {len(days)}", flush=True)
             for line in report(records, "All origins"):

@@ -176,6 +176,7 @@ def run_scenario(forecast: Forecast, scenario: Scenario) -> ScenarioResult:
     modified_inputs = replace(
         inputs, items=tuple(items),
         deposits_daily={} if scenario.no_other_money else inputs.deposits_daily,
+        arrivals_in_rate=0.0 if scenario.no_other_money else inputs.arrivals_in_rate,
     )  # fmt: skip
     cut = scenario.spending.cut() if scenario.spending is not None else None
     return ScenarioResult(run(inputs), run(modified_inputs, cut), scenario.describe())

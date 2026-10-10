@@ -174,3 +174,27 @@ def test_the_command_prints_summaries_and_no_dates_or_names(
     assert "Irregular deposits" in out
     assert not re.search(r"\d{4}-\d{2}-\d{2}", out)  # no date
     assert "Free Interac" not in out and "credit memo" in out  # types only, no row text
+
+
+@pytest.mark.slow
+def test_with_keeps_coming_on_the_pieces_still_add_up_and_the_new_parts_are_used(
+    synthetic_db: Path,
+) -> None:  # fmt: skip
+    from lookahead.forecast.spending import KeepsComing
+
+    conn = connect_readonly(synthetic_db)
+    seen = {"keeps_in": 0.0, "keeps_out": 0.0}
+    try:
+        for own in (True, False):
+            for origin in (date(2026, 3, 2), date(2026, 6, 1), date(2026, 8, 3)):
+                r = origin_record(conn, "acct", origin, 60, KeepsComing(own_account=own))
+                assert sum(r["error_30"].values()) == pytest.approx(r["total_30"])
+                assert sum(r["error_low"].values()) == pytest.approx(r["lowest_error"])
+                assert all(abs(v) < 1 for v in r["happened_cum"]["unexplained"])
+                for part in seen:
+                    seen[part] += abs(r["expected_cum"][part][-1]) + abs(
+                        r["happened_cum"][part][-1]
+                    )
+    finally:
+        conn.close()
+    assert seen["keeps_in"] > 0  # this persona has big deposits that keep coming

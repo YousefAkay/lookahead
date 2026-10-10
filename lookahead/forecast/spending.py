@@ -72,17 +72,37 @@ def large_cutoff(amounts: Sequence[int]) -> int:
     return max(LARGE_MIN_CENTS, LARGE_TIMES_MEDIAN * (int(median(amounts)) if amounts else 0))
 
 
-def _split_large(
-    rows: list[tuple[Txn, Flow, int]], as_of: date, reference: Sequence[int] | None = None
-) -> tuple[list[tuple[Txn, Flow, int]], list[tuple[Txn, Flow, int]]]:
-    """(kept, big): rows whose size is at least the cutoff of the last 13 weeks go to `big`.
-    The typical row is that of these rows when there are at least 5 of them in the window, else
-    the typical row of `reference` (everything money in and out), because one deposit cannot be
-    judged against itself. Rows older than the window are kept as they are."""
+def window_cutoff(
+    rows: Sequence[tuple[Txn, Flow, int]], as_of: date, reference: Sequence[int] | None = None
+) -> int:
+    """The big-row cutoff of one direction at `as_of`: the typical row is that of these rows over
+    the last 13 weeks when there are at least 5 of them, else the typical row of `reference`
+    (everything money in and out), because one deposit cannot be judged against itself."""
     first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
     own = [c for t, _, c in rows if c > 0 and t.posted_date >= first]
     typical = own if len(own) >= TYPICAL_MIN_ROWS or reference is None else reference
-    cutoff = large_cutoff(typical)
+    return large_cutoff(typical)
+
+
+def big_cutoffs(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> tuple[int, int]:
+    """(big-deposit cutoff, big-payment cutoff) in cents at `as_of`: the one rule the forecaster,
+    the keeps-coming detection and the reports all use."""
+    out_rows = _counted(txns, flows, series_rows, as_of)
+    in_rows = _money_in(txns, flows, series_rows, as_of)
+    first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
+    everything = [r[2] for r in out_rows + in_rows if r[2] > 0 and r[0].posted_date >= first]
+    return window_cutoff(in_rows, as_of, everything), window_cutoff(out_rows, as_of, everything)
+
+
+def _split_large(
+    rows: list[tuple[Txn, Flow, int]], as_of: date, reference: Sequence[int] | None = None
+) -> tuple[list[tuple[Txn, Flow, int]], list[tuple[Txn, Flow, int]]]:
+    """(kept, big): rows whose size is at least the cutoff of the last 13 weeks go to `big`
+    (see `window_cutoff`). Rows older than the window are kept as they are."""
+    first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
+    cutoff = window_cutoff(rows, as_of, reference)
     big = [r for r in rows if r[2] >= cutoff and r[0].posted_date >= first]
     kept = [r for r in rows if r[2] < cutoff or r[0].posted_date < first]
     return kept, big
@@ -162,17 +182,20 @@ class _Streams:
     spending: list[Row]  # everyday spending rows (and returns)
     deposits: list[Row]  # irregular money in
     events: list[BigEvent]  # what was set aside: pass-throughs, large deposits, large payments
+    paired_ids: frozenset[int] = frozenset()  # rows that are part of a pass-through
 
 
 def _streams(
-    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
-) -> _Streams:
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
+    exclude: Collection[int] = (),
+) -> _Streams:  # fmt: skip
     """Sort every row into the everyday spending, the irregular deposits, or an event that is
     set aside. A big row is one of at least $500 and 5 times the typical row of its direction
     over the last 13 weeks. A big deposit that was paid straight back out is a pass-through:
     it and the outflows that paid it out are all set aside (the outflows can include small
     transfers and bill payments, never a small card purchase). Other big deposits and big
-    payments are set aside and listed too."""
+    payments are set aside and listed too. Rows in `exclude` (the keeps-coming arrivals, which
+    are forecast) are not listed as set aside; nothing else about them changes here."""
     out_rows = _counted(txns, flows, series_rows, as_of)
     in_rows = _money_in(txns, flows, series_rows, as_of)
     first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
@@ -206,12 +229,99 @@ def _streams(
     for n, (dep, combo) in enumerate(pairs, start=1):
         events.append(deposit_event(dep, "Pass-through", n))
         events += [payment_event(r, "Pass-through", n) for r in combo]
-    events += [deposit_event(r, "Large deposit", None) for r in big_in if r[0].row_id not in paired]
-    events += [
-        payment_event(r, "Large payment", None) for r in big_out if r[0].row_id not in paired
-    ]
+    skip = paired | set(exclude)
+    events += [deposit_event(r, "Large deposit", None) for r in big_in if r[0].row_id not in skip]
+    events += [payment_event(r, "Large payment", None) for r in big_out if r[0].row_id not in skip]
     events.sort(key=lambda e: (e.day, -e.cents))
-    return _Streams([r for r in kept_out if r[0].row_id not in paired], kept_in, events)
+    return _Streams(
+        [r for r in kept_out if r[0].row_id not in paired], kept_in, events, frozenset(paired)
+    )
+
+
+# --- Big money that keeps coming (DECISIONS.md, 2026-10-11) ---
+
+KEEPS_EARLIER = 2  # earlier rows of similar size a row needs to be "recurring-size"
+KEEPS_SIMILAR = (0.5, 2.0)  # similar: between half and double its size
+KEEPS_DAYS = 365  # the earlier rows are looked for in the 365 days before, and the rate over a year
+KEEPS_PAYMENTS_PER_YEAR = 6  # payments come back as arrivals only when there are this many
+_OWN_ACCOUNT_IN = "own-account transfer"  # the reason of a transfer in from my own account
+
+
+@dataclass(frozen=True)
+class KeepsComing:
+    """Switch on: big rows that keep arriving at a similar size are forecast as random arrivals
+    at their own rate and sizes instead of being set aside. `own_account=False`: a transfer in
+    from my own other account is neither such a row nor an earlier row of similar size."""
+
+    own_account: bool = True
+
+
+@dataclass(frozen=True)
+class Arrivals:
+    in_rate: float = 0.0  # chance a day of a recurring-size big deposit
+    in_sizes: tuple[int, ...] = ()  # cents, oldest first
+    out_rate: float = 0.0
+    out_sizes: tuple[int, ...] = ()
+    members: frozenset[int] = frozenset()  # the rows that became arrivals (not set aside any more)
+    payments_below_floor: int = 0  # recurring-size payments left set aside: under 6 a year
+
+
+def _similar_earlier(row: Row, others: Sequence[tuple[date, int]]) -> int:
+    day, cents = row[0].posted_date, row[2]
+    low, high = KEEPS_SIMILAR[0] * cents, KEEPS_SIMILAR[1] * cents
+    since = day - timedelta(days=KEEPS_DAYS)
+    return sum(1 for d, c in others if since <= d < day and low <= c <= high)
+
+
+def keeps_coming_arrivals(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
+    options: KeepsComing,
+) -> Arrivals:  # fmt: skip
+    """The big rows of the last 365 days that keep coming: at least the big cutoff of `as_of`, in
+    no series, not part of a pass-through, with 2 or more earlier rows of similar size of the
+    same direction. Their rate (rows over the days observed) and sizes are what the futures draw
+    from. Payments only when there are at least 6 a year. Only rows posted by `as_of` are read."""
+    if not txns:
+        return Arrivals()
+    out_rows = [r for r in _counted(txns, flows, series_rows, as_of) if r[2] > 0]
+    in_all = _money_in(txns, flows, series_rows, as_of)
+    cut_in, cut_out = big_cutoffs(txns, flows, series_rows, as_of)
+    first = as_of - timedelta(days=KEEPS_DAYS - 1)
+    big_in_all = [r for r in in_all if r[2] >= cut_in and r[0].posted_date >= first]
+    big_out = [r for r in out_rows if r[2] >= cut_out and r[0].posted_date >= first]
+    candidates = [
+        r for r in out_rows if r[2] >= cut_out or r[1].flow_type == "transfer"
+        or r[1].reason == "bill payment"
+    ]  # fmt: skip
+    paired = set(_streams(txns, flows, series_rows, as_of).paired_ids)
+    for dep, combo in _pass_through(big_in_all, candidates):
+        paired.add(dep[0].row_id)
+        paired.update(r[0].row_id for r in combo)
+    own_ok = options.own_account
+    in_rows = in_all if own_ok else [r for r in in_all if r[1].reason != _OWN_ACCOUNT_IN]
+    in_by_day = [(r[0].posted_date, r[2]) for r in in_rows]
+    out_by_day = [(r[0].posted_date, r[2]) for r in out_rows]
+    members_in = sorted(
+        (r for r in big_in_all if r[0].row_id not in paired
+         and (own_ok or r[1].reason != _OWN_ACCOUNT_IN)
+         and _similar_earlier(r, in_by_day) >= KEEPS_EARLIER),
+        key=lambda r: (r[0].posted_date, r[0].row_id),
+    )  # fmt: skip
+    members_out = sorted(
+        (r for r in big_out if r[0].row_id not in paired
+         and _similar_earlier(r, out_by_day) >= KEEPS_EARLIER),
+        key=lambda r: (r[0].posted_date, r[0].row_id),
+    )  # fmt: skip
+    began = min(t.posted_date for t in txns)
+    days = (as_of - max(first, began)).days + 1
+    below = 0
+    if len(members_out) < KEEPS_PAYMENTS_PER_YEAR:
+        below, members_out = len(members_out), []
+    return Arrivals(
+        len(members_in) / days, tuple(r[2] for r in members_in),
+        len(members_out) / days, tuple(r[2] for r in members_out),
+        frozenset(r[0].row_id for r in members_in + members_out), below,
+    )  # fmt: skip
 
 
 def spending_by_day(
@@ -238,12 +348,13 @@ def deposits_by_day(
 
 
 def big_events(
-    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
-) -> list[BigEvent]:
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
+    exclude: Collection[int] = (),
+) -> list[BigEvent]:  # fmt: skip
     """What was set aside in the last 13 weeks, oldest first: pass-throughs (a big deposit and
     the outflows that paid it out, numbered), large deposits and large payments. None of it is
     forecast."""
-    return _streams(txns, flows, series_rows, as_of).events
+    return _streams(txns, flows, series_rows, as_of, exclude).events
 
 
 @dataclass(frozen=True)
@@ -257,12 +368,12 @@ class DepositWeek:
 
 def deposit_weeks(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
-    week_starts: Sequence[date],
+    week_starts: Sequence[date], exclude: Collection[int] = (),
 ) -> list[DepositWeek]:  # fmt: skip
     """For each week the futures can draw from, the irregular deposits in the stream (by type,
     largest first) and the big deposits and pass-throughs that were set aside that week. This is
     the evidence behind the deposit part of the simulated range."""
-    streams = _streams(txns, flows, series_rows, as_of)
+    streams = _streams(txns, flows, series_rows, as_of, exclude)
     out = []
     for first in week_starts:
         last = first + timedelta(days=6)
