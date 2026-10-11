@@ -167,6 +167,8 @@ def run_real(
             days = real_origins(date.fromisoformat(first), date.fromisoformat(last))
             if quick:
                 days = days[:: max(1, len(days) // 4)][:4]
+            if not days:
+                continue  # too short a history: no origins, so no files at all
             path = out_dir / f"{name}.jsonl"
             settings: dict[str, Any] = {"futures": futures, "method": "weekday",
                                         **version_settings()}  # fmt: skip
@@ -178,8 +180,11 @@ def run_real(
             if paths:
                 new += _run_with_paths(conn, account, name, days, futures, out_dir, keeps, options)
                 continue
+            todo = [d for d in days if d.isoformat() not in _saved_origins(path)]
+            if not todo:
+                continue  # nothing new: no empty file is made
             with path.open("a", encoding="utf-8") as out:
-                for origin in [d for d in days if d.isoformat() not in _saved_origins(path)]:
+                for origin in todo:
                     record = run_origin(conn, account, "real", origin, futures, None, None,
                                         options, keeps)  # fmt: skip
                     record["persona"] = name  # the name stays out of the files

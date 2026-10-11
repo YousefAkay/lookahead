@@ -337,3 +337,20 @@ def test_files_named_by_list_position_are_set_aside_not_read_as_another_account(
     counts = run_real(made_up_db, out, futures=40, quick=True)
     assert counts["archived_older"] == 1 and counts["origins_saved"] == 4  # not 8
     assert not numbered.exists() and list((out / "older").rglob("account-1.jsonl"))
+
+
+# --- No empty files (review item R6) ---
+
+
+def test_an_account_with_too_short_a_history_leaves_no_files(tmp_path: Path) -> None:
+    folder = private(tmp_path)
+    export, _ = write_persona(build_persona("v2-SAL-01").persona, folder / "x", 42, START, END)
+    db = folder / "short.db"
+    c = connect(db)
+    rows = [r for r in parse_export(export) if r.posted_date >= date(2026, 8, 15)]  # six weeks
+    store_exports(c, ACCOUNT, [(export.name, rows)], datetime(2026, 10, 1))
+    c.close()
+    out = folder / "out"
+    counts = run_real(db, out, futures=40, quick=True)
+    assert counts["new_origins"] == 0 and counts["origins_saved"] == 0
+    assert not list(out.glob("*.jsonl")) and not list(out.glob("*.meta.json"))
