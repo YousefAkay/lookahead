@@ -85,7 +85,7 @@ def format_of(persona_id: str) -> int | str:
 
 
 def origins(first: date | None = None, last: date | None = None) -> list[date]:
-    """Every Monday from `first` to `last` (default: the recorded 39 origins)."""
+    """Every Monday from `first` to `last` (default: the recorded 40 origins)."""
     day = first or FIRST_ORIGIN
     day += timedelta(days=(7 - day.weekday()) % 7)  # the first Monday on or after it
     out = []
