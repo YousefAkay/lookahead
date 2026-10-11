@@ -1482,6 +1482,28 @@ This is pinned by tests that show the lost and duplicated cases and are marked a
 - **Decision (made beforehand, now carried out): (a) is the default together with (b).** `DEFAULT_FIX` is `RecurringFix(possibly_ended=True, weekly_card=True)`; `recurring_fix=None` is the forecaster without either, exactly. The scripts' `--recurring-fix` default is now `both`; `off`, `b` and `a` stay available. For my account: `recurring_fix_real --fix a` and `--fix both`, `eval.metrics` on their folders, `eval.recurring_check` and `eval.diagnose_real` with the same flag, compared with `--fix b` (the previous default) and `--fix off`.
 - **What this does not do:** it does not touch the big payments that are set aside, nor the decisions that stop applying when a key moves (a known issue, week 5).
 
+### 2026-10-12: Does deposit timing depend on the time since the last deposit? Method, written before the script (branch `income-timing`, read-only diagnostic)
+**The recurring-placement fix on my account, in words (development data, summary numbers run by me, none written here).** With (a) and (b) together nothing that matched is lost and weekly placements are gone. Open, for later: semimonthly series, and payments placed on the first day as "due and not seen yet".
+
+**Why this check.** The random arrivals of keeps-coming draw each day independently at a constant rate. If a deposit that comes about every month is more likely to arrive 3 or 4 weeks after the previous one than 1 week after it, a constant rate gets the shape wrong: it makes two deposits in a month or none for months more likely than they are. That could spread the futures and pull the middle one down while the mean stays right. This check only measures; it changes no forecast, and what to do about it (a due-date model) is a separate decision.
+
+**What it is.** `python -m eval.income_timing`, run by me. It opens the database read-only, uses the same weekly origins as the real backtest plus the week after each, and prints counts, shares and gap statistics only: no row, date, name or amount, and it writes nothing.
+
+**Two populations of deposits, both read the way the forecaster would at each date (rule zero: rows posted by that date; series and decisions as of that date).**
+1. **Recurring-size deposits** (what keeps-coming treats as arrivals): the money-in members of `keeps_coming_arrivals` at that date, with own-account transfers counted, as now.
+2. **All deposits of $500 or more in no series:** money in of a kind the forecaster counts (income or transfer type), not netted, at least $500, in no series at that date.
+
+**The probability that the next deposit comes within 7 days.** For each weekly origin *t* and each population: the previous deposit is the latest of the population at *t* (an origin with none is counted apart); the days since it are grouped 0 to 7, 8 to 14, 15 to 21, 22 to 28, 29 to 35, and 36 or more. The event is that at least one deposit of the population, as it stands at *t* + 7, was posted in the days *t* + 1 to *t* + 7 (the future is used only to label the outcome). For each group: n (origins), the share with the event, and **the probability implied by the constant rate of the current model** for the same origins, 1 minus (1 minus the rate) to the 7th power, where the rate is the number of deposits of the population in the last 365 days before *t* divided by the days observed in that window (the rate keeps-coming uses; for population 2 the same construction). Overall row too. Windows of consecutive weekly origins do not overlap, but one deposit can sit in several groups' "previous", so n is origins, not independent deposits.
+
+**Gaps.** The days between consecutive deposits of each population, using every deposit that was in the population at some origin (a row counted once): median, the two quartiles, and the share of gaps of 20 to 35 days; with n.
+
+**By type.** The same tables for incoming e-Transfers, own-account transfers and credit memos separately, each with its own previous deposit, its own event and its own constant rate, printed only when the type has at least 15 deposits in the population (otherwise "too few").
+
+**Checks, fixed now.** On synthetic personas, with tests: the groups cover every origin with a previous deposit exactly once; the implied probability is 1 minus (1 minus the rate) to the 7th; a population at a date does not change when every later row is deleted (rule zero); the output has no date, name or amount.
+
+**Prediction, written first.** For population 1, if deposits come about monthly, the share arriving within 7 days is low in the first two groups, rises in the groups from 22 to 35 days, and is higher there than the constant rate implies, and lower than it in the first two groups; the median gap is in the 20 to 35 day range. For population 2 (more e-Transfers and top-ups, less regular) the shape is flatter. If the shares are flat across the groups and close to the constant rate, the timing does not depend on the time since the last deposit, and a constant rate is a fair model.
+**Not claimed.** Origins are overlapping observations of one account; the result is a description, not a test. The types are the bank's transaction types, and an e-Transfer can be income or a transfer from another person's account.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
