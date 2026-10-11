@@ -133,3 +133,13 @@ def test_the_page_reads_real_results_at_runtime(
     assert forecast["Real"].iloc[0].endswith("(1)")
     text = "\n".join(str(m.value) for m in at.markdown)
     assert "the saved results may be from an older version" in text  # a local refresh is needed
+
+
+def test_the_real_column_reads_the_current_default_forecasters_folder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from eval.report_data import REAL_DEFAULT, real_dir
+
+    monkeypatch.delenv("LOOKAHEAD_REAL_BACKTEST", raising=False)
+    assert real_dir() == REAL_DEFAULT
+    assert REAL_DEFAULT.parts[-3:] == ("private", "backtest", "keeps-coming-with-own")

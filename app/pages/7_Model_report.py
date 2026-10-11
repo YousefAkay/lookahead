@@ -1,7 +1,8 @@
 """Model report: how well the categorizer and the forecast did in the backtests, with n.
 
 Synthetic results come from saved files in docs/results (made by `python -m eval.report_data`).
-Real results are read from data/private/backtest at runtime when they exist; nothing real is
+Real results are read from data/private/backtest/keeps-coming-with-own (the current default
+forecaster) at runtime when they exist; nothing real is
 written anywhere. Held-out results do not exist yet: the final test has not been run.
 """
 

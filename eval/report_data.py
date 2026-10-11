@@ -4,8 +4,9 @@ Synthetic: `python -m eval.report_data` reads the saved development run of the c
 (data/backtest/calibration: raw records and leave-one-persona-out records) and writes
 docs/results/report_synthetic.json, which the page reads. Development personas only.
 
-Real: the page calls `real_summary` at runtime on data/private/backtest when it exists. Nothing
-real is ever written by this module; it returns summary numbers and counts only.
+Real: the page calls `real_summary` at runtime on the current default forecaster's folder,
+data/private/backtest/keeps-coming-with-own (made by `python -m eval.backtest_real`), when it
+exists. Nothing real is ever written by this module; it returns summary numbers and counts only.
 
 Categorizer results are copied from DECISIONS.md (step 7b, holdout run 1) into
 docs/results/categorizer_results.json by hand; they are not recomputed here.
@@ -33,7 +34,9 @@ from eval.metrics import (
 
 SYNTHETIC_OUT = Path("docs/results/report_synthetic.json")
 CATEGORIZER = Path("docs/results/categorizer_results.json")
-REAL_DEFAULT = Path("data/private/backtest")
+# The folder of the current default forecaster (keeps-coming on, own-account transfers counted).
+# `data/private/backtest/full` is the old forecaster's.
+REAL_DEFAULT = Path("data/private/backtest/keeps-coming-with-own")
 
 Record = dict[str, Any]
 
