@@ -1351,6 +1351,28 @@ Arm 0 of the 12-month set: 20 development personas, 800 origins (726 ordinary), 
 - **The shelved calibration, refitted by the existing command** (`docs/results/calibration_2026-10-12.md`; not used by the app): multipliers 1.7 at day 7, 2.0 at day 14, 3.5 at day 30 (they were 2.4, 4.1 and 6.4 before keeps-coming and the holiday fix); leave-one-out coverage 80 percent over all days with the 30-day band $903 to $3,135 wide; the rule fixed in 2026-10-10 picks the isotonic map again (Brier 0.0616 against 0.0665 widened only), which is still worse than the raw chance (0.058). The calibrated threshold curve the page shows (under its "shelved" label) now picks 90 percent.
 - `docs/results/report_synthetic.json` and `docs/results/calibration.json` are rewritten; the 2026-10-10 calibration report is kept. The page's real column now says a local run on the current forecaster is needed; the held-out column still says "not run yet" (page tests).
 
+### 2026-10-12: Step 2 result: no arm is dropped; b) by calendar position is the large change on the 24-month set; a) on its own does not help
+`python -m eval.arms --report`, full tables in `docs/results/arms_2026-10-12.md`. 20 development personas per set, 40 origins, 500 futures, seed 42; forecast metrics on ordinary origins (12-month n = 726, 24-month n = 717); alerts with the provisional rule.
+- **Sanity checks: both pass.** (i) Arm 0 on the 12-month set reproduces the keeps-coming column of 2026-10-11 to the dollar ($593 / $1,056 / $1,727; skill 0.40 / 0.21 / 0.10; coverage 62 / 58 / 48 / 58 percent; width $415 / $619 / $903; whole-path 10 percent; lowest-balance bias +$716, miss $994; Brier 0.058; recall 48 percent, 25 of 52; precision 70 percent, 21 of 30; 0.053 false per 30 days). (ii) Arm 0's 800 records equal a fresh `python -m eval.backtest` run field for field.
+
+| 24-month set (717 ordinary origins, 20 personas) | arm 0 | arm 1: a) naive | arm 2: a) upper bound | arm 3: b) calendar | arm 4: a) + b), upper bound |
+|---|---|---|---|---|---|
+| Error, middle future, 7 / 14 / 30 days | $494 / $924 / $1,587 | $565 / $1,020 / $1,734 | $504 / $929 / $1,585 | $507 / $718 / $1,103 | $515 / $723 / $1,070 |
+| Skill vs balance stays, 30 days | 0.14 | 0.06 | 0.15 | 0.41 | 0.42 |
+| Lowest balance: bias / typical miss | +$627 / $910 | +$685 / $934 | +$649 / $906 | -$88 / $436 | -$55 / $414 |
+| Lowest balance, windows with tuition (n = 73) | +$6,534 | +$6,586 | +$6,586 | -$387 | -$230 |
+| Lowest balance, family money and no tuition (n = 77) | -$427 | +$32 | -$275 | -$433 | -$277 |
+| Coverage, all days / width at 30 days | 62% / $1,961 | 61% / $1,880 | 62% / $1,880 | 65% / $1,951 | 64% / $1,868 |
+| Brier | 0.033 | 0.033 | 0.033 | 0.026 | 0.026 |
+| Recall opened / on ahead (of 51) | 17 / 45 | 17 / 45 | 17 / 45 | 20 / 50 | 20 / 50 |
+| Precision; false alerts per 30 days | 65% (15/23); 0.048 | 65% (15/23); 0.048 | 65% (15/23); 0.048 | 59% (19/32); 0.078 | 59% (19/32); 0.078 |
+
+- **12-month set:** arm 3 places nothing (a payment a year before the horizon is before the history, as in Step 1), so arms 3 and 0 are identical, and arm 4 equals arm 2. Arm 1: 30-day error $1,727 to $1,789; arm 2: $1,735; lowest-balance bias +$716 to +$733 and +$731.
+- **Drop rule: no arm is dropped** in either set. Worse archetypes (30-day error; lowest balance): 12-month arm 1 2 and 3, arm 2 1 and 3; 24-month arm 1 3 and 4, arm 2 1 and 3, arm 3 2 (DHOME, DRENT) and 0, arm 4 1 and 0. **Unexpected checks: none holds**: no arm is worse for most archetypes; arm 2 is not worse than arm 1 on any archetype in either set; no origin changed with nothing confirmed or placed (0 in every arm).
+- **A number above 95 percent:** arm 3's recall on ahead is 98 percent (50 of 51) on the 24-month set. I looked before anything else: placements were leak-checked in Step 1, and the rise comes with 9 more alert episodes (23 to 32): ITIGHT-01 and -03 now have an alert on ahead of all 5 of their dips (0 of 5 in arm 0), and DRENT-01 and -03 get 5 more false alerts (my reading, not checked: tuition is placed while the aid that pays it is set aside as a big deposit). "On ahead" is generous by definition (arm 0 is already at 88 percent). Not leakage.
+- **Prediction against result.** a) helps ITIGHT and IFAM a little: **no**. With every proposal confirmed (arm 1), IFAM's and ITIGHT's 30-day error and lowest-balance bias get worse in both sets (24-month ITIGHT $7,516 to $8,260); only the windows with family money and no tuition get less pessimistic. Even with only right proposals (arm 2, an upper bound) the change is within a few percent either way. Nothing for SAL, SEM, TIGHT, FREE: yes (identical). b) helps the students who pay tuition from chequing in windows with tuition: **yes, by much more than expected** on the 24-month set (the optimism there goes from +$6,534 to -$387; ITIGHT's 30-day error halves, $7,516 to $3,875), and it is neutral in windows with neither (+$9 to -$3) but not everywhere: DRENT's and DHOME's 30-day error rise (DRENT $931 to $1,077, Brier 0.010 to 0.063) and precision falls 65 to 59 percent. a) and b) together are best in windows with both: yes, slightly (arm 4 against arm 3: 30-day error $1,103 to $1,070, tuition windows -$387 to -$230), but arm 4 is an upper bound.
+- How I read it: on synthetic students, placing repeated tuition by calendar position fixes most of the largest remaining error, on data that makes it easy (fixed tuition amounts, fixed date windows). Confirming every lump proposal is worse than leaving the lumps to keeps-coming. Nothing changes in the app; the options stay off.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
