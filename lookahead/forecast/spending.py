@@ -276,6 +276,19 @@ def _similar_earlier(row: Row, others: Sequence[tuple[date, int]]) -> int:
     return sum(1 for d, c in others if since <= d < day and low <= c <= high)
 
 
+def _qualifying_days(
+    members: Sequence[tuple[Txn, Flow, int]], as_of: date, observed: int
+) -> int:  # fmt: skip
+    """The days on which a deposit could have qualified: from the first row that did (the third
+    of its kind, the first with 2 earlier ones of similar size) to `as_of`. The first two rows of
+    a stream can never be members, so counting the days before them would make the rate too low
+    (DECISIONS.md, 2026-10-12, a bug fix). With fewer than 2 members there is no gap to measure
+    and one arrival over a few days would be a rate near 1: the observed days are kept."""
+    if len(members) < 2:
+        return observed
+    return (as_of - members[0][0].posted_date).days + 1
+
+
 def keeps_coming_arrivals(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
     options: KeepsComing, exclude: Collection[int] = frozenset(),
@@ -320,13 +333,15 @@ def keeps_coming_arrivals(
         key=lambda r: (r[0].posted_date, r[0].row_id),
     )  # fmt: skip
     began = min(t.posted_date for t in txns)
-    days = (as_of - max(first, began)).days + 1
+    observed = (as_of - max(first, began)).days + 1
     below = 0
     if len(members_out) < KEEPS_PAYMENTS_PER_YEAR:
         below, members_out = len(members_out), []
     return Arrivals(
-        len(members_in) / days, tuple(r[2] for r in members_in),
-        len(members_out) / days, tuple(r[2] for r in members_out),
+        len(members_in) / _qualifying_days(members_in, as_of, observed),
+        tuple(r[2] for r in members_in),
+        len(members_out) / _qualifying_days(members_out, as_of, observed),
+        tuple(r[2] for r in members_out),
         frozenset(r[0].row_id for r in members_in + members_out), below,
     )  # fmt: skip
 
