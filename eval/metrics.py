@@ -199,11 +199,15 @@ def shortfall_episodes(records: list[Record]) -> list[date]:
 
     Calendar days are walked one by one (DECISIONS.md, 2026-10-12, R4): a day that no window
     observed ends a run below the buffer, and a dip after such days is a new episode, never
-    merged with one before them."""
+    merged with one before them. A window whose origin was already below the buffer says the
+    shortfall began before it (the first day of that window is a continuation, not a start), even
+    when the days before it were unobserved."""
     ordered = sorted(records, key=lambda x: x["origin"])
     buffer = ordered[0]["buffer_cents"]
     daily = daily_realized(ordered)
     days = sorted(daily)
+    carried = {date.fromisoformat(r["days"][0]) for r in ordered
+               if r["start_balance_cents"] < buffer}  # fmt: skip
     previous_below = ordered[0]["start_balance_cents"] < buffer
     # each episode: [first day or None if it began before the first origin, last day below]
     runs: list[list[date | None]] = [[None, days[0] - timedelta(days=1)]] if previous_below else []
@@ -215,7 +219,10 @@ def shortfall_episodes(records: list[Record]) -> list[date]:
             day += timedelta(days=1)
             continue
         below = daily[day] < buffer
-        if below and not previous_below:
+        if below and not previous_below and day in carried:
+            runs.append([None, day])  # begun before its origin: never a countable start
+            unobserved = False
+        elif below and not previous_below:
             last = runs[-1][1] if runs else None
             if last is not None and not unobserved and (day - last).days - 1 <= MERGE_GAP_DAYS:
                 runs[-1][1] = day
