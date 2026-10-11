@@ -406,3 +406,32 @@ def test_a_held_out_run_saves_to_its_own_folder_apart_from_development_records()
     assert final == DEFAULT_OUT / "held-out" / "keeps-coming-with-own" / "full"
     assert default_out(True, "off", True, True) == LONG_OUT / "held-out" / "quick"
     assert dev not in final.parents and final not in dev.parents
+
+
+def test_every_reader_of_the_current_defaults_records_reads_where_the_backtest_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    from eval import blend, metrics, thresholds_raw
+    from eval.arms import arm_dir
+    from eval.backtest import default_out
+
+    for long in (False, True):
+        written = default_out(long, "with-own", False, False)  # what `python -m eval.backtest` does
+        assert arm_dir(0, long) == written
+        assert blend.arm0_folder(long) == written
+
+    class Stop(Exception):
+        pass
+
+    seen: list[Path] = []
+
+    def grab(path: Path, *args: object, **kwargs: object) -> None:
+        seen.append(path)
+        raise Stop
+
+    for module in (metrics, thresholds_raw):
+        seen.clear()
+        monkeypatch.setattr(module, "load_records", grab)
+        with pytest.raises(Stop):
+            module.main([])
+        assert seen == [default_out(False, "with-own", False, False)], module.__name__

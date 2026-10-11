@@ -8,7 +8,7 @@ shortfall probability, and alerts (caught, false per 30 days, lead time) from th
 engine. Origins already in shortfall are on their own row. Synthetic and real are separate columns,
 and every section says its n. This module prints summary numbers and counts, never rows.
 
-    python -m eval.metrics                                  # synthetic, from data/backtest/full
+    python -m eval.metrics                  # synthetic, the current default's folder
     python -m eval.metrics --real data/private/backtest     # beside the real column (its full/)
     python -m eval.metrics --threshold 0.30 --no-median     # another alert rule (step 5 chooses)
 """
@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import Any
 
 from eval.backtest import (
-    DEFAULT_OUT,
     FORMAT,
     LOGIC,
+    current_default_dir,
     format_of,
     history_bucket,
     read_records,
@@ -560,7 +560,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m eval.metrics", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )  # fmt: skip
-    parser.add_argument("--dir", type=Path, default=DEFAULT_OUT / "full", help="synthetic results")
+    parser.add_argument("--dir", type=Path, default=current_default_dir(), help="synthetic results")
     parser.add_argument("--real", type=Path, default=None, help="real results (private folder)")
     parser.add_argument("--no-synthetic", action="store_true")
     parser.add_argument("--threshold", type=float, default=PROVISIONAL_THRESHOLD)

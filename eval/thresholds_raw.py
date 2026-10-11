@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from eval.backtest import DEFAULT_OUT
+from eval.backtest import current_default_dir
 from eval.metrics import PROVISIONAL_THRESHOLD, alert_metrics, load_records
 from eval.thresholds import MAX_FALSE_PER_30, MIN_PRECISION, THRESHOLDS
 from lookahead.generator.archetypes import assert_development_only
@@ -274,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m eval.thresholds_raw", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )  # fmt: skip
-    parser.add_argument("--dir", type=Path, default=DEFAULT_OUT / "full")
+    parser.add_argument("--dir", type=Path, default=current_default_dir())
     parser.add_argument("--report", type=Path, default=REPORT)
     args = parser.parse_args(argv)
     records = [r for r in load_records(args.dir) if r["dataset"] == "synthetic"]

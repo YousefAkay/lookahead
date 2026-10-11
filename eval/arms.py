@@ -29,11 +29,10 @@ from pathlib import Path
 from typing import Any
 
 from eval.backtest import (
-    DEFAULT_OUT,
     FUTURES,
     HORIZON,
-    LONG_OUT,
     METHOD,
+    current_default_dir,
     format_of,
     origins,
     run_origin,
@@ -87,7 +86,7 @@ def arm_options(arm: int) -> ForecastOptions:
 def arm_dir(arm: int, long: bool) -> Path:
     """Arm 0 is the development backtest itself (same code path); the others have their own."""
     if arm == 0:
-        return (LONG_OUT if long else DEFAULT_OUT) / "full"
+        return current_default_dir(long)
     return ARMS_OUT / ("long" if long else "12") / f"arm{arm}"
 
 

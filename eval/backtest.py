@@ -380,6 +380,12 @@ def default_out(long: bool, keeps_coming: str, quick: bool, held_out: bool) -> P
     return base / ("quick" if quick else "full")
 
 
+def current_default_dir(long: bool = False) -> Path:
+    """The folder the default backtest saves to, and that every reader of "the current default's
+    records" (arm 0, the blend's check, the metrics and the threshold study) reads."""
+    return default_out(long, "with-own", False, False)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m eval.backtest", description=__doc__,

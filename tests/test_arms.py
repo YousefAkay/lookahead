@@ -43,8 +43,8 @@ def test_a_forecast_that_changes_with_nothing_confirmed_or_placed_is_flagged() -
 def test_each_arm_and_set_has_its_own_folder_and_arm_0_is_the_backtest() -> None:
     folders = {arm_dir(a, long) for a in range(5) for long in (False, True)}
     assert len(folders) == 10
-    assert arm_dir(0, False).parts[-2:] == ("backtest", "full")
-    assert arm_dir(0, True).parts[-3:] == ("backtest", "long", "full")
+    assert arm_dir(0, False).parts[-3:] == ("backtest", "keeps-coming-with-own", "full")
+    assert arm_dir(0, True).parts[-4:] == ("backtest", "long", "keeps-coming-with-own", "full")
 
 
 def test_a_window_is_classed_by_tuition_first_then_family_money() -> None:
