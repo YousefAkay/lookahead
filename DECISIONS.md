@@ -1383,6 +1383,26 @@ Arm 0 of the 12-month set: 20 development personas, 800 origins (726 ordinary), 
 - **Real data, evaluation only.** `python -m eval.blend apply --real <folder>` applies the saved weights (both sets' weights, side by side) to a real backtest folder with paths (`python -m eval.backtest_real --paths`) and prints summary numbers before and after, with my own buffer and at $0. It refuses a folder outside `data/private`, fits nothing on real data, and writes nothing. It is listed in the morning commands.
 - **Prediction, written before computing (mine):** skill improves at 30 days; coverage drops somewhat, because the blended bands are narrower. **Not adopted in the app** whatever comes out; I decide after checking it on my account.
 
+### 2026-10-12: Step 6 result: the fitted weights stay close to the forecast; skill hardly moves, coverage drops (not adopted)
+`python -m eval.blend`, tables in `docs/results/blend_2026-10-12.md`, weights in `docs/results/blend_weights.json`. 20 development personas per set, 40 origins, 500 futures, seed 42; leave one persona out; forecast metrics on ordinary origins (12-month n = 726, 24-month n = 717).
+- **Check: pass.** The paths runs equal arm 0 record for record in both sets (800 of 800 each). The 12-month run is the calibration step's run of tonight (copied; it equals arm 0, Step 4); the 24-month one was run here.
+- **Weights carried forward** (fitted on all 20, non-increasing): 12-month 0.99 on day 1, 0.98 on day 7, 0.92 on day 14, 0.86 on day 30; 24-month 1.00, 0.99, 0.96, 0.96. The per-day fits before smoothing were already nearly non-increasing (largest correction 0.03). Across the leave-one-out folds, day 30 ranges from 0.77 to 0.88 (12-month) and 0.92 to 0.97 (24-month).
+
+| Leave one persona out | 12-month: arm 0 | 12-month: blended | 24-month: arm 0 | 24-month: blended |
+|---|---|---|---|---|
+| Error, middle future, 7 / 14 / 30 days | $593 / $1,056 / $1,727 | $593 / $1,050 / $1,722 | $494 / $924 / $1,587 | $494 / $922 / $1,590 |
+| Skill vs balance stays, 7 / 14 / 30 days | 0.40 / 0.21 / 0.10 | 0.40 / 0.22 / 0.11 | 0.47 / 0.26 / 0.14 | 0.47 / 0.26 / 0.14 |
+| Lowest balance: bias / typical miss | +$716 / $994 | +$758 / $988 | +$627 / $910 | +$645 / $908 |
+| Coverage 7 / 14 / 30 / all days | 62 / 58 / 48 / 58% | 62 / 56 / 40 / 54% | 63 / 62 / 59 / 62% | 62 / 61 / 54 / 61% |
+| Width 7 / 14 / 30 days | $415 / $619 / $903 | $404 / $574 / $777 | $545 / $886 / $1,961 | $539 / $855 / $1,888 |
+| Whole-path coverage | 10% | 6% | 11% | 10% |
+| Brier | 0.058 | 0.060 | 0.033 | 0.034 |
+| Recall on ahead / opened ahead (provisional rule) | 48 / 25 of 52 | 47 / 21 of 52 | 45 / 17 of 51 | 45 / 16 of 51 |
+| Precision; false alerts per 30 days | 70% (21/30); 0.053 | 70% (19/27); 0.047 | 65% (15/23); 0.048 | 62% (15/24); 0.054 |
+
+- **Prediction against result.** Skill improves at 30 days: **barely on the 12-month set** (0.10 to 0.11, error $1,727 to $1,722) **and not at all on the 24-month set** (0.14 to 0.14, error $1,587 to $1,590). Coverage drops somewhat because the bands are narrower: **yes** (30-day coverage 48 to 40 percent and 59 to 54 percent; width $903 to $777 and $1,961 to $1,888). Also, not predicted: the lowest balance gets more optimistic (+$716 to +$758; +$627 to +$645), the Brier score slightly worse, and fewer dips caught opened ahead (25 to 21; 17 to 16). Per archetype the 30-day error falls a little for most and rises for SAL ($334 to $394; $226 to $265), whose forecast already beats the baseline by far.
+- How I read it: on the synthetic personas the forecast already beats "the balance stays" at every horizon on average (skill above 0), so the fit keeps almost all of the forecast and the blend can only trade a little band width for coverage. My account is different (the forecast doesn't beat the baseline there yet), but the weights carried forward were fitted on synthetic data, so applied to my account they will change little: `eval.blend apply` shows how little. A weight fitted on my own data would be development on my account, not an evaluation, and was not part of this step. **Not adopted in the app.**
+
 ## Tests
 
 ### 2026-10-01: Slow marker
