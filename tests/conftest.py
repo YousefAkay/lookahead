@@ -37,6 +37,17 @@ def db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return tmp / "t.db"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def private_folders_of_the_tests(tmp_path_factory: pytest.TempPathFactory):  # type: ignore[no-untyped-def]
+    """`is_private_path` counts only the repository's own data/private folder. The tests build a
+    stand-in `data/private` inside their temporary folders, so those folders count too."""
+    from lookahead import merchants
+
+    merchants.SANDBOXES.append(tmp_path_factory.getbasetemp())
+    yield
+    merchants.SANDBOXES.clear()
+
+
 @pytest.fixture(autouse=True)
 def close_database_connections(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
     """Close every SQLite connection a test (or an app page run by AppTest) opened and left open.

@@ -22,6 +22,7 @@ refused).
 """
 
 import json
+import re
 import sqlite3
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -208,10 +209,18 @@ def _restore_alerts(account: str, saved: list[dict[str, Any]]) -> sqlite3.Connec
     return alerts
 
 
+SYNTHETIC_ACCOUNT = re.compile(r"synthetic-[A-Z]|v2L?-[A-Z]+-\d{2}")  # the generator's own names
+
+
 def _is_private_db(conn: sqlite3.Connection) -> bool:
-    """True if the main database of `conn` is a file inside data/private."""
+    """True if this database may hold real data: its file is inside data/private, or any of its
+    accounts is not one of the generator's own (so a copy of a private database outside
+    data/private is still treated as private)."""
     files = [row[2] for row in conn.execute("PRAGMA database_list") if row[1] == "main"]
-    return bool(files and files[0]) and is_private_path(Path(files[0]))
+    if files and files[0] and is_private_path(Path(files[0])):
+        return True
+    accounts = [row[0] for row in conn.execute("SELECT DISTINCT account FROM transactions")]
+    return any(not SYNTHETIC_ACCOUNT.fullmatch(a) for a in accounts)
 
 
 def precompute(
