@@ -284,8 +284,9 @@ def keeps_coming_arrivals(
     no series, not part of a pass-through, with 2 or more earlier rows of similar size of the
     same direction. Their rate (rows over the days observed) and sizes are what the futures draw
     from. Payments only when there are at least 6 a year. Only rows posted by `as_of` are read.
-    Rows in `exclude` (the evidence of payments that are placed on a date instead) never become
-    arrivals, so nothing is drawn twice."""
+    Rows in `exclude` (the evidence of payments placed on a date instead, and the lumps of a
+    sender whose proposal is confirmed or turned down) never become arrivals, so nothing is
+    drawn twice."""
     if not txns:
         return Arrivals()
     out_rows = [r for r in _counted(txns, flows, series_rows, as_of) if r[2] > 0]
@@ -308,7 +309,7 @@ def keeps_coming_arrivals(
     in_by_day = [(r[0].posted_date, r[2]) for r in in_rows]
     out_by_day = [(r[0].posted_date, r[2]) for r in out_rows]
     members_in = sorted(
-        (r for r in big_in_all if r[0].row_id not in paired
+        (r for r in big_in_all if r[0].row_id not in paired and r[0].row_id not in exclude
          and (own_ok or r[1].reason != _OWN_ACCOUNT_IN)
          and _similar_earlier(r, in_by_day) >= KEEPS_EARLIER),
         key=lambda r: (r[0].posted_date, r[0].row_id),

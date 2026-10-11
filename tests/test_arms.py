@@ -1,4 +1,4 @@
-"""Tests for the arm runner of step 3 (DECISIONS.md, 2026-10-11). Synthetic personas only."""
+"""Tests for the arm runner of step 2 (DECISIONS.md, 2026-10-12). Synthetic personas only."""
 
 from datetime import date
 
@@ -8,21 +8,44 @@ from eval.arms import arm_dir, arm_options, window_kind
 from lookahead.forecast.path import ForecastOptions
 
 
-def test_the_arms_are_the_recorded_option_sets_and_4_and_5_are_not_run() -> None:
+def test_the_arms_are_the_recorded_option_sets_with_keeps_coming_and_no_random_lumps() -> None:
     assert arm_options(0) == ForecastOptions()
-    assert arm_options(1) == ForecastOptions(lump_arrivals=True)
-    two, three = arm_options(2), arm_options(3, frozenset({"k"}))
-    assert two.lump_arrivals and two.lump_proposals and two.confirm_all_lumps
-    assert three.lump_arrivals and three.lump_proposals and not three.confirm_all_lumps
-    assert three.confirmed_keys == {"k"} and not two.outflow_placements
-    for arm in (4, 5):
-        with pytest.raises(ValueError, match="not run"):
-            arm_options(arm)
+    one, two = arm_options(1), arm_options(2, frozenset({"k"}))
+    assert one.lump_proposals and one.confirm_all_lumps and not one.lump_arrivals
+    assert two.lump_proposals and not two.confirm_all_lumps and two.confirmed_keys == {"k"}
+    three, four = arm_options(3), arm_options(4, frozenset({"k"}))
+    assert three.outflow_placements and three.outflow_rule == "calendar"
+    assert not three.lump_proposals
+    assert four.outflow_placements and four.outflow_rule == "calendar"
+    assert four.confirmed_keys == {"k"} and not four.confirm_all_lumps
+    assert not any(arm_options(a).lump_arrivals for a in range(5))  # keeps-coming replaces them
+    with pytest.raises(ValueError):
+        arm_options(5)
+
+
+def test_the_drop_rule_counts_archetypes_more_than_1_percent_worse() -> None:
+    from eval.arms import worse_archetypes
+
+    base = {"A": {"error30": 100.0, "bias": -50.0}, "B": {"error30": 100.0, "bias": 50.0}}
+    arm = {"A": {"error30": 101.0, "bias": -50.6}, "B": {"error30": 101.1, "bias": 50.4}}
+    assert worse_archetypes(arm, base) == (["B"], ["A"])
+
+
+def test_a_forecast_that_changes_with_nothing_confirmed_or_placed_is_flagged() -> None:
+    from eval.arms import FORECAST_FIELDS, changed_without_cause
+
+    base = {"persona": "p", "origin": "2026-01-05", **{f: [1] for f in FORECAST_FIELDS}}
+    same = {**base, "confirmed": 0, "placements": 0}
+    moved = {**base, "confirmed": 0, "placements": 0, "p50": [2]}
+    caused = {**moved, "placements": 1}
+    assert changed_without_cause([same], [base]) == []
+    assert changed_without_cause([moved], [base]) == ["p 2026-01-05"]
+    assert changed_without_cause([caused], [base]) == []
 
 
 def test_each_arm_and_set_has_its_own_folder_and_arm_0_is_the_backtest() -> None:
-    folders = {arm_dir(a, long) for a in range(4) for long in (False, True)}
-    assert len(folders) == 8
+    folders = {arm_dir(a, long) for a in range(5) for long in (False, True)}
+    assert len(folders) == 10
     assert arm_dir(0, False).parts[-2:] == ("backtest", "full")
     assert arm_dir(0, True).parts[-3:] == ("backtest", "long", "full")
 

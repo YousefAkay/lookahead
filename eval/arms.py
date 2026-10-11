@@ -1,19 +1,21 @@
-"""Step 3 of the 2026-10-11 plan: the arms, backtested on development personas.
+"""Step 2 of the 2026-10-12 plan: the arms on the merged code, backtested on development personas.
 
-Method in DECISIONS.md (2026-10-11, "Step 3: the arms"). Each arm is the backtest of
-`eval/backtest.py` (the same origins, futures, seed and method, the same record format) with one
-set of forecaster options:
+Method in DECISIONS.md (2026-10-12, "Step 2: the arms on the merged code"). Each arm is the
+backtest of `eval/backtest.py` (the same origins, futures, seed and method, the same record
+format) with one set of forecaster options, keeps-coming on in every arm (the default):
 
-    0  the current forecaster
-    1  random lump arrivals (step 0)
-    2  a) every lump proposal confirmed (a naive user), random arrivals for the rest
-    3  a) only the proposals right on the answer key confirmed (a best-case user: an upper
-       bound), random arrivals for the rest
+    0  the forecaster as merged (the baseline): options off
+    1  a) every lump proposal confirmed (a naive user); keeps-coming draws the rest
+    2  a) only the proposals right on the answer key confirmed (a best-case user: an upper
+       bound, never what a user would get)
+    3  b) by calendar position placed by default (only if Step 1 passed its gate)
+    4  a) as in arm 2 and b) as in arm 3 (an upper bound too)
 
-Arms 4 and 5 (b) alone, a) and b) together) are not run: b) failed its gate in step 2.
+Random lump arrivals (`lump_arrivals`) are not an arm: keeps-coming replaces them. The option
+sets of the 2026-10-11 plan are in the history of this file.
 
-    python -m eval.arms --arms 1 2 3 --set both     # records in data/backtest/arms/<set>/arm<n>
-    python -m eval.arms --report                    # writes docs/results/arms_2026-10-11.md
+    python -m eval.arms --arms 1 2 --set both   # records in data/backtest/arms-2026-10-12/...
+    python -m eval.arms --report                # writes docs/results/arms_2026-10-12.md
 """
 
 import argparse
@@ -57,32 +59,38 @@ from lookahead.generator.archetypes import (
 )
 from lookahead.generator.writer import export_rows
 
-ARMS_OUT = Path("data/backtest/arms")
-REPORT = Path("docs/results/arms_2026-10-11.md")
-CHOSEN_THRESHOLD = 0.90  # step 1, on raw chances, development personas
+ARMS_OUT = Path("data/backtest/arms-2026-10-12")
+REPORT = Path("docs/results/arms_2026-10-12.md")
 ARM_NAMES = {
-    0: "current forecaster",
-    1: "random lump arrivals",
-    2: "a) every proposal confirmed (naive)",
-    3: "a) right proposals confirmed (upper bound)",
+    0: "merged forecaster (baseline)",
+    1: "a) every proposal confirmed (naive)",
+    2: "a) right proposals confirmed (upper bound)",
+    3: "b) by calendar position",
+    4: "a) right proposals and b) (upper bound)",
 }
+UPPER_BOUNDS = (2, 4)  # they use the answer key
+WORSE_BY = 0.01  # the drop rule: more than 1 percent worse ...
+DROP_IF_WORSE = 5  # ... for 5 or more of the 8 archetypes, on either measure
 FAMILY = ("-tuition-funding", "-tuition-topup", "-family")
 
 Record = dict[str, Any]
 
 
 def arm_options(arm: int, confirmed: frozenset[str] = frozenset()) -> ForecastOptions:
+    """The forecaster options of an arm (keeps-coming stays on: it is the default)."""
+    b = {"outflow_placements": True, "outflow_rule": "calendar"}
     if arm == 0:
         return ForecastOptions()
     if arm == 1:
-        return ForecastOptions(lump_arrivals=True)
+        return ForecastOptions(lump_proposals=True, confirm_all_lumps=True, proposal_key=KEY)
     if arm == 2:
-        return ForecastOptions(lump_arrivals=True, lump_proposals=True, confirm_all_lumps=True,
-                               proposal_key=KEY)  # fmt: skip
+        return ForecastOptions(lump_proposals=True, confirmed_keys=confirmed, proposal_key=KEY)
     if arm == 3:
-        return ForecastOptions(lump_arrivals=True, lump_proposals=True, confirmed_keys=confirmed,
-                               proposal_key=KEY)  # fmt: skip
-    raise ValueError(f"arm {arm} is not run (b) stopped at its gate) or does not exist")
+        return ForecastOptions(proposal_key=KEY, **b)  # type: ignore[arg-type]
+    if arm == 4:
+        return ForecastOptions(lump_proposals=True, confirmed_keys=confirmed, proposal_key=KEY,
+                               **b)  # type: ignore[arg-type]  # fmt: skip
+    raise ValueError(f"arm {arm} does not exist")
 
 
 def arm_dir(arm: int, long: bool) -> Path:
@@ -94,13 +102,17 @@ def arm_dir(arm: int, long: bool) -> Path:
 
 def run_persona_arm(persona_id: str, arm: int, out_dir: Path, futures: int = FUTURES,
                     seed: int = 42) -> int:  # fmt: skip
-    """All 40 origins of one persona for one arm, saved as they are made (resumable)."""
+    """All 40 origins of one persona for one arm, saved as they are made (resumable). Each record
+    also says how many lump proposals were confirmed and how many payments were placed at that
+    origin (`confirmed`, `placements`), so a persona that changes with neither can be found."""
     assert_development_only([persona_id])
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{persona_id}.jsonl"
     meta = out_dir / f"{persona_id}.meta.json"
     settings = {"futures": futures, "seed": seed, "method": METHOD, "arm": arm,
                 **version_settings(persona_id)}  # fmt: skip
+    if arm:  # arm 0 is the same code path as before; the others are this plan's
+        settings["plan"] = "2026-10-12"
     if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != settings:
         raise ValueError(f"{meta} was made with different settings")
     meta.write_text(json.dumps(settings), encoding="utf-8")
@@ -117,18 +129,22 @@ def run_persona_arm(persona_id: str, arm: int, out_dir: Path, futures: int = FUT
         by_series = series_rows(db.labels)
         for origin in todo:
             confirmed: frozenset[str] = frozenset()
-            if arm == 3:  # the answer key picks the right proposals (an upper bound)
+            if arm in UPPER_BOUNDS:  # the answer key picks the right proposals (an upper bound)
                 f0 = build_forecast(conn, pid, METHOD, origin, None, HORIZON, 0,
-                                    options=arm_options(2))  # fmt: skip
+                                    options=arm_options(1))  # fmt: skip
                 assert f0 is not None
                 confirmed = frozenset(
                     p.key for p in f0.lump_proposals
                     if right_lump(p, origin, db.labels, fp_row, by_series)[1] is not None
                 )  # fmt: skip
+            options = arm_options(arm, confirmed)
             record = run_origin(conn, pid, "synthetic", origin, futures, db.persona.archetype,
-                                db.persona.held_out, arm_options(arm, confirmed))  # fmt: skip
+                                db.persona.held_out, options)  # fmt: skip
+            seen = build_forecast(conn, pid, METHOD, origin, None, HORIZON, 0, options=options)
+            assert seen is not None
             record["arm"] = arm
-            record["confirmed"] = len(confirmed)
+            record["confirmed"] = sum(1 for i in seen.items if i.series_key.startswith("lump|"))
+            record["placements"] = len(seen.outflow_placements)
             out.write(json.dumps(record) + "\n")
             out.flush()
     return len(todo)
@@ -194,7 +210,6 @@ def arm_rows(records: list[Record]) -> list[tuple[str, str]]:
     m = forecast_metrics(ordinary)
     e = m["error"]
     prov = alert_metrics(records, PROVISIONAL_THRESHOLD, True)
-    chosen = alert_metrics(records, CHOSEN_THRESHOLD, False)
     rows = [
         ("n (ordinary origins, personas)", f"{m['n_origins']}, {m['n_personas']}"),
         ("Error, middle future, mean: 7 / 14 / 30 days",
@@ -208,8 +223,10 @@ def arm_rows(records: list[Record]) -> list[tuple[str, str]]:
         ("80% band width: 7 / 14 / 30 days", " / ".join(_d(m["width"][h]) for h in HORIZONS)),
         ("Path-level coverage", _p(m["path_coverage"])),
         ("Brier (reference)", f"{m['brier']['brier']:.3f} ({m['brier']['reference']:.3f})"),
-        ("Alerts, provisional rule: recall original / new", _alerts(prov)),
-        ("Alerts, chance above 90%: recall original / new", _alerts(chosen)),
+        ("Alerts, provisional rule: recall opened ahead / on ahead", _alerts(prov)),
+        ("Origins with a confirmed proposal / a placement",
+         f"{sum(r.get('confirmed', 0) > 0 for r in records)} / "
+         f"{sum(r.get('placements', 0) > 0 for r in records)} of {len(records)}"),
     ]  # fmt: skip
     for kind, (n, bias, miss) in lowest_by_window(ordinary).items():
         rows.append((f"Lowest balance, windows {kind}: bias / miss (n)",
@@ -228,15 +245,54 @@ def per_archetype(records: list[Record]) -> dict[str, Record]:
     return out
 
 
+def worse_archetypes(
+    arm: dict[str, Record], base: dict[str, Record]
+) -> tuple[list[str], list[str]]:
+    """The drop rule (written before computing): an archetype is worse on the 30-day error if the
+    arm's mean absolute 30-day error is more than 1 percent above arm 0's, and worse on the lowest
+    balance if the absolute value of its mean lowest-balance miss is more than 1 percent above."""
+    error = [c for c in base if arm[c]["error30"] > base[c]["error30"] * (1 + WORSE_BY)]
+    low = [c for c in base if abs(arm[c]["bias"]) > abs(base[c]["bias"]) * (1 + WORSE_BY)]
+    return error, low
+
+
+FORECAST_FIELDS = ("p10", "p50", "p90", "point", "lowest_cents", "shortfall_probability",
+                   "median_lowest_cents")  # fmt: skip
+
+
+def changed_without_cause(arm: list[Record], base: list[Record]) -> list[str]:
+    """(persona, origin) where the arm's forecast differs from arm 0's although nothing was
+    confirmed or placed there: the plan's "unexpected"."""
+    at = {(r["persona"], r["origin"]): r for r in base}
+    out = []
+    for r in arm:
+        b = at[(r["persona"], r["origin"])]
+        if (
+            r.get("confirmed", 0) == 0
+            and r.get("placements", 0) == 0
+            and any(r[f] != b[f] for f in FORECAST_FIELDS)
+        ):
+            out.append(f"{r['persona']} {r['origin']}")
+    return out
+
+
+def alerts_by_archetype(records: list[Record]) -> dict[str, Record]:
+    out = {}
+    for code in sorted({r["archetype"] for r in records}):
+        out[code] = alert_metrics([r for r in records if r["archetype"] == code],
+                                  PROVISIONAL_THRESHOLD, True)  # fmt: skip
+    return out
+
+
 def report(arms: list[int], loader: Callable[[int, bool], list[Record]]) -> str:
-    out = ["# Step 3: the arms (synthetic, development personas)", "",
-           "Made with `python -m eval.arms --report`. Method in DECISIONS.md (2026-10-11, step 3). "
+    out = ["# Step 2: the arms on the merged code (synthetic, development personas)", "",
+           "Made with `python -m eval.arms --report`. Method in DECISIONS.md (2026-10-12, step 2). "
            "20 development personas per set, 40 weekly origins, 500 futures, seed 42, weekday "
-           "method, raw chances. Forecast metrics on origins not already in shortfall; alerts on "
-           "the same, with the already-in-shortfall origins left out as before. Recall is given "
-           "for both definitions: opened ahead (original) / on ahead (new). Arm 3 is an upper "
-           "bound (the answer key picks the proposals to confirm). Arms 4 and 5 were not run: "
-           "b) failed its gate.", ""]  # fmt: skip
+           "method, raw chances, keeps-coming on in every arm. Forecast metrics on origins not "
+           "already in shortfall; alerts on the same, with the already-in-shortfall origins left "
+           "out as before. Recall is given for both definitions: opened ahead (original) / on "
+           "ahead (the reading of 2026-10-12). **Arms 2 and 4 are upper bounds**: the answer key "
+           "picks the proposals to confirm, so no user could get them.", ""]  # fmt: skip
     for long in (False, True):
         name = "24-month set" if long else "12-month set"
         loaded = {a: loader(a, long) for a in arms}
@@ -255,13 +311,44 @@ def report(arms: list[int], loader: Callable[[int, bool], list[Record]]) -> str:
                 "| Archetype (n origins, personas) | " + " | ".join(f"arm {a}" for a in loaded)
                 + " |", "|---|" + "---|" * len(loaded)]  # fmt: skip
         by = {a: per_archetype(r) for a, r in loaded.items()}
-        for code in by[next(iter(by))]:
-            first = by[next(iter(by))][code]
+        first_arm = next(iter(by))
+        for code in by[first_arm]:
+            first = by[first_arm][code]
             cells = [f"{_d(by[a][code]['error30'])} / {_d(by[a][code]['bias'])} / "
                      f"{_p(by[a][code]['coverage'])} / {by[a][code]['brier']:.3f}"
                      for a in loaded]  # fmt: skip
             out.append(f"| {code} ({first['n']}, {first['personas']}) | " + " | ".join(cells)
                        + " |")  # fmt: skip
+        out += ["", f"### {name}, alerts by archetype, provisional rule: recall opened ahead / on "
+                "ahead (caught of episodes); precision; false alerts per 30 days", "",
+                "| Archetype | " + " | ".join(f"arm {a}" for a in loaded) + " |",
+                "|---|" + "---|" * len(loaded)]  # fmt: skip
+        alerts = {a: alerts_by_archetype(r) for a, r in loaded.items()}
+        for code in alerts[first_arm]:
+            out.append(f"| {code} | " + " | ".join(_alerts(alerts[a][code]) for a in loaded)
+                       + " |")  # fmt: skip
+        if 0 in loaded:
+            out += ["", f"### {name}: the drop rule and the unexpected checks (fixed before "
+                    "computing)", ""]  # fmt: skip
+            for a in [a for a in loaded if a != 0]:
+                error, low = worse_archetypes(by[a], by[0])
+                dropped = len(error) >= DROP_IF_WORSE or len(low) >= DROP_IF_WORSE
+                odd = changed_without_cause(loaded[a], loaded[0])
+                bound = " (upper bound)" if a in UPPER_BOUNDS else ""
+                out.append(
+                    f"- arm {a}{bound}: worse on the 30-day error {len(error)} of {len(by[0])} "
+                    f"({', '.join(error) or '-'}); worse on the lowest balance {len(low)} of "
+                    f"{len(by[0])} ({', '.join(low) or '-'}); "
+                    f"**{'dropped' if dropped else 'not dropped'}**; "
+                    f"origins that changed with nothing confirmed or placed: {len(odd)}"
+                    + (f" ({', '.join(odd[:10])}{', ...' if len(odd) > 10 else ''})" if odd else "")
+                )
+            for upper, plain in ((2, 1), (4, 3)):
+                if upper in loaded and plain in loaded:
+                    error, low = worse_archetypes(by[upper], by[plain])
+                    out.append(f"- arm {upper} against arm {plain}: worse on the 30-day error "
+                               f"{len(error)} ({', '.join(error) or '-'}), on the lowest balance "
+                               f"{len(low)} ({', '.join(low) or '-'})")  # fmt: skip
         out.append("")
     out.append("ITIGHT is its three development personas (-01, -02, -03); -01 and -03 run past "
                "-$3,000 in both sets (known limitation). -04 and -05 are held out.")  # fmt: skip
@@ -275,6 +362,7 @@ def load_arm(arm: int, long: bool) -> list[Record]:
     records = load_records(folder)
     assert all(is_long(r["persona"]) == long for r in records)
     assert all(r.get("arm", 0) == arm for r in records)
+    assert arm == 0 or all("placements" in r for r in records)  # this plan's arms only
     assert all(r["format"] == format_of(r["persona"]) for r in records)
     return records
 
@@ -284,14 +372,15 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m eval.arms", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )  # fmt: skip
-    parser.add_argument("--arms", nargs="*", type=int, default=[1, 2, 3])
+    parser.add_argument("--arms", nargs="*", type=int, default=[1, 2])
     parser.add_argument("--set", choices=("12", "long", "both"), default="both")
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args(argv)
     if args.report:
-        REPORT.write_text(report([0, 1, 2, 3], load_arm), encoding="utf-8")
+        REPORT.write_text(report(args.arms if args.arms != [1, 2] else [0, 1, 2, 3, 4], load_arm),
+                          encoding="utf-8")  # fmt: skip
         print(f"written: {REPORT}")
         return 0
     sets = {"12": [False], "long": [True], "both": [False, True]}[args.set]

@@ -4,9 +4,9 @@
     python -m eval.backtest_real                # every weekly origin that fits, 500 futures
     python -m eval.backtest_real --paths        # the same, also keeping every future's daily
                                                 # balance (for eval.calibrate apply)
-    python -m eval.backtest_real --arm 1        # an arm of the 2026-10-11 plan (1: random lump
-                                                # arrivals; 2: every lump proposal confirmed),
-                                                # saved to data/private/backtest/arms/arm<n>
+    python -m eval.backtest_real --arm 1        # an arm of the 2026-10-12 plan (1: every lump
+                                                # proposal confirmed; 3: b) by calendar position),
+                                                # saved to data/private/backtest/arms-2026-10-12
 
 The quick run saves to data/private/backtest/quick and the full run to data/private/backtest/full,
 so the two never meet (their settings differ). A run with --paths saves to
@@ -82,19 +82,24 @@ def real_origins(first_date: date, last_date: date) -> list[date]:
     return out
 
 
+REAL_ARMS = (0, 1, 3)  # arms 2 and 4 need the generator's answer key
+
+
 def real_arm_options(arm: int) -> ForecastOptions:
-    """The forecaster options of an arm on real data: 0 the current forecaster, 1 random lump
-    arrivals, 2 every lump proposal confirmed with random arrivals for the rest (senders keyed by
-    the account holder's own pseudonym key). Arm 3 needs the generator's answer key, and b)
-    stopped at its gate, so those are not offered."""
+    """The forecaster options of an arm of the 2026-10-12 plan on real data (keeps-coming on, as
+    by default): 0 the forecaster as merged; 1 every lump proposal confirmed, keeps-coming
+    drawing the rest; 3 repeated large payments placed by calendar position (a year after the
+    same-term payment). Senders and e-Transfer payees are keyed by the account holder's own
+    pseudonym key. Arms 2 and 4 need the generator's answer key, so they are not offered."""
     if arm == 0:
         return DEFAULT_OPTIONS
     if arm == 1:
-        return ForecastOptions(lump_arrivals=True)
-    if arm == 2:
-        return ForecastOptions(lump_arrivals=True, lump_proposals=True, confirm_all_lumps=True,
+        return ForecastOptions(lump_proposals=True, confirm_all_lumps=True,
                                proposal_key=pseudonym_key())  # fmt: skip
-    raise ValueError("on real data only arms 0, 1 and 2 can be run")
+    if arm == 3:
+        return ForecastOptions(outflow_placements=True, outflow_rule="calendar",
+                               proposal_key=pseudonym_key())  # fmt: skip
+    raise ValueError("on real data only arms 0, 1 and 3 can be run")
 
 
 def check_private(db_path: Path, out_dir: Path) -> None:
@@ -263,8 +268,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--futures", type=int, default=None)
     parser.add_argument("--paths", action="store_true",
                         help="keep every future's daily balance (saved to .../paths)")  # fmt: skip
-    parser.add_argument("--arm", type=int, default=0, choices=(0, 1, 2),
-                        help="an arm of the 2026-10-11 plan (.../arms/arm<n>)")  # fmt: skip
+    parser.add_argument("--arm", type=int, default=0, choices=REAL_ARMS,
+                        help="an arm of the 2026-10-12 plan")  # fmt: skip
     parser.add_argument("--keeps-coming", choices=sorted(KEEPS_NAMES), default="with-own",
                         help="big money that keeps coming forecast as random arrivals (the "
                              "default, with transfers from my own accounts counted), without "
@@ -283,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     folder = "paths" if args.paths else "quick" if args.quick else "full"
     keeps = KEEPS_NAMES[args.keeps_coming]
-    root = DEFAULT_OUT / "arms" / f"arm{args.arm}" if args.arm else DEFAULT_OUT
+    root = DEFAULT_OUT / "arms-2026-10-12" / f"arm{args.arm}" if args.arm else DEFAULT_OUT
     base = root / f"keeps-coming-{args.keeps_coming}" if keeps else root
     out = args.out or base / folder  # never the same folder
     try:

@@ -221,8 +221,9 @@ def build_forecast(
     if keeps is not None:  # on by default; `keeps=None` is the old forecaster exactly
         placed = {row_of[fp] for p in proposed.placements for fp in p.evidence if fp in row_of}
         arrivals = keeps_coming_arrivals(
-            txns, flows, in_series, start.data_last_updated, keeps, exclude=placed
-        )  # a placed payment is never drawn too
+            txns, flows, in_series, start.data_last_updated, keeps,
+            exclude=placed | proposed.out_of_pool,
+        )  # a placed payment, or a lump of a confirmed sender, is never drawn too  # fmt: skip
     simulation = inputs = None
     if futures > 0:
         deposits = deposits_by_day(txns, flows, in_series, start.data_last_updated)

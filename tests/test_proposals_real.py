@@ -61,13 +61,17 @@ def test_without_a_pseudonym_key_it_says_so_and_stops(
     assert "No pseudonym key" in capsys.readouterr().out
 
 
-def test_real_arms_are_0_1_and_2_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_real_arms_are_0_1_and_3_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PSEUDONYM_KEY", KEY_HEX)
-    assert real_arm_options(1).lump_arrivals and not real_arm_options(1).lump_proposals
-    two = real_arm_options(2)
-    assert two.confirm_all_lumps and two.proposal_key == bytes.fromhex(KEY_HEX)
-    with pytest.raises(ValueError):
-        real_arm_options(3)
+    one = real_arm_options(1)
+    assert one.confirm_all_lumps and one.lump_proposals and not one.lump_arrivals
+    assert one.proposal_key == bytes.fromhex(KEY_HEX)
+    three = real_arm_options(3)
+    assert three.outflow_placements and three.outflow_rule == "calendar"
+    assert not three.lump_proposals
+    for arm in (2, 4):
+        with pytest.raises(ValueError):
+            real_arm_options(arm)
 
 
 @pytest.mark.slow
@@ -76,13 +80,14 @@ def test_a_real_arm_saves_to_its_own_folder(
     capsys: pytest.CaptureFixture[str],
 ) -> None:  # fmt: skip
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PSEUDONYM_KEY", KEY_HEX)  # payees by e-Transfer are keyed tokens
     copy = tmp_path / "data" / "private" / "db.db"  # private files only
     copy.parent.mkdir(parents=True)
     copy.write_bytes(made_up_db.read_bytes())
     assert (
-        backtest_real_main(["--db", str(copy), "--quick", "--arm", "1", "--keeps-coming", "off"])
+        backtest_real_main(["--db", str(copy), "--quick", "--arm", "3", "--keeps-coming", "off"])
         == 0
     )
-    saved = list((tmp_path / "data/private/backtest/arms/arm1/quick").glob("*.jsonl"))
+    saved = list((tmp_path / "data/private/backtest/arms-2026-10-12/arm3/quick").glob("*.jsonl"))
     assert len(saved) == 1 and re.fullmatch(r"account-[0-9a-f]{10}\.jsonl", saved[0].name)
     assert ACCOUNT not in capsys.readouterr().out

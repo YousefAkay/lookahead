@@ -475,3 +475,23 @@ def test_a_placed_payment_is_never_also_a_keeps_coming_arrival(tmp_path: Path) -
     rows = {fp: rid for rid, fp in c.execute("SELECT id, fingerprint FROM transactions")}
     assert not {rows[fp] for fp in placed} & on.arrivals.members
     assert on.arrivals.out_sizes == ()
+
+
+def test_a_confirmed_senders_lumps_are_never_also_keeps_coming_arrivals(tmp_path: Path) -> None:
+    """Step 2 of 2026-10-12: keeps-coming draws "the rest". A sender whose lump proposal is
+    confirmed is placed by its proposal, so its lumps leave the keeps-coming pool too."""
+    c = connect(tmp_path / "l.db")
+    as_of = date(2026, 2, 20)  # the next lump (Dec 8 + about 91 days) falls in the horizon
+    insert(c, background(as_of, 200) + LUMP_ROWS)
+    lumps = {rid for rid, fp in c.execute("SELECT id, fingerprint FROM transactions")
+             if fp in {"fp11", "fp12", "fp13"}}  # fmt: skip
+    plain = _with_keeps(c, ACCOUNT, as_of=as_of, futures=20)
+    assert plain is not None and plain.arrivals.members & lumps  # drawn by keeps-coming
+    naive = ForecastOptions(lump_proposals=True, confirm_all_lumps=True, proposal_key=KEY)
+    confirmed = _with_keeps(c, ACCOUNT, as_of=as_of, futures=20, options=naive)
+    assert confirmed is not None and [p.status for p in confirmed.lump_proposals] == ["confirmed"]
+    assert not confirmed.arrivals.members & lumps
+    shown = ForecastOptions(lump_proposals=True, proposal_key=KEY)  # proposed, not confirmed
+    unconfirmed = _with_keeps(c, ACCOUNT, as_of=as_of, futures=20, options=shown)
+    assert unconfirmed is not None and unconfirmed.arrivals == plain.arrivals
+    assert unconfirmed.simulation == plain.simulation  # an unconfirmed proposal changes nothing
