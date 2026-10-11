@@ -369,6 +369,17 @@ def print_summary(out_dir: Path) -> None:
         print(f"  history {bucket}: {n} origins")
 
 
+def default_out(long: bool, keeps_coming: str, quick: bool, held_out: bool) -> Path:
+    """The folder a run saves to: the set, the keeps-coming switch, and quick or full. A run with
+    --held-out (the final test) has its own folder, so its records never sit beside the
+    development records that every tuning step reads."""
+    root = LONG_OUT if long else DEFAULT_OUT
+    if held_out:
+        root = root / "held-out"
+    base = root / f"keeps-coming-{keeps_coming}" if KEEPS_NAMES[keeps_coming] else root
+    return base / ("quick" if quick else "full")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m eval.backtest", description=__doc__,
@@ -392,9 +403,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     long = args.set == "long"
     keeps = KEEPS_NAMES[args.keeps_coming]
-    root = LONG_OUT if long else DEFAULT_OUT
-    base = root / f"keeps-coming-{args.keeps_coming}" if keeps else root
-    out = args.out or base / ("quick" if args.quick else "full")
+    out = args.out or default_out(long, args.keeps_coming, args.quick, args.held_out)
     if args.summary:
         print_summary(out)
         return 0

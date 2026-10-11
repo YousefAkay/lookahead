@@ -395,3 +395,14 @@ def test_every_record_carries_the_format_and_logic_version(conn: sqlite3.Connect
 
     record = run_origin(conn, PID, "synthetic", ORIGIN, FUTURES)
     assert record["format"] == FORMAT and record["logic"] == LOGIC
+
+
+def test_a_held_out_run_saves_to_its_own_folder_apart_from_development_records() -> None:
+    from eval.backtest import DEFAULT_OUT, LONG_OUT, default_out
+
+    dev = default_out(False, "with-own", False, False)
+    final = default_out(False, "with-own", False, True)
+    assert dev == DEFAULT_OUT / "keeps-coming-with-own" / "full"
+    assert final == DEFAULT_OUT / "held-out" / "keeps-coming-with-own" / "full"
+    assert default_out(True, "off", True, True) == LONG_OUT / "held-out" / "quick"
+    assert dev not in final.parents and final not in dev.parents
