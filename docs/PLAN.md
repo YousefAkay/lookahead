@@ -13,7 +13,7 @@ A local-first cashflow planner: import bank CSVs, forecast the chequing balance,
 | 1 | Skeleton, synthetic generator v0 (3 personas, frozen until week 5), Scotiabank importer with dedupe and reconciliation, pseudonymizer, Transactions page | Done |
 | 2 | Merchant extraction and resolution, flow typing, 17 categories, hybrid categorizer, label review, holdout evaluation, app pages (To check, corrections, Retrain, opt-in LLM fallback) | Done |
 | 3 | 3a recurring payments; 3b baseline forecast with block-bootstrap paths; 3c shortfall alert; 3d what-ifs. This is the working prototype | Done |
-| 4 | Time Machine (back end and page, synthetic personas), backtest runner and metrics (synthetic and real), Model Report page, generator v1 mix (frozen v2, plus the 24-month set v2L), calibration (built, shelved after the real-account run), keeps-coming as the forecaster's default, the proposals options (random lump arrivals, lump proposals, repeated large payments: off by default), LightGBM spending model (lost, on its branch). Not done: README numbers refreshed, the held-out test, the repo public | In progress |
+| 4 | Time Machine (back end and page, synthetic personas), backtest runner and metrics (synthetic and real), Model Report page, generator v1 mix (frozen v2, plus the 24-month set v2L), calibration (built, shelved after the real-account run), keeps-coming as the forecaster's default, the recurring-placement fix (a)+(b) as the default (a weekly series of card purchases and a series that has possibly ended are not placed), the proposals options (random lump arrivals and repeated large payments by calendar position: off by default; lump proposals retired on 2026-10-12), the alert threshold of 20 percent (provisional: the final threshold is chosen once, on the final forecaster, right before the held-out test), LightGBM spending model (lost, on its branch). Not done: README numbers refreshed, the held-out test, the repo public | In progress |
 | 5 | Generator v1 (100+ weighted-archetype personas, some with a monthly credit card payment), LightGBM direct-horizon forecaster, time-series CV, conformal intervals | |
 | 6 | Full backtest on synthetic, Berka and my real data, reported separately | |
 | 7 | Ask: questions answered from the data (local model by default, Claude opt-in with minimal pseudonymized evidence) | |
@@ -38,8 +38,8 @@ Evaluation
 Product
 - The app never blocks on review: every row is categorized; low-confidence rows are only flagged.
 - Money is integer cents.
-- Forecast horizon: next expected income or 30 days, whichever is sooner.
-- Large one-offs are scheduled items, kept out of everyday spending. Fees are modelled separately, outside the everyday-spending bootstrap.
+- Forecast horizon: a fixed 30 days, starting the day after the data ends (DECISIONS.md, 2026-10-06; this replaced the earlier idea of stopping at the next expected income, because no income is assumed that is not in a detected series).
+- Large one-offs are scheduled items, kept out of everyday spending; big money that keeps coming (2 or more earlier rows of similar size) is drawn as random arrivals instead of being set aside. Fees are modelled separately, outside the everyday-spending bootstrap.
 - Netted (fully reversed) rows are out of spending.
 - Recurring detection upgrades card subscriptions and e-Transfer rent, and downgrades one-off bill payments.
 - Generator v0 stays frozen until week 5.

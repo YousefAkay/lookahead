@@ -131,8 +131,10 @@ the Model report page and in `docs/results/`; they are not final.
 
 ## Limitations
 
-- The forecast does not expect tuition or other large one-time payments, and it does not expect
-  large deposits either. For students paid in lump sums the error is in the thousands of dollars.
+- The forecast does not expect tuition or other large one-time payments. Large deposits that keep
+  arriving (an allowance, family transfers: at least two earlier ones of similar size) are
+  forecast as random arrivals at their own rate and sizes; a first or one-off large deposit is
+  not expected. For students paid in lump sums the error is still in the thousands of dollars.
 - On synthetic data the forecast is too optimistic; on my own account it is too pessimistic. The
   80% band is too narrow in both.
 - The alert rule is provisional until the final test.

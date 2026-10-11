@@ -1587,6 +1587,21 @@ Approved: extend `eval.income_timing` with a column; no forecast changes. For ea
 
 **Prediction (not measured yet).** On the synthetic sets the personas with young streams (the family-transfer personas) change most: the middle future and the mean rise a little; the 30-day error and the lowest-balance bias move by a few percent and nothing becomes worse than it was in a way that matters. On my account little should change. To be measured on the development personas and on my account after the merge, before anything else is built on the old numbers.
 
+### 2026-10-12: The review of 2026-10-11: eleven fixes, what each changed (no forecaster default changed except the rate in the entry above)
+Done on the branch `review-fixes-2026-10-11`, one commit per item, each with a test that failed first.
+1. **`eval.lump_diagnose` printed real dates** (first and last posting, the window dates, "days before the anchor"). Counts only now; a test finds no date in its output.
+2. **One folder for the current default's records.** The default backtest writes to `data/backtest/keeps-coming-with-own/full`; arm 0, the blend's check, `eval.metrics --dir` and `eval.thresholds_raw --dir` read `data/backtest/full`, the old forecaster's. They all use `eval.backtest.current_default_dir()` now. **Any comparison made before this against "arm 0" or the metrics default read the old forecaster's records.**
+3. **Saved results record the forecaster's settings** (keeps-coming, recurring fix, the options) in the meta of backtests, arms, real backtests and Time Machine snapshots; a resume with other settings is refused and says what differs; `LOGIC_VERSION` 2 to 3, so every older saved result is refused or set aside (the real backtest moves it to `older/`).
+4. **Small numbers are not printed** from a real account: a median or gap statistic needs 10 or more values and a group 5 or more rows, else "too few to show" (`eval/small_n.py`; diagnose_real, income_timing, proposals_real); `eval.big_money` prints a range, not the value, for a cutoff that is 5 times an odd median of fewer than 10 rows (that median is one real row).
+5. **`is_private_path`** is anchored at the repository's own `data/private`, part by part, case-sensitive; the Time Machine treats a database as private if any account is not the generator's own, so a copy of a private database outside `data/private` cannot be written out as if synthetic. (The tests stand in a `data/private` inside their temporary folder through one fixture.)
+6. **Shortfall episodes:** an origin after an unobserved gap that was already below the buffer is the continuation of a shortfall that began before it, not a new countable one.
+7. **`eval.thresholds_raw`:** the plan's second stop check (precision, false alerts and episodes are the same quantities for both definitions of caught) was never computed; it is, from the counts. Alerts that opened below the buffer are reported beside precision. The 2026-10-12 threshold result was made without that check; **it has to be run again** (the check can only add a stop; the 20 percent stays provisional).
+8. **Keeps-coming rate:** see the bug-fix entry above.
+9. **Calendar-position rule:** never places a payment for a term already paid this year (a payment within 3 weeks of the proposed day, each payment taking only its nearest day; the rule is still off by default).
+10. **Small:** recurring fix (a) needs a strict majority of card purchases, as recorded (before, a tie could count); stale docstrings (the options' defaults, lump proposals retired, the arms example); `--held-out --only <development persona>` saves with the development records; the salt file is created owner-only (the mode has no effect on Windows, where the folder's permissions apply).
+11. **Docs:** the plan's week 4 row, the horizon rule the code implements (a fixed 30 days, 2026-10-06; the 2026-09-30 entry stays as history) and the README limitation about large deposits.
+
+
 ## Tests
 
 ### 2026-10-01: Slow marker
