@@ -316,3 +316,19 @@ def test_the_meta_file_carries_versions_and_a_resume_across_versions_is_refused(
                                              encoding="utf-8")  # fmt: skip
     with pytest.raises(ValueError, match="older version"):  # before versions were recorded
         precompute(conn, PID, DAYS[:2], out, futures=FUTURES)
+
+
+def test_a_changed_forecaster_default_refuses_to_continue_saved_snapshots(
+    conn: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    from dataclasses import replace
+
+    from lookahead.forecast import path
+
+    out = tmp_path / "snap.jsonl"
+    precompute(conn, PID, DAYS[:1], out, futures=FUTURES)
+    meta = json.loads(out.with_suffix(".meta.json").read_text(encoding="utf-8"))
+    assert meta["forecaster"]["recurring_fix"] == {"possibly_ended": True, "weekly_card": True}
+    monkeypatch.setattr(path, "DEFAULT_OPTIONS", replace(path.DEFAULT_OPTIONS, recurring_fix=None))
+    with pytest.raises(ValueError, match=r"different settings.*recurring_fix"):
+        precompute(conn, PID, DAYS[:2], out, futures=FUTURES)

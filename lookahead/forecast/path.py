@@ -10,7 +10,7 @@ later. Everything uses only rows posted by the forecast date and the decisions m
 
 import sqlite3
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import date, timedelta
 from typing import Any
 
@@ -94,6 +94,37 @@ class ForecastOptions:
 
 
 DEFAULT_OPTIONS = ForecastOptions()
+
+
+def settings_differences(
+    saved: dict[str, Any], settings: dict[str, Any], prefix: str = ""
+) -> list[str]:
+    """What differs between the saved settings and the new ones, one line each, by name."""
+    out = []
+    for key in sorted({*saved, *settings}):
+        a, b = saved.get(key, "(not recorded)"), settings.get(key, "(not recorded)")
+        if isinstance(a, dict) and isinstance(b, dict):
+            out += settings_differences(a, b, f"{prefix}{key}.")
+        elif a != b:
+            out.append(f"{prefix}{key}: saved {a}, now {b}")
+    return out
+
+
+def forecaster_settings(
+    options: ForecastOptions | None = None, keeps: KeepsComing | None = DEFAULT_KEEPS
+) -> dict[str, Any]:  # fmt: skip
+    """The settings that decide what a forecast is, as plain values, for the meta files of saved
+    results (backtests, arms, Time Machine snapshots): the recurring fix, keeps-coming and the
+    options. A saved run is continued only if these are the same, so changing a default can never
+    mix old and new forecasts. `options=None` is the current default, read when this is called."""
+    chosen = DEFAULT_OPTIONS if options is None else options
+    return {
+        "keeps": None if keeps is None else asdict(keeps),
+        "recurring_fix": None if chosen.recurring_fix is None else asdict(chosen.recurring_fix),
+        "lump_arrivals": chosen.lump_arrivals,
+        "outflow_placements": chosen.outflow_placements,
+        "outflow_rule": chosen.outflow_rule,
+    }
 
 
 @dataclass(frozen=True)

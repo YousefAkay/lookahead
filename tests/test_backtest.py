@@ -435,3 +435,25 @@ def test_every_reader_of_the_current_defaults_records_reads_where_the_backtest_w
         with pytest.raises(Stop):
             module.main([])
         assert seen == [default_out(False, "with-own", False, False)], module.__name__
+
+
+def test_the_effective_forecaster_defaults_are_recorded_and_a_changed_default_refuses_a_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    from dataclasses import replace
+
+    from eval.backtest import LOGIC
+
+    assert LOGIC >= 3  # the version that records the forecaster's settings
+    days = origins()[:1]
+    run_persona(PID, tmp_path / "out", days, FUTURES, seed=42, work_dir=tmp_path / "work")
+    meta = json.loads((tmp_path / "out" / f"{PID}.meta.json").read_text(encoding="utf-8"))
+    assert meta["forecaster"]["recurring_fix"] == {"possibly_ended": True, "weekly_card": True}
+    assert meta["forecaster"]["keeps"] == {"own_account": True}
+    # the default fix changes (here: switched off), and the same folder is run again
+    monkeypatch.setattr(
+        backtest, "DEFAULT_OPTIONS", replace(backtest.DEFAULT_OPTIONS, recurring_fix=None)
+    )
+    with pytest.raises(ValueError, match=r"different settings.*recurring_fix") as error:
+        run_persona(PID, tmp_path / "out", days, FUTURES, seed=42, work_dir=tmp_path / "work")
+    assert "new folder" in str(error.value)  # it says what to do

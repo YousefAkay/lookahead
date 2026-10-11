@@ -31,7 +31,13 @@ from pathlib import Path
 from typing import Any
 
 from lookahead.db import connect
-from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
+from lookahead.forecast.path import (
+    DEFAULT_OPTIONS,
+    ForecastOptions,
+    build_forecast,
+    forecaster_settings,
+    settings_differences,
+)
 from lookahead.forecast.spending import DEFAULT_KEEPS, KeepsComing
 from lookahead.forecast.start import forecast_start
 from lookahead.generator.archetypes import (
@@ -284,11 +290,18 @@ def _saved_origins(path: Path) -> set[str]:
 
 
 def _check_settings(meta_path: Path, settings: dict[str, Any]) -> None:
-    """Results made with other settings must not be mixed with new ones."""
+    """Results made with other settings must not be mixed with new ones: a resume whose settings
+    differ (a forecaster default changed, other futures, another seed) is refused and says what
+    differs."""
     if meta_path.exists():
         saved = json.loads(meta_path.read_text(encoding="utf-8"))
         if saved != settings:
-            raise ValueError(f"{meta_path.name} was made with different settings: {saved}")
+            raise ValueError(
+                f"{meta_path.name} was made with different settings ("
+                + "; ".join(settings_differences(saved, settings))
+                + "): saved results are never continued with other settings; use a new folder "
+                "(or move the old one away) and run it again"
+            )
     else:
         meta_path.write_text(json.dumps(settings), encoding="utf-8")
 
@@ -307,7 +320,8 @@ def run_persona(
     _check_settings(out_dir / f"{persona_id}.meta.json",
                     {"futures": futures, "seed": seed, "method": METHOD,
                      **version_settings(persona_id),
-                     **({"keeps_coming": keeps_name(keeps)} if keeps else {})})  # fmt: skip
+                     **({"keeps_coming": keeps_name(keeps)} if keeps else {}),
+                     "forecaster": forecaster_settings(DEFAULT_OPTIONS, keeps)})  # fmt: skip
     todo = [d for d in days if d.isoformat() not in _saved_origins(result_path)]
     if not todo:
         return 0
@@ -324,7 +338,8 @@ def run_persona(
         with result_path.open("a", encoding="utf-8") as out:
             for origin in todo:
                 record = run_origin(conn, persona_id, "synthetic", origin, futures,
-                                    persona.archetype, persona.held_out, keeps=keeps)  # fmt: skip
+                                    persona.archetype, persona.held_out, DEFAULT_OPTIONS,
+                                    keeps)  # fmt: skip
                 out.write(json.dumps(record) + "\n")
                 out.flush()
     finally:
