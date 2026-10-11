@@ -1322,6 +1322,24 @@ Scored with `python -m eval.proposals_score` (full tables in `docs/results/propo
 - **Prediction, written first (the plan's):** the chosen threshold is high (90 percent last time), and recall under the new reading is higher than under the old at low thresholds and nearly equal at high ones. My own expectation, from the numbers above, is that the gap stays large at high thresholds too.
 - Nothing changes in the app.
 
+### 2026-10-12: Step 3 result: the three stop checks pass and the objective picks 20 percent; the proposals run's fourth condition holds (development, nothing changes in the app)
+Arm 0 of the 12-month set: 20 development personas, 800 origins (726 ordinary), 52 shortfall episodes. Full curve in `docs/results/thresholds_raw_2026-10-12.md` (`python -m eval.thresholds_raw`).
+
+| Rule | Recall, opened ahead | Recall, on ahead (2026-10-12 reading) | Precision | False alerts per 30 days |
+|---|---|---|---|---|
+| 5 percent | 48% (25/52) | 92% (48/52) | 48% (21/44) | 0.136 |
+| 20 percent (chosen) | 48% (25/52) | 92% (48/52) | 70% (21/30) | 0.053 |
+| 50 percent | 46% (24/52) | 87% (45/52) | 81% (21/26) | 0.030 |
+| 90 percent | 58% (30/52) | 77% (40/52) | 96% (23/24) | 0.006 |
+| 95 percent | 54% (28/52) | 67% (35/52) | 95% (21/22) | 0.006 |
+| provisional rule (20 percent or median low under the buffer) | 48% (25/52) | 92% (48/52) | 70% (21/30) | 0.053 |
+
+- **Stop checks (the plan's three): none holds.** The new caught set contains the old at every threshold; precision, false alerts and episodes are the same quantities for both definitions; the leave-one-out folds chose 3 thresholds (20, 35 and 40 percent; at most 3 allowed).
+- **Chosen on all 20 personas: 20 percent.** Recall (on ahead) 92 percent (48 of 52), precision 70 percent (21 of 30, exactly on the bar: one more false alert would rule it out), 0.053 false alerts per 30 days, lead time 20.3 days (median 22). It gives the same alerts as the provisional rule here (the median clause adds nothing on these records). Leave one persona out: recall 88 percent (46 of 52), precision 74 percent (20 of 27), 0.041 false alerts per 30 days.
+- **The proposals run's fourth condition holds** (recall on ahead more than 5 points above opened ahead at 80, 85, 90 and 95 percent: for example 77 against 58 percent at 90). As written before computing: **under the stricter reading that keeps it as a stop check, no threshold would be chosen.** Which reading stands is my call.
+- **Prediction against result: wrong.** The plan predicted a high threshold and recall nearly equal under both definitions at high thresholds. Under the 2026-10-12 reading of "on ahead", an alert that stays on through a dip and its recovery counts for the next dip, so low thresholds now gain the most (DRENT-03 +8, TIGHT-03 +7, TIGHT-02 +4, ITIGHT-03 +3, ITIGHT-01 +1 at 20 percent), and the highest recall within the constraints is at the low end, where precision just reaches 70 percent. The gap stays at 10 to 20 points at high thresholds, as I expected in the method entry from arm 0's provisional-rule counts.
+- How I read it: "on ahead" rewards an alert that is simply on for long stretches at the personas that hover near the buffer, so a lower threshold wins recall without paying in false alerts (a false alert is still counted per alert episode, and a long episode is one). That is a property of the definitions, not evidence that 20 percent is a good threshold for a person. n is small: 52 episodes at 8 personas. Nothing changes in the app.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
