@@ -1346,6 +1346,11 @@ Arm 0 of the 12-month set: 20 development personas, 800 origins (726 ordinary), 
 - **Continue only if** the rebuilt run's records equal Step 2's arm 0 of the 12-month set field for field (same forecaster, same seed; apart from the informational commit and the arm runner's own fields). If not, I find out why before saving anything.
 - Refitting the shelved calibration on the merged forecaster is a side effect of the existing command, not a decision to use it; its numbers are reported as the command writes them.
 
+### 2026-10-12: Step 4 result: the Model report's synthetic numbers are rebuilt; the check against arm 0 passes
+- **Check: pass.** The calibration step's rerun of the 12-month development backtest (`data/backtest/calibration`, 20 personas, 800 origins, 500 futures, seed 42) equals Step 2's arm 0 field for field at every one of the 800 records (only the informational commit differs). So the page now shows the merged forecaster: 30-day error of the middle future $1,727 (ordinary origins, n = 726, 20 personas), skill 0.10, lowest-balance bias +$716, band coverage 58 percent over all days, Brier 0.058; provisional-rule alerts 52 shortfall episodes, 25 caught opened ahead (48 percent), precision 70 percent.
+- **The shelved calibration, refitted by the existing command** (`docs/results/calibration_2026-10-12.md`; not used by the app): multipliers 1.7 at day 7, 2.0 at day 14, 3.5 at day 30 (they were 2.4, 4.1 and 6.4 before keeps-coming and the holiday fix); leave-one-out coverage 80 percent over all days with the 30-day band $903 to $3,135 wide; the rule fixed in 2026-10-10 picks the isotonic map again (Brier 0.0616 against 0.0665 widened only), which is still worse than the raw chance (0.058). The calibrated threshold curve the page shows (under its "shelved" label) now picks 90 percent.
+- `docs/results/report_synthetic.json` and `docs/results/calibration.json` are rewritten; the 2026-10-10 calibration report is kept. The page's real column now says a local run on the current forecaster is needed; the held-out column still says "not run yet" (page tests).
+
 ## Tests
 
 ### 2026-10-01: Slow marker
