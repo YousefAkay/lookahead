@@ -50,9 +50,12 @@ def test_each_variant_has_its_own_folder_and_they_never_mix(private_db: Path) ->
     off, b = root / "recurring-fix-off" / "quick", root / "recurring-fix-b" / "quick"
     assert run_real_fix(private_db, off, 20, "off", quick=True)["new_origins"] == 4
     assert run_real_fix(private_db, b, 20, "b", quick=True)["new_origins"] == 4
-    record = json.loads((off / "account-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
-    assert record["recurring_fix"] == "off" and record["persona"] == "account-1"
+    (saved,) = list(off.glob("account-*.jsonl"))  # named by a salted key, not a list position
+    record = json.loads(saved.read_text(encoding="utf-8").splitlines()[0])
+    assert record["recurring_fix"] == "off" and record["persona"] == saved.stem
+    assert not re.fullmatch(r"account-\d{1,6}", saved.stem)  # not the old numbered name
     assert "acct" not in json.dumps(record)  # the account's name stays out of the files
+    assert (private_db.parent / "backtest_account_salt.txt").exists()
     with pytest.raises(ValueError, match="different settings"):
         run_real_fix(private_db, off, 20, "b", quick=True)  # the other variant's settings
 

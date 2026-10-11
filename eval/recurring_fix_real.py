@@ -31,7 +31,14 @@ from eval.backtest import (
     run_origin,
     version_settings,
 )
-from eval.backtest_real import DEFAULT_OUT, print_counts, real_origins
+from eval.backtest_real import (
+    DEFAULT_OUT,
+    account_key,
+    archive_numbered,
+    check_private,
+    print_counts,
+    real_origins,
+)
 from eval.fix_variants import FIXES, fix_options
 from lookahead.db import connect_readonly
 from lookahead.forecast.spending import DEFAULT_KEEPS
@@ -44,15 +51,16 @@ def run_real_fix(
     db_path: Path, out_dir: Path, futures: int, variant: str, quick: bool = False
 ) -> dict[str, int]:  # fmt: skip
     """Run every account with the fix `variant`. Returns counts (accounts, new origins, saved)."""
-    if not is_private_path(out_dir):
-        raise ValueError("real results are written only inside a data/private folder")
-    archived = 1 if archive_older(out_dir) else 0
+    check_private(db_path, out_dir)
+    archived = (
+        1 if archive_older(out_dir) or (out_dir.exists() and archive_numbered(out_dir)) else 0
+    )
     conn = connect_readonly(db_path)
     out_dir.mkdir(parents=True, exist_ok=True)
     new = 0
     names = accounts(conn)
     try:
-        for number, account in enumerate(names, start=1):
+        for account in names:
             first, last = conn.execute(
                 "SELECT MIN(posted_date), MAX(posted_date) FROM transactions WHERE account = ?",
                 (account,),
@@ -60,17 +68,18 @@ def run_real_fix(
             days = real_origins(date.fromisoformat(first), date.fromisoformat(last))
             if quick:
                 days = days[:: max(1, len(days) // 4)][:4]
-            path = out_dir / f"account-{number}.jsonl"
+            key = account_key(account, out_dir)  # stable when accounts are added or removed
+            path = out_dir / f"{key}.jsonl"
             settings: dict[str, Any] = {
                 "futures": futures, "method": "weekday", **version_settings(),
                 "keeps_coming": keeps_name(DEFAULT_KEEPS), "recurring_fix": variant,
             }  # fmt: skip
-            _check_settings(out_dir / f"account-{number}.meta.json", settings)
+            _check_settings(out_dir / f"{key}.meta.json", settings)
             with path.open("a", encoding="utf-8") as out:
                 for origin in [d for d in days if d.isoformat() not in _saved_origins(path)]:
                     record = run_origin(conn, account, "real", origin, futures, None, None,
                                         options=fix_options(variant))  # fmt: skip
-                    record["persona"] = f"account-{number}"  # the name stays out of the files
+                    record["persona"] = key  # the name stays out of the files
                     record["recurring_fix"] = variant
                     out.write(json.dumps(record) + "\n")
                     out.flush()

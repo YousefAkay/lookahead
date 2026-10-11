@@ -4,8 +4,7 @@
     python -m eval.backtest_real                # every weekly origin that fits, 500 futures
     python -m eval.backtest_real --paths        # the same, also keeping every future's daily
                                                 # balance (for eval.calibrate apply)
-    python -m eval.backtest_real --arm 1        # an arm of the 2026-10-12 plan (1: every lump
-                                                # proposal confirmed; 3: b) by calendar position),
+    python -m eval.backtest_real --arm 3        # b) repeated large payments by calendar position,
                                                 # saved to data/private/backtest/arms-2026-10-12
 
 The quick run saves to data/private/backtest/quick and the full run to data/private/backtest/full,
@@ -82,24 +81,20 @@ def real_origins(first_date: date, last_date: date) -> list[date]:
     return out
 
 
-REAL_ARMS = (0, 1, 3)  # arms 2 and 4 need the generator's answer key
+REAL_ARMS = (0, 3)  # arms 1, 2 and 4 were a) lump proposals, retired on 2026-10-12
 
 
 def real_arm_options(arm: int) -> ForecastOptions:
     """The forecaster options of an arm of the 2026-10-12 plan on real data (keeps-coming on, as
-    by default): 0 the forecaster as merged; 1 every lump proposal confirmed, keeps-coming
-    drawing the rest; 3 repeated large payments placed by calendar position (a year after the
-    same-term payment). Senders and e-Transfer payees are keyed by the account holder's own
-    pseudonym key. Arms 2 and 4 need the generator's answer key, so they are not offered."""
+    by default): 0 the forecaster as merged; 3 repeated large payments placed by calendar
+    position (a year after the same-term payment). Payees are keyed by the account holder's own
+    pseudonym key. Arms 1, 2 and 4 were a) lump proposals, retired on 2026-10-12."""
     if arm == 0:
         return DEFAULT_OPTIONS
-    if arm == 1:
-        return ForecastOptions(lump_proposals=True, confirm_all_lumps=True,
-                               proposal_key=pseudonym_key())  # fmt: skip
     if arm == 3:
         return ForecastOptions(outflow_placements=True, outflow_rule="calendar",
                                proposal_key=pseudonym_key())  # fmt: skip
-    raise ValueError("on real data only arms 0, 1 and 3 can be run")
+    raise ValueError("on real data only arms 0 and 3 can be run")
 
 
 def check_private(db_path: Path, out_dir: Path) -> None:

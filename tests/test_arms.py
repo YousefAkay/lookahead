@@ -10,15 +10,12 @@ from lookahead.forecast.path import ForecastOptions
 
 def test_the_arms_are_the_recorded_option_sets_with_keeps_coming_and_no_random_lumps() -> None:
     assert arm_options(0) == ForecastOptions()
-    one, two = arm_options(1), arm_options(2, frozenset({"k"}))
-    assert one.lump_proposals and one.confirm_all_lumps and not one.lump_arrivals
-    assert two.lump_proposals and not two.confirm_all_lumps and two.confirmed_keys == {"k"}
-    three, four = arm_options(3), arm_options(4, frozenset({"k"}))
+    three = arm_options(3)
     assert three.outflow_placements and three.outflow_rule == "calendar"
-    assert not three.lump_proposals
-    assert four.outflow_placements and four.outflow_rule == "calendar"
-    assert four.confirmed_keys == {"k"} and not four.confirm_all_lumps
-    assert not any(arm_options(a).lump_arrivals for a in range(5))  # keeps-coming replaces them
+    assert not any(arm_options(a).lump_arrivals for a in (0, 3))  # keeps-coming replaces them
+    for retired in (1, 2, 4):  # a) lump proposals, retired on 2026-10-12
+        with pytest.raises(ValueError, match="retired"):
+            arm_options(retired)
     with pytest.raises(ValueError):
         arm_options(5)
 

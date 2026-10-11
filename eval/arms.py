@@ -5,11 +5,11 @@ backtest of `eval/backtest.py` (the same origins, futures, seed and method, the 
 format) with one set of forecaster options, keeps-coming on in every arm (the default):
 
     0  the forecaster as merged (the baseline): options off
-    1  a) every lump proposal confirmed (a naive user); keeps-coming draws the rest
-    2  a) only the proposals right on the answer key confirmed (a best-case user: an upper
-       bound, never what a user would get)
     3  b) by calendar position placed by default (only if Step 1 passed its gate)
-    4  a) as in arm 2 and b) as in arm 3 (an upper bound too)
+
+Arms 1, 2 and 4 were the a) lump proposals (every proposal confirmed; the right ones confirmed;
+a) with b)). a) was retired on 2026-10-12 and its option removed from the forecaster; their
+records are in docs/results/arms_2026-10-12.md and DECISIONS.md.
 
 Random lump arrivals (`lump_arrivals`) are not an arm: keeps-coming replaces them. The option
 sets of the 2026-10-11 plan are in the history of this file.
@@ -48,7 +48,7 @@ from eval.metrics import (
     load_records,
 )
 from eval.personas_db import persona_db
-from eval.proposals_score import KEY, right_lump, series_rows
+from eval.proposals_score import KEY
 from lookahead.forecast.path import ForecastOptions, build_forecast
 from lookahead.generator.archetypes import (
     END,
@@ -63,12 +63,9 @@ ARMS_OUT = Path("data/backtest/arms-2026-10-12")
 REPORT = Path("docs/results/arms_2026-10-12.md")
 ARM_NAMES = {
     0: "merged forecaster (baseline)",
-    1: "a) every proposal confirmed (naive)",
-    2: "a) right proposals confirmed (upper bound)",
     3: "b) by calendar position",
-    4: "a) right proposals and b) (upper bound)",
 }
-UPPER_BOUNDS = (2, 4)  # they use the answer key
+UPPER_BOUNDS: tuple[int, ...] = ()  # arms that use the answer key (a) was retired)
 WORSE_BY = 0.01  # the drop rule: more than 1 percent worse ...
 DROP_IF_WORSE = 5  # ... for 5 or more of the 8 archetypes, on either measure
 FAMILY = ("-tuition-funding", "-tuition-topup", "-family")
@@ -76,20 +73,14 @@ FAMILY = ("-tuition-funding", "-tuition-topup", "-family")
 Record = dict[str, Any]
 
 
-def arm_options(arm: int, confirmed: frozenset[str] = frozenset()) -> ForecastOptions:
+def arm_options(arm: int) -> ForecastOptions:
     """The forecaster options of an arm (keeps-coming stays on: it is the default)."""
-    b = {"outflow_placements": True, "outflow_rule": "calendar"}
     if arm == 0:
         return ForecastOptions()
-    if arm == 1:
-        return ForecastOptions(lump_proposals=True, confirm_all_lumps=True, proposal_key=KEY)
-    if arm == 2:
-        return ForecastOptions(lump_proposals=True, confirmed_keys=confirmed, proposal_key=KEY)
     if arm == 3:
-        return ForecastOptions(proposal_key=KEY, **b)  # type: ignore[arg-type]
-    if arm == 4:
-        return ForecastOptions(lump_proposals=True, confirmed_keys=confirmed, proposal_key=KEY,
-                               **b)  # type: ignore[arg-type]  # fmt: skip
+        return ForecastOptions(proposal_key=KEY, outflow_placements=True, outflow_rule="calendar")
+    if arm in (1, 2, 4):
+        raise ValueError(f"arm {arm} was a) lump proposals, retired on 2026-10-12")
     raise ValueError(f"arm {arm} does not exist")
 
 
@@ -124,26 +115,13 @@ def run_persona_arm(persona_id: str, arm: int, out_dir: Path, futures: int = FUT
         return 0
     with persona_db(persona_id, out_dir / "work", seed) as db, path.open("a") as out:
         pid, conn = persona_id, db.conn
-        fp_row = {fp: rid for rid, fp in conn.execute(
-            "SELECT id, fingerprint FROM transactions WHERE account = ?", (pid,))}  # fmt: skip
-        by_series = series_rows(db.labels)
         for origin in todo:
-            confirmed: frozenset[str] = frozenset()
-            if arm in UPPER_BOUNDS:  # the answer key picks the right proposals (an upper bound)
-                f0 = build_forecast(conn, pid, METHOD, origin, None, HORIZON, 0,
-                                    options=arm_options(1))  # fmt: skip
-                assert f0 is not None
-                confirmed = frozenset(
-                    p.key for p in f0.lump_proposals
-                    if right_lump(p, origin, db.labels, fp_row, by_series)[1] is not None
-                )  # fmt: skip
-            options = arm_options(arm, confirmed)
+            options = arm_options(arm)
             record = run_origin(conn, pid, "synthetic", origin, futures, db.persona.archetype,
                                 db.persona.held_out, options)  # fmt: skip
             seen = build_forecast(conn, pid, METHOD, origin, None, HORIZON, 0, options=options)
             assert seen is not None
             record["arm"] = arm
-            record["confirmed"] = sum(1 for i in seen.items if i.series_key.startswith("lump|"))
             record["placements"] = len(seen.outflow_placements)
             out.write(json.dumps(record) + "\n")
             out.flush()
@@ -343,16 +321,6 @@ def report(arms: list[int], loader: Callable[[int, bool], list[Record]]) -> str:
                     f"origins that changed with nothing confirmed or placed: {len(odd)}"
                     + (f" ({', '.join(odd[:10])}{', ...' if len(odd) > 10 else ''})" if odd else "")
                 )
-            pairs = ((2, 1, "the answer-key arm against its non-key version: unexpected if "
-                      "worse on 5 or more"),
-                     (4, 3, "a) added on top of b); arm 4 has no non-key version, so this is "
-                      "information only"))  # fmt: skip
-            for upper, plain, what in pairs:
-                if upper in loaded and plain in loaded:
-                    error, low = worse_archetypes(by[upper], by[plain])
-                    out.append(f"- arm {upper} against arm {plain} ({what}): worse on the 30-day "
-                               f"error {len(error)} ({', '.join(error) or '-'}), on the lowest "
-                               f"balance {len(low)} ({', '.join(low) or '-'})")  # fmt: skip
         out.append("")
     out.append("ITIGHT is its three development personas (-01, -02, -03); -01 and -03 run past "
                "-$3,000 in both sets (known limitation). -04 and -05 are held out.")  # fmt: skip
@@ -376,14 +344,14 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m eval.arms", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )  # fmt: skip
-    parser.add_argument("--arms", nargs="*", type=int, default=[1, 2])
+    parser.add_argument("--arms", nargs="*", type=int, default=[3])
     parser.add_argument("--set", choices=("12", "long", "both"), default="both")
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args(argv)
     if args.report:
-        REPORT.write_text(report(args.arms if args.arms != [1, 2] else [0, 1, 2, 3, 4], load_arm),
+        REPORT.write_text(report(args.arms if args.arms != [3] else [0, 3], load_arm),
                           encoding="utf-8")  # fmt: skip
         print(f"written: {REPORT}")
         return 0

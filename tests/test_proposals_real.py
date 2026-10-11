@@ -61,15 +61,12 @@ def test_without_a_pseudonym_key_it_says_so_and_stops(
     assert "No pseudonym key" in capsys.readouterr().out
 
 
-def test_real_arms_are_0_1_and_3_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_real_arms_are_0_and_3_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PSEUDONYM_KEY", KEY_HEX)
-    one = real_arm_options(1)
-    assert one.confirm_all_lumps and one.lump_proposals and not one.lump_arrivals
-    assert one.proposal_key == bytes.fromhex(KEY_HEX)
     three = real_arm_options(3)
     assert three.outflow_placements and three.outflow_rule == "calendar"
-    assert not three.lump_proposals
-    for arm in (2, 4):
+    assert three.proposal_key == bytes.fromhex(KEY_HEX) and not three.lump_arrivals
+    for arm in (1, 2, 4):  # a) lump proposals, retired on 2026-10-12
         with pytest.raises(ValueError):
             real_arm_options(arm)
 

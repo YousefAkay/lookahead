@@ -206,7 +206,6 @@ DATA_END = date(2025, 12, 29)
 LUMP_ROWS = [memo(11, date(2025, 6, 9), 400000), memo(12, date(2025, 9, 8), 410000),
              memo(13, date(2025, 12, 8), 420000)]  # fmt: skip
 B = ForecastOptions(outflow_placements=True)
-A = ForecastOptions(lump_arrivals=True, lump_proposals=True, proposal_key=KEY)
 
 
 @pytest.fixture
@@ -218,7 +217,7 @@ def conn(tmp_path: Path) -> sqlite3.Connection:
 
 def test_off_by_default_nothing_is_proposed_or_placed(conn: sqlite3.Connection) -> None:
     f = build_forecast(conn, ACCOUNT, futures=50)
-    assert f is not None and f.lump_proposals == () and f.outflow_placements == ()
+    assert f is not None and f.outflow_placements == ()
     assert not [i for i in f.items if i.series_key.startswith(("lump|", "outflow|"))]
 
 
@@ -256,71 +255,10 @@ def test_not_this_time_skips_the_occurrence_from_its_date_and_looks_right_fixes_
         decide(conn, ACCOUNT, key, "maybe", DATA_END)
 
 
-def test_an_unconfirmed_lump_proposal_is_only_shown_and_its_lumps_stay_in_the_pool(
-    tmp_path: Path,
-) -> None:
-    c = connect(tmp_path / "u.db")
-    as_of = date(2026, 2, 27)
-    insert(c, background(as_of, 200) + LUMP_ROWS)
-    f = build_forecast(c, ACCOUNT, as_of=as_of, futures=50, options=A)
-    assert f is not None and f.inputs is not None
-    [p] = f.lump_proposals
-    assert p.expected == date(2026, 3, 9) and p.status == "detected, not confirmed"
-    assert not [i for i in f.items if i.series_key.startswith("lump|")]
-    assert sorted(f.inputs.lump_sizes) == [400000, 410000, 420000]
-
-
-def test_a_confirmed_lump_is_placed_in_its_window_and_leaves_the_pool(
-    tmp_path: Path,
-) -> None:
-    c = connect(tmp_path / "a.db")
-    as_of = date(2026, 2, 27)
-    insert(c, background(as_of, 200) + LUMP_ROWS)
-    f = build_forecast(c, ACCOUNT, as_of=as_of, futures=0, options=A)
-    assert f is not None
-    [p] = f.lump_proposals
-    assert p.expected == date(2026, 3, 9) and p.typical_cents == 410000
-    decide(c, ACCOUNT, p.key, LOOKS_RIGHT, as_of)
-    f = build_forecast(c, ACCOUNT, as_of=as_of, futures=100, keep_paths=True, options=A)
-    assert f is not None and f.inputs is not None and f.simulation is not None
-    [item] = [i for i in f.items if i.series_key == p.key]
-    assert (item.day, item.cents, item.basis) == (p.expected, 410000, "confirmed")
-    assert f.lump_proposals[0].status == "confirmed"
-    assert f.inputs.lump_sizes == () and f.inputs.lump_rate == 0  # never counted twice
-    assert f.inputs.item_windows[p.key] == (23, 23)
-    k_first, k_last = 0, (p.last - f.start.first_day).days
-    for path in f.simulation.paths:
-        jumps = [k for k in range(1, len(path)) if path[k] - path[k - 1] >= 400000]
-        jumps += [0] if path[0] - f.start.balance_cents >= 400000 else []
-        assert len(jumps) <= 1 and all(k_first <= k <= k_last for k in jumps)
-    # Not this time: nothing placed, and the sender is not drawn at random either.
-    decide(c, ACCOUNT, p.key, NOT_THIS_TIME, as_of)
-    f = build_forecast(c, ACCOUNT, as_of=as_of, futures=10, options=A)
-    assert f is not None and f.inputs is not None
-    assert not [i for i in f.items if i.series_key == p.key] and f.inputs.lump_sizes == ()
-
-
-def test_confirm_all_and_confirmed_keys_place_without_a_decision(tmp_path: Path) -> None:
-    c = connect(tmp_path / "b.db")
-    as_of = date(2026, 2, 27)
-    insert(c, background(as_of, 200) + LUMP_ROWS[1:])
-    every = ForecastOptions(lump_proposals=True, confirm_all_lumps=True, proposal_key=KEY)
-    f = build_forecast(c, ACCOUNT, as_of=as_of, futures=0, options=every)
-    assert f is not None and [i.basis for i in f.items if i.series_key.startswith("lump|")] == [
-        "confirmed"
-    ]
-    key = f.lump_proposals[0].key
-    chosen = ForecastOptions(lump_proposals=True, confirmed_keys=frozenset({key}),
-                             proposal_key=KEY)  # fmt: skip
-    g = build_forecast(c, ACCOUNT, as_of=as_of, futures=0, options=chosen)
-    assert g is not None and g.items == f.items
-
-
 def test_proposals_ignore_later_rows_end_to_end(tmp_path: Path) -> None:
     """Rule zero: a database with rows after the date, rewritten or deleted, gives the same."""
     as_of = DATA_END
-    options = ForecastOptions(lump_arrivals=True, lump_proposals=True, outflow_placements=True,
-                              confirm_all_lumps=True, proposal_key=KEY)  # fmt: skip
+    options = ForecastOptions(lump_arrivals=True, outflow_placements=True, proposal_key=KEY)
     a = connect(tmp_path / "a.db")
     insert(a, background(as_of, 200) + TERM_ROWS + LUMP_ROWS)
     b = connect(tmp_path / "b.db")
@@ -333,7 +271,7 @@ def test_proposals_ignore_later_rows_end_to_end(tmp_path: Path) -> None:
     fb = build_forecast(b, ACCOUNT, as_of=as_of, futures=60, options=options)
     assert fa is not None and fb is not None
     assert fa.items == fb.items and fa.simulation == fb.simulation
-    assert fa.lump_proposals == fb.lump_proposals and fa.outflow_placements == fb.outflow_placements
+    assert fa.outflow_placements == fb.outflow_placements
 
 
 def test_the_same_seed_gives_the_same_futures_with_proposals(conn: sqlite3.Connection) -> None:
@@ -475,23 +413,3 @@ def test_a_placed_payment_is_never_also_a_keeps_coming_arrival(tmp_path: Path) -
     rows = {fp: rid for rid, fp in c.execute("SELECT id, fingerprint FROM transactions")}
     assert not {rows[fp] for fp in placed} & on.arrivals.members
     assert on.arrivals.out_sizes == ()
-
-
-def test_a_confirmed_senders_lumps_are_never_also_keeps_coming_arrivals(tmp_path: Path) -> None:
-    """Step 2 of 2026-10-12: keeps-coming draws "the rest". A sender whose lump proposal is
-    confirmed is placed by its proposal, so its lumps leave the keeps-coming pool too."""
-    c = connect(tmp_path / "l.db")
-    as_of = date(2026, 2, 20)  # the next lump (Dec 8 + about 91 days) falls in the horizon
-    insert(c, background(as_of, 200) + LUMP_ROWS)
-    lumps = {rid for rid, fp in c.execute("SELECT id, fingerprint FROM transactions")
-             if fp in {"fp11", "fp12", "fp13"}}  # fmt: skip
-    plain = _with_keeps(c, ACCOUNT, as_of=as_of, futures=20)
-    assert plain is not None and plain.arrivals.members & lumps  # drawn by keeps-coming
-    naive = ForecastOptions(lump_proposals=True, confirm_all_lumps=True, proposal_key=KEY)
-    confirmed = _with_keeps(c, ACCOUNT, as_of=as_of, futures=20, options=naive)
-    assert confirmed is not None and [p.status for p in confirmed.lump_proposals] == ["confirmed"]
-    assert not confirmed.arrivals.members & lumps
-    shown = ForecastOptions(lump_proposals=True, proposal_key=KEY)  # proposed, not confirmed
-    unconfirmed = _with_keeps(c, ACCOUNT, as_of=as_of, futures=20, options=shown)
-    assert unconfirmed is not None and unconfirmed.arrivals == plain.arrivals
-    assert unconfirmed.simulation == plain.simulation  # an unconfirmed proposal changes nothing

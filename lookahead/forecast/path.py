@@ -56,12 +56,9 @@ from lookahead.proposals import (
     LOOKS_RIGHT,
     NOT_THIS_TIME,
     FirstTimeOffer,
-    LumpProposal,
     OutflowPlacement,
     decisions_as_of,
-    lump_proposals,
     repeated_outflows,
-    sender_rows,
 )
 from lookahead.recurring_store import Stored, series_as_of
 from lookahead.resolve import load_user_decisions
@@ -82,16 +79,10 @@ class ForecastOptions:
     (DECISIONS.md, 2026-10-11, step 0)."""
 
     lump_arrivals: bool = False
-    # Proposals (DECISIONS.md, 2026-10-11, step 2). `lump_proposals`: a) expected lump income by
-    # sender, placed only once confirmed ("looks right" in the decision log, or every one with
-    # `confirm_all_lumps`, or the keys in `confirmed_keys`, used by the evaluation).
     # `outflow_placements`: b) repeated large payments placed by default, `outflow_rule` choosing
     # the next date ("earliest", or "calendar": a year after the same-term payment, 2026-10-12).
     # `proposal_key` is the pseudonym key for senders and recipients (the forecast's own `key`
     # when None).
-    lump_proposals: bool = False
-    confirm_all_lumps: bool = False
-    confirmed_keys: frozenset[str] = frozenset()
     outflow_placements: bool = False
     outflow_rule: str = "earliest"
     proposal_key: bytes | None = None
@@ -133,7 +124,6 @@ class Forecast:
     received: frozenset[int] = frozenset()  # planned items a real transaction has matched
     arrivals: Arrivals = Arrivals()  # big money that keeps coming (None: off)
     # Proposals, only when their options are on (step 2): what was detected at this date.
-    lump_proposals: tuple[LumpProposal, ...] = ()
     outflow_placements: tuple[OutflowPlacement, ...] = ()
     first_time_offers: tuple[FirstTimeOffer, ...] = ()
 
@@ -247,14 +237,14 @@ def build_forecast(
         placed = {row_of[fp] for p in proposed.placements for fp in p.evidence if fp in row_of}
         arrivals = keeps_coming_arrivals(
             txns, flows, in_series, start.data_last_updated, keeps,
-            exclude=placed | proposed.out_of_pool,
-        )  # a placed payment, or a lump of a confirmed sender, is never drawn too  # fmt: skip
+            exclude=placed,
+        )  # a placed payment is never drawn too  # fmt: skip
     simulation = inputs = None
     if futures > 0:
         deposits = deposits_by_day(txns, flows, in_series, start.data_last_updated)
         rate, sizes = (
             lump_arrivals(txns, flows, in_series, start.data_last_updated, first_posted,
-                          exclude=proposed.out_of_pool | arrivals.members)  # drawn once
+                          exclude=arrivals.members)  # drawn once
             if options.lump_arrivals else (0.0, ())
         )  # fmt: skip
         inputs = SimulationInputs(
@@ -279,7 +269,6 @@ def build_forecast(
         inputs,
         received,
         arrivals,
-        proposed.lumps,
         proposed.placements,
         proposed.offers,
     )  # fmt: skip
@@ -287,10 +276,8 @@ def build_forecast(
 
 @dataclass(frozen=True)
 class _Proposed:
-    items: tuple[ScheduledItem, ...] = ()  # confirmed lumps and placed payments
+    items: tuple[ScheduledItem, ...] = ()  # placed payments
     windows: dict[str, tuple[int, int]] | None = None  # series key -> days before, after
-    out_of_pool: frozenset[int] = frozenset()  # lumps that are not drawn at random
-    lumps: tuple[LumpProposal, ...] = ()
     placements: tuple[OutflowPlacement, ...] = ()
     offers: tuple[FirstTimeOffer, ...] = ()
 
@@ -300,9 +287,9 @@ def _proposals(
     flows: dict[int, Flow], in_series: set[int], start: ForecastStart, rows: list[Any],
     options: ForecastOptions, key: bytes | None,
 ) -> _Proposed:  # fmt: skip
-    """a) and b) as of the forecast date, with my decisions as of that date (step 2). Nothing
-    when both options are off."""
-    if not (options.lump_proposals or options.outflow_placements):
+    """b) as of the forecast date, with my decisions as of that date. Nothing when it is off.
+    (a), expected lump income by sender, was retired on 2026-10-12: it failed on my account.)"""
+    if not options.outflow_placements:
         return _Proposed(windows={})
     pkey = options.proposal_key if options.proposal_key is not None else key
     decided = decisions_as_of(conn, account, as_of)
@@ -310,29 +297,6 @@ def _proposals(
     as_of_day = start.data_last_updated
     items: list[ScheduledItem] = []
     windows: dict[str, tuple[int, int]] = {}
-    out_of_pool: set[int] = set()
-    found: list[LumpProposal] = []
-    if options.lump_proposals:
-        found, lumps = lump_proposals(txns, flows, in_series, as_of_day, start.first_day,
-                                      start.last_day, pkey, fingerprints)  # fmt: skip
-        for p in found:
-            action = decided.get(p.key)
-            wanted = (
-                action == LOOKS_RIGHT or options.confirm_all_lumps
-                or p.key in options.confirmed_keys
-            )  # fmt: skip
-            confirmed = wanted and action != NOT_THIS_TIME
-            if confirmed or action == NOT_THIS_TIME:
-                assert pkey is not None  # a proposal exists only with a key
-                out_of_pool |= sender_rows(lumps, p.sender, pkey)
-            if confirmed:
-                items.append(ScheduledItem(
-                    p.expected, p.typical_cents, p.key, "Expected deposit", "confirmed",
-                    "expected lump income, confirmed: a day inside its window",
-                ))  # fmt: skip
-                windows[p.key] = ((p.expected - p.first).days, (p.last - p.expected).days)
-        found = [replace(p, status=CONFIRMED) if p.key in {i.series_key for i in items} else p
-                 for p in found]  # fmt: skip
     placed: list[OutflowPlacement] = []
     offers: list[FirstTimeOffer] = []
     if options.outflow_placements:
@@ -357,5 +321,4 @@ def _proposals(
             ))  # fmt: skip
             kept.append(p)
         placed = kept
-    return _Proposed(tuple(items), windows, frozenset(out_of_pool), tuple(found), tuple(placed),
-                     tuple(offers))  # fmt: skip
+    return _Proposed(tuple(items), windows, tuple(placed), tuple(offers))
