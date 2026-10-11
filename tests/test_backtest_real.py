@@ -84,6 +84,16 @@ def test_the_output_files_do_not_carry_the_account_name_in_their_names(
     assert not any(ACCOUNT in n for n in names)  # account-<salted key>
 
 
+def test_the_settings_of_the_forecaster_are_in_the_meta_of_a_real_run(
+    made_up_db: Path, tmp_path: Path
+) -> None:  # fmt: skip
+    out = private(tmp_path) / "out"
+    run_real(made_up_db, out, futures=40, quick=True)
+    [meta] = list(out.glob("*.meta.json"))
+    saved = json.loads(meta.read_text(encoding="utf-8"))
+    assert saved["forecaster"]["recurring_fix"] == {"possibly_ended": True, "weekly_card": True}
+
+
 def test_a_second_run_does_nothing_new(made_up_db: Path, tmp_path: Path) -> None:
     run_real(made_up_db, private(tmp_path) / "out", futures=40, quick=True)
     again = run_real(made_up_db, private(tmp_path) / "out", futures=40, quick=True)

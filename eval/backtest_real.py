@@ -54,7 +54,7 @@ from eval.backtest import (
     version_settings,
 )
 from lookahead.db import connect_readonly
-from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions
+from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, forecaster_settings
 from lookahead.forecast.spending import DEFAULT_KEEPS, KeepsComing
 from lookahead.merchants import is_private_path
 from lookahead.pseudonymize import pseudonym_key
@@ -178,6 +178,7 @@ def run_real(
                 settings["arm"] = arm  # an arm never shares a folder with another
             if keeps:
                 settings["keeps_coming"] = keeps_name(keeps)
+            settings["forecaster"] = forecaster_settings(options, keeps)
             _check_settings(out_dir / f"{name}.meta.json", settings)
             if paths:
                 new += _run_with_paths(conn, account, name, days, futures, out_dir, keeps, options)
