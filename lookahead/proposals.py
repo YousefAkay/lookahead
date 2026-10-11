@@ -50,6 +50,7 @@ OUTFLOW_LOOKBACK_DAYS = 730
 MIN_GAP_DAYS, MAX_GAP_DAYS = 60, 400
 JITTER_DAYS = 5
 YEAR_DAYS = 365  # the calendar rule: a payment proposes itself plus 365 days
+TERM_MATCH_DAYS = 21  # a payment this close to a proposed day is that term's payment, already made
 
 _BANK_WORDS = frozenset({"free", "interac", "e-transfer", "etransfer", "e-transfert", "from"})
 _SLOT = re.compile(r"^\s*\d+/")  # a credit memo's text starts with a slot such as "1/"
@@ -262,6 +263,21 @@ def _same_term(
         day = shift_to_business_day(t.posted_date + timedelta(days=YEAR_DAYS), "later")
         if as_of < day <= last_day and day >= first_day:
             proposed.append((day, t.posted_date, cents))
+    # A term already paid this year is not placed again: each payment made within 3 weeks of a
+    # proposed day belongs to the nearest such day (one payment, one day), and that day is dropped.
+    # Installments a month apart stay apart, because each payment takes only its nearest day.
+    pairs = sorted(
+        (abs((t.posted_date - day).days), t.posted_date, day)
+        for t, _ in rows for day in {d for d, _, _ in proposed}
+        if abs((t.posted_date - day).days) <= TERM_MATCH_DAYS
+    )  # fmt: skip
+    paid_days: set[date] = set()
+    used: set[date] = set()
+    for _, paid_on, day in pairs:
+        if paid_on not in used and day not in paid_days:
+            used.add(paid_on)
+            paid_days.add(day)
+    proposed = [p for p in proposed if p[0] not in paid_days]
     if not proposed:
         return None
     day = min(d for d, _, _ in proposed)
