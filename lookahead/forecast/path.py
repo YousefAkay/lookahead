@@ -80,8 +80,9 @@ class ForecastOptions:
     # sender, placed only once confirmed ("looks right" in the decision log, or every one with
     # `confirm_all_lumps`, or the keys in `confirmed_keys`, used by the evaluation).
     # `outflow_placements`: b) repeated large payments placed by default, `outflow_rule` choosing
-    # the next date. `proposal_key` is the pseudonym key for senders and recipients (the
-    # forecast's own `key` when None).
+    # the next date ("earliest", or "calendar": a year after the same-term payment, 2026-10-12).
+    # `proposal_key` is the pseudonym key for senders and recipients (the forecast's own `key`
+    # when None).
     lump_proposals: bool = False
     confirm_all_lumps: bool = False
     confirmed_keys: frozenset[str] = frozenset()
@@ -218,7 +219,10 @@ def build_forecast(
     fees = constant_path(fee_rate, horizon)
     arrivals = Arrivals()
     if keeps is not None:  # on by default; `keeps=None` is the old forecaster exactly
-        arrivals = keeps_coming_arrivals(txns, flows, in_series, start.data_last_updated, keeps)
+        placed = {row_of[fp] for p in proposed.placements for fp in p.evidence if fp in row_of}
+        arrivals = keeps_coming_arrivals(
+            txns, flows, in_series, start.data_last_updated, keeps, exclude=placed
+        )  # a placed payment is never drawn too
     simulation = inputs = None
     if futures > 0:
         deposits = deposits_by_day(txns, flows, in_series, start.data_last_updated)

@@ -356,3 +356,122 @@ def test_the_scorer_runs_on_a_development_persona_and_refuses_a_held_out_one() -
     assert all(not p["key"].casefold().count("bmo") for p in result["a"])  # tokens, not names
     with pytest.raises(ValueError, match="held-out"):
         score_persona("v2L-DRENT-04", n_origins=1)
+
+
+# --- b) by calendar position (DECISIONS.md, 2026-10-12, step 1) ---
+
+TWO_TERM_ROWS = [bill(21, date(2025, 1, 20), 300000), bill(22, date(2025, 9, 12), 320000),
+                 bill(23, date(2026, 1, 19), 300000)]  # fmt: skip
+
+
+def test_calendar_places_a_year_after_the_payment_of_the_same_term() -> None:
+    as_of = date(2026, 8, 24)  # two terms a year: the next is September, a year after Sep 12
+    rows = background(as_of) + TWO_TERM_ROWS
+    [p], offers = placements(rows, as_of, "calendar")
+    assert offers == []
+    assert p.day == date(2026, 9, 14)  # Sep 12, 2025 + 365 days is Saturday Sep 12: moved later
+    assert p.cents == -320000  # the amount of that same-term payment, not the latest
+    assert p.key == "outflow|City University|2025-09-12"
+    assert p.rule == "a year after the same-term payment" and p.status == "detected, not confirmed"
+    found, _ = placements(rows, as_of, "earliest")  # the earlier rule looked a gap past January
+    assert [q.day for q in found] != [p.day]
+
+
+def test_calendar_places_nothing_when_no_payment_a_year_ago_falls_in_the_horizon() -> None:
+    as_of = date(2026, 4, 1)
+    rows = background(as_of) + TWO_TERM_ROWS
+    assert placements(rows, as_of, "calendar") == ([], [])
+
+
+def test_calendar_uses_the_latest_payment_when_several_propose_the_same_day() -> None:
+    as_of = date(2026, 1, 5)
+    rows = background(as_of) + [
+        bill(31, date(2025, 1, 12), 300000),  # + 365 = Mon Jan 12, 2026
+        bill(32, date(2025, 1, 10), 280000),  # + 365 = Sat Jan 10, 2026, moved to Mon Jan 12
+    ]
+    [p], _ = placements(rows, as_of, "calendar")
+    assert p.day == date(2026, 1, 12) and p.cents == -300000 and p.key.endswith("2025-01-12")
+
+
+def test_calendar_installments_a_month_apart_are_each_placed_a_year_on() -> None:
+    as_of = date(2026, 1, 5)
+    rows = background(as_of) + [bill(41, date(2025, 1, 15), 150000),
+                                bill(42, date(2025, 2, 25), 150000)]  # fmt: skip
+    [p], _ = placements(rows, as_of, "calendar")
+    assert p.day == date(2026, 1, 15)  # the first installment; the second is after the horizon
+
+
+def test_calendar_one_payment_is_still_a_first_time_offer() -> None:
+    as_of = date(2026, 9, 1)
+    rows = background(as_of) + [bill(1, date(2025, 9, 12), 450000)]
+    found, [offer] = placements(rows, as_of, "calendar")
+    assert found == [] and offer.cents == -450000
+
+
+def test_calendar_later_rows_never_change_a_placement() -> None:
+    as_of = date(2026, 8, 24)
+    base = background(as_of) + TWO_TERM_ROWS
+    later = base + [bill(51, date(2026, 9, 14), 900000), bill(52, date(2026, 8, 30), 400000)]
+    assert placements(later, as_of, "calendar") == placements(base, as_of, "calendar")
+
+
+CAL = ForecastOptions(outflow_placements=True, outflow_rule="calendar")
+CAL_END = date(2026, 8, 24)
+
+
+@pytest.fixture
+def cal_conn(tmp_path: Path) -> sqlite3.Connection:
+    c = connect(tmp_path / "cal.db")
+    insert(c, background(CAL_END, 260) + TWO_TERM_ROWS)
+    return c
+
+
+def _with_keeps(*args, **kwargs):  # type: ignore[no-untyped-def]
+    return _path.build_forecast(*args, **kwargs)  # keeps-coming on, as by default
+
+
+def test_calendar_in_the_forecaster_rewriting_later_rows_changes_nothing(
+    cal_conn: sqlite3.Connection,
+) -> None:
+    f = _with_keeps(cal_conn, ACCOUNT, as_of=CAL_END, futures=60, options=CAL)
+    assert f is not None and [p.day for p in f.outflow_placements] == [date(2026, 9, 14)]
+    insert(cal_conn, [bill(61, date(2026, 9, 14), 320000), bill(62, date(2026, 9, 1), 700000)])
+    cal_conn.execute("UPDATE transactions SET amount_cents = amount_cents * 3"
+                     " WHERE posted_date > ?", (CAL_END.isoformat(),))  # fmt: skip
+    g = _with_keeps(cal_conn, ACCOUNT, as_of=CAL_END, futures=60, options=CAL)
+    assert g is not None
+    assert g.outflow_placements == f.outflow_placements and g.items == f.items
+    assert g.simulation == f.simulation
+
+
+def test_calendar_a_decision_after_the_date_is_ignored(cal_conn: sqlite3.Connection) -> None:
+    key = "outflow|City University|2025-09-12"
+    decide(cal_conn, ACCOUNT, key, NOT_THIS_TIME, CAL_END + timedelta(days=1))
+    f = _with_keeps(cal_conn, ACCOUNT, as_of=CAL_END, futures=0, options=CAL)
+    assert f is not None and [p.key for p in f.outflow_placements] == [key]
+    decide(cal_conn, ACCOUNT, key, NOT_THIS_TIME, CAL_END)
+    f = _with_keeps(cal_conn, ACCOUNT, as_of=CAL_END, futures=0, options=CAL)
+    assert f is not None and f.outflow_placements == ()
+
+
+def test_calendar_is_deterministic(cal_conn: sqlite3.Connection) -> None:
+    f = _with_keeps(cal_conn, ACCOUNT, as_of=CAL_END, futures=80, options=CAL)
+    g = _with_keeps(cal_conn, ACCOUNT, as_of=CAL_END, futures=80, options=CAL)
+    assert f is not None and g is not None and f.simulation == g.simulation
+
+
+def test_a_placed_payment_is_never_also_a_keeps_coming_arrival(tmp_path: Path) -> None:
+    """Ten big payments a year to one payee: keeps-coming would draw them as arrivals (6 or more
+    a year), but once one of them is placed by date, none of that payee's rows is drawn."""
+    c = connect(tmp_path / "k.db")
+    as_of = date(2026, 1, 5)
+    monthly = [bill(70 + k, date(2025, 1, 12) + timedelta(days=40 * k), 300000) for k in range(10)]
+    insert(c, background(as_of, 260) + monthly)
+    off = _with_keeps(c, ACCOUNT, as_of=as_of, futures=20)
+    assert off is not None and off.arrivals.out_sizes  # drawn as arrivals without placements
+    on = _with_keeps(c, ACCOUNT, as_of=as_of, futures=20, options=CAL)
+    assert on is not None and on.outflow_placements
+    placed = {fp for p in on.outflow_placements for fp in p.evidence}
+    rows = {fp: rid for rid, fp in c.execute("SELECT id, fingerprint FROM transactions")}
+    assert not {rows[fp] for fp in placed} & on.arrivals.members
+    assert on.arrivals.out_sizes == ()

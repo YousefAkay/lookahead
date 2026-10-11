@@ -278,12 +278,14 @@ def _similar_earlier(row: Row, others: Sequence[tuple[date, int]]) -> int:
 
 def keeps_coming_arrivals(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
-    options: KeepsComing,
+    options: KeepsComing, exclude: Collection[int] = frozenset(),
 ) -> Arrivals:  # fmt: skip
     """The big rows of the last 365 days that keep coming: at least the big cutoff of `as_of`, in
     no series, not part of a pass-through, with 2 or more earlier rows of similar size of the
     same direction. Their rate (rows over the days observed) and sizes are what the futures draw
-    from. Payments only when there are at least 6 a year. Only rows posted by `as_of` are read."""
+    from. Payments only when there are at least 6 a year. Only rows posted by `as_of` are read.
+    Rows in `exclude` (the evidence of payments that are placed on a date instead) never become
+    arrivals, so nothing is drawn twice."""
     if not txns:
         return Arrivals()
     out_rows = [r for r in _counted(txns, flows, series_rows, as_of) if r[2] > 0]
@@ -291,7 +293,8 @@ def keeps_coming_arrivals(
     cut_in, cut_out = big_cutoffs(txns, flows, series_rows, as_of)
     first = as_of - timedelta(days=KEEPS_DAYS - 1)
     big_in_all = [r for r in in_all if r[2] >= cut_in and r[0].posted_date >= first]
-    big_out = [r for r in out_rows if r[2] >= cut_out and r[0].posted_date >= first]
+    big_out = [r for r in out_rows if r[2] >= cut_out and r[0].posted_date >= first
+               and r[0].row_id not in exclude]  # fmt: skip
     candidates = [
         r for r in out_rows if r[2] >= cut_out or r[1].flow_type == "transfer"
         or r[1].reason == "bill payment"

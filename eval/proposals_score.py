@@ -8,6 +8,7 @@ the proposals and placements; the answer key is only used afterwards, to score t
 
     python -m eval.proposals_score                 # both sets, writes the results file
     python -m eval.proposals_score --set 12 --only v2-IFAM-02 --origins 4   # a quick look
+    python -m eval.proposals_score --calendar      # b) by calendar position (2026-10-12, step 1)
 """
 
 import argparse
@@ -38,7 +39,12 @@ from lookahead.resolve import load_user_decisions
 
 KEY = b"synthetic personas only: a made-up pseudonym key"
 INCOME_KINDS = ("-tuition-funding", "-tuition-topup", "-allowance", "-aid", "-family")
-RULES = ("earliest", "year", "gap")
+RULES = ("earliest", "year", "gap", "calendar")
+# b) by calendar position (DECISIONS.md, 2026-10-12, step 1): the personas that pay tuition from
+# chequing, by how many terms a year (summer term or not).
+TWO_TERMS = ("IFAM-01", "ITIGHT-01", "DRENT-03")
+THREE_TERMS = ("IFAM-02", "ITIGHT-03", "DHOME-02", "DRENT-01")
+CALENDAR_OUT = Path("docs/results/proposals_scores_2026-10-12.md")
 MATCH_DAYS = 10  # b) a placement is right within 10 days ...
 MATCH_SHARE = 0.20  # ... and 20 percent of the amount
 OUT = Path("docs/results/proposals_scores_2026-10-11.md")
@@ -352,6 +358,67 @@ def report(by_set: dict[str, list[Record]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _terms(results: list[Record]) -> dict[str, list[Record]]:
+    """All personas, the two-term and three-term tuition payers, and each archetype."""
+    out: dict[str, list[Record]] = {"all": results}
+    for name, codes in (("two terms (January, September)", TWO_TERMS),
+                        ("three terms (with summer)", THREE_TERMS)):  # fmt: skip
+        out[name] = [r for r in results if r["persona"].split("-", 1)[1] in codes]
+    for r in sorted(results, key=lambda x: x["archetype"]):
+        out.setdefault(r["archetype"], []).append(r)
+    return out
+
+
+def _rule_table(groups: dict[str, list[Record]], rules: tuple[str, ...]) -> list[str]:
+    lines = ["| Group | Personas | " + " | ".join(
+        f"{rule}: placements (tuition) / precision / recall, payee with 2+ payments / date error"
+        for rule in rules) + " |", "|---|---|" + "---|" * len(rules)]  # fmt: skip
+    for name, rows in groups.items():
+        cells = []
+        for rule in rules:
+            b = summarize_b(rows, rule)
+            date_error = "-" if b["date_error_median"] is None else b["date_error_median"]
+            cells.append(f"{b['placements']} ({b['tuition_placements']}) / "
+                         f"{_pct(b['right'], b['placements'])} / "
+                         f"{_pct(b['eligible_hit'], b['eligible'])} / {date_error}")  # fmt: skip
+        lines.append(f"| {name} | {len(rows)} | " + " | ".join(cells) + " |")
+    return lines + [""]
+
+
+def calendar_report(by_set: dict[str, list[Record]]) -> str:
+    """Step 1 of the 2026-10-12 plan: b) by calendar position beside the earlier default rule,
+    by set, by number of terms and by archetype, with the gate (on the 24-month set)."""
+    lines = ["# Step 1: b) by calendar position, scored on the answer key (synthetic, development "
+             "personas)", "",
+             "Made with `python -m eval.proposals_score --calendar`. Method, answer key and gate "
+             "in DECISIONS.md (2026-10-12, step 1). 40 weekly origins per persona; counts are of "
+             "(origin, placement) and (origin, tuition payment) pairs, since origins within a "
+             "persona overlap. Recall is among the origins where the payee had 2 or more big "
+             "payments by the origin. Date error: median days, right placements. Each set on its "
+             "own; never pooled. `earliest` is the earlier default (the proposals run), rerun "
+             "here as a check that it reproduces.", ""]  # fmt: skip
+    for name, results in by_set.items():
+        lines += [f"## {name}", ""]
+        lines += _rule_table(_terms(results), ("calendar", "earliest"))
+        offers = sum(o["tuition_offers"] for r in results for o in r.get("b_offers", []))
+        events = [e for r in results for e in r["b_events"]]
+        lines += [f"Tuition payments inside a horizon (origin, payment): {len(events)}; of them "
+                  f"with the payee seen once by the origin (first-time cases, no placement "
+                  f"possible): {sum(e['payments_by_origin'] == 1 for e in events)}; never seen: "
+                  f"{sum(e['payments_by_origin'] == 0 for e in events)}. First-time offers for a "
+                  f"tuition payee (origin, offer): {offers}.", ""]  # fmt: skip
+    if "24-month set" in by_set:
+        b = summarize_b(by_set["24-month set"], "calendar")
+        ok = _gate_b(b)
+        lines += ["## Gate (fixed before computing)", "",
+                  "- b) by calendar position, on the 24-month set: recall >= 50% among origins "
+                  "where the payee had 2+ payments, and precision >= 70%: "
+                  f"**{'pass' if ok else 'fail'}** (recall "
+                  f"{_pct(b['eligible_hit'], b['eligible'])}, precision "
+                  f"{_pct(b['right'], b['placements'])}).", ""]  # fmt: skip
+    return "\n".join(lines)
+
+
 def run_set(long: bool, only: list[str] | None, n_origins: int | None, jobs: int) -> list[Record]:
     ids = only or development_ids(long=long)
     assert_development_only(ids)
@@ -371,7 +438,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--origins", type=int, default=None)
     parser.add_argument("--jobs", type=int, default=4)
-    parser.add_argument("--out", type=Path, default=OUT)
+    parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--calendar", action="store_true",
+                        help="b) by calendar position (2026-10-12, step 1)")  # fmt: skip
     args = parser.parse_args(argv)
     by_set: dict[str, list[Record]] = {}
     if args.set in ("12", "both"):
@@ -379,9 +448,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.set in ("long", "both"):
         by_set["24-month set"] = run_set(True, args.only, args.origins, args.jobs)
     RAW.mkdir(parents=True, exist_ok=True)
-    (RAW / "scores.json").write_text(json.dumps(by_set), encoding="utf-8")
-    text = report(by_set)
-    args.out.write_text(text, encoding="utf-8")
+    (RAW / ("scores_calendar.json" if args.calendar else "scores.json")).write_text(
+        json.dumps(by_set), encoding="utf-8")  # fmt: skip
+    text = calendar_report(by_set) if args.calendar else report(by_set)
+    (args.out or (CALENDAR_OUT if args.calendar else OUT)).write_text(text, encoding="utf-8")
     print(text)
     return 0
 

@@ -49,6 +49,7 @@ MIN_HALF_WIDTH_DAYS = 10
 OUTFLOW_LOOKBACK_DAYS = 730
 MIN_GAP_DAYS, MAX_GAP_DAYS = 60, 400
 JITTER_DAYS = 5
+YEAR_DAYS = 365  # the calendar rule: a payment proposes itself plus 365 days
 
 _BANK_WORDS = frozenset({"free", "interac", "e-transfer", "etransfer", "e-transfert", "from"})
 _SLOT = re.compile(r"^\s*\d+/")  # a credit memo's text starts with a slot such as "1/"
@@ -198,12 +199,16 @@ def big_outflows(
 def repeated_outflows(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
     first_day: date, last_day: date, key: bytes | None, fingerprints: Mapping[int, str],
-    rule: Literal["earliest", "year", "gap"] = "earliest", user: UserDecisions | None = None,
+    rule: Literal["earliest", "year", "gap", "calendar"] = "earliest",
+    user: UserDecisions | None = None,
 ) -> tuple[list[OutflowPlacement], list[FirstTimeOffer]]:  # fmt: skip
     """The placements of the next repeated large payment that fall on a forecast day, and the
     first-time offers. `rule`: the default takes the earliest of a year after the latest payment
     and the typical gap after it that is after `as_of` and inside the horizon; "year" and "gap"
-    use one of them alone (scored for comparison)."""
+    use one of them alone (scored for comparison). "calendar" (DECISIONS.md, 2026-10-12, step 1):
+    every past payment proposes itself plus 365 days, and the earliest proposed date after
+    `as_of` and inside the horizon is placed, with the amount of the payment that proposed it
+    (the latest of them if several propose the same date)."""
     placements, offers = [], []
     for payee, rows in sorted(big_outflows(txns, flows, series_rows, as_of, key, user).items()):
         days = [t.posted_date for t, _ in rows]
@@ -211,6 +216,15 @@ def repeated_outflows(
         latest_t, latest_cents = rows[-1]
         if len(rows) == 1:
             offers.append(FirstTimeOffer(payee, -latest_cents, _a_year_after(days[0]), evidence))
+            continue
+        if rule == "calendar":
+            found = _same_term(rows, as_of, first_day, last_day)
+            if found is not None:
+                day, source_day, cents = found
+                placements.append(OutflowPlacement(
+                    f"outflow|{payee}|{source_day.isoformat()}", payee, -cents, day, evidence,
+                    "a year after the same-term payment",
+                ))  # fmt: skip
             continue
         repeats = [g for a, b in zip(days, days[1:], strict=False)
                    if MIN_GAP_DAYS <= (g := (b - a).days) <= MAX_GAP_DAYS]  # fmt: skip
@@ -234,6 +248,24 @@ def repeated_outflows(
             f"outflow|{payee}|{days[-1].isoformat()}", payee, -latest_cents, day, evidence, why,
         ))  # fmt: skip
     return placements, offers
+
+
+def _same_term(
+    rows: Sequence[tuple[Txn, int]], as_of: date, first_day: date, last_day: date
+) -> tuple[date, date, int] | None:  # fmt: skip
+    """The calendar rule: (placed day, the payment that proposed it, its cents), or None. Each
+    past payment proposes itself plus 365 days, moved to the next business day; the earliest
+    proposed day after `as_of` and on a forecast day wins, and among the payments that propose
+    that day the latest one gives the amount."""
+    proposed = []
+    for t, cents in rows:  # oldest first
+        day = shift_to_business_day(t.posted_date + timedelta(days=YEAR_DAYS), "later")
+        if as_of < day <= last_day and day >= first_day:
+            proposed.append((day, t.posted_date, cents))
+    if not proposed:
+        return None
+    day = min(d for d, _, _ in proposed)
+    return [p for p in proposed if p[0] == day][-1]
 
 
 # --- Decisions: a dated log, replayed as of a date ---
