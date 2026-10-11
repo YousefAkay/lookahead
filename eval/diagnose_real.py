@@ -21,9 +21,10 @@ from typing import Any
 
 from eval.backtest import HORIZON, KEEPS_NAMES, METHOD, realized_balances
 from eval.backtest_real import real_origins
+from eval.fix_variants import FIXES, fix_options
 from lookahead.db import connect_readonly
 from lookahead.flows import Flow, Txn, flow_types
-from lookahead.forecast.path import build_forecast
+from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
 from lookahead.forecast.simulate import BLOCK, pool_week_starts
 from lookahead.forecast.spending import (
     DEFAULT_KEEPS,
@@ -162,13 +163,13 @@ def recurring_split(
 
 def origin_record(
     conn: Any, account: str, origin: date, futures: int,
-    keeps: KeepsComing | None = DEFAULT_KEEPS,
+    keeps: KeepsComing | None = DEFAULT_KEEPS, options: ForecastOptions = DEFAULT_OPTIONS,
 ) -> dict[str, Any]:  # fmt: skip
     """The parts for one origin: expected and happened (cumulated by day), the two errors split.
     With `keeps` the forecast draws big money that keeps coming as random arrivals, and the rows
     that would have been such arrivals are counted in their own parts instead of as big."""
     forecast = build_forecast(conn, account, METHOD, origin, None, HORIZON, futures,
-                              keep_paths=True, keeps=keeps)  # fmt: skip
+                              keep_paths=True, keeps=keeps, options=options)  # fmt: skip
     if forecast is None or forecast.simulation is None or forecast.inputs is None:
         raise ValueError("no forecast for this origin")
     sim, start = forecast.simulation, forecast.start
@@ -461,12 +462,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="big money that keeps coming forecast as random arrivals (the "
                              "default, with transfers from my own accounts counted), without "
                              "them, or 'off' for the old forecaster")  # fmt: skip
+    parser.add_argument("--recurring-fix", choices=sorted(FIXES), default="both",
+                        help="off: no fix; b: possibly ended not placed; a: weekly card series not "
+                             "placed; both (the default)")  # fmt: skip
     args = parser.parse_args(argv)
     db_path = args.db or private_db_path()
     if not db_path.exists():
         print("No database found. Import your exports first.")
         return 1
     keeps = KEEPS_NAMES[args.keeps_coming]
+    options = fix_options(args.recurring_fix)
     conn = connect_readonly(db_path)
     try:
         for number, account in enumerate(accounts(conn), start=1):
@@ -482,7 +487,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"account-{number}: {len(days)} origins, {args.futures} futures", flush=True)
             records = []
             for n, origin in enumerate(days, start=1):
-                records.append(origin_record(conn, account, origin, args.futures, keeps))
+                records.append(origin_record(conn, account, origin, args.futures, keeps, options))
                 if n % 10 == 0:
                     print(f"  ... {n} of {len(days)}", flush=True)
             for line in report(records, "All origins"):

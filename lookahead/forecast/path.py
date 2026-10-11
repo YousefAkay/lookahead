@@ -15,6 +15,12 @@ from datetime import date, timedelta
 from typing import Any
 
 from lookahead.flows import Flow, Txn, flow_types
+from lookahead.forecast.recurring_filter import (
+    DEFAULT_FIX,
+    RecurringFix,
+    possibly_ended_keys,
+    weekly_card_keys,
+)
 from lookahead.forecast.schedule import ScheduledItem, scheduled_items
 from lookahead.forecast.simulate import (
     N_FUTURES,
@@ -89,6 +95,11 @@ class ForecastOptions:
     outflow_placements: bool = False
     outflow_rule: str = "earliest"
     proposal_key: bytes | None = None
+    # The recurring-placement fix (DECISIONS.md, 2026-10-12): (b) a series whose last payment is
+    # more than 1.5 periods back is "possibly ended" and not placed (the default); (a) a weekly
+    # series of card purchases is not placed and its rows go back to the everyday stream.
+    # None: the whole fix is off.
+    recurring_fix: RecurringFix | None = DEFAULT_FIX
 
 
 DEFAULT_OPTIONS = ForecastOptions()
@@ -199,6 +210,16 @@ def build_forecast(
     in_series = {
         row_of[fp] for s in series if s.status != "rejected" for fp in s.evidence if fp in row_of
     }
+    fix = options.recurring_fix
+    card_keys: frozenset[str] = frozenset()
+    if fix is not None and fix.weekly_card:  # (a): these rows are everyday spending again
+        card_keys = weekly_card_keys(
+            series,
+            {fp: flows[row_of[fp]].reason for s in series for fp in s.evidence if fp in row_of},
+        )
+        in_series = in_series - {
+            row_of[fp] for s in series if s.key in card_keys for fp in s.evidence if fp in row_of
+        }
     daily = spending_by_day(txns, flows, in_series, start.data_last_updated)
     first_posted = min(t.posted_date for t in txns)
     horizon = (start.last_day - start.first_day).days + 1
@@ -210,8 +231,12 @@ def build_forecast(
         )
     planned = planned_as_of(conn, account, as_of)
     received = received_planned(conn, account, planned, start.data_last_updated)
+    not_placed = set(card_keys)
+    if fix is not None and fix.possibly_ended:  # (b): their rows stay in `in_series`
+        not_placed |= possibly_ended_keys(series, posted, start.data_last_updated)
+    placeable = [s for s in series if s.key not in not_placed]
     items = scheduled_items(
-        series, posted, start, [p for p in planned if p.item_id not in received]
+        placeable, posted, start, [p for p in planned if p.item_id not in received]
     )  # a received item is in the balance already: placing it again would count it twice
     proposed = _proposals(conn, account, as_of, txns, flows, in_series, start, rows, options, key)
     items = sorted([*items, *proposed.items], key=lambda i: (i.day, i.series_key))
