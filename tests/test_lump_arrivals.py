@@ -34,6 +34,9 @@ def build_forecast(*args, **kwargs):  # type: ignore[no-untyped-def]
 ACCOUNT = "test"
 CARD = "Opos {:<20}toron "
 ON = ForecastOptions(lump_arrivals=True)
+# These tests pin the lump option against the forecaster as it was before the recurring-placement
+# fix became the default, so that fix is switched off in the "off" case.
+NO_FIX = ForecastOptions(recurring_fix=None)
 LUMPS = (date(2026, 1, 20), date(2026, 5, 15), date(2026, 8, 25))  # three big credit memos
 
 
@@ -253,11 +256,12 @@ def test_switched_off_three_synthetic_personas_are_byte_for_byte_as_before(
     for (who, origin), expected in BEFORE.items():
         if who != pid:
             continue
-        off = build_forecast(conn, pid, "weekday", origin, None, 30, 100, keep_paths=True)
+        off = build_forecast(conn, pid, "weekday", origin, None, 30, 100, keep_paths=True,
+                             options=NO_FIX)  # fmt: skip
         assert off is not None and off.simulation is not None
         assert fingerprint(off.simulation) == expected
         on = build_forecast(conn, pid, "weekday", origin, None, 30, 100, keep_paths=True,
-                            options=ON)  # fmt: skip
+                            options=replace(ON, recurring_fix=None))  # fmt: skip
         assert on is not None and on.inputs is not None
         lumps_seen += len(on.inputs.lump_sizes)
     if pid != "v2-SAL-01":

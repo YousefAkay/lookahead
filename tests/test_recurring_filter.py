@@ -23,7 +23,7 @@ from lookahead.ingest.store import store_exports
 from lookahead.recurring_store import Stored
 
 END_DAY = date(2026, 6, 30)
-ON = ForecastOptions(recurring_fix=RecurringFix())  # (b), the default
+ON = ForecastOptions(recurring_fix=RecurringFix())  # (b) only
 OFF = ForecastOptions(recurring_fix=None)  # the fix switched off
 
 
@@ -151,7 +151,7 @@ def test_a_possibly_ended_series_is_never_placed_on_the_first_day_as_due_and_not
 
 
 @pytest.mark.slow
-def test_b_is_the_default_and_off_changes_only_what_is_possibly_ended(
+def test_the_default_is_a_and_b_and_off_changes_only_what_is_possibly_ended_by_b(
     persona_conn,  # type: ignore[no-untyped-def]
 ) -> None:
     origin = date(2026, 6, 1)
@@ -159,7 +159,10 @@ def test_b_is_the_default_and_off_changes_only_what_is_possibly_ended(
     on = build_forecast(persona_conn, "acct", "weekday", origin, None, 30, 60, options=ON)
     off = build_forecast(persona_conn, "acct", "weekday", origin, None, 30, 60, options=OFF)
     assert default is not None and on is not None and off is not None
-    assert default.simulation == on.simulation and default.items == on.items  # (b) is the default
+    both_on = ForecastOptions(recurring_fix=RecurringFix(True, True))
+    both = build_forecast(persona_conn, "acct", "weekday", origin, None, 30, 60, options=both_on)
+    assert both is not None
+    assert default.simulation == both.simulation and default.items == both.items  # the default
     posted = {
         fp: date.fromisoformat(d) for fp, d in persona_conn.execute(
             "SELECT fingerprint, posted_date FROM transactions WHERE account = 'acct'")

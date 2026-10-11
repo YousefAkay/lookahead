@@ -363,9 +363,9 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="also match by series family: the key without its trailing amount",
     )
-    parser.add_argument("--recurring-fix", choices=sorted(FIXES), default="b",
-                        help="off: no fix; b: possibly ended not placed (the default); "
-                             "a: weekly card series not placed; both")  # fmt: skip
+    parser.add_argument("--recurring-fix", choices=sorted(FIXES), default="both",
+                        help="off: no fix; b: possibly ended not placed; a: weekly card series not "
+                             "placed; both (the default)")  # fmt: skip
     args = parser.parse_args(argv)
     options = fix_options(args.recurring_fix)
     db_path = args.db or private_db_path()

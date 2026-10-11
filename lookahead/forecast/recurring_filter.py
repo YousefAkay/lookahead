@@ -31,10 +31,10 @@ class RecurringFix:
     """Which parts of the recurring-placement fix are on."""
 
     possibly_ended: bool = True  # (b)
-    weekly_card: bool = False  # (a): off until it has passed its synthetic check
+    weekly_card: bool = False  # (a)
 
 
-DEFAULT_FIX = RecurringFix()  # the forecaster's default (DECISIONS.md, 2026-10-12)
+DEFAULT_FIX = RecurringFix(possibly_ended=True, weekly_card=True)  # the default (2026-10-12)
 
 
 def last_real_payment(s: Stored, posted: Mapping[str, date], data_end: date) -> date | None:

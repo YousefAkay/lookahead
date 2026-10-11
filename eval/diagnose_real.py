@@ -462,9 +462,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="big money that keeps coming forecast as random arrivals (the "
                              "default, with transfers from my own accounts counted), without "
                              "them, or 'off' for the old forecaster")  # fmt: skip
-    parser.add_argument("--recurring-fix", choices=sorted(FIXES), default="b",
-                        help="off: no fix; b: possibly ended not placed (the default); "
-                             "a: weekly card series not placed; both")  # fmt: skip
+    parser.add_argument("--recurring-fix", choices=sorted(FIXES), default="both",
+                        help="off: no fix; b: possibly ended not placed; a: weekly card series not "
+                             "placed; both (the default)")  # fmt: skip
     args = parser.parse_args(argv)
     db_path = args.db or private_db_path()
     if not db_path.exists():
