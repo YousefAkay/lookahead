@@ -92,7 +92,8 @@ def test_the_synthetic_comparison_runs_and_a_persona_without_stopped_series_is_i
     run_all(["v2-SAL-01"], tmp_path / "work", tmp_path, futures=20)
     where = folders(tmp_path)
     records = {v: load_records(where[v]) for v in VARIANTS}
-    assert len(records["off"]) == len(records["b"]) == 40
+    assert all(len(records[v]) == 40 for v in VARIANTS)
     text = report(records)
-    assert "drop rule" in text and "personas identical to the current forecaster" in text
+    assert text.count("drop rule") == 3 and "personas identical to no fix" in text
+    assert "(a) added to (b), against the default" in text
     assert not re.search(r"\d{4}-\d{2}-\d{2}", text)

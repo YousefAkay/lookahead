@@ -22,10 +22,10 @@ from typing import Any
 from eval.backtest import HORIZON, METHOD
 from eval.backtest_real import real_origins
 from eval.diagnose_real import MATCH_DAYS, day_index, match_recurring
+from eval.fix_variants import FIXES, fix_options
 from lookahead.db import connect_readonly
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
-from lookahead.forecast.recurring_filter import RecurringFix
 from lookahead.recurring_store import Stored, series_as_of
 from lookahead.resolve import load_user_decisions
 from lookahead.ui import private_db_path
@@ -363,10 +363,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="also match by series family: the key without its trailing amount",
     )
-    parser.add_argument("--recurring-fix", choices=("off", "b"), default="off",
-                        help="the forecast with (b) possibly ended series not placed")  # fmt: skip
+    parser.add_argument("--recurring-fix", choices=sorted(FIXES), default="b",
+                        help="off: no fix; b: possibly ended not placed (the default); "
+                             "a: weekly card series not placed; both")  # fmt: skip
     args = parser.parse_args(argv)
-    options = ForecastOptions(recurring_fix=RecurringFix() if args.recurring_fix == "b" else None)
+    options = fix_options(args.recurring_fix)
     db_path = args.db or private_db_path()
     if not db_path.exists():
         print("No database found. Import your exports first.")

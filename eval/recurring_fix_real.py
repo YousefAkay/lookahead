@@ -8,6 +8,8 @@ them like any other real run. The database is opened read-only; the output folde
 
     python -m eval.recurring_fix_real --fix off
     python -m eval.recurring_fix_real --fix b
+    python -m eval.recurring_fix_real --fix a
+    python -m eval.recurring_fix_real --fix both
     python -m eval.metrics --no-synthetic --real data/private/backtest/recurring-fix-b
 """
 
@@ -30,15 +32,12 @@ from eval.backtest import (
     version_settings,
 )
 from eval.backtest_real import DEFAULT_OUT, print_counts, real_origins
+from eval.fix_variants import FIXES, fix_options
 from lookahead.db import connect_readonly
-from lookahead.forecast.path import ForecastOptions
-from lookahead.forecast.recurring_filter import RecurringFix
 from lookahead.forecast.spending import DEFAULT_KEEPS
 from lookahead.merchants import is_private_path
 from lookahead.ui import private_db_path
 from lookahead.views import accounts
-
-OPTIONS = {"off": ForecastOptions(), "b": ForecastOptions(recurring_fix=RecurringFix())}
 
 
 def run_real_fix(
@@ -70,7 +69,7 @@ def run_real_fix(
             with path.open("a", encoding="utf-8") as out:
                 for origin in [d for d in days if d.isoformat() not in _saved_origins(path)]:
                     record = run_origin(conn, account, "real", origin, futures, None, None,
-                                        options=OPTIONS[variant])  # fmt: skip
+                                        options=fix_options(variant))  # fmt: skip
                     record["persona"] = f"account-{number}"  # the name stays out of the files
                     record["recurring_fix"] = variant
                     out.write(json.dumps(record) + "\n")
@@ -84,7 +83,7 @@ def run_real_fix(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.recurring_fix_real", description=__doc__)
-    parser.add_argument("--fix", choices=sorted(OPTIONS), required=True)
+    parser.add_argument("--fix", choices=sorted(FIXES), required=True)
     parser.add_argument("--db", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--quick", action="store_true")

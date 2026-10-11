@@ -30,6 +30,7 @@ from eval.backtest import (
     version_settings,
 )
 from eval.compare_runs import column, table
+from eval.fix_variants import fix_options
 from eval.keeps_coming_eval import _d, _pct, archetype_lines, verdict
 from eval.metrics import (
     PROVISIONAL_THRESHOLD,
@@ -39,8 +40,6 @@ from eval.metrics import (
     load_records,
 )
 from lookahead.db import connect
-from lookahead.forecast.path import ForecastOptions
-from lookahead.forecast.recurring_filter import RecurringFix
 from lookahead.forecast.spending import DEFAULT_KEEPS
 from lookahead.generator.archetypes import END, build_persona
 from lookahead.generator.writer import write_persona
@@ -49,10 +48,14 @@ from lookahead.ingest.store import store_exports
 from lookahead.settings import set_safety_buffer_cents
 
 Record = dict[str, Any]
-VARIANTS = ("off", "b")
-OPTIONS = {"off": ForecastOptions(), "b": ForecastOptions(recurring_fix=RecurringFix())}
-NAMES = {"off": "current forecaster (keeps-coming on)", "b": "with (b): possibly ended not placed"}
-DEFAULT_OUT_FILE = Path("docs/results/recurring_fix_2026-10-12.md")
+VARIANTS = ("off", "b", "a", "both")
+NAMES = {
+    "off": "no fix",
+    "b": "(b) possibly ended not placed (the default)",
+    "a": "(a) weekly card series not placed",
+    "both": "(a) and (b)",
+}
+DEFAULT_OUT_FILE = Path("docs/results/recurring_fix_a_2026-10-12.md")
 SAME_FIELDS = ("p10", "p50", "p90", "point", "median_lowest_cents", "shortfall_probability",
                "lowest_cents", "n_items")  # fmt: skip
 
@@ -91,7 +94,7 @@ def run_persona_with(
             for origin in todo:
                 record = run_origin(conn, persona_id, "synthetic", origin, futures,
                                     persona.archetype, persona.held_out,
-                                    options=OPTIONS[variant])  # fmt: skip
+                                    options=fix_options(variant))  # fmt: skip
                 record["recurring_fix"] = variant
                 out.write(json.dumps(record) + "\n")
                 out.flush()
@@ -124,47 +127,61 @@ def compare_personas(off: list[Record], on: list[Record]) -> tuple[list[str], di
     return [p for p in personas if p not in differing], differing
 
 
+LF = chr(10)
+
+
+def _ordered(rows: list[Record]) -> list[Record]:
+    return sorted(rows, key=lambda r: (r["persona"], r["origin"]))
+
+
+def compare_lines(records: dict[str, list[Record]], base: str, new: str, label: str) -> list[str]:
+    """`new` against `base`: identical personas, origins placing fewer payments, the drop rule."""
+    same, differing = compare_personas(records[base], records[new])
+    fewer = sum(
+        1 for a, b in zip(_ordered(records[base]), _ordered(records[new]), strict=True)
+        if b["n_items"] < a["n_items"]
+    )  # fmt: skip
+    got = verdict(records[base], records[new])
+    changed = ", ".join(f"{p} ({n})" for p, n in sorted(differing.items())) or "-"
+    return [
+        f"## {label}",
+        f"- origins where it placed fewer payments: {fewer} of {len(records[new])}",
+        f"- personas identical to {NAMES[base]} in every forecast field: {len(same)} "
+        f"({', '.join(same) or '-'})",
+        f"- personas that differ (origins differing): {changed}",
+        f"- archetypes worse on the 30-day error (more than 1 percent): "
+        f"{len(got['worse']['mae30'])} of {got['n_archetypes']} "
+        f"({', '.join(got['worse']['mae30']) or '-'})",
+        f"- archetypes worse on the lowest-balance bias: {len(got['worse']['bias'])} of "
+        f"{got['n_archetypes']} ({', '.join(got['worse']['bias']) or '-'})",
+        f"- **drop rule: {'DROP' if got['drop'] else 'not triggered'}**",
+        "",
+    ]
+
+
 def report(records: dict[str, list[Record]]) -> str:
     cols = []
     for v in VARIANTS:
         recs = records[v]
         cols.append((NAMES[v], column(recs, alert_metrics(recs, PROVISIONAL_THRESHOLD, True),
                                       "provisional (20% or median)")))  # fmt: skip
-    lines = ["# The recurring-placement fix (b): synthetic development personas", "",
+    lines = ["# The recurring-placement fix, (a) and (b): synthetic development personas", "",
              "20 development personas, 40 weekly origins, 500 futures, seed 42, raw chances, the "
-             "original episode definition (the table is the provisional rule; the metric counts "
-             "caught under both definitions elsewhere). Held-out personas not run.", "",
+             "original episode definition (the provisional rule). Held-out personas not run.", "",
              *table([(c[0], c[1], [], []) for c in cols]), ""]  # fmt: skip
     lines += [*archetype_lines([(NAMES[v], records[v]) for v in VARIANTS]), ""]
-    same, differing = compare_personas(records["off"], records["b"])
-    fewer = sum(
-        1 for a, b in zip(sorted(records["off"], key=lambda r: (r["persona"], r["origin"])),
-                          sorted(records["b"], key=lambda r: (r["persona"], r["origin"])),
-                          strict=True)
-        if b["n_items"] < a["n_items"]
-    )  # fmt: skip
-    lines.append(f"- origins where (b) placed fewer payments: {fewer} of {len(records['b'])}")
-    lines.append(f"- personas identical to the current forecaster in every forecast field: "
-                 f"{len(same)} ({', '.join(same) or '-'})")  # fmt: skip
-    changed = ", ".join(f"{p} ({n})" for p, n in sorted(differing.items())) or "-"
-    lines.append(f"- personas that differ (origins differing): {changed}")
-    got = verdict(records["off"], records["b"])
-    lines.append(f"- archetypes worse on the 30-day error (more than 1 percent): "
-                 f"{len(got['worse']['mae30'])} of {got['n_archetypes']} "
-                 f"({', '.join(got['worse']['mae30']) or '-'})")  # fmt: skip
-    lines.append(f"- archetypes worse on the lowest-balance bias: {len(got['worse']['bias'])} of "
-                 f"{got['n_archetypes']} ({', '.join(got['worse']['bias']) or '-'})")  # fmt: skip
-    lines.append(f"- **drop rule: {'DROP' if got['drop'] else 'not triggered'}**")
-    lines.append("")
+    lines += compare_lines(records, "off", "b", "(b) against no fix")
+    lines += compare_lines(records, "b", "both", "(a) added to (b), against the default")
+    lines += compare_lines(records, "off", "a", "(a) alone against no fix (for information)")
     m = {v: forecast_metrics(group_origins(records[v])["ordinary"]) for v in VARIANTS}
-    lo, lb = m["off"], m["b"]
-    lines.append(
-        f"Ordinary origins: {lo['n_origins']}, {lo['n_personas']} personas. Lowest balance, bias: "
-        f"{_d(lo['lowest']['bias'])} to {_d(lb['lowest']['bias'])}; Brier "
-        f"{lo['brier']['brier']:.3f} to {lb['brier']['brier']:.3f}; coverage over all days "
-        f"{_pct(lo['coverage']['all'])} to {_pct(lb['coverage']['all'])}."
-    )
-    return "\n".join(lines)
+    lines.append(f"Ordinary origins: {m['b']['n_origins']}, {m['b']['n_personas']} personas.")
+    for v in VARIANTS:
+        lines.append(
+            f"- {NAMES[v]}: lowest-balance bias {_d(m[v]['lowest']['bias'])}, Brier "
+            f"{m[v]['brier']['brier']:.3f}, coverage over all days "
+            f"{_pct(m[v]['coverage']['all'])}"
+        )
+    return LF.join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:

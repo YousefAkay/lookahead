@@ -21,10 +21,10 @@ from typing import Any
 
 from eval.backtest import HORIZON, KEEPS_NAMES, METHOD, realized_balances
 from eval.backtest_real import real_origins
+from eval.fix_variants import FIXES, fix_options
 from lookahead.db import connect_readonly
 from lookahead.flows import Flow, Txn, flow_types
 from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
-from lookahead.forecast.recurring_filter import RecurringFix
 from lookahead.forecast.simulate import BLOCK, pool_week_starts
 from lookahead.forecast.spending import (
     DEFAULT_KEEPS,
@@ -462,16 +462,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="big money that keeps coming forecast as random arrivals (the "
                              "default, with transfers from my own accounts counted), without "
                              "them, or 'off' for the old forecaster")  # fmt: skip
-    parser.add_argument("--recurring-fix", choices=("off", "b"), default="off",
-                        help="(b) series whose last payment is more than 1.5 periods back are "
-                             "not placed")  # fmt: skip
+    parser.add_argument("--recurring-fix", choices=sorted(FIXES), default="b",
+                        help="off: no fix; b: possibly ended not placed (the default); "
+                             "a: weekly card series not placed; both")  # fmt: skip
     args = parser.parse_args(argv)
     db_path = args.db or private_db_path()
     if not db_path.exists():
         print("No database found. Import your exports first.")
         return 1
     keeps = KEEPS_NAMES[args.keeps_coming]
-    options = ForecastOptions(recurring_fix=RecurringFix() if args.recurring_fix == "b" else None)
+    options = fix_options(args.recurring_fix)
     conn = connect_readonly(db_path)
     try:
         for number, account in enumerate(accounts(conn), start=1):
