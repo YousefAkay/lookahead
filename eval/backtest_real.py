@@ -64,7 +64,9 @@ from lookahead.views import accounts
 
 DEFAULT_OUT = Path("data/private/backtest")
 SALT_FILE = "backtest_account_salt.txt"  # kept in the data/private folder, made on first use
-NUMBERED = re.compile(r"account-\d+\.(jsonl|meta\.json|paths\.npz)")
+# Files named by list position by an older version: a short number. A salted key is always 10
+# characters, so a key that happens to be all digits is never taken for one of these.
+NUMBERED = re.compile(r"account-\d{1,6}\.(jsonl|meta\.json|paths\.npz)")
 HISTORY = timedelta(weeks=8)
 HORIZON_DAYS = 30
 

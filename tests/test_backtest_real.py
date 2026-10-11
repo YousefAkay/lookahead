@@ -354,3 +354,16 @@ def test_an_account_with_too_short_a_history_leaves_no_files(tmp_path: Path) -> 
     counts = run_real(db, out, futures=40, quick=True)
     assert counts["new_origins"] == 0 and counts["origins_saved"] == 0
     assert not list(out.glob("*.jsonl")) and not list(out.glob("*.meta.json"))
+
+
+def test_a_salted_key_that_happens_to_be_all_digits_is_not_taken_for_a_numbered_file(
+    tmp_path: Path,
+) -> None:
+    from eval.backtest_real import archive_numbered
+
+    out = private(tmp_path) / "out"
+    out.mkdir()
+    (out / "account-1234567890.jsonl").write_text("{}\n", encoding="utf-8")  # a key, all digits
+    (out / "account-3.jsonl").write_text("{}\n", encoding="utf-8")  # an older numbered file
+    assert archive_numbered(out)
+    assert (out / "account-1234567890.jsonl").exists() and not (out / "account-3.jsonl").exists()
