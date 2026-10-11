@@ -7,6 +7,13 @@ format) with one set of forecaster options, keeps-coming on in every arm (the de
     0  the forecaster as merged (the baseline): options off
     3  b) by calendar position placed by default (only if Step 1 passed its gate)
 
+The renewal draw's plan (DECISIONS.md, 2026-10-12, "The renewal draw: built behind a switch"):
+
+    5  the default forecaster as merged, run again for this comparison (the saved arm 0 is older)
+    6  the renewal draw on (6 past gaps and 2 longer than the wait, as recorded)
+    7  the renewal draw with a minimum of 4 past gaps (sensitivity, synthetic only)
+    8  the renewal draw with a minimum of 8 past gaps (sensitivity, synthetic only)
+
 Arms 1, 2 and 4 were the a) lump proposals (every proposal confirmed; the right ones confirmed;
 a) with b)). a) was retired on 2026-10-12 and its option removed from the forecaster; their
 records are in docs/results/arms_2026-10-12.md and DECISIONS.md.
@@ -16,6 +23,8 @@ sets of the 2026-10-11 plan are in the history of this file.
 
     python -m eval.arms --arms 1 2 --set both   # records in data/backtest/arms-2026-10-12/...
     python -m eval.arms --report                # writes docs/results/arms_2026-10-12.md
+    python -m eval.arms --arms 5 6 --set 12     # the renewal draw against the default
+    python -m eval.arms --arms 5 6 7 8 --report # writes docs/results/renewal_2026-10-12.md
 """
 
 import argparse
@@ -49,6 +58,7 @@ from eval.metrics import (
 )
 from eval.personas_db import persona_db
 from eval.proposals_score import KEY
+from lookahead.forecast import spending
 from lookahead.forecast.path import ForecastOptions, build_forecast
 from lookahead.generator.archetypes import (
     END,
@@ -61,10 +71,17 @@ from lookahead.generator.writer import export_rows
 
 ARMS_OUT = Path("data/backtest/arms-2026-10-12")
 REPORT = Path("docs/results/arms_2026-10-12.md")
+RENEWAL_REPORT = Path("docs/results/renewal_2026-10-12.md")
 ARM_NAMES = {
     0: "merged forecaster (baseline)",
     3: "b) by calendar position",
+    5: "default, run again (constant rate)",
+    6: "renewal draw (6 gaps)",
+    7: "renewal draw, 4 gaps",
+    8: "renewal draw, 8 gaps",
 }
+RENEWAL_ARMS = {5: None, 6: 6, 7: 4, 8: 8}  # arm -> the minimum number of past gaps (None: off)
+BASE_ARM = 5  # the renewal comparison's baseline
 UPPER_BOUNDS: tuple[int, ...] = ()  # arms that use the answer key (a) was retired)
 WORSE_BY = 0.01  # the drop rule: more than 1 percent worse ...
 DROP_IF_WORSE = 5  # ... for 5 or more of the 8 archetypes, on either measure
@@ -79,6 +96,8 @@ def arm_options(arm: int) -> ForecastOptions:
         return ForecastOptions()
     if arm == 3:
         return ForecastOptions(proposal_key=KEY, outflow_placements=True, outflow_rule="calendar")
+    if arm in RENEWAL_ARMS:
+        return ForecastOptions(renewal=RENEWAL_ARMS[arm] is not None)
     if arm in (1, 2, 4):
         raise ValueError(f"arm {arm} was a) lump proposals, retired on 2026-10-12")
     raise ValueError(f"arm {arm} does not exist")
@@ -104,6 +123,9 @@ def run_persona_arm(persona_id: str, arm: int, out_dir: Path, futures: int = FUT
                 **version_settings(persona_id)}  # fmt: skip
     if arm:  # arm 0 is the same code path as before; the others are this plan's
         settings["plan"] = "2026-10-12"
+    minimum = RENEWAL_ARMS.get(arm)
+    if minimum is not None:
+        settings["renewal_min_gaps"] = minimum
     if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != settings:
         raise ValueError(f"{meta} was made with different settings")
     meta.write_text(json.dumps(settings), encoding="utf-8")
@@ -113,18 +135,25 @@ def run_persona_arm(persona_id: str, arm: int, out_dir: Path, futures: int = FUT
     todo = [d for d in origins() if d.isoformat() not in done]
     if not todo:
         return 0
-    with persona_db(persona_id, out_dir / "work", seed) as db, path.open("a") as out:
-        pid, conn = persona_id, db.conn
-        for origin in todo:
-            options = arm_options(arm)
-            record = run_origin(conn, pid, "synthetic", origin, futures, db.persona.archetype,
-                                db.persona.held_out, options)  # fmt: skip
-            seen = build_forecast(conn, pid, METHOD, origin, None, HORIZON, 0, options=options)
-            assert seen is not None
-            record["arm"] = arm
-            record["placements"] = len(seen.outflow_placements)
-            out.write(json.dumps(record) + "\n")
-            out.flush()
+    kept = spending.RENEWAL_MIN_GAPS
+    if minimum is not None:
+        spending.RENEWAL_MIN_GAPS = minimum  # the sensitivity arms: this process only
+    try:
+        with persona_db(persona_id, out_dir / "work", seed) as db, path.open("a") as out:
+            pid, conn = persona_id, db.conn
+            for origin in todo:
+                options = arm_options(arm)
+                record = run_origin(conn, pid, "synthetic", origin, futures, db.persona.archetype,
+                                    db.persona.held_out, options)  # fmt: skip
+                seen = build_forecast(conn, pid, METHOD, origin, None, HORIZON, 0, options=options)
+                assert seen is not None
+                record["arm"] = arm
+                record["placements"] = len(seen.outflow_placements)
+                record["renewal"] = seen.arrivals.renewal  # "", "draw" or "fallback"
+                out.write(json.dumps(record) + "\n")
+                out.flush()
+    finally:
+        spending.RENEWAL_MIN_GAPS = kept
     return len(todo)
 
 
@@ -219,7 +248,7 @@ def per_archetype(records: list[Record]) -> dict[str, Record]:
         out[code] = {"n": m["n_origins"], "personas": m["n_personas"],
                      "error30": m["error"][30]["mean_p50"], "bias": m["lowest"]["bias"],
                      "miss": m["lowest"]["mae"], "coverage": m["coverage"]["all"],
-                     "brier": m["brier"]["brier"]}  # fmt: skip
+                     "width30": m["width"][30], "brier": m["brier"]["brier"]}  # fmt: skip
     return out
 
 
@@ -248,6 +277,7 @@ def changed_without_cause(arm: list[Record], base: list[Record]) -> list[str]:
         if (
             r.get("confirmed", 0) == 0
             and r.get("placements", 0) == 0
+            and r.get("renewal") != "draw"
             and any(r[f] != b[f] for f in FORECAST_FIELDS)
         ):
             out.append(f"{r['persona']} {r['origin']}")
@@ -262,7 +292,49 @@ def alerts_by_archetype(records: list[Record]) -> dict[str, Record]:
     return out
 
 
+def renewal_lines(arm: list[Record], base: list[Record], by_arm: dict[str, Record],
+                  by_base: dict[str, Record]) -> list[str]:  # fmt: skip
+    """The renewal draw's own checks (DECISIONS.md, 2026-10-12): how many origins used the draw,
+    the origins that changed with no recurring-size deposits, the personas with such deposits
+    where fewer than half of the origins used the draw, and the archetypes whose 30-day band is
+    wider than the default's."""
+    with_deposits = [r for r in arm if r["arrivals_in"] > 0]
+    draw = [r for r in with_deposits if r.get("renewal") == "draw"]
+    share = _p(len(draw) / len(with_deposits) if with_deposits else None)
+    out = [f"  - origins: {len(arm)}; with recurring-size deposits {len(with_deposits)}; on the "
+           f"renewal draw {len(draw)} ({share}), on the constant-rate fallback "
+           f"{len(with_deposits) - len(draw)}; with none "
+           f"{len(arm) - len(with_deposits)}"]  # fmt: skip
+    at = {(r["persona"], r["origin"]): r for r in base}
+    moved = [f"{r['persona']} {r['origin']}" for r in arm if r["arrivals_in"] == 0
+             and any(r[f] != at[(r["persona"], r["origin"])][f]
+                     for f in FORECAST_FIELDS)]  # fmt: skip
+    out.append(f"  - origins that changed with no recurring-size deposits (unexpected): "
+               f"{len(moved)}" + (f" ({', '.join(moved[:6])})" if moved else ""))  # fmt: skip
+    low_use = []
+    for pid in sorted({r["persona"] for r in with_deposits}):
+        mine = [r for r in with_deposits if r["persona"] == pid]
+        used = sum(r.get("renewal") == "draw" for r in mine)
+        if used * 2 < len(mine):
+            low_use.append(f"{pid} ({used} of {len(mine)})")
+    out.append("  - personas with recurring-size deposits where fewer than half of those origins "
+               f"used the draw (unexpected): {len(low_use)}"
+               + (f" ({', '.join(low_use)})" if low_use else ""))  # fmt: skip
+    wider = [c for c in by_base if by_arm[c]["width30"] > by_base[c]["width30"]]
+    out.append(f"  - archetypes whose 30-day band is wider than the default's (unexpected): "
+               f"{len(wider)} ({', '.join(wider) or '-'})")  # fmt: skip
+    by_code: dict[str, list[Record]] = {}
+    for r in with_deposits:
+        by_code.setdefault(r["archetype"], []).append(r)
+    cells = [f"{c} {sum(r.get('renewal') == 'draw' for r in rs)}/{len(rs)}"
+             for c, rs in sorted(by_code.items())]  # fmt: skip
+    out.append("  - origins on the draw of those with recurring-size deposits, by archetype: "
+               + (", ".join(cells) or "-"))  # fmt: skip
+    return out
+
+
 def report(arms: list[int], loader: Callable[[int, bool], list[Record]]) -> str:
+    renewal = BASE_ARM in arms
     out = ["# Step 2: the arms on the merged code (synthetic, development personas)", "",
            "Made with `python -m eval.arms --report`. Method in DECISIONS.md (2026-10-12, step 2). "
            "20 development personas per set, 40 weekly origins, 500 futures, seed 42, weekday "
@@ -271,6 +343,16 @@ def report(arms: list[int], loader: Callable[[int, bool], list[Record]]) -> str:
            "out as before. Recall is given for both definitions: opened ahead (original) / on "
            "ahead (the reading of 2026-10-12). **Arms 2 and 4 are upper bounds**: the answer key "
            "picks the proposals to confirm, so no user could get them.", ""]  # fmt: skip
+    if renewal:
+        out = ["# The renewal draw against the default (synthetic, development personas)", "",
+               "Made with `python -m eval.arms --arms 5 6 7 8 --report`. Method and prediction in "
+               "DECISIONS.md (2026-10-12, the renewal draw built behind a switch). 20 "
+               "development personas per set (the 12-month and the 24-month set are never "
+               "pooled), 40 weekly origins, 500 futures, seed 42, weekday method, raw chances. "
+               "Arm 5 is the default as merged, arm 6 the renewal draw (6 past gaps, 2 longer "
+               "than the wait), arms 7 and 8 the same with a minimum of 4 and 8 gaps. Forecast "
+               "metrics on origins not already in shortfall. Recall is given for both "
+               "definitions: opened ahead / on ahead.", ""]  # fmt: skip
     for long in (False, True):
         name = "24-month set" if long else "12-month set"
         loaded = {a: loader(a, long) for a in arms}
@@ -305,22 +387,25 @@ def report(arms: list[int], loader: Callable[[int, bool], list[Record]]) -> str:
         for code in alerts[first_arm]:
             out.append(f"| {code} | " + " | ".join(_alerts(alerts[a][code]) for a in loaded)
                        + " |")  # fmt: skip
-        if 0 in loaded:
+        base = BASE_ARM if renewal else 0
+        if base in loaded:
             out += ["", f"### {name}: the drop rule and the unexpected checks (fixed before "
                     "computing)", ""]  # fmt: skip
-            for a in [a for a in loaded if a != 0]:
-                error, low = worse_archetypes(by[a], by[0])
+            for a in [a for a in loaded if a != base]:
+                error, low = worse_archetypes(by[a], by[base])
                 dropped = len(error) >= DROP_IF_WORSE or len(low) >= DROP_IF_WORSE
-                odd = changed_without_cause(loaded[a], loaded[0])
+                odd = changed_without_cause(loaded[a], loaded[base])
                 bound = " (upper bound)" if a in UPPER_BOUNDS else ""
                 out.append(
-                    f"- arm {a}{bound}: worse on the 30-day error {len(error)} of {len(by[0])} "
+                    f"- arm {a}{bound}: worse on the 30-day error {len(error)} of {len(by[base])} "
                     f"({', '.join(error) or '-'}); worse on the lowest balance {len(low)} of "
-                    f"{len(by[0])} ({', '.join(low) or '-'}); "
+                    f"{len(by[base])} ({', '.join(low) or '-'}); "
                     f"**{'dropped' if dropped else 'not dropped'}**; "
                     f"origins that changed with nothing confirmed or placed: {len(odd)}"
                     + (f" ({', '.join(odd[:10])}{', ...' if len(odd) > 10 else ''})" if odd else "")
                 )
+                if renewal:
+                    out += renewal_lines(loaded[a], loaded[base], by[a], by[base])
         out.append("")
     out.append("ITIGHT is its three development personas (-01, -02, -03); -01 and -03 run past "
                "-$3,000 in both sets (known limitation). -04 and -05 are held out.")  # fmt: skip
@@ -344,25 +429,27 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m eval.arms", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )  # fmt: skip
-    parser.add_argument("--arms", nargs="*", type=int, default=[3])
+    parser.add_argument("--arms", nargs="*", type=int, default=[3])  # 5 6 7 8: the renewal draw's
     parser.add_argument("--set", choices=("12", "long", "both"), default="both")
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args(argv)
     if args.report:
-        REPORT.write_text(report(args.arms if args.arms != [3] else [0, 3], load_arm),
+        target = RENEWAL_REPORT if BASE_ARM in args.arms else REPORT
+        target.write_text(report(args.arms if args.arms != [3] else [0, 3], load_arm),
                           encoding="utf-8")  # fmt: skip
-        print(f"written: {REPORT}")
+        print(f"written: {target}")
         return 0
     sets = {"12": [False], "long": [True], "both": [False, True]}[args.set]
-    jobs = [(pid, arm, long) for long in sets for arm in args.arms
-            for pid in (args.only or development_ids(long=long))]  # fmt: skip
+    # persona by persona (the arms of one persona side by side), so a stopped run still compares
+    jobs = [(pid, arm, long) for long in sets for pid in (args.only or development_ids(long=long))
+            for arm in args.arms]  # fmt: skip
     for arm in args.arms:
         arm_options(arm)  # refuses arms that are not run
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:
-        for line in pool.map(_job, jobs):
-            print(line, flush=True)
+        for n, line in enumerate(pool.map(_job, jobs), 1):
+            print(f"[{n}/{len(jobs)}] {line}", flush=True)
     return 0
 
 

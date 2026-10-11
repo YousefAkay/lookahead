@@ -160,6 +160,10 @@ class SimulationInputs:
     arrivals_in_sizes: tuple[int, ...] = ()
     arrivals_out_rate: float = 0.0
     arrivals_out_sizes: tuple[int, ...] = ()
+    # The renewal draw of the deposit arrivals (an option, off by default): the past gaps in days
+    # and the last deposit day. Empty gaps: the constant rate above. A rate of 0 draws nothing.
+    arrivals_in_gaps: tuple[int, ...] = ()
+    arrivals_in_last: date | None = None
     # Random lump arrivals (an option, off by default): the chance of a lump on any forecast day
     # and the observed lump sizes in cents. A rate of 0 draws nothing.
     lump_rate: float = 0.0
@@ -200,6 +204,25 @@ def _arrivals(
     return out
 
 
+def _renewal_arrivals(
+    seed: int, future: int, gaps: tuple[int, ...], last: date, first_day: date,
+    sizes: tuple[int, ...], horizon: int,
+) -> list[int]:  # fmt: skip
+    """The renewal draw: after the days already waited since the last deposit, the next gap is
+    drawn from the past gaps that are longer than that, the ones after it from all the past gaps;
+    each arrival's size is drawn from the observed sizes. Gaps are 1 day or more, so a day has at
+    most one arrival. Its own random stream ("renewal"), so no other draw moves."""
+    out = [0] * horizon
+    waited = (first_day - last).days - 1
+    longer = [g for g in gaps if g > waited]
+    stream = _stream(seed, future, "renewal")
+    k = (last + timedelta(days=stream.choice(longer)) - first_day).days
+    while k < horizon:
+        out[k] = stream.choice(sizes)
+        k += stream.choice(gaps)
+    return out
+
+
 def run(
     inputs: SimulationInputs, spending_cut: SpendingCut | None = None, keep_paths: bool = False
 ) -> Simulation:  # fmt: skip
@@ -213,6 +236,12 @@ def run(
     pool = _week_pool(inputs.spending_daily, inputs.deposits_daily, start, inputs.history_start)
     weeks = -(-horizon // BLOCK)
     fees = constant_path(inputs.fees_per_day, horizon)
+    renewal_last = inputs.arrivals_in_last  # None: the constant rate draws the deposits
+    if renewal_last is not None and not (
+        inputs.arrivals_in_gaps and inputs.arrivals_in_rate > 0 and inputs.arrivals_in_sizes
+        and any(g > (start.first_day - renewal_last).days - 1 for g in inputs.arrivals_in_gaps)
+    ):  # fmt: skip
+        renewal_last = None
     with_dep: list[list[int]] = []
     without: list[list[int]] = []
     for future in range(futures):
@@ -230,8 +259,14 @@ def run(
             k = (day - start.first_day).days
             if 0 <= k < horizon:
                 scheduled[k] += item.cents
-        arrive_in = _arrivals(seed, future, "arrivals-in", inputs.arrivals_in_rate,
-                              inputs.arrivals_in_sizes, horizon)  # fmt: skip
+        if renewal_last is not None:
+            arrive_in = _renewal_arrivals(
+                seed, future, inputs.arrivals_in_gaps, renewal_last, start.first_day,
+                inputs.arrivals_in_sizes, horizon,
+            )  # fmt: skip
+        else:
+            arrive_in = _arrivals(seed, future, "arrivals-in", inputs.arrivals_in_rate,
+                                  inputs.arrivals_in_sizes, horizon)  # fmt: skip
         arrive_out = _arrivals(seed, future, "arrivals-out", inputs.arrivals_out_rate,
                                inputs.arrivals_out_sizes, horizon)  # fmt: skip
         weeks_stream = _stream(seed, future, "weeks")
