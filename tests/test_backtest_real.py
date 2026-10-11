@@ -242,7 +242,7 @@ def test_a_database_outside_data_private_is_refused(
         run_real(db, out, futures=40, quick=True)
 
 
-@pytest.mark.parametrize("extra", [["--arm", "1"], ["--keeps-coming", "off"], ["--paths"]])
+@pytest.mark.parametrize("extra", [["--arm", "3"], ["--keeps-coming", "off"], ["--paths"]])
 def test_the_default_folders_of_arms_and_switches_must_be_private(
     made_up_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str], extra: list[str],
