@@ -97,7 +97,7 @@ def test_the_filters_add_up_and_each_removes_what_it_says() -> None:
     assert (f["in_series"], f["outside_window"], f["under_cutoff"]) == (1, 1, 1)
     assert (f["pass_through"], f["lumps"], f["other"]) == (1, 1, 0)
     assert f["big_any_date"] == 3  # the lump, the old one and the paid-out one, any date
-    assert f["newest_big_days_before_anchor"] == 28
+    assert "newest_big_days_before_anchor" not in f  # a day count tied to a real row
 
 
 def test_the_anchor_moves_the_window(capsys: pytest.CaptureFixture[str]) -> None:
@@ -125,3 +125,21 @@ def test_the_report_applies_my_saved_decisions_like_the_forecast(
     assert module.load_inputs(conn, "acct") is not None
     conn.close()
     assert seen and seen[0] is not None  # the decisions were passed, not left out
+
+
+def test_the_diagnostic_prints_counts_only_no_date_and_no_day_count_of_a_row(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:  # fmt: skip
+    import re
+
+    from eval.lump_diagnose import main as diagnose
+
+    export, _ = write_persona(build_persona("v2-ITIGHT-01").persona, tmp_path, 42, START, END)
+    conn = connect(tmp_path / "d.db")
+    store_exports(conn, "acct", [(export.name, parse_export(export))], datetime(2026, 10, 1))
+    conn.close()
+    assert diagnose(["--db", str(tmp_path / "d.db")]) == 0
+    text = capsys.readouterr().out
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", text)  # no posting date, no window date
+    assert "days before" not in text and "first posting" not in text
+    assert "lumps left" in text  # the counts are still there
