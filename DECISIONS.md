@@ -1601,6 +1601,7 @@ Done on the branch `review-fixes-2026-10-11`, one commit per item, each with a t
 10. **Small:** recurring fix (a) needs a strict majority of card purchases, as recorded (before, a tie could count); stale docstrings (the options' defaults, lump proposals retired, the arms example); `--held-out --only <development persona>` saves with the development records; the salt file is created owner-only (the mode has no effect on Windows, where the folder's permissions apply).
 11. **Docs:** the plan's week 4 row, the horizon rule the code implements (a fixed 30 days, 2026-10-06; the 2026-09-30 entry stays as history) and the README limitation about large deposits.
 
+**What has to be run again after this is merged** (everything made with the old rate or the old versions): the development backtests of both sets, the arms, the blend weights (they were fitted on the old forecaster), the threshold study, the Model report's synthetic column, my account's backtest folders, the Time Machine snapshots. The renewal draw's evaluation on the branch `renewal` was started before the rate fix. The draw does not use the rate (it draws from the gaps), so after the fix the default arm moves and the draw arm does not: **that comparison has to be run again on the merged code before the draw is judged.**
 
 ## Tests
 
