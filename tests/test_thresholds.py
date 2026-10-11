@@ -54,7 +54,7 @@ def test_the_raw_choice_uses_the_new_recall_and_the_same_constraints() -> None:
 
 
 def test_the_stop_conditions_fixed_before_computing() -> None:
-    from eval.thresholds_raw import stop_conditions
+    from eval.thresholds_raw import high_rise, stop_conditions
 
     def point(t: float, old: float, new: float, a: list, b: list) -> dict:  # type: ignore[type-arg]
         return {"threshold": t, "recall": old, "recall_on": new, "caught_episodes": a,
@@ -64,7 +64,10 @@ def test_the_stop_conditions_fixed_before_computing() -> None:
     assert stop_conditions(fine, {"a": 0.5, "b": 0.6, "c": 0.5}) == []
     assert stop_conditions([point(0.1, 0.5, 0.4, [1], [1])], {})  # lower: a bug
     assert stop_conditions([point(0.1, 0.5, 0.5, [1], [2])], {})  # not a superset
-    assert stop_conditions([point(0.85, 0.5, 0.6, [1], [1, 2])], {})  # high threshold moved
+    high = [point(0.85, 0.5, 0.6, [1], [1, 2])]  # the high threshold moved by 10 points
+    assert stop_conditions(high, {}) == []  # not one of the plan's three checks (2026-10-12)
+    assert stop_conditions(high, {}, with_high_rise=True)  # the proposals run's fourth
+    assert high_rise(high) and not high_rise(fine)
     assert stop_conditions([], {"a": 0.1, "b": 0.2, "c": 0.3, "d": 0.4})  # four thresholds
 
 

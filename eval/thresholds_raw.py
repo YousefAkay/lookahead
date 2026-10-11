@@ -1,4 +1,5 @@
-"""Alert threshold on raw chances with the new "caught" definition (step 1 of the 2026-10-11 plan).
+"""Alert threshold on raw chances with the new "caught" definition (step 1 of the 2026-10-11 plan,
+again as step 3 of the 2026-10-12 plan, on the merged forecaster).
 
 Method in DECISIONS.md (2026-10-11, "Step 1: c) caught when an alert is on ahead of the dip"): the
 threshold with the highest recall ("on ahead (new)") subject to precision >= 70 percent and at most
@@ -8,8 +9,13 @@ are printed side by side; the provisional rule is its own row. The stop conditio
 computing are checked and printed; if one holds, no threshold is chosen. Changes nothing in the
 app; the calibrated results (`eval.thresholds`) are not overwritten.
 
-    python -m eval.backtest                    # the development backtest (data/backtest/full)
-    python -m eval.thresholds_raw              # writes docs/results/thresholds_raw_2026-10-11.md
+    python -m eval.backtest                    # the development backtest
+    python -m eval.thresholds_raw              # writes docs/results/thresholds_raw_2026-10-12.md
+
+On 2026-10-12 the stop checks are the plan's three (the new caught set contains the old one;
+precision, false alerts and episodes are the same quantities for both definitions; at most three
+thresholds across the folds). The proposals run's fourth (recall rising by more than 5 points at
+80 percent and above) is computed and printed beside them as information.
 """
 
 import argparse
@@ -23,7 +29,7 @@ from eval.metrics import PROVISIONAL_THRESHOLD, alert_metrics, load_records
 from eval.thresholds import MAX_FALSE_PER_30, MIN_PRECISION, THRESHOLDS
 from lookahead.generator.archetypes import assert_development_only
 
-REPORT = Path("docs/results/thresholds_raw_2026-10-11.md")
+REPORT = Path("docs/results/thresholds_raw_2026-10-12.md")
 HIGH = 0.80  # recall at thresholds from here up should hardly move
 HIGH_RISE = 0.05  # more than 5 points is unexpected
 MAX_FOLD_THRESHOLDS = 3  # more different thresholds than this across the folds is unexpected
@@ -83,16 +89,29 @@ def leave_one_out(records: list[Record]) -> tuple[Record, dict[str, float | None
     return pool(parts), chosen
 
 
-def stop_conditions(points: list[Record], chosen: dict[str, float | None]) -> list[str]:
-    """The conditions fixed before computing under which line c) stops (empty: continue)."""
+def high_rise(points: list[Record]) -> list[str]:
+    """The proposals run's fourth condition: recall (new) more than 5 points above recall (old)
+    at thresholds of 80 percent and above."""
+    return [
+        f"recall rises by more than 5 points at {m['threshold']:.0%}"
+        for m in points
+        if m["threshold"] >= HIGH and (m["recall_on"] or 0) - (m["recall"] or 0) > HIGH_RISE
+    ]
+
+
+def stop_conditions(
+    points: list[Record], chosen: dict[str, float | None], with_high_rise: bool = False
+) -> list[str]:  # fmt: skip
+    """The conditions fixed before computing under which the line stops (empty: continue). The
+    2026-10-12 plan lists three; `with_high_rise` adds the proposals run's fourth."""
     out = []
     for m in points:
         if m["recall_on"] is not None and m["recall"] is not None and m["recall_on"] < m["recall"]:
             out.append(f"recall under the new definition is lower at {m['threshold']:.0%}")
         if not set(m["caught_episodes"]) <= set(m["caught_on_episodes"]):
             out.append(f"the new caught set does not contain the old at {m['threshold']:.0%}")
-        if m["threshold"] >= HIGH and (m["recall_on"] or 0) - (m["recall"] or 0) > HIGH_RISE:
-            out.append(f"recall rises by more than 5 points at {m['threshold']:.0%}")
+    if with_high_rise:
+        out += high_rise(points)
     picks = {t for t in chosen.values() if t is not None}
     if len(picks) > MAX_FOLD_THRESHOLDS:
         out.append(f"the folds chose {len(picks)} different thresholds (more than 3)")
@@ -149,11 +168,12 @@ def report(records: list[Record]) -> str:
     out = [
         '# Alert threshold on raw chances, both "caught" definitions (synthetic, development)',
         "",
-        f"Made with `python -m eval.thresholds_raw` from the development backtest of the current "
-        f"forecaster (`python -m eval.backtest`: 500 futures, seed 42, weekday method). {n}. "
+        f"Made with `python -m eval.thresholds_raw` from the development backtest of the merged "
+        f"forecaster (keeps-coming on, options off; 500 futures, seed 42, weekday method). {n}. "
         "Rule: alert when the raw chance is above the threshold (no median clause), through the "
-        "app's alert engine. Objective (DECISIONS.md, 2026-10-11, step 1): highest recall "
-        "*on ahead (new)* with precision >= 70% and <= 0.1 false alerts per 30 days. Nothing "
+        "app's alert engine. Objective (DECISIONS.md, 2026-10-11 step 1, again 2026-10-12 step "
+        "3): highest recall *on ahead (new)*, in the reading of 2026-10-12, with precision >= 70% "
+        "and <= 0.1 false alerts per 30 days. Shortfall episodes walk calendar days (R4). Nothing "
         "changes in the app.",
         "",
         "## The curve (all development personas)",
@@ -202,9 +222,17 @@ def report(records: list[Record]) -> str:
         "",
     ]
     if stops:
-        out += ["**Line c) stops; no threshold is chosen.**", ""] + [f"- {s}" for s in stops]
+        out += ["**The line stops; no threshold is chosen.**", ""] + [f"- {s}" for s in stops]
     else:
-        out.append("None holds: line c) continues.")
+        out.append("None of the three holds: a threshold is chosen.")
+    rises = high_rise(points)
+    stricter = (
+        ". **Under the stricter reading that keeps it as a stop check, no threshold would "
+        "be chosen.**"
+    )
+    fourth = "; ".join(rises) + stricter if rises else "does not hold."
+    out += ["", "The proposals run's fourth condition (information, not a stop check on "
+            "2026-10-12): " + fourth]  # fmt: skip
     picks = sorted({t for t in chosen.values() if t is not None})
     out += [
         "",
