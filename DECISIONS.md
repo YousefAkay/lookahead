@@ -869,6 +869,7 @@ Run once with the frozen mix: 20 development personas, 40 weekly origins each (8
 
 **Read with care (the too-good and the too-bad):**
 - The Brier skill of 0.58-0.66 is **inflated by easy personas**: IFAM, SAL, SEM and FREE have a Brier of 0.000 because the dip never happens and the forecast says so. It is not leakage (the rule-zero tests pass, including a test that rewrites the future), but it is not evidence of skill either. The mid-range probabilities are underconfident (20-40 percent forecasts came true 63 percent of the time).
+- The 80 percent band covers about half. The error is largest for ITIGHT ($6,564 at 30 days, Brier 0.226) and IFAM ($2,817), the personas with tuition payments and family deposits of thousands of dollars that a history of two or three occurrences cannot detect as a pattern; that is my reading and has **not** been tested. DHOME, DRENT, SAL, SEM and TIGHT have 30-day errors of $402-930 (corrected 2026-10-12: this line said $200-930; TIGHT's $402 is the lowest in the results file, $198 is its 7-day error).
 - Early origins are worse (8-12 weeks of history: 30-day error $2,959, Brier 0.153; 26+ weeks: $2,017, 0.038), as expected from recurring detection with few repeats.
 - n is small where it matters: 55 shortfall episodes from 8 personas that have any; the persona and episode counts are the honest n, not 726.
 
@@ -1262,6 +1263,12 @@ Scored with `python -m eval.proposals_score` (full tables in `docs/results/propo
 
 - With weekly origins the windows overlap, every day is observed (checked: no persona has an unobserved day), so the full development numbers do not move. Only runs whose windows leave gaps change: a quick run, and a real account with gaps between origins.
 - **Reports that become stale:** none of the recorded full-run synthetic results (their windows overlap). Any episode count from a `--quick` run, synthetic or real, computed before this change, is stale and must not be compared with one computed after it.
+
+### 2026-10-12: R7, known generator limitations recorded (nothing regenerated)
+- **Hourly students are not all paid on Fridays.** The v2 entries say wages are paid on the biweekly Fridays. Counted on the generated 12-month histories (all 30 personas, answer key): 14 personas have hourly wages (every ITIGHT, DHOME and DRENT persona), and 7 of the 14 are paid on Mondays or Tuesdays (ITIGHT-02 and -05, DHOME-01, DRENT-01, -02, -03 and -05); the others on Fridays (moved to a Wednesday or Thursday around holidays). The review counted 7 of 13; my count of hourly-paid personas is 14. The pay weekday comes from the anchor date drawn for each persona, not from a Friday rule.
+- **The away personas are paid in early December.** DHOME-03, DRENT-02 and DRENT-05 are away in July, August and December "with no wages", but each gets one or two pay deposits in the first half of December (pay for hours worked in late November falls due then). It is a property of paying a period's hours on the next pay date, not a separate bug.
+- Both stay as they are: the v2 mix is frozen, and changing them would start a new set of results. They are limitations to read the results with (the weekday of pay moves the weekday baseline's pattern; the December pay makes the away months less quiet than described).
+- Corrected the quoted 30-day errors of the calm archetypes in the first development backtest entry: $402-930, not $200-930.
 
 ## Tests
 

@@ -12,8 +12,8 @@ A local-first cashflow planner: import bank CSVs, forecast the chequing balance,
 |---|---|---|
 | 1 | Skeleton, synthetic generator v0 (3 personas, frozen until week 5), Scotiabank importer with dedupe and reconciliation, pseudonymizer, Transactions page | Done |
 | 2 | Merchant extraction and resolution, flow typing, 17 categories, hybrid categorizer, label review, holdout evaluation, app pages (To check, corrections, Retrain, opt-in LLM fallback) | Done |
-| 3 | 3a recurring payments; 3b baseline forecast with block-bootstrap paths; 3c shortfall alert; 3d what-ifs. This is the working prototype | In progress (3a) |
-| 4 | Time Machine, baseline backtest, Model Report, README. CV-ready demo; then the repo goes public | Next |
+| 3 | 3a recurring payments; 3b baseline forecast with block-bootstrap paths; 3c shortfall alert; 3d what-ifs. This is the working prototype | Done |
+| 4 | Time Machine (back end and page, synthetic personas), backtest runner and metrics (synthetic and real), Model Report page, generator v1 mix (frozen v2, plus the 24-month set v2L), calibration (built, shelved after the real-account run), keeps-coming as the forecaster's default, the proposals options (random lump arrivals, lump proposals, repeated large payments: off by default), LightGBM spending model (lost, on its branch). Not done: README numbers refreshed, the held-out test, the repo public | In progress |
 | 5 | Generator v1 (100+ weighted-archetype personas, some with a monthly credit card payment), LightGBM direct-horizon forecaster, time-series CV, conformal intervals | |
 | 6 | Full backtest on synthetic, Berka and my real data, reported separately | |
 | 7 | Ask: questions answered from the data (local model by default, Claude opt-in with minimal pseudonymized evidence) | |
