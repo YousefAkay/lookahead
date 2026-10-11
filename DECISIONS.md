@@ -1280,6 +1280,22 @@ Scored with `python -m eval.proposals_score` (full tables in `docs/results/propo
 - **Prediction, written first.** Recall rises mainly at the two-term personas (the earlier rule got 0 of 13 placements right there); the three-term personas stay about as they were; precision does not fall below the earlier rule's (68 percent). Where it can go wrong: a persona whose tuition changed amount (the generator keeps tuition the same from year to year, so this set cannot show it; a known limitation recorded with the set), and installments about a month apart (the second installment a year on may fall in the horizon of a later origin and be matched to the wrong payment). **Unexpected:** precision or recall above 95 percent (I look for leakage first); fewer right placements than the earlier rule at the three-term personas.
 - Command: `python -m eval.proposals_score --calendar` (both sets, 20 development personas each, 40 origins); results in `docs/results/proposals_scores_2026-10-12.md`.
 
+### 2026-10-12: Step 1 result: b) by calendar position passes its gate on the 24-month set (too good to mean much; no leakage found)
+`python -m eval.proposals_score --calendar`, 20 development personas per set, 40 weekly origins; table in `docs/results/proposals_scores_2026-10-12.md`. Counts are (origin, placement) and (origin, tuition payment) pairs; the 7 personas that pay tuition from chequing are the honest n.
+
+| 24-month set | Placements | Precision | Recall, payee with 2+ payments | Date error, median days |
+|---|---|---|---|---|
+| calendar, all | 79 | 96% (76/79) | 93% (75/81) | 3.5 |
+| calendar, two-term personas (3) | 23 | 91% (21/23) | 91% (21/23) | 4 |
+| calendar, three-term personas (4) | 56 | 98% (55/56) | 93% (54/58) | 3 |
+| earliest (the earlier rule), all | 57 | 68% (39/57) | 46% (37/81) | 1 |
+| earliest, two-term personas | 13 | 0% (0/13) | 0% (0/23) | - |
+
+- **The earlier rule reproduces** the proposals run exactly (24-month: 57 placements, 39 right, recall 37 of 81; 12-month: 9, 6 right, 6 of 23), so the scorer is the one that made those numbers.
+- **Gate: pass** (recall 93 percent, precision 96 percent; at least 50 and 70 needed). Line b) continues: arms 3 and 4 run in Step 2.
+- **Precision is above 95 percent, so I looked for leakage first** (a check written after seeing the number, for this purpose only): on the 7 tuition-paying personas, 280 origins, 79 placements, no evidence row was posted after its origin; adding every later row of the history (flows typed on all rows) changes no placement at any origin; moving every later row 40 days and doubling its amount changes none either. The rule-zero tests and their mutation checks pass. **No leakage found.** The number is high because the synthetic data makes the rule easy: the generator keeps tuition the same amount every year, and each term's date is drawn within 5 days of a fixed day (Jan 20, May 20, Sep 12), so a payment plus 365 days lands within 10 days of the next year's payment almost always (it is the known limitation recorded with the set). Of the 3 wrong placements, 1 is a second installment of v2L-IFAM-02 and 2 are v2L-DRENT-03 (a January payment placed from the previous January's; I did not look further). Real tuition rises and payees can change, so this says the rule does what it is meant to, not how well it would do on a real account.
+- **Prediction against result.** Recall rose mainly at the two-term personas (0 to 21 of 23), as predicted. The three-term personas did not "stay about as they were": they also improved (recall 37 to 54 of 58, precision 89 to 98 percent), because "a year after the same term" is right for every term, while the earlier rule's median gap is off whenever the terms are unevenly spaced. Precision did not fall (68 to 96 percent). The 12-month set has no placement at all (a payment a year before an origin's horizon is before the history starts), as expected; 28 of its 81 (origin, tuition payment) pairs are first-time cases.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
