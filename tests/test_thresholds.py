@@ -76,6 +76,42 @@ def test_pooling_keeps_both_definitions() -> None:
 
     a = {"shortfall_episodes": 4, "caught": 1, "caught_on": 2, "alert_episodes": 2,
          "false_alerts": 1, "ordinary_origins": 30, "lead_times": [5], "lead_times_on": [5, 9],
-         "n_personas": 1}  # fmt: skip
+         "n_personas": 1, "alerts_while_in_shortfall": 0}  # fmt: skip
     m = pool_raw([a, {**a, "caught_on": 1, "lead_times_on": [5]}])
     assert m["recall"] == 0.25 and m["recall_on"] == 3 / 8 and m["lead_times_on"] == [5, 5, 9]
+
+
+def _full_point(**changes: object) -> dict:  # type: ignore[type-arg]
+    """A point with every field `alert_metrics` returns that the checks read."""
+    base = {
+        "threshold": 0.2, "recall": 0.5, "recall_on": 0.5, "caught": 1, "caught_on": 1,
+        "shortfall_episodes": 2, "caught_episodes": [("p", "d1")],
+        "caught_on_episodes": [("p", "d1")],
+        "alert_episodes": 4, "false_alerts": 1, "precision": 0.75, "ordinary_origins": 70,
+        "false_per_30_days": 1 / (70 * 7) * 30, "alerts_while_in_shortfall": 3,
+    }  # fmt: skip
+    return {**base, **changes}
+
+
+def test_the_second_stop_check_compares_the_quantities_the_two_definitions_share() -> None:
+    from eval.thresholds_raw import stop_conditions
+
+    assert stop_conditions([_full_point()], {}) == []
+    for broken in (
+        {"precision": 0.5},  # not (alerts - false) / alerts
+        {"false_per_30_days": 0.5},  # not false / (origins * 7) * 30
+        {"caught": 3},  # more caught than episodes under one definition
+        {"caught_on": 2},  # the count and its list disagree
+    ):
+        stops = stop_conditions([_full_point(**broken)], {})
+        assert any("same quantities" in s for s in stops), broken
+
+
+def test_alerts_that_opened_below_the_buffer_are_counted_beside_precision() -> None:
+    from eval.thresholds_raw import HEAD, pool, row
+
+    assert "opened below the buffer" in HEAD
+    assert "3 opened below the buffer" in row("x", {**_full_point(), "lead_times": [],
+                                                    "lead_times_on": []})  # fmt: skip
+    a = {**_full_point(), "n_personas": 1, "lead_times": [], "lead_times_on": []}
+    assert pool([a, a])["alerts_while_in_shortfall"] == 6

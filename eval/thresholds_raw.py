@@ -61,7 +61,7 @@ def choose(points: list[Record], recall_key: str = "recall_on") -> Record | None
 def pool(parts: list[Record]) -> Record:
     """Add up per-persona alert metrics, both definitions."""
     keys = ("shortfall_episodes", "caught", "caught_on", "alert_episodes", "false_alerts",
-            "ordinary_origins")  # fmt: skip
+            "ordinary_origins", "alerts_while_in_shortfall")  # fmt: skip
     total = {k: sum(p[k] for p in parts) for k in keys}
     alerts, episodes = total["alert_episodes"], total["shortfall_episodes"]
     return {
@@ -99,6 +99,29 @@ def high_rise(points: list[Record]) -> list[str]:
     ]
 
 
+def shared_quantities(m: Record) -> list[str]:
+    """The plan's second stop check: precision, false alerts and episodes are the same quantities
+    for both definitions of caught. Recomputed from the counts: both recalls are over the same
+    episodes, each caught count is its own list, and precision and the false-alert rate follow
+    from the alert, false-alert and origin counts alone (they cannot depend on the definition).
+    Empty when all hold (or when the point carries no counts)."""
+    if "alert_episodes" not in m:
+        return []
+    problems = []
+    episodes = m["shortfall_episodes"]
+    if m["caught"] > episodes or m["caught_on"] > episodes:
+        problems.append("more caught than episodes")
+    if len(m["caught_episodes"]) != m["caught"] or len(m["caught_on_episodes"]) != m["caught_on"]:
+        problems.append("a caught count and its list disagree")
+    alerts, false = m["alert_episodes"], m["false_alerts"]
+    if alerts and abs(m["precision"] - (alerts - false) / alerts) > 1e-9:
+        problems.append("precision is not (alerts - false) / alerts")
+    origins = m["ordinary_origins"]
+    if origins and abs(m["false_per_30_days"] - false / (origins * 7) * 30) > 1e-9:
+        problems.append("the false-alert rate is not false / (origins * 7) * 30")
+    return problems
+
+
 def stop_conditions(
     points: list[Record], chosen: dict[str, float | None], with_high_rise: bool = False
 ) -> list[str]:  # fmt: skip
@@ -110,6 +133,9 @@ def stop_conditions(
             out.append(f"recall under the new definition is lower at {m['threshold']:.0%}")
         if not set(m["caught_episodes"]) <= set(m["caught_on_episodes"]):
             out.append(f"the new caught set does not contain the old at {m['threshold']:.0%}")
+        for problem in shared_quantities(m):
+            out.append(f"precision, false alerts and episodes are not the same quantities for "
+                       f"both definitions at {m['threshold']:.0%}: {problem}")  # fmt: skip
     if with_high_rise:
         out += high_rise(points)
     picks = {t for t in chosen.values() if t is not None}
@@ -128,7 +154,8 @@ def _lead(leads: list[int]) -> str:
 
 HEAD = (
     "| Rule | Recall, opened ahead (original) | Recall, on ahead (new) | Precision "
-    "(true/alerts) | False alerts per 30 days | Lead time, original: mean (median) | Lead time, "
+    "(true/alerts; alerts that opened below the buffer are counted apart) | False alerts per 30 "
+    "days | Lead time, original: mean (median) | Lead time, "
     "new: mean (median) |"
 )
 LINE = "|---|---|---|---|---|---|---|"
@@ -139,7 +166,8 @@ def row(label: str, m: Record) -> str:
         f"| {label} | {_pct(m['recall'])} ({m['caught']}/{m['shortfall_episodes']}) | "
         f"{_pct(m['recall_on'])} ({m['caught_on']}/{m['shortfall_episodes']}) | "
         f"{_pct(m['precision'])} ({m['alert_episodes'] - m['false_alerts']}/"
-        f"{m['alert_episodes']}) | {m['false_per_30_days']:.3f} | {_lead(m['lead_times'])} | "
+        f"{m['alert_episodes']}; {m['alerts_while_in_shortfall']} opened below the buffer) | "
+        f"{m['false_per_30_days']:.3f} | {_lead(m['lead_times'])} | "
         f"{_lead(m['lead_times_on'])} |"
     )
 
