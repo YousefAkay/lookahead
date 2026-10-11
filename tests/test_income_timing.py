@@ -93,9 +93,12 @@ def test_a_deposit_after_the_window_is_not_an_event_and_nothing_is_dated_in_the_
 
 
 def test_gap_statistics() -> None:
-    days = [date(2026, 1, 1) + timedelta(days=g) for g in (0, 30, 60, 90, 130)]
+    days = [date(2026, 1, 1) + timedelta(days=g) for g in (*range(0, 301, 30), 341)]  # 11 gaps
     lines = gap_lines([Dep(d, i, "x") for i, d in enumerate(days)])
-    assert "n 4" in lines[0] and "median 30 days" in lines[0] and "75% of them 20 to 35" in lines[0]
+    assert (
+        "n 11" in lines[0] and "median 30 days" in lines[0] and "91% of them 20 to 35" in lines[0]
+    )
+    assert "too few" in gap_lines([Dep(d, i, "x") for i, d in enumerate(days[:10])])[0]  # 9 gaps
     assert "too few" in gap_lines([Dep(days[0], 0, "x")])[0]
 
 

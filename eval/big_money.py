@@ -22,12 +22,14 @@ from typing import Any
 
 from eval.backtest_real import real_origins
 from eval.diagnose_real import cutoffs
+from eval.small_n import MIN_STATISTIC
 from lookahead.db import connect_readonly
 from lookahead.flows import Flow, Txn, flow_types
 from lookahead.forecast.spending import (
     LARGE_MIN_CENTS,
     LARGE_WINDOW_DAYS,
     TYPICAL_MIN_ROWS,
+    _counted,
     _money_in,
     _streams,
 )
@@ -54,6 +56,41 @@ def similar_before(cents: int, day: date, others: Sequence[tuple[date, int]]) ->
     return sum(1 for d, c in others if since <= d < day and low <= c <= high)
 
 
+def cutoff_rows(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], origin: date
+) -> tuple[int, int]:  # fmt: skip
+    """How many rows the typical row of each cutoff was the median of (deposits, payments): the
+    direction's own rows of the last 13 weeks when there are 5 or more, else everything's."""
+    first = origin - timedelta(days=LARGE_WINDOW_DAYS - 1)
+    out_rows = [c for t, _, c in _counted(txns, flows, series_rows, origin)
+                if c > 0 and t.posted_date >= first]  # fmt: skip
+    in_rows = [c for t, _, c in _money_in(txns, flows, series_rows, origin)
+               if c > 0 and t.posted_date >= first]  # fmt: skip
+    everything = len(in_rows) + len(out_rows)
+    return (
+        len(in_rows) if len(in_rows) >= TYPICAL_MIN_ROWS else everything,
+        len(out_rows) if len(out_rows) >= TYPICAL_MIN_ROWS else everything,
+    )
+
+
+def exposes_a_row(cents: int, rows: int) -> bool:
+    """True if a cutoff above the $500 floor is 5 times a median of an odd number of rows under
+    10: the median is then one real row, and the cutoff gives its amount away."""
+    return cents > LARGE_MIN_CENTS and rows < MIN_STATISTIC and rows % 2 == 1
+
+
+CUTOFF_BUCKETS = (50000, 100000, 250000, 500000, 1000000, 2500000, 5000000)
+
+
+def _bucket(cents: float) -> str:
+    """A range of dollars the amount is in (never the amount)."""
+    low = max((e for e in CUTOFF_BUCKETS if e <= cents), default=0)
+    higher = [e for e in CUTOFF_BUCKETS if e > cents]
+    if not higher:
+        return f"{_d(low)} and up"
+    return f"{_d(low)} to {_d(higher[0])}"
+
+
 def origin_facts(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], origin: date
 ) -> dict[str, Any]:  # fmt: skip
@@ -64,8 +101,10 @@ def origin_facts(
         c for t, _, c in _money_in(txns, flows, series_rows, origin) if t.posted_date >= recent
     ]
     events = _streams(txns, flows, series_rows, origin).events
+    n_in, n_out = cutoff_rows(txns, flows, series_rows, origin)
     return {
-        "cut_in": cut_in, "cut_out": cut_out, "own_yardstick": len(own_in) >= TYPICAL_MIN_ROWS,
+        "cut_in": cut_in, "cut_out": cut_out, "n_in": n_in, "n_out": n_out,
+        "own_yardstick": len(own_in) >= TYPICAL_MIN_ROWS,
         "deposits_large": sum(1 for e in events if e.cents > 0 and e.group == "Large deposit"),
         "deposits_pass": sum(1 for e in events if e.cents > 0 and e.group == "Pass-through"),
         "payments_large": sum(1 for e in events if e.cents < 0 and e.group == "Large payment"),
@@ -116,21 +155,31 @@ def _pct(x: float) -> str:
     return f"{x:.0%}"
 
 
-def origin_lines(facts: list[dict[str, Any]], last_cutoffs: tuple[int, int]) -> list[str]:
+def origin_lines(
+    facts: list[dict[str, Any]], last_cutoffs: tuple[int, int],
+    last_rows: tuple[int, int] = (0, 0),
+) -> list[str]:  # fmt: skip
     n = len(facts)
     lines = [f"  The forecaster at each of {n} origins:"]
-    for name, key in (("big-deposit cutoff", "cut_in"), ("big-payment cutoff", "cut_out")):
+    for name, key, rows_key in (("big-deposit cutoff", "cut_in", "n_in"),
+                                ("big-payment cutoff", "cut_out", "n_out")):  # fmt: skip
         v = [f[key] for f in facts]
         floor = sum(x == LARGE_MIN_CENTS for x in v)
+        show = _bucket if any(exposes_a_row(f[key], f[rows_key]) for f in facts) else _d
         lines.append(
-            f"    {name}: median {_d(statistics.median(v))}, smallest {_d(min(v))}, "
-            f"largest {_d(max(v))}; at the $500 floor at {floor} of {n} origins ({_pct(floor / n)})"
+            f"    {name}: median {show(statistics.median(v))}, smallest {show(min(v))}, "
+            f"largest {show(max(v))}; at the $500 floor at {floor} of {n} origins "
+            f"({_pct(floor / n)})"
         )  # fmt: skip
     own = sum(f["own_yardstick"] for f in facts)
     lines.append(f"    the deposits' own typical row was used at {own} of {n} origins "
                  f"(5 or more deposits in 13 weeks)")  # fmt: skip
+    deposits_cut, payments_cut = (
+        (_bucket if exposes_a_row(cut, rows) else _d)(cut)
+        for cut, rows in zip(last_cutoffs, last_rows, strict=True)
+    )  # fmt: skip
     lines.append(f"    the cutoffs at the last posting date (the one the lump diagnostic used): "
-                 f"deposits {_d(last_cutoffs[0])}, payments {_d(last_cutoffs[1])}")  # fmt: skip
+                 f"deposits {deposits_cut}, payments {payments_cut}")  # fmt: skip
     kinds = (
         ("large deposits", "deposits_large"), ("deposits in a pass-through", "deposits_pass"),
         ("large payments", "payments_large"), ("payments in a pass-through", "payments_pass"),
@@ -236,8 +285,9 @@ def main(argv: list[str] | None = None) -> int:
             }  # fmt: skip
             flows_all = flow_types(txns, load_user_decisions(conn, last))
             last_cut = cutoffs(txns, flows_all, in_series_last, last)
+            last_rows = cutoff_rows(txns, flows_all, in_series_last, last)
             if facts:
-                for line in origin_lines(facts, last_cut):
+                for line in origin_lines(facts, last_cut, last_rows):
                     print(line)
             for line in history_lines(history_rows(txns, flows_all, in_series_last)):
                 print(line)

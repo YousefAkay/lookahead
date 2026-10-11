@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from eval.backtest_real import real_origins
+from eval.small_n import MIN_GROUP, MIN_STATISTIC, TOO_FEW
 from lookahead.db import connect_readonly
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.start import forecast_start
@@ -82,7 +83,30 @@ def check_account(conn: Any, account: str, key: bytes) -> dict[str, Any]:
 
 
 def _median(values: list[float]) -> str:
-    return "-" if not values else f"{statistics.median(values):.1f}"
+    """A median only from 10 or more values (a median of fewer is one of the rows)."""
+    if not values:
+        return "-"
+    return f"{statistics.median(values):.1f}" if len(values) >= MIN_STATISTIC else TOO_FEW
+
+
+def summary_lines(c: dict[str, Any]) -> list[str]:
+    """What one account prints: counts, with a group under 5 hidden and a median under 10 values
+    hidden (eval/small_n.py)."""
+    lines = [f"  origins: {c['origins']}; with at least one proposal: {c['with_proposal']}"]
+    if c["proposals"] < MIN_GROUP:
+        return [*lines, f"  proposals: {TOO_FEW}"]
+    lines.append(f"  proposals (origin, proposal): {c['proposals']} ({c['distinct']} distinct)")
+    if c["likely"] < MIN_GROUP:
+        lines.append(f"  'likely' (3+ lumps): {TOO_FEW}")
+        likely = f"'likely': {TOO_FEW}"
+    else:
+        lines.append(f"  'likely' (3+ lumps): {c['likely']}")
+        likely = f"'likely': {c['likely_followed']} of {c['likely']}"
+    lines.append(f"  followed by a deposit from the same sender inside the window: "
+                 f"{c['followed']} of {c['proposals']} ({likely})")  # fmt: skip
+    lines.append(f"  when followed: day miss, median days {_median(c['date_miss'])}; size miss, "
+                 f"median percent {_median([100 * x for x in c['size_miss']])}")  # fmt: skip
+    return lines
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -106,14 +130,8 @@ def main(argv: list[str] | None = None) -> int:
         for number, account in enumerate(accounts(conn), start=1):
             c = check_account(conn, account, key)
             print(f"account-{number}")  # the name stays out of the output
-            print(f"  origins: {c['origins']}; with at least one proposal: {c['with_proposal']}")
-            print(f"  proposals (origin, proposal): {c['proposals']} ({c['distinct']} distinct), "
-                  f"'likely' (3+ lumps): {c['likely']}")  # fmt: skip
-            print(f"  followed by a deposit from the same sender inside the window: "
-                  f"{c['followed']} of {c['proposals']} ('likely': {c['likely_followed']} of "
-                  f"{c['likely']})")  # fmt: skip
-            print(f"  when followed: day miss, median days {_median(c['date_miss'])}; size miss, "
-                  f"median percent {_median([100 * x for x in c['size_miss']])}")  # fmt: skip
+            for line in summary_lines(c):
+                print(line)
     finally:
         conn.close()
     print("Development numbers: the design was made while looking at this account.")

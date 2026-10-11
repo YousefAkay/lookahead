@@ -22,6 +22,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from eval.backtest_real import real_origins
+from eval.small_n import MIN_GROUP, MIN_STATISTIC, TOO_FEW
 from lookahead.db import connect_readonly
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.spending import DEFAULT_KEEPS, keeps_coming_arrivals
@@ -159,8 +160,8 @@ def chance_lines(obs: list[Obs], without: int) -> list[str]:
     miss_constant = miss_renewal = 0.0
     for g, label in enumerate(GROUP_NAMES):
         mine = [o for o in obs if group_of(o.days_since) == g]
-        if not mine:
-            lines.append(f"        {label}: n 0")
+        if len(mine) < MIN_GROUP:
+            lines.append(f"        {label}: {TOO_FEW}")
             continue
         share = sum(o.event for o in mine) / len(mine)
         constant = statistics.fmean(o.implied for o in mine)
@@ -170,6 +171,8 @@ def chance_lines(obs: list[Obs], without: int) -> list[str]:
         lines.append(
             f"        {label}: n {len(mine)} / {share:.0%} / {constant:.0%} / {renewal:.0%}"
         )
+    if len(obs) < MIN_GROUP:
+        return [*lines, f"        all: {TOO_FEW}"]
     share = sum(o.event for o in obs) / len(obs)
     lines.append(f"        all: n {len(obs)} / {share:.0%} / "
                  f"{statistics.fmean(o.implied for o in obs):.0%} / "
@@ -183,8 +186,8 @@ def chance_lines(obs: list[Obs], without: int) -> list[str]:
 def gap_lines(deps: Sequence[Dep]) -> list[str]:
     days = sorted(d.day for d in deps)
     gaps = [(b - a).days for a, b in zip(days, days[1:], strict=False)]
-    if len(gaps) < 4:
-        return [f"      gaps: too few ({len(gaps)})"]
+    if len(gaps) < MIN_STATISTIC:
+        return [f"      gaps between consecutive deposits: {TOO_FEW}"]
     q1, q2, q3 = statistics.quantiles(gaps, n=4)
     within = sum(1 for g in gaps if 20 <= g <= 35) / len(gaps)
     return [f"      gaps between consecutive deposits: n {len(gaps)}; median {q2:.0f} days, "
@@ -203,13 +206,17 @@ def report(
             for d in by_name[name]:
                 seen[d.row_id] = d
         union = sorted(seen.values())
-        lines.append(f"      deposits ever in the population: {len(union)}")
+        lines.append("      deposits ever in the population: "
+                     f"{len(union) if len(union) >= MIN_GROUP else TOO_FEW}")  # fmt: skip
         obs, without = observations(pops, origins, first_posted, name, None, min_gaps)
         lines += chance_lines(obs, without)
         lines += gap_lines(union)
         for kind in TYPES:
             mine = [d for d in union if d.reason == kind]
-            lines.append(f"      by type, {kind}: {len(mine)} deposits")
+            lines.append(
+                f"      by type, {kind}: "
+                f"{f'{len(mine)} deposits' if len(mine) >= MIN_GROUP else TOO_FEW}"
+            )
             if len(mine) < MIN_TYPE_DEPOSITS:
                 lines.append("        too few for a table")
                 continue
