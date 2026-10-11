@@ -1504,6 +1504,17 @@ This is pinned by tests that show the lost and duplicated cases and are marked a
 **Prediction, written first.** For population 1, if deposits come about monthly, the share arriving within 7 days is low in the first two groups, rises in the groups from 22 to 35 days, and is higher there than the constant rate implies, and lower than it in the first two groups; the median gap is in the 20 to 35 day range. For population 2 (more e-Transfers and top-ups, less regular) the shape is flatter. If the shares are flat across the groups and close to the constant rate, the timing does not depend on the time since the last deposit, and a constant rate is a fair model.
 **Not claimed.** Origins are overlapping observations of one account; the result is a description, not a test. The types are the bank's transaction types, and an e-Transfer can be income or a transfer from another person's account.
 
+### 2026-10-12: Income timing in words; decisions on the overnight run; a) retired; b) by calendar position needs a harder test; the three branches merged
+**Income timing (my account, development data).** I checked deposit timing on my account; the details stay private. It supports a due-date model for the arrivals (proposed below, not built).
+
+**Decisions on the overnight run (`overnight-2026-10-12`, report `docs/results/overnight_2026-10-12.md`).**
+1. **Threshold.** The plan's three stop checks are the rule; they choose 20 percent, recorded as **provisional**. The fourth condition the proposals run used (recall at 80 percent and above rising by more than 5 points) holds and is not a stop check. **The final threshold is chosen once, on the final forecaster, right before the held-out test**, with the rule written then. The app keeps its provisional rule.
+2. **The Model report page reads the current default forecaster's folder** (`data/private/backtest/keeps-coming-with-own`), not `data/private/backtest/full` (the old forecaster since keeps-coming became the default). A change of the default in `eval/report_data.py`, no environment-variable workaround.
+3. **a) lump proposals are retired.** They failed on my account, and confirming every proposal made IFAM and ITIGHT worse in both synthetic sets; with only the proposals that match the answer key confirmed (an upper bound) they were within a few percent of doing nothing. **The record stays** (this log, the results files, the scoring script); the option is removed from the forecaster: `ForecastOptions.lump_proposals`, `confirm_all_lumps` and `confirmed_keys`, the lump handling in `build_forecast`, and arms 1, 2 and 4 of the arm runner.
+4. **b) by calendar position needs a harder test, for the next cloud run.** It passed on data that makes it easy: tuition never rises, term dates sit in fixed windows. To pre-register: tuition that rises from year to year, shifted term dates, and a change of payee; with the same gates. Also from the report: pairing a placed tuition payment with the family or aid deposit that funds it (arm 3 added false alerts at DRENT-01 and -03).
+
+**The merge.** `overnight-2026-10-12` (fast-forward from `main`), then `recurring-check` (one conflict, this file; `path.py` merged without conflict; (a) and (b) stay the default), then `income-timing`; the full suite (slow tests included) passed after each step.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
