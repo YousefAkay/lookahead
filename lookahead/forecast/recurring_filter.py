@@ -1,5 +1,9 @@
 """Which recurring series the forecast should not place (DECISIONS.md, 2026-10-12).
 
+(a) A weekly series that is mostly card purchases, and that I did not confirm or add by hand, is
+not placed; its rows go back to the everyday-spending stream (the caller takes them out of the
+set of series rows), so nothing is lost and nothing is counted twice.
+
 (b) A series whose last real payment is more than 1.5 periods of its cadence before the data's
 last day is "possibly ended": it is not placed, and never placed on the first forecast day as
 "due and not seen yet". It comes back by itself when a new payment arrives, because the rule is
@@ -7,10 +11,11 @@ read again from the payments posted by the data's last day (rule zero). Its rows
 everyday-spending stream, so a cancelled payment is not drawn at random either.
 
 Never possibly ended: a series I confirmed or added by hand (or edited), a series with a rent
-rule, a series with no payment found. Semimonthly is left alone. Off unless `ForecastOptions`
-carries a `RecurringFix`.
+rule, a series with no payment found. Semimonthly is left alone. `ForecastOptions.recurring_fix`
+holds a `RecurringFix` (None switches the whole fix off).
 """
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -25,7 +30,11 @@ PERIODS_BEFORE_ENDED = 1.5  # strictly more than this many periods since the las
 class RecurringFix:
     """Which parts of the recurring-placement fix are on."""
 
-    possibly_ended: bool = True
+    possibly_ended: bool = True  # (b)
+    weekly_card: bool = False  # (a): off until it has passed its synthetic check
+
+
+DEFAULT_FIX = RecurringFix()  # the forecaster's default (DECISIONS.md, 2026-10-12)
 
 
 def last_real_payment(s: Stored, posted: Mapping[str, date], data_end: date) -> date | None:
@@ -50,3 +59,23 @@ def possibly_ended_keys(
 ) -> frozenset[str]:
     """The keys of the series that are possibly ended as of the data's last day."""
     return frozenset(s.key for s in series if is_possibly_ended(s, posted, data_end))
+
+
+def is_weekly_card(s: Stored, reasons: Sequence[str]) -> bool:
+    """(a): a weekly series of money out whose payments are mostly card purchases, that I did not
+    confirm, add by hand or edit."""
+    if s.cadence != "weekly" or s.direction != "out":
+        return False
+    if s.status in ("confirmed", "user-added") or s.edited:
+        return False
+    return bool(reasons) and Counter(reasons).most_common(1)[0][0] == "card purchase"
+
+
+def weekly_card_keys(series: Sequence[Stored], reason_of: Mapping[str, str]) -> frozenset[str]:
+    """The keys of the weekly series of card purchases that are not placed. `reason_of` maps a
+    payment's fingerprint to the reason of its flow type ("card purchase", "bill payment"...)."""
+    return frozenset(
+        s.key for s in series
+        if s.status != "rejected"
+        and is_weekly_card(s, [reason_of[fp] for fp in s.evidence if fp in reason_of])
+    )  # fmt: skip

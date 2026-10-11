@@ -23,7 +23,8 @@ from lookahead.ingest.store import store_exports
 from lookahead.recurring_store import Stored
 
 END_DAY = date(2026, 6, 30)
-ON = ForecastOptions(recurring_fix=RecurringFix())
+ON = ForecastOptions(recurring_fix=RecurringFix())  # (b), the default
+OFF = ForecastOptions(recurring_fix=None)  # the fix switched off
 
 
 def series(
@@ -124,7 +125,7 @@ def test_a_possibly_ended_series_is_not_placed_and_one_inside_the_limit_is(
     for gap, placed_on in ((45, True), (46, False)):
         origin = day + timedelta(days=gap)
         s_here = replace(s, next_expected=origin + timedelta(days=3))
-        off = forecast_with(monkeypatch, persona_conn, s_here, origin, ForecastOptions())
+        off = forecast_with(monkeypatch, persona_conn, s_here, origin, OFF)
         on = forecast_with(monkeypatch, persona_conn, s_here, origin, ON)
         assert has_item(off)  # off: placed in both cases
         assert has_item(on) is placed_on, gap
@@ -141,7 +142,7 @@ def test_a_possibly_ended_series_is_never_placed_on_the_first_day_as_due_and_not
     fp, day = a_payment(persona_conn)
     origin = day + timedelta(days=60)
     due = replace(series(evidence=(fp,)), next_expected=origin - timedelta(days=15))  # overdue
-    off = forecast_with(monkeypatch, persona_conn, due, origin, ForecastOptions())
+    off = forecast_with(monkeypatch, persona_conn, due, origin, OFF)
     on = forecast_with(monkeypatch, persona_conn, due, origin, ON)
     first = off.start.first_day
     assert any(i.series_key == "s" and i.day == first and "not seen yet" in i.note
@@ -150,23 +151,21 @@ def test_a_possibly_ended_series_is_never_placed_on_the_first_day_as_due_and_not
 
 
 @pytest.mark.slow
-def test_off_is_identical_to_today_and_on_changes_only_what_is_possibly_ended(
+def test_b_is_the_default_and_off_changes_only_what_is_possibly_ended(
     persona_conn,  # type: ignore[no-untyped-def]
 ) -> None:
     origin = date(2026, 6, 1)
-    plain = build_forecast(persona_conn, "acct", "weekday", origin, None, 30, 60)
-    none = build_forecast(persona_conn, "acct", "weekday", origin, None, 30, 60,
-                          options=ForecastOptions(recurring_fix=None))  # fmt: skip
-    assert plain is not None and none is not None
-    assert plain.simulation == none.simulation and plain.items == none.items
+    default = build_forecast(persona_conn, "acct", "weekday", origin, None, 30, 60)
     on = build_forecast(persona_conn, "acct", "weekday", origin, None, 30, 60, options=ON)
-    assert on is not None
+    off = build_forecast(persona_conn, "acct", "weekday", origin, None, 30, 60, options=OFF)
+    assert default is not None and on is not None and off is not None
+    assert default.simulation == on.simulation and default.items == on.items  # (b) is the default
     posted = {
         fp: date.fromisoformat(d) for fp, d in persona_conn.execute(
             "SELECT fingerprint, posted_date FROM transactions WHERE account = 'acct'")
     }  # fmt: skip
     ended = possibly_ended_keys(on.series, posted, origin)
-    if not ended:  # nothing possibly ended at this origin: the forecast must be the same
-        assert on.simulation == plain.simulation and on.items == plain.items
+    if not ended:  # nothing possibly ended at this origin: switched off or on is the same
+        assert on.simulation == off.simulation and on.items == off.items
     else:  # otherwise only those series' items are gone
-        assert {i.series_key for i in plain.items} - {i.series_key for i in on.items} <= ended
+        assert {i.series_key for i in off.items} - {i.series_key for i in on.items} <= ended
