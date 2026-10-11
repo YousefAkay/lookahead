@@ -25,6 +25,7 @@ from eval.backtest_real import real_origins
 from lookahead.db import connect_readonly
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast.spending import DEFAULT_KEEPS, keeps_coming_arrivals
+from lookahead.merchants import is_private_path
 from lookahead.recurring_store import series_as_of
 from lookahead.resolve import load_user_decisions
 from lookahead.ui import private_db_path
@@ -33,6 +34,8 @@ from lookahead.views import accounts
 WINDOW_DAYS = 7  # "the next deposit comes within 7 days"
 MIN_CENTS = 50000  # population 2: $500 or more
 RATE_DAYS = 365  # the constant rate is the deposits of the last 365 days over the days observed
+MIN_GAPS = 6  # the renewal draw needs this many past gaps (the proposal's default)
+MIN_LONGER = 2  # ... and this many longer than the days already waited
 GROUP_EDGES = (7, 14, 21, 28, 35)  # days since the previous deposit: 0-7, 8-14, ..., 36+
 GROUP_NAMES = ("0-7 days", "8-14 days", "15-21 days", "22-28 days", "29-35 days", "36+ days")
 POPULATIONS = {
@@ -55,6 +58,10 @@ class Obs:
     days_since: int  # from the previous deposit of the population to the origin
     event: bool  # one came in the next 7 days
     implied: float  # the chance the constant-rate model gives for it
+    renewal: float = (
+        0.0  # the chance the renewal draw gives for it (the constant rate on a fallback)
+    )
+    fallback: bool = True  # the renewal draw had too few gaps and fell back to the constant rate
 
 
 def group_of(days: int) -> int:
@@ -65,6 +72,27 @@ def group_of(days: int) -> int:
 def implied_chance(rate: float, days: int = WINDOW_DAYS) -> float:
     """The chance of at least one arrival in `days` days, each day having one with chance `rate`."""
     return 1 - (1 - rate) ** days
+
+
+def past_gaps(deps: Sequence[Dep], origin: date) -> list[int]:
+    """The days between consecutive distinct posting days of the deposits of the last 365 days up
+    to `origin` (several deposits on one day are one arrival day)."""
+    start = origin - timedelta(days=RATE_DAYS - 1)
+    days = sorted({d.day for d in deps if start <= d.day <= origin})
+    return [(b - a).days for a, b in zip(days, days[1:], strict=False)]
+
+
+def renewal_chance(
+    gaps: Sequence[int], waited: int, constant: float, min_gaps: int = MIN_GAPS
+) -> tuple[float, bool]:  # fmt: skip
+    """The chance the renewal draw gives for an arrival in the next 7 days, and whether it fell back
+    to the constant rate. After `waited` days without a deposit the next gap is drawn from the past
+    gaps longer than `waited`; the arrival is within 7 days if that gap is at most waited + 7.
+    Too few gaps (under `min_gaps`), or under 2 longer than `waited`: the constant rate."""
+    longer = [g for g in gaps if g > waited]
+    if len(gaps) < min_gaps or len(longer) < MIN_LONGER:
+        return constant, True
+    return sum(1 for g in longer if g <= waited + WINDOW_DAYS) / len(longer), False
 
 
 def rate_at(deps: Sequence[Dep], origin: date, first_posted: date) -> float:
@@ -100,7 +128,7 @@ def populations_at(
 
 def observations(
     pops: dict[date, dict[str, list[Dep]]], origins: Sequence[date], first_posted: date,
-    name: str, kind: str | None = None,
+    name: str, kind: str | None = None, min_gaps: int = MIN_GAPS,
 ) -> tuple[list[Obs], int]:  # fmt: skip
     """One observation per origin that has a previous deposit, and the number that have none."""
     out, without = [], 0
@@ -112,8 +140,10 @@ def observations(
             without += 1
             continue
         event = any(t < d.day <= t + timedelta(days=WINDOW_DAYS) for d in later)
-        out.append(Obs((t - max(d.day for d in now)).days, event,
-                       implied_chance(rate_at(now, t, first_posted))))  # fmt: skip
+        waited = (t - max(d.day for d in now)).days
+        constant = implied_chance(rate_at(now, t, first_posted))
+        renewal, fallback = renewal_chance(past_gaps(now, t), waited, constant, min_gaps)
+        out.append(Obs(waited, event, constant, renewal, fallback))
     return out, without
 
 
@@ -121,19 +151,32 @@ def chance_lines(obs: list[Obs], without: int) -> list[str]:
     lines = [f"      origins with a previous deposit: {len(obs)}; with none yet: {without}"]
     if not obs:
         return lines
+    on_draw = sum(not o.fallback for o in obs)
+    lines.append(f"      origins on the renewal draw: {on_draw}; on the constant-rate fallback: "
+                 f"{len(obs) - on_draw}")  # fmt: skip
     lines.append("      days since the previous deposit: n / came within 7 days / the constant "
-                 "rate implies")  # fmt: skip
+                 "rate implies / the renewal draw implies")  # fmt: skip
+    miss_constant = miss_renewal = 0.0
     for g, label in enumerate(GROUP_NAMES):
         mine = [o for o in obs if group_of(o.days_since) == g]
         if not mine:
             lines.append(f"        {label}: n 0")
             continue
         share = sum(o.event for o in mine) / len(mine)
-        implied = statistics.fmean(o.implied for o in mine)
-        lines.append(f"        {label}: n {len(mine)} / {share:.0%} / {implied:.0%}")
+        constant = statistics.fmean(o.implied for o in mine)
+        renewal = statistics.fmean(o.renewal for o in mine)
+        miss_constant += len(mine) * abs(constant - share)
+        miss_renewal += len(mine) * abs(renewal - share)
+        lines.append(
+            f"        {label}: n {len(mine)} / {share:.0%} / {constant:.0%} / {renewal:.0%}"
+        )
     share = sum(o.event for o in obs) / len(obs)
     lines.append(f"        all: n {len(obs)} / {share:.0%} / "
-                 f"{statistics.fmean(o.implied for o in obs):.0%}")  # fmt: skip
+                 f"{statistics.fmean(o.implied for o in obs):.0%} / "
+                 f"{statistics.fmean(o.renewal for o in obs):.0%}")  # fmt: skip
+    lines.append(f"      mean absolute difference from the real share, over the groups weighted by "
+                 f"n: constant rate {miss_constant / len(obs):.0%}, renewal draw "
+                 f"{miss_renewal / len(obs):.0%}")  # fmt: skip
     return lines
 
 
@@ -149,7 +192,8 @@ def gap_lines(deps: Sequence[Dep]) -> list[str]:
 
 
 def report(
-    pops: dict[date, dict[str, list[Dep]]], origins: Sequence[date], first_posted: date
+    pops: dict[date, dict[str, list[Dep]]], origins: Sequence[date], first_posted: date,
+    min_gaps: int = MIN_GAPS,
 ) -> list[str]:  # fmt: skip
     lines = []
     for label, name in POPULATIONS.items():
@@ -160,7 +204,7 @@ def report(
                 seen[d.row_id] = d
         union = sorted(seen.values())
         lines.append(f"      deposits ever in the population: {len(union)}")
-        obs, without = observations(pops, origins, first_posted, name)
+        obs, without = observations(pops, origins, first_posted, name, None, min_gaps)
         lines += chance_lines(obs, without)
         lines += gap_lines(union)
         for kind in TYPES:
@@ -169,7 +213,7 @@ def report(
             if len(mine) < MIN_TYPE_DEPOSITS:
                 lines.append("        too few for a table")
                 continue
-            t_obs, t_without = observations(pops, origins, first_posted, name, kind)
+            t_obs, t_without = observations(pops, origins, first_posted, name, kind, min_gaps)
             lines += [f"  {line}" for line in chance_lines(t_obs, t_without)]
             lines += [f"  {line}" for line in gap_lines(mine)]
     return lines
@@ -179,10 +223,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.income_timing", description=__doc__)
     parser.add_argument("--db", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=None, help="only every n-th origin")
+    parser.add_argument("--min-gaps", type=int, default=MIN_GAPS,
+                        help="past gaps the renewal draw needs (synthetic databases only; my own "
+                             "account always uses the default)")  # fmt: skip
     args = parser.parse_args(argv)
     db_path = args.db or private_db_path()
     if not db_path.exists():
         print("No database found. Import your exports first.")
+        return 1
+    if args.min_gaps != MIN_GAPS and is_private_path(db_path):
+        print(f"A minimum other than {MIN_GAPS} is for synthetic databases only: it is not tuned "
+              f"on a real account.")  # fmt: skip
         return 1
     conn = connect_readonly(db_path)
     try:
@@ -206,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
                 pops[day] = populations_at(conn, account, txns, row_of, day)
                 if n % 25 == 0:
                     print(f"  ... {n}", flush=True)
-            for line in report(pops, origins, first):
+            for line in report(pops, origins, first, args.min_gaps):
                 print(line)
     finally:
         conn.close()
