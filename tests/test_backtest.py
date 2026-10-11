@@ -457,3 +457,19 @@ def test_the_effective_forecaster_defaults_are_recorded_and_a_changed_default_re
     with pytest.raises(ValueError, match=r"different settings.*recurring_fix") as error:
         run_persona(PID, tmp_path / "out", days, FUTURES, seed=42, work_dir=tmp_path / "work")
     assert "new folder" in str(error.value)  # it says what to do
+
+
+def test_held_out_with_a_development_persona_saves_in_the_development_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    monkeypatch.setattr(backtest, "DEFAULT_OUT", tmp_path / "bt")
+    few = backtest.origins()[:2]
+    monkeypatch.setattr(backtest, "origins", lambda: few)  # two origins: this is about folders
+    argv = ["--futures", "20", "--held-out", "--only", PID]
+    assert backtest.main(argv) == 0
+    assert (tmp_path / "bt" / "keeps-coming-with-own" / "full" / f"{PID}.jsonl").exists()
+    assert not (tmp_path / "bt" / "held-out").exists()  # no development record among the held-out
+    assert backtest.main([*argv[:-1], "v2-SAL-04"]) == 0
+    held = tmp_path / "bt" / "held-out" / "keeps-coming-with-own" / "full"
+    assert (held / "v2-SAL-04.jsonl").exists()
+    assert not (held / f"{PID}.jsonl").exists()

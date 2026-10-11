@@ -28,6 +28,7 @@ from synthetic ones in every report; one person's history is a case study.
 import argparse
 import hashlib
 import json
+import os
 import re
 import secrets
 import shutil
@@ -121,7 +122,11 @@ def account_key(account: str, out_dir: Path) -> str:
     recomputed from a list of account names elsewhere."""
     salt_path = _private_root(out_dir) / SALT_FILE
     if not salt_path.exists():
-        salt_path.write_text(secrets.token_hex(16), encoding="utf-8")
+        # made readable by its owner only (the mode is ignored by Windows, where the folder's own
+        # permissions apply)
+        fd = os.open(salt_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(secrets.token_hex(16))
     salt = salt_path.read_text(encoding="utf-8").strip()
     return "account-" + hashlib.sha256(f"{salt}:{account}".encode()).hexdigest()[:10]
 

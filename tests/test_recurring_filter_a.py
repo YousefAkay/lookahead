@@ -153,3 +153,14 @@ def test_a_switched_on_with_no_weekly_card_series_is_identical_to_off(
     if not cards:  # no weekly series at all at this origin: the (a) part changes nothing
         a_only = build_forecast(persona_conn, "acct", "weekday", origin, None, 30, 60, options=A)
         assert a_only is not None and a_only.simulation == off.simulation
+
+
+def test_mostly_card_purchases_is_a_strict_majority_ties_are_not() -> None:
+    assert is_weekly_card(series(), ["card purchase"] * 3 + ["bill payment"] * 2)  # 3 of 5
+    assert not is_weekly_card(series(), ["card purchase", "bill payment"])  # 1 of 2: a tie
+    assert not is_weekly_card(series(), ["bill payment", "card purchase"])  # the same, any order
+    assert not is_weekly_card(series(), ["card purchase"] * 2 + ["bill payment"] * 2)  # 2 of 4
+    assert not is_weekly_card(series(), ["card purchase"] * 3 + ["bill payment"] * 3)  # 3 of 6
+    # three kinds: the card purchases are the most common but not more than half
+    assert not is_weekly_card(series(), ["card purchase"] * 2 + ["bill payment", "e-transfer"])
+    assert is_weekly_card(series(), ["card purchase"] * 3 + ["bill payment", "e-transfer"])

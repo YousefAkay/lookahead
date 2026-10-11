@@ -14,7 +14,7 @@ records are in docs/results/arms_2026-10-12.md and DECISIONS.md.
 Random lump arrivals (`lump_arrivals`) are not an arm: keeps-coming replaces them. The option
 sets of the 2026-10-11 plan are in the history of this file.
 
-    python -m eval.arms --arms 1 2 --set both   # records in data/backtest/arms-2026-10-12/...
+    python -m eval.arms --arms 3 --set both     # records in data/backtest/arms-2026-10-12/...
     python -m eval.arms --report                # writes docs/results/arms_2026-10-12.md
 """
 

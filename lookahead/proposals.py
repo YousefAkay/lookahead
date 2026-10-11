@@ -1,12 +1,15 @@
-"""Proposals for the forecaster (DECISIONS.md, 2026-10-11, step 2): an option, off by default.
+"""Proposals for the forecaster (DECISIONS.md, 2026-10-11, step 2): options, off by default.
 
-a) Lump income as proposals. Lumps (big deposits in no series, not paid straight back out, in the
+a) Lump income as proposals: **retired on 2026-10-12** (it failed on a real account and made
+   two archetypes worse). The forecaster no longer uses it; `lump_proposals` stays as the record,
+   for the scoring scripts. Lumps (big deposits in no series, not paid straight back out, in the
    last 365 days) are grouped by sender, as the pseudonymizer's keyed token. Two or more from one
    sender give a proposal: "expecting about $X from <sender> around <date>?", with a typical size
    (the median), a typical gap (the median), an expected date and a window.
-b) Repeated large outflows. Two or more big payments to one payee, 60 to 400 days apart, give a
-   placement of the next one on its expected date, by default, labelled "detected, not
-   confirmed". One payment only gives an offer for a planned item prefilled from it.
+b) Repeated large outflows (the option `outflow_placements`, off by default; by calendar position
+   it was much worse on a real account and stays off). Two or more big payments to one payee, 60
+   to 400 days apart, give a placement of the next one on its expected date, labelled "detected,
+   not confirmed". One payment only gives an offer for a planned item prefilled from it.
 
 Both carry their evidence (fingerprints) and a key. What I decide about them ("looks right",
 "not this time") is a dated row in `proposal_decisions`, replayed as of a date like the recurring

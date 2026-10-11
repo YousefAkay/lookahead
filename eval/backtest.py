@@ -430,12 +430,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     futures = args.futures or (QUICK_FUTURES if args.quick else FUTURES)
     days = quick_origins() if args.quick else origins()
-    work = args.work or out / "work"
     ids = select_personas(args.only, args.held_out, args.quick, long)
+    folders: list[Path] = []
     for n, pid in enumerate(ids, start=1):
-        done = run_persona(pid, out, days, futures, args.seed, work, args.held_out, keeps)
+        # --held-out only allows held-out personas; a development persona still saves with the
+        # development records, never under held-out/
+        target = args.out or default_out(long, args.keeps_coming, args.quick, pid in ALL_HELD_OUT)
+        if target not in folders:
+            folders.append(target)
+        work = args.work or target / "work"
+        done = run_persona(pid, target, days, futures, args.seed, work, args.held_out, keeps)
         print(f"[{n}/{len(ids)}] {pid}: {done} new origins", flush=True)
-    print_summary(out)
+    for folder in folders or [out]:
+        print_summary(folder)
     return 0
 
 

@@ -72,7 +72,8 @@ BASELINES = {
 
 @dataclass(frozen=True)
 class ForecastOptions:
-    """Experimental parts of the forecaster, all off by default; the app uses the defaults.
+    """The optional parts of the forecaster; the app uses the defaults. `lump_arrivals` and
+    `outflow_placements` are off by default; `recurring_fix` is on by default (None is off).
 
     `lump_arrivals`: deposits set aside as large deposits (lumps) come back in the futures as
     random arrivals, at their observed rate over the last 365 days and with their observed sizes

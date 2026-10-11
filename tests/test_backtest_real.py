@@ -377,3 +377,26 @@ def test_a_salted_key_that_happens_to_be_all_digits_is_not_taken_for_a_numbered_
     (out / "account-3.jsonl").write_text("{}\n", encoding="utf-8")  # an older numbered file
     assert archive_numbered(out)
     assert (out / "account-1234567890.jsonl").exists() and not (out / "account-3.jsonl").exists()
+
+
+def test_the_salt_file_is_created_readable_by_its_owner_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    import os
+
+    from eval import backtest_real
+
+    modes: list[int] = []
+    real_open = os.open
+
+    def recording_open(path, flags, mode=0o777, *args, **kwargs):  # type: ignore[no-untyped-def]
+        modes.append(mode)
+        return real_open(path, flags, mode, *args, **kwargs)
+
+    monkeypatch.setattr(backtest_real.os, "open", recording_open)
+    folder = private(tmp_path) / "backtest" / "full"
+    folder.mkdir(parents=True)
+    key = backtest_real.account_key("some account", folder)
+    assert modes == [0o600]  # asked for, not left to the default of the process
+    assert backtest_real.account_key("some account", folder) == key  # and read back the same
+    assert modes == [0o600]  # only the first call made the file

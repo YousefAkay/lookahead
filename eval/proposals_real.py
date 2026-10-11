@@ -1,4 +1,5 @@
-"""a) lump proposals on the account holder's own data: counts and summary numbers only. Run by the
+"""a) lump proposals (retired on 2026-10-12; kept as the record) on the account holder's own
+data: counts and summary numbers only. Run by the
 account holder only.
 
 The real-account version of the step 2 checks of the 2026-10-11 plan (a) passed its gate on the
