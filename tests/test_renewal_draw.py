@@ -97,6 +97,22 @@ def test_a_deposit_is_more_likely_when_due_than_right_after_the_last() -> None:
     assert share(25) == 1.0  # 25 days after one, every gap is due inside the next week
 
 
+def test_the_simulated_chance_in_the_next_week_is_the_closed_form_of_the_read_only_step() -> None:
+    """The draw's own futures agree with what `eval.income_timing` says the draw implies: among
+    the gaps longer than the days waited, the share no longer than the wait plus 7."""
+    from eval.income_timing import renewal_chance
+
+    gaps = (28, 30, 31, 29, 32, 30, 45, 21, 26)
+    first_day = date(2026, 3, 2)
+    for waited in (4, 15, 22, 27, 30):
+        last = first_day - timedelta(days=waited + 1)
+        n = 3000
+        hits = sum(any(_renewal_arrivals(0, f, gaps, last, first_day, (1,), 7)) for f in range(n))
+        implied, fell_back = renewal_chance(gaps, waited, 0.0)
+        assert not fell_back
+        assert hits / n == pytest.approx(implied, abs=0.03), (waited, hits / n, implied)
+
+
 # --- inside the forecaster ---
 
 
