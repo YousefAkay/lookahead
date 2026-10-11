@@ -15,6 +15,7 @@ import statistics
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,7 @@ from eval.fix_variants import FIXES, fix_options
 from lookahead.db import connect_readonly
 from lookahead.flows import Flow, Txn, flow_types
 from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
-from lookahead.forecast.simulate import BLOCK, pool_week_starts
+from lookahead.forecast.simulate import BLOCK, _renewal_arrivals, pool_week_starts
 from lookahead.forecast.spending import (
     DEFAULT_KEEPS,
     FEE_REASONS,
@@ -215,8 +216,15 @@ def origin_record(
     arrivals = forecast.arrivals
     if arrivals.in_sizes:
         mean_in = sum(arrivals.in_sizes) / len(arrivals.in_sizes)
-        expected["keeps_in"] = cumulate({k: arrivals.in_rate * mean_in
-                                         for k in range(1, HORIZON + 1)})  # fmt: skip
+        per_day = {k: arrivals.in_rate * mean_in for k in range(1, HORIZON + 1)}
+        if arrivals.renewal == "draw" and arrivals.in_last is not None:
+            # the renewal draw: the mean of the very draws the futures made (seed 0)
+            draws = [_renewal_arrivals(0, f, arrivals.in_gaps, arrivals.in_last, start.first_day,
+                                       arrivals.in_sizes, HORIZON)
+                     for f in range(len(sim.paths))]  # fmt: skip
+            per_day = {k: sum(d[k - 1] for d in draws) / len(draws)
+                       for k in range(1, HORIZON + 1)}  # fmt: skip
+        expected["keeps_in"] = cumulate(per_day)
     if arrivals.out_sizes:
         mean_out = sum(arrivals.out_sizes) / len(arrivals.out_sizes)
         expected["keeps_out"] = cumulate({k: -arrivals.out_rate * mean_out
@@ -465,13 +473,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--recurring-fix", choices=sorted(FIXES), default="both",
                         help="off: no fix; b: possibly ended not placed; a: weekly card series not "
                              "placed; both (the default)")  # fmt: skip
+    parser.add_argument("--renewal", action="store_true",
+                        help="the renewal draw of the keeps-coming deposits (an option, off by "
+                             "default; DECISIONS.md, 2026-10-12)")  # fmt: skip
     args = parser.parse_args(argv)
     db_path = args.db or private_db_path()
     if not db_path.exists():
         print("No database found. Import your exports first.")
         return 1
     keeps = KEEPS_NAMES[args.keeps_coming]
-    options = fix_options(args.recurring_fix)
+    options = replace(fix_options(args.recurring_fix), renewal=args.renewal)
     conn = connect_readonly(db_path)
     try:
         for number, account in enumerate(accounts(conn), start=1):

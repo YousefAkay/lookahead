@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from lookahead.db import connect
+from eval.diagnose_real import PARTS, origin_record
+from lookahead.db import connect, connect_readonly
 from lookahead.forecast.path import ForecastOptions, build_forecast
 from lookahead.forecast.scenario import Scenario, run_scenario
 from lookahead.forecast.simulate import Simulation, _renewal_arrivals, run
@@ -202,6 +203,30 @@ def test_no_other_money_turns_the_draw_off_like_the_constant_rate(
     result = run_scenario(on, Scenario(no_other_money=True))
     plain = run(replace(on.inputs, arrivals_in_rate=0.0, deposits_daily={}, lump_rate=0.0))
     assert fingerprint(result.modified) == fingerprint(plain)
+
+
+def test_the_real_account_breakdown_adds_up_with_the_draw_and_counts_its_mean(
+    tmp_path: Path,
+) -> None:  # fmt: skip
+    db = connect(tmp_path / "d.db")
+    set_safety_buffer_cents(db, 20000)
+    days = days_of(GAPS)
+    fill(db, 12, until=days[10] + timedelta(days=40))
+    db.close()
+    conn = connect_readonly(tmp_path / "d.db")
+    drawn = 0
+    try:
+        for origin in (days[9] + timedelta(days=9), days[10] + timedelta(days=3)):
+            a = origin_record(conn, ACCOUNT, origin, 60, options=ON)
+            b = origin_record(conn, ACCOUNT, origin, 60)  # the constant rate
+            assert sum(a["error_30"].values()) == pytest.approx(a["total_30"])
+            for k in range(30):
+                expected = sum(a["expected_cum"][p][k] for p in PARTS)
+                assert expected == pytest.approx(a["mean_path"][k] - a["start_cents"])
+            drawn += a["expected_cum"]["keeps_in"] != b["expected_cum"]["keeps_in"]
+    finally:
+        conn.close()
+    assert drawn, "at least one origin used the draw, whose mean is not the constant rate's"
 
 
 # --- the switch off is the forecaster of today ---

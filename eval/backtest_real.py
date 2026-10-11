@@ -42,6 +42,7 @@ import numpy as np
 from eval.backtest import (
     FUTURES,
     KEEPS_NAMES,
+    METHOD,
     QUICK_FUTURES,
     _check_settings,
     _saved_origins,
@@ -54,7 +55,7 @@ from eval.backtest import (
     version_settings,
 )
 from lookahead.db import connect_readonly
-from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions
+from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
 from lookahead.forecast.spending import DEFAULT_KEEPS, KeepsComing
 from lookahead.merchants import is_private_path
 from lookahead.pseudonymize import pseudonym_key
@@ -81,20 +82,24 @@ def real_origins(first_date: date, last_date: date) -> list[date]:
     return out
 
 
-REAL_ARMS = (0, 3)  # arms 1, 2 and 4 were a) lump proposals, retired on 2026-10-12
+REAL_ARMS = (0, 3, 6)  # arms 1, 2 and 4 were a) lump proposals, retired on 2026-10-12
 
 
 def real_arm_options(arm: int) -> ForecastOptions:
     """The forecaster options of an arm of the 2026-10-12 plan on real data (keeps-coming on, as
     by default): 0 the forecaster as merged; 3 repeated large payments placed by calendar
     position (a year after the same-term payment). Payees are keyed by the account holder's own
-    pseudonym key. Arms 1, 2 and 4 were a) lump proposals, retired on 2026-10-12."""
+    pseudonym key. Arms 1, 2 and 4 were a) lump proposals, retired on 2026-10-12. Arm 6 is the
+    renewal draw of the keeps-coming deposits (DECISIONS.md, 2026-10-12; the same number as in
+    `eval.arms`); its records also say whether each forecast used the draw."""
     if arm == 0:
         return DEFAULT_OPTIONS
+    if arm == 6:
+        return ForecastOptions(renewal=True)
     if arm == 3:
         return ForecastOptions(outflow_placements=True, outflow_rule="calendar",
                                proposal_key=pseudonym_key())  # fmt: skip
-    raise ValueError("on real data only arms 0 and 3 can be run")
+    raise ValueError("on real data only arms 0, 3 and 6 can be run")
 
 
 def check_private(db_path: Path, out_dir: Path) -> None:
@@ -190,6 +195,20 @@ def run_real(
                     record = run_origin(conn, account, "real", origin, futures, None, None,
                                         options, keeps)  # fmt: skip
                     record["persona"] = name  # the name stays out of the files
+                    if options.renewal:  # "", "draw" or "fallback": which the forecast used
+                        seen = build_forecast(
+                            conn,
+                            account,
+                            METHOD,
+                            origin,
+                            None,
+                            HORIZON_DAYS,
+                            0,
+                            options=options,
+                            keeps=keeps,
+                        )
+                        assert seen is not None
+                        record["renewal"] = seen.arrivals.renewal
                     out.write(json.dumps(record) + "\n")
                     out.flush()
                     new += 1
@@ -248,6 +267,12 @@ def print_counts(counts: dict[str, Any], out_dir: Path) -> None:
             f"keeps-coming switch on ({records[0]['keeps_coming']}): origins with deposit "
             f"arrivals {with_in}, with payment arrivals {with_out}, of {len(records)}"
         )
+    if any("renewal" in r for r in records):  # the renewal draw's own counts
+        drawn = sum(r.get("renewal") == "draw" for r in records)
+        fell = sum(r.get("renewal") == "fallback" for r in records)
+        print(f"renewal draw on: origins on the draw {drawn}, on the constant-rate fallback "
+              f"{fell}, with no recurring-size deposits {len(records) - drawn - fell}, "
+              f"of {len(records)}")  # fmt: skip
     print(f"saved in {out_dir} (private: never commit)")
 
 

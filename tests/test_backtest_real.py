@@ -84,6 +84,25 @@ def test_the_output_files_do_not_carry_the_account_name_in_their_names(
     assert not any(ACCOUNT in n for n in names)  # account-<salted key>
 
 
+def test_arm_6_is_the_renewal_draw_and_its_records_say_whether_it_was_used(
+    made_up_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:  # fmt: skip
+    out = private(tmp_path) / "six"
+    assert main(["--db", str(made_up_db), "--out", str(out), "--quick", "--futures", "20",
+                 "--arm", "6"]) == 0  # fmt: skip
+    text = capsys.readouterr().out
+    records = [json.loads(line) for p in out.glob("*.jsonl")
+               for line in p.read_text(encoding="utf-8").splitlines()]  # fmt: skip
+    assert len(records) == 4 and {r["renewal"] for r in records} <= {"", "draw", "fallback"}
+    assert "renewal draw on: origins on the draw" in text
+    assert ACCOUNT not in text and "$" not in text
+    other = private(tmp_path) / "zero"
+    main(["--db", str(made_up_db), "--out", str(other), "--quick", "--futures", "20"])
+    assert "renewal draw on" not in capsys.readouterr().out  # the default has no such line
+    [p] = other.glob("*.jsonl")
+    assert all("renewal" not in json.loads(x) for x in p.read_text(encoding="utf-8").splitlines())
+
+
 def test_a_second_run_does_nothing_new(made_up_db: Path, tmp_path: Path) -> None:
     run_real(made_up_db, private(tmp_path) / "out", futures=40, quick=True)
     again = run_real(made_up_db, private(tmp_path) / "out", futures=40, quick=True)
