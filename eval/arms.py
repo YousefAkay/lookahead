@@ -343,12 +343,16 @@ def report(arms: list[int], loader: Callable[[int, bool], list[Record]]) -> str:
                     f"origins that changed with nothing confirmed or placed: {len(odd)}"
                     + (f" ({', '.join(odd[:10])}{', ...' if len(odd) > 10 else ''})" if odd else "")
                 )
-            for upper, plain in ((2, 1), (4, 3)):
+            pairs = ((2, 1, "the answer-key arm against its non-key version: unexpected if "
+                      "worse on 5 or more"),
+                     (4, 3, "a) added on top of b); arm 4 has no non-key version, so this is "
+                      "information only"))  # fmt: skip
+            for upper, plain, what in pairs:
                 if upper in loaded and plain in loaded:
                     error, low = worse_archetypes(by[upper], by[plain])
-                    out.append(f"- arm {upper} against arm {plain}: worse on the 30-day error "
-                               f"{len(error)} ({', '.join(error) or '-'}), on the lowest balance "
-                               f"{len(low)} ({', '.join(low) or '-'})")  # fmt: skip
+                    out.append(f"- arm {upper} against arm {plain} ({what}): worse on the 30-day "
+                               f"error {len(error)} ({', '.join(error) or '-'}), on the lowest "
+                               f"balance {len(low)} ({', '.join(low) or '-'})")  # fmt: skip
         out.append("")
     out.append("ITIGHT is its three development personas (-01, -02, -03); -01 and -03 run past "
                "-$3,000 in both sets (known limitation). -04 and -05 are held out.")  # fmt: skip
