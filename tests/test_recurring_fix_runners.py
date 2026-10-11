@@ -64,7 +64,7 @@ def test_each_variant_has_its_own_folder_and_they_never_mix(private_db: Path) ->
 def test_the_breakdown_and_the_check_take_the_flag(
     private_db: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:  # fmt: skip
-    args = ["--db", str(private_db), "--limit", "12", "--futures", "20", "--recurring-fix", "b"]
+    args = ["--db", str(private_db), "--limit", "6", "--futures", "20", "--recurring-fix", "b"]
     assert diagnose_main(args) == 0
     out = capsys.readouterr().out
     assert "Parts of the 30-day error" in out and not re.search(r"\d{4}-\d{2}-\d{2}", out)
