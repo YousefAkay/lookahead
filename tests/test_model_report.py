@@ -115,6 +115,7 @@ def test_the_page_without_real_results_says_run_locally(
     assert set(forecast["Synthetic, held out"]) == {"not run yet"}
     assert set(forecast["Real"]) == {"run locally"}
     text = "\n".join(str(m.value) for m in at.markdown)
+    assert "run locally on the current forecaster; the saved results may be from an older" in text
     assert "Known limitations" in text and "Categorizer" in text
     assert "Not financial advice" in text
     assert text.count("shelved: not used by the app") == 2  # reliability and threshold cards
@@ -130,3 +131,5 @@ def test_the_page_reads_real_results_at_runtime(
     forecast = next(df.value for df in at.dataframe if "Real" in df.value.columns)
     assert "run locally" not in set(forecast["Real"])
     assert forecast["Real"].iloc[0].endswith("(1)")
+    text = "\n".join(str(m.value) for m in at.markdown)
+    assert "the saved results may be from an older version" in text  # a local refresh is needed

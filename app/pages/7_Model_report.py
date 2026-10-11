@@ -97,13 +97,15 @@ with st.container(border=True, key="card-categorizer"):
         st.caption("No categorizer results file.")
 
 # --- Forecast ---
+REFRESH = ("Real: run locally on the current forecaster; the saved results may be from an older "
+           "version.")  # fmt: skip
 real_note = (
     f"Could not read the real results: {real_problem}" if real_problem
     else "Real: no results on this computer. Run <code>python -m eval.backtest_real</code> locally."
     if real is None else
     f"Real: {real['source']['origins']} origins, {real['source']['accounts']} account(s), "
     f"{real['source']['futures']} futures, read from data/private at runtime."
-)  # fmt: skip
+) + " " + REFRESH  # fmt: skip
 
 
 def column(summary: dict | None, key: str, values) -> list[str]:  # type: ignore[no-untyped-def,type-arg]
