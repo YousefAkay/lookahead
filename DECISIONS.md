@@ -1515,6 +1515,31 @@ This is pinned by tests that show the lost and duplicated cases and are marked a
 
 **The merge.** `overnight-2026-10-12` (fast-forward from `main`), then `recurring-check` (one conflict, this file; `path.py` merged without conflict; (a) and (b) stay the default), then `income-timing`; the full suite (slow tests included) passed after each step.
 
+### 2026-10-12: Proposal (not approved, nothing built): keeps-coming deposits drawn from the account's own gaps, given the days since the last deposit
+**Problem.** The arrivals of keeps-coming deposits are drawn independently each day at a constant rate. Real income is often not like that: a monthly deposit is unlikely right after the previous one and likely some weeks later. A constant rate then puts two deposits in one month or none for months too often. The futures spread out, and the middle future sits below the mean (the "low point" part that grew in the error breakdown).
+
+**Design: a renewal-style draw of the next gap.** For the combined stream of recurring-size deposits (all types together, not per type), at a forecast date *t*:
+- **The gaps.** The recurring-size deposits of the last 365 days (the same rows keeps-coming uses, from rows posted by *t*) sorted by posting day; the gaps are the days between consecutive *distinct* days (several deposits on one day are one arrival day; a day still has at most one arrival, as now). The days since the last one: *e* = *t* minus the day of the latest.
+- **First arrival.** Draw the next gap *g* at random from the past gaps that are **longer than *e*** (strictly: the account has already waited *e* days without one). The first arrival is on forecast day *g* − *e* (at least day 1).
+- **Later arrivals.** Each next gap is drawn from **all** past gaps, with replacement, until the horizon is passed.
+- **Sizes** as now: each arrival's size is drawn at random from the observed sizes. Payments' arrivals stay as they are (constant rate), the stream stays in the futures "with deposits" only, "no other money expected" turns it off, a spending cut does not touch it.
+- **Fallback to the constant rate, for the whole future,** when there are too few gaps: fewer than **6 past gaps** (7 deposit days) in the window, or fewer than **2 past gaps longer than *e*** (nothing to draw the first gap from). I propose 6 and 2 because quartiles of fewer than 6 gaps are not stable and a first gap drawn from a single value is not a draw; they are not tuned on my account and I would report a sensitivity (4, 6 and 8) on the synthetic personas only. A forecast says in its assumptions which of the two it used.
+- **Rule zero.** Only deposits posted on or before *t*, so only gaps observed before the origin; a test deletes every later row and checks the gaps, *e* and the draws are unchanged. Own random stream per future (named by the seed, the future and "renewal"), so no other draw moves and a scenario still differs from its original only by the change.
+- **Built as an option** (`KeepsComing(renewal=True)`), off until approved; `renewal=False` is today's forecaster exactly (a test).
+
+**Cheap step first (read-only).** Extend `eval.income_timing` with a column "what the renewal draw implies" next to "what the constant rate implies": for each origin, among the past gaps longer than *e*, the share that are no longer than *e* + 7. If that column follows the real shares, the draw captures the timing before any forecaster change; if not, I do not build it. No forecast changes.
+
+**Prediction, written first.**
+- *Synthetic development personas, both sets (12-month and 24-month; 20 personas, 40 origins, 500 futures, seed 42, raw chances, both definitions of caught):* personas with no recurring-size deposits, or too few gaps, are **identical to the digit** to the current default. The generator's irregular family transfers come every 15 to 45 days (a uniform gap), whose chance of an arrival in the next 7 days does depend on the time since the last one, so ITIGHT (and possibly FREE) change: the 30-day band narrows, the middle future rises towards the mean, the 30-day error and the lowest-balance bias move little (a few percent), and the Brier score about the same. Where the generator's gaps are close to memoryless (random weekly weights), no change.
+- *A risk:* when *e* is longer than most past gaps the first arrival comes soon (the model thinks it is due), which can look optimistic right before a long gap; the fallback counts show how often.
+- **Drop rule (fixed now):** the same as for keeps-coming and the recurring fix: dropped if more than half of the 8 archetypes are worse by more than 1 percent on the 30-day error or on the absolute lowest-balance miss, on either set. **Unexpected, write up and do not tune:** a persona that changes without recurring-size deposits; fewer than half of the origins of a persona with such deposits using the renewal draw; the band wider than today's.
+
+**Evaluation.**
+1. Synthetic, both sets: `renewal` against the default, with the usual table, per archetype, tuition and family-money windows, the identical personas, the share of origins that used the draw and the share that fell back, and the sensitivity of the minimum (4, 6, 8) on the synthetic sets.
+2. A direct check of the timing: the same hazard table as `eval.income_timing`, but computed from the model's simulated futures for the origins of each synthetic persona (the share of futures with an arrival in the next 7 days, by days since the last deposit) against what really happened; constant rate and renewal side by side.
+3. My account: `eval.backtest_real` with the option in its own folder, `eval.metrics` with my buffer and at $0 (error, skill, coverage, width, lowest-balance bias, Brier, dips caught), `eval.diagnose_real` (the "low point" part), counts of origins on the draw and on the fallback; development data, so not an evaluation.
+4. If it passes, it becomes the default only on my approval.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
