@@ -38,3 +38,6 @@ data/timemachine/
 # --- External datasets: never commit (licence not stated; not redistributed) ---
 data/berka/
 data/public/
+
+# --- Real-account results: local only, never committed ---
+DECISIONS-private.md
