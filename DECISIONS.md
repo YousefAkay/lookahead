@@ -1750,6 +1750,14 @@ Not run yet. It follows the plan of 2026-10-17 and its common rules (rule zero, 
 
 **Added to the experiment 3 output.** The report gives the share of origins moved (those that meet the minimum and where the anchoring changed the forecast), for each synthetic set and for Berka, overall and within the zero-estimate stratum, with the number of accounts as well as origins. This is for reading the result; no condition depends on it except the existing "fewer than half of a counted archetype's origins moved" in condition 3.
 
+### 2026-10-17: Experiment 3: how I read the measures in the rule, fixed before the run
+These are readings of the words in the rule above, written down before the full run and not changed after seeing a result.
+- **Condition 6 (Berka):** the 30-day CRPS is the CRPS of the balance on forecast day 30. The CRPS averaged over the 30 days is reported as information only and decides nothing.
+- **Condition 5 (synthetic):** the CRPS skill against "balance stays" uses the mean over the 30 days, as in experiment 1.
+- **Conditions 4 and 7:** the 80 percent coverage is read on both the 30-day coverage and the all-days coverage; either one breaking the 2 points fails the condition.
+- **Which origins:** the dip measures (error, lowest-balance bias, coverage, Brier, dips caught) leave out origins already below the line (the buffer on the synthetic sets, "one month's outflow" on Berka). CRPS uses every origin.
+- **Condition 10 (my account can only veto)** stays "not judged" until conditions 1 to 9 pass. Only then do I run the anchored forecast on my account.
+
 ## Known issues
 
 - 2026-10-17: the dip chance is overconfident at the low end: origins with a predicted chance under 1% still dipped 2.4 to 4.0 percent of the time (experiment 1, both sets). Not fixed yet.
