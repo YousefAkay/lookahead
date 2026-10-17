@@ -1694,6 +1694,19 @@ The threshold is picked on the final forecaster, so I am trying to improve the f
 
 **Order.** 1, then the Berka gate, then 3, 4, 5 on the same footing. Thresholds, calibration and the blend refit wait for the result.
 
+### 2026-10-17: Berka: the choices I made from the gate's counts, and the split (fixed before any forecast)
+I confirmed these answers after reading the gate (`docs/results/berka_gate_2026-10-17.md`):
+1. **Accounts.** Primary: 24 or more months of history, 4 or more non-mechanical transactions a month (not interest, not the statement fee), no quiet stretch over 90 days: 1,387 accounts. Sensitivity: the same with 2 or more a month, minus the primary ones (2,085 more).
+2. **The dip line.** Berka has no personal buffer. In every report the line is called "fell below one month's outflow" (not a buffer), it is 100 percent of the account's median 30-day outflow over the 365 days before its first origin (fixed per account, past data only), and 50 percent is the sensitivity. **It was chosen from dip counts only** (the gate's table of how often a balance fell below a candidate line), **not from any forecast result.** One run serves both lines because each record keeps every future's lowest balance.
+3. **The split.** `docs/berka_split.json`, made by `python -m eval.berka_split` and committed before any forecast was run. An account is development or held-out by one bit of a hash of its id; inside each pool the accounts that pass a filter are ordered by that hash and the first 200 are taken, for the primary and for the sensitivity group (no account in two lists). Code that checks or tunes anything reads the development lists through `development_accounts()`; the held-out lists are for the one final test, and `assert_development_only` refuses them. I read the whole file once to count and then drop everything except the development accounts; no held-out account is looked at.
+
+
+**What the first Berka run is:** "does it run and look sane" on the development accounts: how many accounts the forecaster runs on (the gate needs 90 percent or more), how the forecast is made up (recurring placements against everyday spending), and crashes, counts only and no scores. It also holds the truncated-future test: a forecast from the full database equals the forecast from a database cut at the origin.
+
+## Known issues
+
+- 2026-10-17: the dip chance is overconfident at the low end: origins with a predicted chance under 1% still dipped 2.4 to 4.0 percent of the time (experiment 1, both sets). Not fixed yet.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
