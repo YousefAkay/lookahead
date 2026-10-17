@@ -253,17 +253,22 @@ def version_settings(persona_id: str = "") -> dict[str, int | str]:
 
 def saved_is_older(out_dir: Path) -> bool:
     """True if anything saved under `out_dir` was made with another format or logic version (or
-    before versions were recorded)."""
+    before versions were recorded). A file that cannot be read (a run stopped while writing it)
+    cannot be shown to be current, so it counts as older and is moved aside, not deleted."""
     for meta in out_dir.glob("*.meta.json"):
-        saved = json.loads(meta.read_text(encoding="utf-8"))
-        if saved.get("format") != FORMAT or saved.get("logic") != LOGIC:
+        saved = _saved_settings(meta)
+        if saved is None or saved.get("format") != FORMAT or saved.get("logic") != LOGIC:
             return True
     for path in out_dir.glob("*.jsonl"):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                record = json.loads(line)
-                if record.get("format") != FORMAT or record.get("logic") != LOGIC:
-                    return True
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for line in lines:
+                if line.strip():
+                    record = json.loads(line)
+                    if record.get("format") != FORMAT or record.get("logic") != LOGIC:
+                        return True
+        except (OSError, ValueError, AttributeError):  # unreadable, or a line that is no object
+            return True
     return False
 
 

@@ -490,3 +490,33 @@ def test_a_blank_or_unreadable_settings_file_counts_as_missing(
     backtest._check_settings(meta, settings)  # and it now guards a resume as usual
     with pytest.raises(ValueError, match="different settings"):
         backtest._check_settings(meta, {"futures": 100, "seed": 42})
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [
+        ("p.meta.json", b""),
+        ("p.meta.json", b"\x00" * 50),
+        ("p.meta.json", b'{"format": 2'),
+        ("p.meta.json", b"\xff\xfe"),
+        ("p.jsonl", b"\x00" * 50),  # (an empty .jsonl holds no results: nothing to move)
+        ("p.jsonl", b'{"origin": "2026'),
+        ("p.jsonl", b"\xff\xfe"),
+        ("p.jsonl", b"[1, 2]\n"),
+    ],
+)
+def test_an_unreadable_saved_file_counts_as_older_and_is_moved_aside(
+    tmp_path: Path, name: str, content: bytes
+) -> None:  # fmt: skip
+    (tmp_path / name).write_bytes(content)
+    assert backtest.saved_is_older(tmp_path)  # no crash
+    assert backtest.archive_older(tmp_path)  # nothing is deleted: it goes to older/
+    assert not (tmp_path / name).exists()
+    assert (tmp_path / "older").exists()
+
+
+def test_readable_files_of_the_current_version_are_not_older(tmp_path: Path) -> None:
+    current = {"format": backtest.FORMAT, "logic": backtest.LOGIC}
+    (tmp_path / "p.meta.json").write_text(json.dumps(current), encoding="utf-8")
+    (tmp_path / "p.jsonl").write_text(json.dumps(current) + "\n\n", encoding="utf-8")
+    assert not backtest.saved_is_older(tmp_path)
