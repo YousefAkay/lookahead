@@ -1643,6 +1643,14 @@ Proposed, to be confirmed by me before any run. It adds an adopt rule to the dro
 
 **After the rule.** Whatever it says, the adaptive blend and the threshold are decided after, on the result. The final held-out test is run once, with the choices made before it.
 
+### 2026-10-16: Plan for the demo branch (not started): no committed databases, snapshots remade
+The Time Machine's what-if box opens `data/demo/timemachine/<persona>.db` (`scenario_at`), so the 7 databases there are used, not leftovers. They were force-added past the rule against committing `*.db`. The plan, to be done after the renewal draw is decided and before `demo` is merged:
+1. The page builds a persona's database on first use from the generator (`_import_persona`, a temporary folder, cached), and the 7 `.db` files leave git. The first what-if per persona takes a few seconds longer.
+2. The committed test that checks the files exist checks that the builder works instead; `docs/DEPLOY.md` and `docs/DEMO.md` are updated.
+3. The saved steps (`.jsonl`, `.balances.json`, `.meta.json`) are remade once with the merged forecaster (`python -m lookahead.timemachine_snapshots --out data/demo/timemachine`, about 7 minutes). The committed ones say `logic: 2`, so the merged code would refuse them.
+4. `python -m lookahead.demo reset` rebuilds only `data/synthetic/demo.db`, which git already ignores; it needs no change.
+Why this order: the snapshots depend on the forecaster's default, so remaking them before the draw is decided would mean doing it twice.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
