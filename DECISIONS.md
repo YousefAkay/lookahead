@@ -1739,6 +1739,17 @@ Not run yet. It follows the plan of 2026-10-17 and its common rules (rule zero, 
 
 **Prediction, written before any run.** It should help where the forecaster lost to the random walk in experiment 1: DRENT and ITIGHT in both synthetic sets. It could hurt SAL and TIGHT, whose scheduled income is already sharp; condition 2 would catch that. On Berka the zero-estimate origins are where it should help most; that stratum can only veto.
 
+### 2026-10-17: Experiment 3: the minimum history changes from 20 to 8 unscheduled rows (the entry above stays as it was)
+**What changes.** In the experiment 3 rule above, the trailing figure is used only with at least 91 days of history before the origin and at least **8** unscheduled rows in those 91 days (it said 20). The 91-day history requirement, the window, the trimming and everything else in that entry are unchanged.
+
+**Why.** I counted before scoring anything (`docs/results/anchor_history_2026-10-17.md`): with 20 rows only 561 of the 8,000 Berka primary origins (7.0 percent) qualify, because the median account has about 9 unscheduled rows in 91 days. I chose 8 from those counts alone, as the highest minimum that keeps a majority of the origins (5,329, 66.6 percent; 10 would give 43.2 percent). Nothing had been scored. On the synthetic sets any minimum from 5 to 20 qualifies the same origins (700 of 800 in the 12-month set, the rest short of 91 days of history; 800 of 800 in the 24-month set), so the change does not touch them.
+
+**Counted as a variant tried.** This change of the minimum is counted among the variants tried in the final report, next to λ = 1 and λ = 0.5.
+
+**What it does not relax.** About a third of the Berka origins stay unchanged (the forecast is left as it is below the minimum). Condition 6 still averages over all origins, the unchanged ones included, so the 1 percent margin and the bootstrap bound are not relaxed.
+
+**Added to the experiment 3 output.** The report gives the share of origins moved (those that meet the minimum and where the anchoring changed the forecast), for each synthetic set and for Berka, overall and within the zero-estimate stratum, with the number of accounts as well as origins. This is for reading the result; no condition depends on it except the existing "fewer than half of a counted archetype's origins moved" in condition 3.
+
 ## Known issues
 
 - 2026-10-17: the dip chance is overconfident at the low end: origins with a predicted chance under 1% still dipped 2.4 to 4.0 percent of the time (experiment 1, both sets). Not fixed yet.
