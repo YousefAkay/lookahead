@@ -1,0 +1,21 @@
+{
+ "rule": "primary development accounts with a recurring series made mostly of cash withdrawals at some origin (eval.berka cash); reported as a second result with these left out; all accounts stay in the main result",
+ "accounts": [
+  392,
+  905,
+  1335,
+  1410,
+  1482,
+  1515,
+  1644,
+  1994,
+  2226,
+  2450,
+  2968,
+  3869,
+  4743,
+  5650,
+  5927,
+  9203
+ ]
+}

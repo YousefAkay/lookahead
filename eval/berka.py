@@ -19,6 +19,7 @@ below one month's outflow" is fixed once per account from the year before its fi
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 from collections import Counter
@@ -37,6 +38,7 @@ from lookahead.forecast.path import DEFAULT_OPTIONS, build_forecast
 from lookahead.forecast.spending import WEEKDAY_WEEKS
 from lookahead.ingest.scotiabank import ParsedRow
 from lookahead.ingest.store import store_exports
+from lookahead.recurring_store import series_as_of
 from lookahead.settings import set_safety_buffer_cents
 
 DATA = Path("data/berka")
@@ -83,14 +85,23 @@ def to_cents(koruna: float) -> int:
     return max(cents, 1) if koruna else 0
 
 
+def opening_koruna(frame: pd.DataFrame) -> float:
+    """The balance before the account's first row. The first day's rows are listed in no reliable
+    order, so no single row says it: each balance recorded that day minus the day's total is a
+    candidate (the one recorded last gives the true opening), and the candidate nearest to zero is
+    taken (zero for nearly every account: the first deposit opens it)."""
+    day = frame[frame["day"] == frame["day"].min()]
+    total = float(day["signed"].sum())
+    candidates = [float(b) - total for b in day["balance"]]
+    return min(candidates, key=abs)
+
+
 def account_rows(frame: pd.DataFrame) -> list[ParsedRow]:
     """One account's rows as parsed export rows, newest first. The frame is that account's
     part of `eval.berka_gate.load` (sorted by day and transaction id)."""
     ordered = frame.sort_values(["day", "signed"], ascending=[True, False], kind="stable")
-    first = ordered.iloc[0]
-    balance = to_cents(float(first["balance"] - first["signed"])) * (
-        1 if first["balance"] - first["signed"] >= 0 else -1
-    )  # the opening balance (zero for nearly every account)
+    opening = opening_koruna(frame)
+    balance = to_cents(opening) * (1 if opening >= 0 else -1)
     built: list[tuple[date, int, int, str, str]] = []
     for _, row in ordered.iterrows():
         cents = to_cents(float(row["amount"])) * (1 if row["signed"] > 0 else -1)
@@ -264,12 +275,104 @@ def diagnose_zero(args: tuple[int, pd.DataFrame, Path]) -> dict[str, Any]:
     return result
 
 
+def cash_series_counts(conn: sqlite3.Connection, account: int, origin: date) -> dict[str, Any]:
+    """Do cash withdrawals end up in a recurring series at `origin`? Counts for the 8 weeks before
+    it: the cash withdrawals, how many belong to a series, and how many series are made mostly of
+    cash withdrawals (their payments are then placed on dates instead of counted as everyday
+    spending)."""
+    series, _ = series_as_of(conn, str(account), origin)
+    description = dict(
+        conn.execute(
+            "SELECT fingerprint, description FROM transactions WHERE account = ? AND posted_date"
+            " <= ?", (str(account), origin.isoformat()),
+        ).fetchall()
+    )  # fmt: skip
+    live = [s for s in series if s.status != "rejected" and s.direction == "out"]
+    in_series = {fp for s in live for fp in s.evidence}
+    cash_series = [
+        s for s in live
+        if s.evidence and sum(description.get(fp) == "abm withdrawal" for fp in s.evidence)
+        >= len(s.evidence) / 2
+    ]  # fmt: skip
+    first = origin - timedelta(days=WEEKDAY_WEEKS * 7 - 1)
+    rows = conn.execute(
+        "SELECT fingerprint FROM transactions WHERE account = ? AND description ="
+        " 'abm withdrawal' AND posted_date BETWEEN ? AND ?",
+        (str(account), first.isoformat(), origin.isoformat()),
+    ).fetchall()  # fmt: skip
+    return {
+        "origin": origin.isoformat(), "cash_rows": len(rows),
+        "cash_in_series": sum(r[0] in in_series for r in rows), "cash_series": len(cash_series),
+        "out_series": len(live),
+    }  # fmt: skip
+
+
+def add_cash_counts(args: tuple[int, pd.DataFrame, Path]) -> dict[str, Any]:
+    """Add the cash-in-a-series counts of every origin of one account to its saved result."""
+    account, frame, out_dir = args
+    assert_development_only([account])
+    path = out_dir / f"{account}.json"
+    result = json.loads(path.read_text(encoding="utf-8"))
+    if "cash" in result:
+        return result
+    db = out_dir / "work" / f"{account}-cash.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = build_db(frame, account, db, result["line_cents"])
+    try:
+        result["cash"] = [
+            cash_series_counts(conn, account, date.fromisoformat(o["origin"]))
+            for o in result["origins"]
+        ]
+    finally:
+        conn.close()
+        db.unlink(missing_ok=True)
+    path.write_text(json.dumps(result), encoding="utf-8")
+    return result
+
+
+def cash_section(results: list[dict[str, Any]]) -> list[str]:
+    """How often cash withdrawals end up in a recurring series (counts only)."""
+    rows = [c for r in results for c in r.get("cash", [])]
+    if not rows:
+        return []
+    with_cash = [c for c in rows if c["cash_rows"] > 0]
+    cash_total = sum(c["cash_rows"] for c in rows)
+    in_series = sum(c["cash_in_series"] for c in rows)
+    accounts = sum(any(c["cash_series"] > 0 for c in r.get("cash", [])) for r in results)
+    zero_cash = [
+        c
+        for r in results
+        for o, c in zip(r["origins"], r.get("cash", []), strict=False)
+        if o["ok"] and o["everyday"] == 0
+    ]
+    zero_with_cash = sum(c["cash_rows"] > 0 for c in zero_cash)
+    zero_cash_series = sum(c["cash_in_series"] > 0 for c in zero_cash)
+    return [
+        "### Cash withdrawals and recurring series", "",
+        "Counted at every origin over the 8 weeks before it (overlapping windows, so a row is "
+        "counted at several origins).", "",
+        "| | value |", "|---|---|",
+        f"| origins with at least one cash withdrawal in the 8 weeks | {len(with_cash):,} of "
+        f"{len(rows):,} |",
+        f"| cash withdrawal rows in those windows | {cash_total:,}, of which in a recurring series "
+        f"{in_series:,} ({in_series / cash_total:.1%}) |" if cash_total else "| cash rows | 0 |",
+        f"| origins with a cash withdrawal in a recurring series | "
+        f"{sum(c['cash_in_series'] > 0 for c in rows):,} of {len(rows):,} |",
+        f"| origins with a recurring series made mostly of cash withdrawals | "
+        f"{sum(c['cash_series'] > 0 for c in rows):,} of {len(rows):,} |",
+        f"| accounts where such a series appears at some origin | {accounts} of {len(results)} |",
+        f"| origins with a zero everyday estimate that had a cash withdrawal in the 8 weeks | "
+        f"{zero_with_cash:,} of {len(zero_cash):,} (of those, with the cash in a series: "
+        f"{zero_cash_series:,}) |",
+        "",
+    ]  # fmt: skip
+
+
 def drift_koruna(frame: pd.DataFrame, closes: pd.DataFrame) -> float:
     """The largest distance, over the account's days, between the adapter's closing balance (the
     running total) and the file's own closing balance, in koruna."""
     ordered = frame.sort_values(["day", "signed"], ascending=[True, False], kind="stable")
-    first = ordered.iloc[0]
-    running = (ordered["signed"].cumsum() + (first["balance"] - first["signed"])).to_numpy()
+    running = (ordered["signed"].cumsum() + opening_koruna(frame)).to_numpy()
     ours = pd.Series(running, index=ordered["day"].to_numpy()).groupby(level=0).last()
     theirs = closes.set_index("day")["close"]
     return float((ours - theirs.reindex(ours.index)).abs().max())
@@ -365,6 +468,7 @@ def summarize(results: list[dict[str, Any]], drift: list[float], group: str) -> 
         f"{sum(o['big_events'] > 0 for o in ok):,} of {len(ok):,} |",
         "",
         *zero_section(results, ok),
+        *cash_section(results),
         "The adapter's closing balance (the running total) against the file's own closing balance, "
         "the largest distance over each account's days, in koruna (min / 10% / 25% / median / "
         f"75% / 90% / max over accounts): {quantile_line(drift)}.",
@@ -373,7 +477,7 @@ def summarize(results: list[dict[str, Any]], drift: list[float], group: str) -> 
     return lines
 
 
-def sanity(group: str, limit: int | None, jobs: int, directory: Path) -> int:
+def sanity(group: str, limit: int | None, jobs: int, directory: Path, cash: bool = False) -> int:
     ids = development_accounts(group)[: limit or None]
     assert_development_only(ids)
     t = load(directory)
@@ -387,6 +491,9 @@ def sanity(group: str, limit: int | None, jobs: int, directory: Path) -> int:
         results = list(pool.map(run_account, [(a, frames[a], out_dir) for a in ids]))
     with ProcessPoolExecutor(max_workers=jobs) as pool:
         results = list(pool.map(diagnose_zero, [(a, frames[a], out_dir) for a in ids]))
+    if cash:
+        with ProcessPoolExecutor(max_workers=jobs) as pool:
+            results = list(pool.map(add_cash_counts, [(a, frames[a], out_dir) for a in ids]))
     lines = summarize(results, drift, group)
     print("\n".join(lines))
     if limit is None:
@@ -398,10 +505,13 @@ def sanity(group: str, limit: int | None, jobs: int, directory: Path) -> int:
             "below one month's outflow\" and was chosen from dip counts only, not from any "
             "forecast result. Held-out accounts are not read.\n\n"
         )
-        sections = [s for s in existing.split("\n## ")[1:] if not s.startswith(f"{group} ")]
-        body = "\n## ".join([*sections, "\n".join(lines)])
-        REPORT.write_text(head + ("## " + body if sections else "\n".join(lines)) + "\n",
-                          encoding="utf-8")  # fmt: skip
+        blocks: dict[str, str] = {}
+        for chunk in re.split(r"(?m)^(?=## [a-z])", existing):
+            if chunk.startswith("## "):
+                blocks[chunk[3:].split(" ", 1)[0]] = chunk.rstrip() + "\n"
+        blocks[group] = "\n".join(lines).rstrip() + "\n"
+        body = "\n".join(blocks[g] for g in ("primary", "sensitivity") if g in blocks)
+        REPORT.write_text(head + body, encoding="utf-8")
         print(f"written: {REPORT}")
     return 0
 
@@ -462,7 +572,7 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("command", choices=["sanity", "leakage"])
+    parser.add_argument("command", choices=["sanity", "leakage", "cash"])
     parser.add_argument("--group", choices=["primary", "sensitivity"], default="primary")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--jobs", type=int, default=2)
@@ -470,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "leakage":
         return leakage_run(args.limit or 10, args.dir)
-    return sanity(args.group, args.limit, args.jobs, args.dir)
+    return sanity(args.group, args.limit, args.jobs, args.dir, cash=args.command == "cash")
 
 
 if __name__ == "__main__":

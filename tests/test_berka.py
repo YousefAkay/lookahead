@@ -85,6 +85,24 @@ def test_account_rows_are_a_consistent_export_newest_first() -> None:
     assert rows[-1].balance_cents == rows[-1].amount_cents == 30000 * berka.CENTS_PER_KORUNA
 
 
+def test_the_opening_balance_ignores_the_order_of_the_first_days_rows() -> None:
+    # two rows on the first day, the larger one second in the file: 1,100 opens the account and
+    # 3,871 comes in after it (balance 4,971). Taking the larger row first gave an opening of 1,100.
+    day = pd.Timestamp(START)
+    base = {"account_id": 1, "day": day, "type": "PRIJEM", "operation": "VKLAD"}
+    base |= {"k_symbol": None, "bank": None, "account": np.nan}
+    frame = pd.DataFrame(
+        [
+            {**base, "amount": 1100.0, "signed": 1100.0, "balance": 1100.0},
+            {**base, "amount": 3871.0, "signed": 3871.0, "balance": 4971.0},
+        ]
+    )
+    assert berka.opening_koruna(frame) == 0.0
+    rows = account_rows(frame)
+    assert balance_chain_breaks(rows) == []
+    assert rows[0].balance_cents == 4971 * berka.CENTS_PER_KORUNA  # the day closes as the file does
+
+
 def test_origins_are_forty_weekly_dates_ending_thirty_days_before_the_last_posting() -> None:
     f = made_up_account(500)
     dates = origin_dates(f)
