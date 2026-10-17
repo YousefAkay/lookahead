@@ -10,6 +10,8 @@ import pytest
 from eval.backtest import run_origin
 from eval.baselines import (
     BINS,
+    MIN_DIPS,
+    alert_pool,
     balance_series,
     brier,
     crps_samples,
@@ -177,3 +179,13 @@ def test_a_run_is_resumable_and_refuses_held_out(tmp_path: Path) -> None:
     assert [json.loads(x)["origin"] for x in lines] == ["2025-12-01", "2025-12-08"]
     with pytest.raises(ValueError):
         run_persona("v2-ITIGHT-04", tmp_path / "out2", days, 20, work=tmp_path / "work")
+
+
+def test_the_alert_pool_keeps_origins_already_in_shortfall() -> None:
+    rows = [
+        {"in_shortfall_at_origin": False, "walk": {"x": 1}},
+        {"in_shortfall_at_origin": True, "walk": {"x": 1}},
+        {"in_shortfall_at_origin": False, "walk": None},
+    ]
+    assert alert_pool(rows) == rows[:2]  # the engine needs the run through a shortfall
+    assert MIN_DIPS >= 2  # a skill from a single dip would be a ratio of noise

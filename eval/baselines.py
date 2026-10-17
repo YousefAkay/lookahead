@@ -60,6 +60,7 @@ LOOKBACK_DAYS = 365
 MIN_WINDOWS = 20  # fewer windows than this: no random walk for the origin
 BINS = (0.0, 0.01, 0.05, 0.10, 0.20, 0.40, 0.60, 0.80, 1.0001)  # the reliability curve
 PLAN = "2026-10-17 experiment 1"
+MIN_DIPS = 5  # a Brier skill needs at least this many dips in the archetype to be shown
 
 Record = dict[str, Any]
 
@@ -214,6 +215,12 @@ def usable(records: list[Record]) -> list[Record]:
     return [r for r in records if not r["in_shortfall_at_origin"] and r["walk"] is not None]
 
 
+def alert_pool(records: list[Record]) -> list[Record]:
+    """The records the alert machinery is fed: every origin where the random walk exists, those
+    already below the buffer included (an alert episode runs through them, as in the app)."""
+    return [r for r in records if r["walk"] is not None]
+
+
 def event(r: Record) -> float:
     return 0.0 if r["realized_first_below_buffer"] is None else 1.0
 
@@ -348,39 +355,23 @@ def section(title: str, records: list[Record], reference: list[Record]) -> list[
     ]
     bsk_n, bsk_r = [], []
     for a, s in scores.items():
-        sn, sr = skill(s["brier_f"], s["brier_n"]), skill(s["brier_f"], s["brier_r"])
+        enough = s["events"] >= MIN_DIPS
+        sn = skill(s["brier_f"], s["brier_n"]) if enough else None
+        sr = skill(s["brier_f"], s["brier_r"]) if enough else None
         out.append(
             f"| {a} ({s['n']}, {s['events']}) | {s['brier_f']:.4f} | {s['brier_n']:.4f} | "
-            f"{s['brier_r']:.4f} | {_pct(sn)} | {_pct(sr)} |"
+            f"{s['brier_r']:.4f} | {_pct(sn) if enough else 'too few dips'} | "
+            f"{_pct(sr) if enough else 'too few dips'} |"
         )
         if sn is not None:
             bsk_n.append(sn)
         if sr is not None:
             bsk_r.append(sr)
     out.append(
-        f"| **mean of archetypes** | | | | {_pct(float(np.mean(bsk_n)))} | "
-        f"{_pct(float(np.mean(bsk_r)))} |"
+        f"| **mean of the {len(bsk_n)} archetypes with {MIN_DIPS}+ dips** | | | | "
+        f"{_pct(float(np.mean(bsk_n))) if bsk_n else '-'} | "
+        f"{_pct(float(np.mean(bsk_r))) if bsk_r else '-'} |"
     )
-    out += [
-        "",
-        "(An archetype with no dips scores 0 for balance stays; its skill is not defined "
-        "and it is left out of the mean.)",
-        "",
-        "### Reliability of the dip chance, all archetypes of the set together",
-        "",
-        "| Predicted chance | forecast: n | mean predicted | dipped | random walk: n | "
-        "mean predicted | dipped |",
-        "|---|---|---|---|---|---|---|",
-    ]
-    rf, rw = reliability(rows, "f"), reliability(rows, "r")
-    for a, b in zip(rf, rw, strict=True):
-
-        def cell(x: Record) -> str:
-            if not x["n"]:
-                return "0 | - | -"
-            return f"{x['n']} | {x['mean_p']:.1%} | {x['seen']:.1%}"
-
-        out.append(f"| {a['lo']:.0%} to {a['hi']:.0%} | {cell(a)} | {cell(b)} |")
     out += [
         "",
         "Origins are weekly and a dip lasts for weeks, so neighbouring origins share "
@@ -388,11 +379,14 @@ def section(title: str, records: list[Record], reference: list[Record]) -> list[
         "",
     ]
     # dips caught at the same precision
+    every = alert_pool(records)
+    every_groups = by_archetype(every)
     picks = {}
-    for label, recs in (("forecast", rows), ("random walk", walk_records(rows))):
+    for label, recs in (("forecast", every), ("random walk", walk_records(every))):
         picks[label] = choose(curve(recs, THRESHOLDS))
     out += [
-        "### Dips caught at the same precision (threshold chosen on the whole set for each "
+        "### Dips caught at the same precision (all origins, those already below the buffer "
+        "included, as the alert engine sees them; threshold chosen on the whole set for each "
         "method: highest recall on ahead with precision 70 percent or more and at most 0.1 "
         "false alerts per 30 days; in-sample and descriptive)",
         "",
@@ -405,11 +399,11 @@ def section(title: str, records: list[Record], reference: list[Record]) -> list[
         "none (never alerts) |"
     )
     out.append(
-        f"| all archetypes | {alerts_row(rows, chosen['forecast'])} | "
-        f"{alerts_row(walk_records(rows), chosen['random walk'])} | "
-        f"{alerts_row(stays_records(rows), 1.0)} |"
+        f"| all archetypes | {alerts_row(every, chosen['forecast'])} | "
+        f"{alerts_row(walk_records(every), chosen['random walk'])} | "
+        f"{alerts_row(stays_records(every), 1.0)} |"
     )
-    for a, g in groups.items():
+    for a, g in every_groups.items():
         out.append(
             f"| {a} | {alerts_row(g, chosen['forecast'])} | "
             f"{alerts_row(walk_records(g), chosen['random walk'])} | "
