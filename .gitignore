@@ -34,3 +34,7 @@ data/backtest/
 
 # Time machine snapshots (synthetic, rebuilt with python -m lookahead.timemachine_snapshots)
 data/timemachine/
+
+# --- External datasets: never commit (licence not stated; not redistributed) ---
+data/berka/
+data/public/
