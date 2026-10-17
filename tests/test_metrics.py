@@ -661,3 +661,16 @@ def test_the_report_carries_the_breakdowns() -> None:
     text = report_text(synthetic, [])
     assert "by archetype, origins already in shortfall" in text
     assert "alerts by archetype" in text
+
+
+def test_an_origin_after_a_gap_that_is_already_below_the_buffer_starts_no_countable_episode() -> (
+    None
+):
+    above = rec(origin=date(2026, 1, 5), start=50_000, realized=[50_000] * 30)
+    already = rec(origin=date(2026, 3, 2), start=BUFFER - 5_000, realized=[BUFFER - 5_000] * 30)
+    # 2026-02-05 to 2026-03-02 is unobserved. The second origin begins below the buffer, so what
+    # is below at its first day is a shortfall that began before it, not a new one.
+    assert shortfall_episodes([above, already]) == []
+    # a real dip that begins inside the second window is still an episode
+    dip = rec(origin=date(2026, 3, 2), start=50_000, realized=[50_000] * 10 + [BUFFER - 1] * 20)
+    assert shortfall_episodes([above, dip]) == [date(2026, 3, 2) + timedelta(days=11)]

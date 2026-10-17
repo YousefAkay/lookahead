@@ -68,7 +68,8 @@ def is_weekly_card(s: Stored, reasons: Sequence[str]) -> bool:
         return False
     if s.status in ("confirmed", "user-added") or s.edited:
         return False
-    return bool(reasons) and Counter(reasons).most_common(1)[0][0] == "card purchase"
+    # "mostly" is a strict majority (DECISIONS.md, 2026-10-12): a tie is not mostly card purchases
+    return bool(reasons) and 2 * Counter(reasons)["card purchase"] > len(reasons)
 
 
 def weekly_card_keys(series: Sequence[Stored], reason_of: Mapping[str, str]) -> frozenset[str]:

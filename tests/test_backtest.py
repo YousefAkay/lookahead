@@ -406,3 +406,70 @@ def test_a_held_out_run_saves_to_its_own_folder_apart_from_development_records()
     assert final == DEFAULT_OUT / "held-out" / "keeps-coming-with-own" / "full"
     assert default_out(True, "off", True, True) == LONG_OUT / "held-out" / "quick"
     assert dev not in final.parents and final not in dev.parents
+
+
+def test_every_reader_of_the_current_defaults_records_reads_where_the_backtest_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    from eval import blend, metrics, thresholds_raw
+    from eval.arms import arm_dir
+    from eval.backtest import default_out
+
+    for long in (False, True):
+        written = default_out(long, "with-own", False, False)  # what `python -m eval.backtest` does
+        assert arm_dir(0, long) == written
+        assert blend.arm0_folder(long) == written
+
+    class Stop(Exception):
+        pass
+
+    seen: list[Path] = []
+
+    def grab(path: Path, *args: object, **kwargs: object) -> None:
+        seen.append(path)
+        raise Stop
+
+    for module in (metrics, thresholds_raw):
+        seen.clear()
+        monkeypatch.setattr(module, "load_records", grab)
+        with pytest.raises(Stop):
+            module.main([])
+        assert seen == [default_out(False, "with-own", False, False)], module.__name__
+
+
+def test_the_effective_forecaster_defaults_are_recorded_and_a_changed_default_refuses_a_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    from dataclasses import replace
+
+    from eval.backtest import LOGIC
+
+    assert LOGIC >= 3  # the version that records the forecaster's settings
+    days = origins()[:1]
+    run_persona(PID, tmp_path / "out", days, FUTURES, seed=42, work_dir=tmp_path / "work")
+    meta = json.loads((tmp_path / "out" / f"{PID}.meta.json").read_text(encoding="utf-8"))
+    assert meta["forecaster"]["recurring_fix"] == {"possibly_ended": True, "weekly_card": True}
+    assert meta["forecaster"]["keeps"] == {"own_account": True}
+    # the default fix changes (here: switched off), and the same folder is run again
+    monkeypatch.setattr(
+        backtest, "DEFAULT_OPTIONS", replace(backtest.DEFAULT_OPTIONS, recurring_fix=None)
+    )
+    with pytest.raises(ValueError, match=r"different settings.*recurring_fix") as error:
+        run_persona(PID, tmp_path / "out", days, FUTURES, seed=42, work_dir=tmp_path / "work")
+    assert "new folder" in str(error.value)  # it says what to do
+
+
+def test_held_out_with_a_development_persona_saves_in_the_development_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # fmt: skip
+    monkeypatch.setattr(backtest, "DEFAULT_OUT", tmp_path / "bt")
+    few = backtest.origins()[:2]
+    monkeypatch.setattr(backtest, "origins", lambda: few)  # two origins: this is about folders
+    argv = ["--futures", "20", "--held-out", "--only", PID]
+    assert backtest.main(argv) == 0
+    assert (tmp_path / "bt" / "keeps-coming-with-own" / "full" / f"{PID}.jsonl").exists()
+    assert not (tmp_path / "bt" / "held-out").exists()  # no development record among the held-out
+    assert backtest.main([*argv[:-1], "v2-SAL-04"]) == 0
+    held = tmp_path / "bt" / "held-out" / "keeps-coming-with-own" / "full"
+    assert (held / "v2-SAL-04.jsonl").exists()
+    assert not (held / f"{PID}.jsonl").exists()

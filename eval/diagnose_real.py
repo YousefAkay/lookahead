@@ -22,6 +22,7 @@ from typing import Any
 from eval.backtest import HORIZON, KEEPS_NAMES, METHOD, realized_balances
 from eval.backtest_real import real_origins
 from eval.fix_variants import FIXES, fix_options
+from eval.small_n import MIN_GROUP, MIN_STATISTIC, TOO_FEW
 from lookahead.db import connect_readonly
 from lookahead.flows import Flow, Txn, flow_types
 from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
@@ -380,7 +381,8 @@ def summarize(records: list[dict[str, Any]], key: str, parts: Sequence[str]) -> 
     for p in parts:
         errs = [r[key][p] for r in records]
         share = _pct(biggest[p] / len(records))
-        mean, median = _d(statistics.fmean(errs)), _d(statistics.median(errs))
+        mean = _d(statistics.fmean(errs))
+        median = _d(statistics.median(errs)) if len(errs) >= MIN_STATISTIC else TOO_FEW
         absolute = _d(statistics.fmean(abs(e) for e in errs))
         lines.append(
             f"    {NAMES[p]}: mean {mean}, median {median}, mean absolute {absolute}, "
@@ -393,10 +395,14 @@ def report(records: list[dict[str, Any]], title: str) -> list[str]:
     lines = [f"  {title}: {len(records)} origins"]
     if not records:
         return lines
+    if len(records) < MIN_GROUP:
+        return [f"  {title}: fewer than {MIN_GROUP} origins: {TOO_FEW}"]
+    enough = len(records) >= MIN_STATISTIC
     totals = [r["total_30"] for r in records]
     lines.append(
         f"  30-day change, the mean future minus what happened: mean "
-        f"{_d(statistics.fmean(totals))}, median {_d(statistics.median(totals))} "
+        f"{_d(statistics.fmean(totals))}, "
+        f"median {_d(statistics.median(totals)) if enough else TOO_FEW} "
         f"(the middle future: mean "
         f"{_d(statistics.fmean(r['median_30'] for r in records))})"
     )  # fmt: skip
@@ -412,7 +418,8 @@ def report(records: list[dict[str, Any]], title: str) -> list[str]:
     lows = [r["lowest_error"] for r in records]
     lines.append(
         f"  Lowest-balance error (median lowest of the futures minus the real lowest): mean "
-        f"{_d(statistics.fmean(lows))}, median {_d(statistics.median(lows))}"
+        f"{_d(statistics.fmean(lows))}, median "
+        f"{_d(statistics.median(lows)) if enough else TOO_FEW}"
     )  # fmt: skip
     lines.append("  Parts of the lowest-balance error (at the day of the real lowest):")
     lines += summarize(records, "error_low", (*PARTS, "low_point"))
@@ -428,7 +435,8 @@ def report(records: list[dict[str, Any]], title: str) -> list[str]:
         f"  Recurring payments over all origins: {placed} placed, {actual} real, "
         f"{sum(r['n_matched'] for r in records)} matched, {sum(r['n_missed'] for r in records)} "
         f"missed, {sum(r['n_extra'] for r in records)} extra; {len(off)} matched ones on another "
-        f"day (mean {statistics.fmean(off) if off else 0:.1f} days off)"
+        f"day (mean "
+        f"{f'{statistics.fmean(off):.1f}' if len(off) >= MIN_STATISTIC else TOO_FEW} days off)"
     )  # fmt: skip
     return lines
 
@@ -438,16 +446,27 @@ def evidence_lines(ev: dict[str, Any]) -> list[str]:
     if ev["cutoff_is_floor"]:
         lines.append("    the big cutoff is the $500 floor, so the third band is empty")
     for label, w in ev["windows"].items():
+        if w["rows"] < MIN_GROUP:
+            lines.append(f"    {label}: {TOO_FEW}")
+            continue
         lines.append(f"    {label}: {w['rows']} deposits")
         for name, b in zip(BANDS, w["bands"], strict=True):
+            if b["count"] < MIN_GROUP:
+                lines.append(f"      {name}: {TOO_FEW}")
+                continue
+            if b["count"] < MIN_STATISTIC:
+                gap = TOO_FEW
+            else:
+                gap = "-" if b["median_gap"] is None else f"{b['median_gap']:.0f} days"
             lines.append(
                 f"      {name}: {b['count']} deposits, {_pct(b['share_money'])} of the money in, "
                 f"in {_pct(b['share_weeks'])} of weeks, followed by one within 30 days at "
-                f"{_pct(b['share_windows'])} of origins, median gap "
-                f"{'-' if b['median_gap'] is None else f'{b['median_gap']:.0f} days'}"
+                f"{_pct(b['share_windows'])} of origins, median gap {gap}"
             )  # fmt: skip
-        types = ", ".join(f"{k}: {v}" for k, v in sorted(w["by_type"].items()))
-        lines.append(f"      by type: {types or '-'}")
+        shown = [f"{k}: {v}" for k, v in sorted(w["by_type"].items()) if v >= MIN_GROUP]
+        if any(v < MIN_GROUP for v in w["by_type"].values()):
+            shown.append(f"other types: {TOO_FEW}")
+        lines.append(f"      by type: {', '.join(shown) or '-'}")
     return lines
 
 

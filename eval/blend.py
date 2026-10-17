@@ -29,9 +29,8 @@ from typing import Any
 import numpy as np
 
 from eval.backtest import (
-    DEFAULT_OUT,
     FUTURES,
-    LONG_OUT,
+    current_default_dir,
     format_of,
     origins,
     run_origin_with_paths,
@@ -358,6 +357,11 @@ def apply_real(folder: Path, weights_path: Path = WEIGHTS) -> int:
     return 0
 
 
+def arm0_folder(long: bool) -> Path:
+    """Arm 0: the records of the current default forecaster."""
+    return current_default_dir(long)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m eval.blend", description=__doc__,
@@ -388,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
         run_set(long, folder, args.workers)
         records = load_records(folder)
         assert all(r["format"] == format_of(r["persona"]) for r in records)
-        arm0_dir = (LONG_OUT if long else DEFAULT_OUT) / "full"
+        arm0_dir = arm0_folder(long)
         if arm0_dir.exists():  # the check fixed before computing: these are arm 0's forecasts
             bad = differs_from_arm0(records, load_records(arm0_dir))
             if bad:

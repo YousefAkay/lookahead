@@ -22,6 +22,7 @@ refused).
 """
 
 import json
+import re
 import sqlite3
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -40,7 +41,12 @@ from lookahead.alerts import (
     snapshot_of,
 )
 from lookahead.db import SCHEMA
-from lookahead.forecast.path import Forecast, build_forecast
+from lookahead.forecast.path import (
+    Forecast,
+    build_forecast,
+    forecaster_settings,
+    settings_differences,
+)
 from lookahead.forecast.simulate import N_FUTURES
 from lookahead.forecast.start import HORIZON_DAYS
 from lookahead.merchants import is_private_path
@@ -203,10 +209,18 @@ def _restore_alerts(account: str, saved: list[dict[str, Any]]) -> sqlite3.Connec
     return alerts
 
 
+SYNTHETIC_ACCOUNT = re.compile(r"synthetic-[A-Z]|v2L?-[A-Z]+-\d{2}")  # the generator's own names
+
+
 def _is_private_db(conn: sqlite3.Connection) -> bool:
-    """True if the main database of `conn` is a file inside data/private."""
+    """True if this database may hold real data: its file is inside data/private, or any of its
+    accounts is not one of the generator's own (so a copy of a private database outside
+    data/private is still treated as private)."""
     files = [row[2] for row in conn.execute("PRAGMA database_list") if row[1] == "main"]
-    return bool(files and files[0]) and is_private_path(Path(files[0]))
+    if files and files[0] and is_private_path(Path(files[0])):
+        return True
+    accounts = [row[0] for row in conn.execute("SELECT DISTINCT account FROM transactions")]
+    return any(not SYNTHETIC_ACCOUNT.fullmatch(a) for a in accounts)
 
 
 def precompute(
@@ -223,14 +237,18 @@ def precompute(
     if _is_private_db(conn) and not is_private_path(out_path):
         raise ValueError("steps of a private database are saved in data/private/ only")
     settings = {"futures": futures, "method": method, "format": STEP_FORMAT,
-                "logic": LOGIC_VERSION}  # fmt: skip
+                "logic": LOGIC_VERSION, "forecaster": forecaster_settings()}  # fmt: skip
     meta_path = out_path.with_suffix(".meta.json")
     if meta_path.exists():
         saved = json.loads(meta_path.read_text(encoding="utf-8"))
         if (saved.get("format"), saved.get("logic")) != (STEP_FORMAT, LOGIC_VERSION):
             raise ValueError("these snapshots were made with an older version: make them again")
         if saved != settings:
-            raise ValueError("these snapshots were made with different settings")
+            raise ValueError(
+                "these snapshots were made with different settings ("
+                + "; ".join(settings_differences(saved, settings))
+                + "): they are never continued with other settings; make them again in a new file"
+            )
     else:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         meta_path.write_text(json.dumps(settings), encoding="utf-8")

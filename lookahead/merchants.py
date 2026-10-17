@@ -382,10 +382,30 @@ def count_extraction(
     return result
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent  # the repository this code is in
+SANDBOXES: list[Path] = []  # only the test suite adds to this (tests/conftest.py): a throw-away
+# folder inside which a data/private folder stands in for the real one
+
+
+def _inside(parts: tuple[str, ...], root: tuple[str, ...]) -> bool:
+    """True if the path (as parts) starts with `root`, part by part, case-sensitively."""
+    return parts[: len(root)] == root
+
+
 def is_private_path(path: Path) -> bool:
-    """True if `path` lies inside a data/private/ folder (git-ignored)."""
-    parts = [p.casefold() for p in path.resolve().parts]
-    return any(a == "data" and b == "private" for a, b in zip(parts, parts[1:], strict=False))
+    """True if `path`, once resolved, lies inside this repository's own data/private/ folder
+    (git-ignored): anchored at the repository root, part by part, case-sensitive. A data/private
+    folder anywhere else (a copy, a look-alike) is not private."""
+    parts = path.resolve().parts
+    if _inside(parts, (*REPO_ROOT.parts, "data", "private")):
+        return True
+    for base in SANDBOXES:  # the test suite's own temporary folders; empty in real use
+        root = base.resolve().parts
+        if _inside(parts, root):
+            rest = parts[len(root) :]
+            if any(a == "data" and b == "private" for a, b in zip(rest, rest[1:], strict=False)):
+                return True
+    return False
 
 
 def write_leftovers(counts: ExtractionCounts, path: Path) -> None:

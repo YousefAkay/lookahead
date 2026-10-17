@@ -1,12 +1,15 @@
-"""Proposals for the forecaster (DECISIONS.md, 2026-10-11, step 2): an option, off by default.
+"""Proposals for the forecaster (DECISIONS.md, 2026-10-11, step 2): options, off by default.
 
-a) Lump income as proposals. Lumps (big deposits in no series, not paid straight back out, in the
+a) Lump income as proposals: **retired on 2026-10-12** (it failed on a real account and made
+   two archetypes worse). The forecaster no longer uses it; `lump_proposals` stays as the record,
+   for the scoring scripts. Lumps (big deposits in no series, not paid straight back out, in the
    last 365 days) are grouped by sender, as the pseudonymizer's keyed token. Two or more from one
    sender give a proposal: "expecting about $X from <sender> around <date>?", with a typical size
    (the median), a typical gap (the median), an expected date and a window.
-b) Repeated large outflows. Two or more big payments to one payee, 60 to 400 days apart, give a
-   placement of the next one on its expected date, by default, labelled "detected, not
-   confirmed". One payment only gives an offer for a planned item prefilled from it.
+b) Repeated large outflows (the option `outflow_placements`, off by default; by calendar position
+   it was much worse on a real account and stays off). Two or more big payments to one payee, 60
+   to 400 days apart, give a placement of the next one on its expected date, labelled "detected,
+   not confirmed". One payment only gives an offer for a planned item prefilled from it.
 
 Both carry their evidence (fingerprints) and a key. What I decide about them ("looks right",
 "not this time") is a dated row in `proposal_decisions`, replayed as of a date like the recurring
@@ -50,6 +53,7 @@ OUTFLOW_LOOKBACK_DAYS = 730
 MIN_GAP_DAYS, MAX_GAP_DAYS = 60, 400
 JITTER_DAYS = 5
 YEAR_DAYS = 365  # the calendar rule: a payment proposes itself plus 365 days
+TERM_MATCH_DAYS = 21  # a payment this close to a proposed day is that term's payment, already made
 
 _BANK_WORDS = frozenset({"free", "interac", "e-transfer", "etransfer", "e-transfert", "from"})
 _SLOT = re.compile(r"^\s*\d+/")  # a credit memo's text starts with a slot such as "1/"
@@ -262,6 +266,21 @@ def _same_term(
         day = shift_to_business_day(t.posted_date + timedelta(days=YEAR_DAYS), "later")
         if as_of < day <= last_day and day >= first_day:
             proposed.append((day, t.posted_date, cents))
+    # A term already paid this year is not placed again: each payment made within 3 weeks of a
+    # proposed day belongs to the nearest such day (one payment, one day), and that day is dropped.
+    # Installments a month apart stay apart, because each payment takes only its nearest day.
+    pairs = sorted(
+        (abs((t.posted_date - day).days), t.posted_date, day)
+        for t, _ in rows for day in {d for d, _, _ in proposed}
+        if abs((t.posted_date - day).days) <= TERM_MATCH_DAYS
+    )  # fmt: skip
+    paid_days: set[date] = set()
+    used: set[date] = set()
+    for _, paid_on, day in pairs:
+        if paid_on not in used and day not in paid_days:
+            used.add(paid_on)
+            paid_days.add(day)
+    proposed = [p for p in proposed if p[0] not in paid_days]
     if not proposed:
         return None
     day = min(d for d, _, _ in proposed)

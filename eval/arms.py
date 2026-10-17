@@ -14,7 +14,7 @@ records are in docs/results/arms_2026-10-12.md and DECISIONS.md.
 Random lump arrivals (`lump_arrivals`) are not an arm: keeps-coming replaces them. The option
 sets of the 2026-10-11 plan are in the history of this file.
 
-    python -m eval.arms --arms 1 2 --set both   # records in data/backtest/arms-2026-10-12/...
+    python -m eval.arms --arms 3 --set both     # records in data/backtest/arms-2026-10-12/...
     python -m eval.arms --report                # writes docs/results/arms_2026-10-12.md
 """
 
@@ -29,11 +29,11 @@ from pathlib import Path
 from typing import Any
 
 from eval.backtest import (
-    DEFAULT_OUT,
     FUTURES,
     HORIZON,
-    LONG_OUT,
     METHOD,
+    _check_settings,
+    current_default_dir,
     format_of,
     origins,
     run_origin,
@@ -49,7 +49,7 @@ from eval.metrics import (
 )
 from eval.personas_db import persona_db
 from eval.proposals_score import KEY
-from lookahead.forecast.path import ForecastOptions, build_forecast
+from lookahead.forecast.path import ForecastOptions, build_forecast, forecaster_settings
 from lookahead.generator.archetypes import (
     END,
     assert_development_only,
@@ -87,7 +87,7 @@ def arm_options(arm: int) -> ForecastOptions:
 def arm_dir(arm: int, long: bool) -> Path:
     """Arm 0 is the development backtest itself (same code path); the others have their own."""
     if arm == 0:
-        return (LONG_OUT if long else DEFAULT_OUT) / "full"
+        return current_default_dir(long)
     return ARMS_OUT / ("long" if long else "12") / f"arm{arm}"
 
 
@@ -101,12 +101,11 @@ def run_persona_arm(persona_id: str, arm: int, out_dir: Path, futures: int = FUT
     path = out_dir / f"{persona_id}.jsonl"
     meta = out_dir / f"{persona_id}.meta.json"
     settings = {"futures": futures, "seed": seed, "method": METHOD, "arm": arm,
-                **version_settings(persona_id)}  # fmt: skip
+                **version_settings(persona_id),
+                "forecaster": forecaster_settings(arm_options(arm))}  # fmt: skip
     if arm:  # arm 0 is the same code path as before; the others are this plan's
         settings["plan"] = "2026-10-12"
-    if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != settings:
-        raise ValueError(f"{meta} was made with different settings")
-    meta.write_text(json.dumps(settings), encoding="utf-8")
+    _check_settings(meta, settings)  # refuses a resume with other settings, naming the difference
     done = set()
     if path.exists():
         done = {json.loads(line)["origin"] for line in path.read_text().splitlines() if line}

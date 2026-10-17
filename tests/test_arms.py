@@ -1,10 +1,12 @@
 """Tests for the arm runner of step 2 (DECISIONS.md, 2026-10-12). Synthetic personas only."""
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
 from eval.arms import arm_dir, arm_options, window_kind
+from eval.backtest import origins as arms_origins
 from lookahead.forecast.path import ForecastOptions
 
 
@@ -43,8 +45,8 @@ def test_a_forecast_that_changes_with_nothing_confirmed_or_placed_is_flagged() -
 def test_each_arm_and_set_has_its_own_folder_and_arm_0_is_the_backtest() -> None:
     folders = {arm_dir(a, long) for a in range(5) for long in (False, True)}
     assert len(folders) == 10
-    assert arm_dir(0, False).parts[-2:] == ("backtest", "full")
-    assert arm_dir(0, True).parts[-3:] == ("backtest", "long", "full")
+    assert arm_dir(0, False).parts[-3:] == ("backtest", "keeps-coming-with-own", "full")
+    assert arm_dir(0, True).parts[-4:] == ("backtest", "long", "keeps-coming-with-own", "full")
 
 
 def test_a_window_is_classed_by_tuition_first_then_family_money() -> None:
@@ -53,3 +55,22 @@ def test_a_window_is_classed_by_tuition_first_then_family_money() -> None:
     assert window_kind(record, tuition, family) == "with a tuition payment"
     assert window_kind(record, set(), family) == "family money, no tuition"
     assert window_kind(record, {date(2026, 2, 20)}, {date(2026, 1, 5)}) == "neither"  # outside
+
+
+def test_an_arm_records_the_effective_forecaster_settings_and_refuses_a_changed_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    from dataclasses import replace
+
+    from eval import arms
+
+    monkeypatch.setattr(arms, "origins", lambda: arms_origins()[:1])
+    arms.run_persona_arm("v2-SAL-01", 0, tmp_path, futures=20)
+    meta = json.loads((tmp_path / "v2-SAL-01.meta.json").read_text(encoding="utf-8"))
+    assert meta["forecaster"]["recurring_fix"] == {"possibly_ended": True, "weekly_card": True}
+    monkeypatch.setattr(
+        arms, "arm_options", lambda arm: replace(ForecastOptions(), recurring_fix=None)
+    )
+    with pytest.raises(ValueError, match=r"different settings.*recurring_fix"):
+        arms.run_persona_arm("v2-SAL-01", 0, tmp_path, futures=20)

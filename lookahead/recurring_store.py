@@ -41,7 +41,8 @@ from lookahead.taxonomy import CATEGORIES
 
 # Bump when detection or the replay of decisions changes what a stored series holds; the
 # pages then rebuild the saved copy by themselves instead of showing an older one.
-LOGIC_VERSION = 2  # 2: a series with a rent rule is called Rent
+# 2: a series with a rent rule is called Rent; 3: saved results record the forecaster's settings
+LOGIC_VERSION = 3
 ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent", "rename")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 

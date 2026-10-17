@@ -64,7 +64,7 @@ def test_a_deposit_with_two_earlier_rows_of_similar_size_keeps_coming() -> None:
     a = arrivals(rows)
     # the first two have fewer than 2 earlier rows of similar size: they are not recurring-size
     assert a.in_sizes == (75000, 120000, 70000, 100000)
-    days = (AS_OF - date(2026, 1, 5)).days + 1  # the history is shorter than a year
+    days = (AS_OF - date(2026, 5, 31)).days + 1  # from the third deposit, the first that qualified
     assert a.in_rate == pytest.approx(4 / days)
     assert a.out_rate == 0.0 and a.out_sizes == ()
 
@@ -242,3 +242,32 @@ def test_keeps_coming_is_the_default_and_none_gives_the_old_forecaster(
     assert default is not None and on is not None and default.simulation == on.simulation
     off = build_forecast(persona_db, "acct", "weekday", origin, None, 30, 60, keeps=None)
     assert off is not None and off.arrivals.members == frozenset() and off.arrivals.in_rate == 0
+
+
+# --- The rate divides by the days a deposit could have qualified (2026-10-12, review fix) ---
+
+
+def _stream(n: int, gap: int = 30, history_days: int = 180) -> list[Txn]:
+    """Small background rows over `history_days` days ending on AS_OF, and `n` big family deposits
+    `gap` days apart from the first day."""
+    first = AS_OF - timedelta(days=history_days - 1)
+    rows = [Txn(100 + i, first + timedelta(days=4 * i), -2000, "pos purchase", CARD.format("Shop"))
+            for i in range(history_days // 4)]  # fmt: skip
+    rows += [Txn(300 + i, first + timedelta(days=7 * i), 3000, "deposit", "Friend ")
+             for i in range(history_days // 7)]  # fmt: skip
+    rows += [Txn(10 + i, first + timedelta(days=gap * i), 300000, "credit memo", "1/Family ")
+             for i in range(n)]  # fmt: skip
+    return rows
+
+
+def test_the_rate_of_a_stream_that_comes_every_30_days_is_about_one_in_30() -> None:
+    rows = _stream(6)  # 180 days, 6 deposits 30 days apart: the 3rd to the 6th qualify
+    a = keeps_coming_arrivals(rows, flow_types(rows), set(), AS_OF, ON)
+    assert len(a.in_sizes) == 4
+    assert a.in_rate == pytest.approx(1 / 30, rel=0.02)  # the old rate was 4 / 180 = 1 / 45
+
+
+def test_a_stream_with_only_one_qualifying_deposit_keeps_the_observed_days() -> None:
+    rows = _stream(3)  # only the 3rd deposit qualifies: one arrival says nothing of a gap
+    a = keeps_coming_arrivals(rows, flow_types(rows), set(), AS_OF, ON)
+    assert len(a.in_sizes) == 1 and a.in_rate == pytest.approx(1 / 180)

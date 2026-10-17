@@ -31,7 +31,13 @@ from pathlib import Path
 from typing import Any
 
 from lookahead.db import connect
-from lookahead.forecast.path import DEFAULT_OPTIONS, ForecastOptions, build_forecast
+from lookahead.forecast.path import (
+    DEFAULT_OPTIONS,
+    ForecastOptions,
+    build_forecast,
+    forecaster_settings,
+    settings_differences,
+)
 from lookahead.forecast.spending import DEFAULT_KEEPS, KeepsComing
 from lookahead.forecast.start import forecast_start
 from lookahead.generator.archetypes import (
@@ -284,11 +290,18 @@ def _saved_origins(path: Path) -> set[str]:
 
 
 def _check_settings(meta_path: Path, settings: dict[str, Any]) -> None:
-    """Results made with other settings must not be mixed with new ones."""
+    """Results made with other settings must not be mixed with new ones: a resume whose settings
+    differ (a forecaster default changed, other futures, another seed) is refused and says what
+    differs."""
     if meta_path.exists():
         saved = json.loads(meta_path.read_text(encoding="utf-8"))
         if saved != settings:
-            raise ValueError(f"{meta_path.name} was made with different settings: {saved}")
+            raise ValueError(
+                f"{meta_path.name} was made with different settings ("
+                + "; ".join(settings_differences(saved, settings))
+                + "): saved results are never continued with other settings; use a new folder "
+                "(or move the old one away) and run it again"
+            )
     else:
         meta_path.write_text(json.dumps(settings), encoding="utf-8")
 
@@ -307,7 +320,8 @@ def run_persona(
     _check_settings(out_dir / f"{persona_id}.meta.json",
                     {"futures": futures, "seed": seed, "method": METHOD,
                      **version_settings(persona_id),
-                     **({"keeps_coming": keeps_name(keeps)} if keeps else {})})  # fmt: skip
+                     **({"keeps_coming": keeps_name(keeps)} if keeps else {}),
+                     "forecaster": forecaster_settings(DEFAULT_OPTIONS, keeps)})  # fmt: skip
     todo = [d for d in days if d.isoformat() not in _saved_origins(result_path)]
     if not todo:
         return 0
@@ -324,7 +338,8 @@ def run_persona(
         with result_path.open("a", encoding="utf-8") as out:
             for origin in todo:
                 record = run_origin(conn, persona_id, "synthetic", origin, futures,
-                                    persona.archetype, persona.held_out, keeps=keeps)  # fmt: skip
+                                    persona.archetype, persona.held_out, DEFAULT_OPTIONS,
+                                    keeps)  # fmt: skip
                 out.write(json.dumps(record) + "\n")
                 out.flush()
     finally:
@@ -380,6 +395,12 @@ def default_out(long: bool, keeps_coming: str, quick: bool, held_out: bool) -> P
     return base / ("quick" if quick else "full")
 
 
+def current_default_dir(long: bool = False) -> Path:
+    """The folder the default backtest saves to, and that every reader of "the current default's
+    records" (arm 0, the blend's check, the metrics and the threshold study) reads."""
+    return default_out(long, "with-own", False, False)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m eval.backtest", description=__doc__,
@@ -409,12 +430,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     futures = args.futures or (QUICK_FUTURES if args.quick else FUTURES)
     days = quick_origins() if args.quick else origins()
-    work = args.work or out / "work"
     ids = select_personas(args.only, args.held_out, args.quick, long)
+    folders: list[Path] = []
     for n, pid in enumerate(ids, start=1):
-        done = run_persona(pid, out, days, futures, args.seed, work, args.held_out, keeps)
+        # --held-out only allows held-out personas; a development persona still saves with the
+        # development records, never under held-out/
+        target = args.out or default_out(long, args.keeps_coming, args.quick, pid in ALL_HELD_OUT)
+        if target not in folders:
+            folders.append(target)
+        work = args.work or target / "work"
+        done = run_persona(pid, target, days, futures, args.seed, work, args.held_out, keeps)
         print(f"[{n}/{len(ids)}] {pid}: {done} new origins", flush=True)
-    print_summary(out)
+    for folder in folders or [out]:
+        print_summary(folder)
     return 0
 
 

@@ -167,7 +167,7 @@ def test_the_irregular_deposit_counts_add_up(synthetic_db: Path) -> None:
 def test_the_command_prints_summaries_and_no_dates_or_names(
     synthetic_db: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:  # fmt: skip
-    assert main(["--db", str(synthetic_db), "--limit", "12", "--futures", "30"]) == 0
+    assert main(["--db", str(synthetic_db), "--limit", "6", "--futures", "30"]) == 0
     out = capsys.readouterr().out
     assert "account-1" in out and "acct" not in out
     assert "Parts of the 30-day error" in out and "Parts of the lowest-balance error" in out

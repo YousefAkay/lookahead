@@ -413,3 +413,35 @@ def test_a_placed_payment_is_never_also_a_keeps_coming_arrival(tmp_path: Path) -
     rows = {fp: rid for rid, fp in c.execute("SELECT id, fingerprint FROM transactions")}
     assert not {rows[fp] for fp in placed} & on.arrivals.members
     assert on.arrivals.out_sizes == ()
+
+
+def test_calendar_never_places_a_payment_for_a_term_already_paid_this_year() -> None:
+    as_of = date(2026, 8, 25)
+    rows = background(as_of) + [
+        bill(51, date(2025, 9, 2), 320000),
+        bill(52, date(2026, 8, 20), 330000),
+    ]
+    # Sep 2, 2025 + 365 days is Sep 2, 2026, but this year's payment for that term was made on
+    # Aug 20, five days before the forecast date: nothing is placed
+    assert placements(rows, as_of, "calendar") == ([], [])
+
+
+def test_calendar_a_payment_of_this_year_only_takes_the_nearest_term() -> None:
+    as_of = date(2026, 9, 15)
+    rows = background(as_of) + [
+        bill(61, date(2025, 9, 20), 150000), bill(62, date(2025, 10, 10), 150000),  # installments
+        bill(63, date(2026, 9, 1), 150000),  # this year's first installment, paid early
+    ]  # fmt: skip
+    [p], _ = placements(rows, as_of, "calendar")
+    assert p.day == date(2026, 10, 13)  # the first is paid; the second (Sat Oct 10) is to come,
+    # moved past Monday Oct 12 (Thanksgiving)
+
+
+def test_calendar_a_payment_far_from_the_term_does_not_cancel_it() -> None:
+    as_of = date(2026, 8, 25)
+    rows = background(as_of) + [
+        bill(71, date(2025, 9, 2), 320000),
+        bill(72, date(2026, 6, 1), 90000),
+    ]
+    [p], _ = placements(rows, as_of, "calendar")
+    assert p.day == date(2026, 9, 2)  # a payment in June is not the September term
