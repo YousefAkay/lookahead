@@ -226,21 +226,22 @@ def _berka_frames() -> tuple[list[int], dict[int, pd.DataFrame]]:
     return ids, {a: g.reset_index(drop=True) for a, g in t.groupby("account_id")}
 
 
-def quick() -> int:
+def quick(futures: int = QUICK_FUTURES) -> int:
     """A few origins of each kind, timed, to measure the cost of the full run."""
     timings: dict[str, tuple[float, int]] = {}
     for long in (False, True):
         ids = development_ids(long=long)[:2]
         folder = OUT / ("quick-long" if long else "quick-12")
         start = time.time()
-        n = sum(run_persona(pid, long, folder, quick_origins(), QUICK_FUTURES) for pid in ids)
+        n = sum(run_persona(pid, long, folder, quick_origins(), futures) for pid in ids)
         timings["long" if long else "12"] = (time.time() - start, n)
     ids, frames = _berka_frames()
     start = time.time()
-    n = sum(run_account((a, frames[a], BERKA_OUT / "quick", QUICK_FUTURES, True)) for a in ids[:3])
+    n = sum(run_account((a, frames[a], BERKA_OUT / "quick", futures, True)) for a in ids[:3])
     timings["berka"] = (time.time() - start, n)
     for k, (sec, n) in timings.items():
-        print(f"quick {k}: {n} origins in {sec:.0f} s ({sec / max(n, 1):.2f} s each, 100 futures)")
+        each = sec / max(n, 1)
+        print(f"quick {k}: {n} origins in {sec:.0f} s ({each:.2f} s each, {futures} futures)")
     return 0
 
 
@@ -680,9 +681,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=["quick", "run", "report"])
     parser.add_argument("--set", choices=["12", "long", "berka"], default="12")
     parser.add_argument("--jobs", type=int, default=2)
+    parser.add_argument("--futures", type=int, default=QUICK_FUTURES, help="for quick only")
     args = parser.parse_args(argv)
     if args.command == "quick":
-        return quick()
+        return quick(args.futures)
     if args.command == "report":
         text = report()
         REPORT.write_text(text, encoding="utf-8")
