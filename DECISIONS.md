@@ -1651,6 +1651,15 @@ The Time Machine's what-if box opens `data/demo/timemachine/<persona>.db` (`scen
 4. `python -m lookahead.demo reset` rebuilds only `data/synthetic/demo.db`, which git already ignores; it needs no change.
 Why this order: the snapshots depend on the forecaster's default, so remaking them before the draw is decided would mean doing it twice.
 
+### 2026-10-17: The renewal draw stays off by default (decided by the rule of 2026-10-16)
+I ran the comparison on the merged code: the 20 development personas of the 12-month set and of the 24-month set, 40 weekly origins, 500 futures, arms 5 (default), 6 (the draw), 7 and 8 (4 and 8 gaps). Arm 5 equals arm 0 at all 1,600 records. The report, synthetic numbers only, is `docs/results/renewal_2026-10-12.md`. The rule I fixed before the run decided it:
+- **Passed:** the draw changes nothing where it should not (condition 1), no archetype is worse by more than 1 percent (condition 2; the 24-month ITIGHT bias is up 0.97 percent, close to the limit), and the arms with 4 and 8 gaps move the same way (condition 5).
+- **Failed condition 3, no meaningful gain.** Only ITIGHT changes at all; the other seven archetypes are identical to the digit. ITIGHT's 30-day error is down 0.16 percent (12-month) and 1.36 percent (24-month), its lowest-balance bias is slightly worse in both, and on the 12-month set the draw is used at only 11 of 58 origins.
+- **Failed condition 4, the band.** The draw narrows ITIGHT's 80 percent band, which is already too narrow: coverage at 30 days falls 7.0 points (12-month) and 6.2 points (24-month), against a limit of 2.
+- **One persona drives most of the gain:** on the 24-month set v2L-ITIGHT-02 improves by 11 percent on the error; the other two ITIGHT personas move by well under 1 percent.
+- Condition 6 (my account) was not run: conditions 3 and 4 already decided it, so it stays off and my account is not used to argue for it.
+The code stays behind `ForecastOptions(renewal=True)`, off by default, and the tests stay. The draw is not tuned or retried on these results. The prediction of 2026-10-16 (only the family-transfer personas change; condition 3 may fail) held.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
