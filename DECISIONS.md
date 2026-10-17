@@ -1622,6 +1622,27 @@ Done on the branch `review-fixes-2026-10-11`, one commit per item, each with a t
 - **Not part of this run, still to do:** the proposal's direct check of the timing (the share of futures with an arrival in the next 7 days by the days since the last deposit, constant rate against draw, from the model's own futures). It is a check, not a drop criterion.
 - **For my account (development data, not an evaluation):** the backtest with the switch on against the current default in its own folder, the metrics with my buffer and at $0, and `eval.diagnose_real` with it on, run by me; counts of origins on the draw and on the fallback. If it passes, it becomes the default only on my approval, and adaptive blending is decided after it (design recorded above).
 
+### 2026-10-16: The renewal draw: the rule for making it the default, fixed before the comparison is run
+Proposed, to be confirmed by me before any run. It adds an adopt rule to the drop rule of 2026-10-12 above; the drop rule stays.
+
+**What is compared.** Arm 6 (the draw, with its fixed minimum of 6 past gaps) against arm 5 (the default, run again on the merged code). Arm 5 must equal arm 0 record for record, else something is wrong and nothing is read. Arms 7 and 8 (4 and 8 gaps) are a sensitivity check only; the minimum is not tuned. Sets: the 20 development personas of the 12-month set and of the 24-month (long) set, never pooled, then my account. Same seed, 40 weekly origins, 500 futures. The held-out personas are not touched.
+
+**Metrics.** Main: the 30-day error and the absolute lowest-balance bias, per archetype (8 archetypes, equal weight; n beside every number). Also: the coverage of the 80 percent band at 30 days, the band's width, the Brier score of the shortfall chance, and the alert numbers at the provisional threshold (these last two are information, not gates).
+
+**It becomes the default only if all of these hold:**
+1. **Unchanged where it should be.** A persona with no recurring-size deposits, or whose origins all use the fallback, is identical to arm 5 to the digit. If not, it is a bug and I look for it before reading anything else.
+2. **No archetype hurt.** On each set, no archetype is worse than arm 5 by more than 1 percent on the 30-day error or on the absolute lowest-balance bias. (Stricter than the drop rule's 5 of 8.) No single persona is worse by more than 5 percent on either; any that is gets written up.
+3. **A real gain.** On each set, at least 2 archetypes are better by more than 1 percent on one of the two main measures, and the average over the 8 archetypes is better on both. A gain in an archetype where fewer than half of the origins used the draw does not count (it is noise or something else).
+4. **Honest band.** In no archetype is the 80 percent coverage further from 80 than arm 5's by more than 2 points, and the band is not wider than arm 5's by more than 10 percent.
+5. **Not fragile.** If arm 7 or arm 8 flips the direction of the average gain on a main measure on either set, the gain depends on the minimum and the draw stays off.
+6. **My account can only veto.** The aggregate 30-day error, the absolute lowest-balance bias and the coverage must not be worse than the default's by more than 1 percent (coverage: by more than 2 points). It is one account, development data and a case study, so a good result there never decides anything alone; the counts of origins on the draw and on the fallback are shown with it.
+
+**It stays off if** any of 1 to 6 fails, or the result is a tie. Simpler wins ties. Anything unexpected (a persona that changes without recurring-size deposits, a wider band, fewer than half of the origins of a counted archetype on the draw) is written up and not tuned away.
+
+**Prediction.** Only the family-transfer personas (uniform gaps) gain, by a few percent; the rest are identical. If so, condition 3 may fail on one set, and the draw stays off. That is an acceptable result.
+
+**After the rule.** Whatever it says, the adaptive blend and the threshold are decided after, on the result. The final held-out test is run once, with the choices made before it.
+
 ## Tests
 
 ### 2026-10-01: Slow marker
