@@ -244,6 +244,8 @@ KEEPS_EARLIER = 2  # earlier rows of similar size a row needs to be "recurring-s
 KEEPS_SIMILAR = (0.5, 2.0)  # similar: between half and double its size
 KEEPS_DAYS = 365  # the earlier rows are looked for in the 365 days before, and the rate over a year
 KEEPS_PAYMENTS_PER_YEAR = 6  # payments come back as arrivals only when there are this many
+RENEWAL_MIN_GAPS = 6  # the renewal draw needs this many past gaps (7 deposit days) ...
+RENEWAL_MIN_LONGER = 2  # ... and this many longer than the days already waited
 _OWN_ACCOUNT_IN = "own-account transfer"  # the reason of a transfer in from my own account
 
 
@@ -267,6 +269,13 @@ class Arrivals:
     out_sizes: tuple[int, ...] = ()
     members: frozenset[int] = frozenset()  # the rows that became arrivals (not set aside any more)
     payments_below_floor: int = 0  # recurring-size payments left set aside: under 6 a year
+    # The renewal draw (an option, off by default; DECISIONS.md, 2026-10-12): the days between
+    # the deposit days of the last 365 days, and the last deposit day. Empty when the option is
+    # off or too few gaps: the constant rate then. `renewal` says which: "" (off, or no deposits),
+    # "draw" or "fallback".
+    in_gaps: tuple[int, ...] = ()
+    in_last: date | None = None
+    renewal: str = ""
 
 
 def _similar_earlier(row: Row, others: Sequence[tuple[date, int]]) -> int:
@@ -291,7 +300,7 @@ def _qualifying_days(
 
 def keeps_coming_arrivals(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date,
-    options: KeepsComing, exclude: Collection[int] = frozenset(),
+    options: KeepsComing, exclude: Collection[int] = frozenset(), renewal: bool = False,
 ) -> Arrivals:  # fmt: skip
     """The big rows of the last 365 days that keep coming: at least the big cutoff of `as_of`, in
     no series, not part of a pass-through, with 2 or more earlier rows of similar size of the
@@ -299,7 +308,8 @@ def keeps_coming_arrivals(
     from. Payments only when there are at least 6 a year. Only rows posted by `as_of` are read.
     Rows in `exclude` (the evidence of payments placed on a date instead, and the lumps of a
     sender whose proposal is confirmed or turned down) never become arrivals, so nothing is
-    drawn twice."""
+    drawn twice. `renewal` adds the gaps for the renewal draw (6 or more past gaps, 2 or more of
+    them longer than the days since the last deposit), or says it fell back to the constant rate."""
     if not txns:
         return Arrivals()
     out_rows = [r for r in _counted(txns, flows, series_rows, as_of) if r[2] > 0]
@@ -337,13 +347,35 @@ def keeps_coming_arrivals(
     below = 0
     if len(members_out) < KEEPS_PAYMENTS_PER_YEAR:
         below, members_out = len(members_out), []
+    gaps: tuple[int, ...] = ()
+    last: date | None = None
+    state = ""
+    if renewal and members_in:
+        gaps, last, state = renewal_gaps([r[0].posted_date for r in members_in], as_of)
     return Arrivals(
         len(members_in) / _qualifying_days(members_in, as_of, observed),
         tuple(r[2] for r in members_in),
         len(members_out) / _qualifying_days(members_out, as_of, observed),
         tuple(r[2] for r in members_out),
-        frozenset(r[0].row_id for r in members_in + members_out), below,
+        frozenset(r[0].row_id for r in members_in + members_out), below, gaps, last, state,
     )  # fmt: skip
+
+
+def renewal_gaps(
+    posted: Sequence[date], as_of: date
+) -> tuple[tuple[int, ...], date, str]:  # fmt: skip
+    """The gaps of the renewal draw from the posting days of the recurring-size deposits, all
+    posted by `as_of`: the days between consecutive distinct days (several deposits on one day are
+    one arrival day). With fewer than 6 gaps, or fewer than 2 longer than the days since the last
+    deposit day, the draw has nothing to draw from and it is the constant rate ("fallback", no
+    gaps)."""
+    days = sorted(set(posted))
+    gaps = tuple((b - a).days for a, b in zip(days, days[1:], strict=False))
+    waited = (as_of - days[-1]).days
+    longer = sum(1 for g in gaps if g > waited)
+    if len(gaps) < RENEWAL_MIN_GAPS or longer < RENEWAL_MIN_LONGER:
+        return (), days[-1], "fallback"
+    return gaps, days[-1], "draw"
 
 
 LUMP_LOOKBACK_DAYS = 365  # lump deposits are looked for in the last year

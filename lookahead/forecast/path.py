@@ -92,6 +92,10 @@ class ForecastOptions:
     # series of card purchases is not placed and its rows go back to the everyday stream.
     # None: the whole fix is off.
     recurring_fix: RecurringFix | None = DEFAULT_FIX
+    # The renewal draw (DECISIONS.md, 2026-10-12): the keeps-coming deposits arrive after gaps
+    # drawn from the account's own past gaps, given the days since the last one, instead of at a
+    # constant daily chance. Off by default: False is the old forecaster exactly.
+    renewal: bool = False
 
 
 DEFAULT_OPTIONS = ForecastOptions()
@@ -269,7 +273,7 @@ def build_forecast(
         placed = {row_of[fp] for p in proposed.placements for fp in p.evidence if fp in row_of}
         arrivals = keeps_coming_arrivals(
             txns, flows, in_series, start.data_last_updated, keeps,
-            exclude=placed,
+            exclude=placed, renewal=options.renewal,
         )  # a placed payment is never drawn too  # fmt: skip
     simulation = inputs = None
     if futures > 0:
@@ -284,6 +288,7 @@ def build_forecast(
             safety_buffer_cents(conn), fee_rate, futures, 0,
             arrivals_in_rate=arrivals.in_rate, arrivals_in_sizes=arrivals.in_sizes,
             arrivals_out_rate=arrivals.out_rate, arrivals_out_sizes=arrivals.out_sizes,
+            arrivals_in_gaps=arrivals.in_gaps, arrivals_in_last=arrivals.in_last,
             lump_rate=rate, lump_sizes=sizes, item_windows=proposed.windows or {},
         )  # fmt: skip
         simulation = run(inputs, keep_paths=keep_paths)
