@@ -11,16 +11,17 @@ compared with what happened.
 
 Only development accounts are ever read into a run (`assert_development_only`). The adapter turns
 each account's rows into a database the forecaster reads like any other: koruna become cents at
-5 cents per koruna (so the forecaster's absolute amounts, such as big money from $500, mean what
-they were written for), descriptions come from the bank's codes, the balance after each row is
-the running total, and the dip line "fell below one month's outflow" is fixed once per account
-from the year before its first origin.
+5 cents per koruna (a scaling choice, not an exchange rate: it puts the amounts in the range the
+forecaster's absolute amounts, such as big money from $500, were written for), descriptions come
+from the bank's codes, the balance after each row is the running total, and the dip line "fell
+below one month's outflow" is fixed once per account from the year before its first origin.
 """
 
 import argparse
 import json
 import sqlite3
 import sys
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -33,13 +34,14 @@ from eval.berka_gate import closing_balances, load
 from eval.berka_split import assert_development_only, development_accounts
 from lookahead.db import connect
 from lookahead.forecast.path import DEFAULT_OPTIONS, build_forecast
+from lookahead.forecast.spending import WEEKDAY_WEEKS
 from lookahead.ingest.scotiabank import ParsedRow
 from lookahead.ingest.store import store_exports
 from lookahead.settings import set_safety_buffer_cents
 
 DATA = Path("data/berka")
 REPORT = Path("docs/results/berka_sanity_2026-10-17.md")
-CENTS_PER_KORUNA = 5  # about 20 koruna to the Canadian dollar
+CENTS_PER_KORUNA = 5  # a scaling choice so amounts match the forecaster's, not an exchange rate
 N_ORIGINS = 40
 STEP_DAYS = 7
 HORIZON = 30
@@ -49,6 +51,8 @@ DIP_YEAR = 365
 FEE_CODES = ("SLUZBY", "SANKC. UROK")
 EVERYDAY_OPERATIONS = ("VYBER", "VYBER KARTOU")
 QUANTILES = (0.0, 0.10, 0.25, 0.50, 0.75, 0.90, 1.0)
+SMALL_SHARE = 0.05  # a zero everyday estimate at more than this share of origins is flagged
+SET_ASIDE = ("Large payment", "Pass-through")
 
 
 # --- The adapter ---
@@ -184,6 +188,82 @@ def run_account(args: tuple[int, pd.DataFrame, Path]) -> dict[str, Any]:
     return result
 
 
+def zero_everyday_reason(conn: sqlite3.Connection, account: int, origin: date) -> dict[str, Any]:
+    """Why the everyday spending estimate at `origin` is zero: what the money-out rows of the last
+    8 weeks (the window of the weekday baseline) turned into. Counts only."""
+    f = build_forecast(conn, str(account), "weekday", origin, None, HORIZON, FUTURES,
+                       options=DEFAULT_OPTIONS)  # fmt: skip
+    if f is None:
+        return {"reason": "no forecast"}
+    first = origin - timedelta(days=WEEKDAY_WEEKS * 7 - 1)
+    rows = conn.execute(
+        "SELECT posted_date, amount_cents, description, fingerprint FROM transactions"
+        " WHERE account = ? AND posted_date BETWEEN ? AND ? AND amount_cents < 0",
+        (str(account), first.isoformat(), origin.isoformat()),
+    ).fetchall()  # fmt: skip
+    in_series = {fp for s in f.series if s.status != "rejected" for fp in s.evidence}
+    aside = Counter((e.day, -e.cents) for e in f.big_events if e.group in SET_ASIDE and e.cents < 0)
+    return classify_rows(rows, in_series, aside)
+
+
+def classify_rows(
+    rows: list[tuple[str, int, str, str]], in_series: set[str], aside: Counter[tuple[date, int]]
+) -> dict[str, Any]:
+    """Sort the money-out rows of the window (day, cents, description, fingerprint) into bank
+    fees, rows in a recurring series, rows set aside as big one-time money or a pass-through, and
+    the rest (counted as everyday spending), and give the reason an estimate of zero follows."""
+    aside = Counter(aside)
+    n: Counter[str] = Counter()
+    for day, cents, description, fingerprint in rows:
+        key = (date.fromisoformat(day), -cents)
+        if description == "service charge":
+            n["fee"] += 1
+        elif fingerprint in in_series:
+            n["series"] += 1
+        elif aside[key] > 0:
+            aside[key] -= 1
+            n["set_aside"] += 1
+        else:
+            n["counted"] += 1
+    if not rows:
+        reason = "no money-out rows in the last 8 weeks"
+    elif n["counted"]:
+        reason = "rows were counted but net to zero or less (returns)"
+    elif n["set_aside"]:
+        reason = "every money-out row was set aside as big one-time money or a pass-through"
+    elif n["series"]:
+        reason = "every money-out row belongs to a recurring series"
+    else:
+        reason = "only bank fees"
+    return {
+        "reason": reason, "rows_8w": len(rows),
+        **{k: n[k] for k in ("fee", "series", "set_aside", "counted")},
+    }  # fmt: skip
+
+
+def diagnose_zero(args: tuple[int, pd.DataFrame, Path]) -> dict[str, Any]:
+    """Add the reasons for the zero everyday estimates of one account to its saved result (once)."""
+    account, frame, out_dir = args
+    assert_development_only([account])
+    path = out_dir / f"{account}.json"
+    result = json.loads(path.read_text(encoding="utf-8"))
+    zeros = [o["origin"] for o in result["origins"] if o["ok"] and o["everyday"] == 0]
+    if not zeros or "zero_reasons" in result:
+        return result
+    db = out_dir / "work" / f"{account}-zero.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = build_db(frame, account, db, result["line_cents"])
+    try:
+        result["zero_reasons"] = {
+            o: zero_everyday_reason(conn, account, date.fromisoformat(o)) for o in zeros
+        }
+    finally:
+        conn.close()
+        db.unlink(missing_ok=True)
+    path.write_text(json.dumps(result), encoding="utf-8")
+    return result
+
+
 def drift_koruna(frame: pd.DataFrame, closes: pd.DataFrame) -> float:
     """The largest distance, over the account's days, between the adapter's closing balance (the
     running total) and the file's own closing balance, in koruna."""
@@ -198,6 +278,42 @@ def drift_koruna(frame: pd.DataFrame, closes: pd.DataFrame) -> float:
 def quantile_line(values: list[float], fmt: str = "{:.1f}") -> str:
     q = np.quantile(values, QUANTILES) if values else []
     return " / ".join(fmt.format(x) for x in q) if values else "-"
+
+
+def zero_section(results: list[dict[str, Any]], ok: list[dict[str, Any]]) -> list[str]:
+    """The origins whose everyday spending estimate is zero, and why (counts only)."""
+    zero = [o for o in ok if o["everyday"] == 0]
+    share = len(zero) / len(ok) if ok else 0.0
+    with_zero = [r for r in results if any(o["ok"] and o["everyday"] == 0 for o in r["origins"])]
+    reasons: Counter[str] = Counter()
+    for r in with_zero:
+        for info in r.get("zero_reasons", {}).values():
+            reasons[info["reason"]] += 1
+    explained = sum(reasons.values())
+    verdict = "FLAGGED" if share > SMALL_SHARE else "small"
+    mostly_zero = sum(
+        sum(o["ok"] and o["everyday"] == 0 for o in r["origins"]) > N_ORIGINS / 2 for r in results
+    )
+    lines = [
+        "### Origins whose everyday spending estimate is zero", "",
+        f"- {len(zero):,} of {len(ok):,} origins ({share:.1%}), in {len(with_zero)} of "
+        f"{len(results)} accounts. A share above {SMALL_SHARE:.0%} is flagged; this one is "
+        f"**{verdict}**.",
+        f"- Accounts where more than half of the origins are zero: {mostly_zero}.",
+    ]  # fmt: skip
+    if explained < len(zero):
+        lines.append(f"- Reasons not worked out yet for {len(zero) - explained} of them.")
+    lines += ["", "| why the estimate is zero | origins |", "|---|---|"]
+    lines += [f"| {k} | {v} |" for k, v in reasons.most_common()]
+    rows = [i["rows_8w"] for r in with_zero for i in r.get("zero_reasons", {}).values()]
+    spread = quantile_line([float(x) for x in rows], "{:.0f}")
+    lines += [
+        "",
+        "Money-out rows in the 8 weeks before those origins (min / 10% / 25% / median / 75% / "
+        f"90% / max): {spread}.",
+        "",
+    ]
+    return lines
 
 
 def summarize(results: list[dict[str, Any]], drift: list[float], group: str) -> list[str]:
@@ -247,9 +363,8 @@ def summarize(results: list[dict[str, Any]], drift: list[float], group: str) -> 
         f"{len(ok):,} |",
         f"| origins with a big deposit or payment set aside | "
         f"{sum(o['big_events'] > 0 for o in ok):,} of {len(ok):,} |",
-        f"| origins whose everyday spending estimate is zero | "
-        f"{sum(o['everyday'] == 0 for o in ok):,} of {len(ok):,} |",
         "",
+        *zero_section(results, ok),
         "The adapter's closing balance (the running total) against the file's own closing balance, "
         "the largest distance over each account's days, in koruna (min / 10% / 25% / median / "
         f"75% / 90% / max over accounts): {quantile_line(drift)}.",
@@ -270,6 +385,8 @@ def sanity(group: str, limit: int | None, jobs: int, directory: Path) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     with ProcessPoolExecutor(max_workers=jobs) as pool:
         results = list(pool.map(run_account, [(a, frames[a], out_dir) for a in ids]))
+    with ProcessPoolExecutor(max_workers=jobs) as pool:
+        results = list(pool.map(diagnose_zero, [(a, frames[a], out_dir) for a in ids]))
     lines = summarize(results, drift, group)
     print("\n".join(lines))
     if limit is None:

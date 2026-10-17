@@ -116,3 +116,64 @@ def test_a_held_out_account_cannot_be_run(tmp_path: Path) -> None:
     held = held_out_accounts("primary")[0]
     with pytest.raises(ValueError):
         run_account((held, made_up_account(100, held), tmp_path))
+
+
+# --- Why an everyday estimate can be zero ---
+
+
+def withdrawals_account(amounts_by_day: dict[int, float], days: int = 500) -> pd.DataFrame:
+    """The made-up account without its random withdrawals, and these cash withdrawals instead."""
+    f = made_up_account(days)
+    f = f[~((f["operation"] == "VYBER") & (f["k_symbol"] != "SLUZBY"))].copy()
+    extra = []
+    for offset, amount in amounts_by_day.items():
+        extra.append({
+            "account_id": 99001, "day": pd.Timestamp(START + timedelta(days=offset)),
+            "type": "VYDAJ", "operation": "VYBER", "k_symbol": None, "amount": amount,
+            "signed": -amount, "bank": None, "account": np.nan,
+        })  # fmt: skip
+    f = pd.concat([f, pd.DataFrame(extra)]).sort_values("day", kind="stable")
+    f = f.reset_index(drop=True)
+    f["balance"] = f["signed"].cumsum() + 500000.0
+    f["trans_id"] = range(1, len(f) + 1)
+    return f
+
+
+def reason_at(frame: pd.DataFrame, origin: date, tmp_path: Path) -> dict:
+    conn = berka.build_db(frame, 99001, tmp_path / "z.db", 100000)
+    try:
+        return berka.zero_everyday_reason(conn, 99001, origin)
+    finally:
+        conn.close()
+
+
+def test_zero_everyday_with_no_money_out_rows_in_eight_weeks(tmp_path: Path) -> None:
+    # small withdrawals all through the account's first 300 days, then none for 200 days
+    frame = withdrawals_account({d: 800.0 for d in range(5, 300, 6)}, days=500)
+    origin = START + timedelta(days=490)
+    info = reason_at(frame, origin, tmp_path)
+    # the fee and the household payment are money out; what matters is that nothing is counted
+    assert info["counted"] == 0 and info["rows_8w"] == info["fee"] + info["series"]
+    assert info["reason"] in {
+        "every money-out row belongs to a recurring series", "only bank fees",
+        "no money-out rows in the last 8 weeks",
+    }  # fmt: skip
+
+
+def test_the_reasons_for_a_zero_estimate_are_told_apart() -> None:
+    from collections import Counter
+
+    row = ("1994-05-02", -150000, "abm withdrawal", "fp1")
+    fee = ("1994-05-03", -73, "service charge", "fp2")
+    paid = ("1994-05-04", -18310, "bill payment", "fp3")
+    aside = Counter({(date(1994, 5, 2), 150000): 1})
+    assert berka.classify_rows([], set(), Counter())["reason"].startswith("no money-out rows")
+    big = berka.classify_rows([row, fee], set(), aside)
+    assert big["set_aside"] == 1 and big["fee"] == 1 and big["reason"].startswith("every money-out")
+    assert "big one-time money" in big["reason"]
+    inside = berka.classify_rows([paid, fee], {"fp3"}, Counter())
+    assert inside["reason"] == "every money-out row belongs to a recurring series"
+    assert berka.classify_rows([fee], set(), Counter())["reason"] == "only bank fees"
+    counted = berka.classify_rows([row, paid], {"fp3"}, Counter())
+    assert counted["counted"] == 1 and "counted" in counted["reason"]
+    assert aside[(date(1994, 5, 2), 150000)] == 1  # the caller's counter is not used up
