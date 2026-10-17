@@ -289,12 +289,22 @@ def _saved_origins(path: Path) -> set[str]:
             if line.strip()}  # fmt: skip
 
 
+def _saved_settings(meta_path: Path) -> dict[str, Any] | None:
+    """The settings a file holds, or None if it is missing, blank or unreadable (a run stopped
+    while writing it can leave it empty or filled with zero bytes)."""
+    try:
+        saved = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # ValueError covers bad JSON and bad UTF-8
+        return None
+    return saved if isinstance(saved, dict) else None
+
+
 def _check_settings(meta_path: Path, settings: dict[str, Any]) -> None:
     """Results made with other settings must not be mixed with new ones: a resume whose settings
     differ (a forecaster default changed, other futures, another seed) is refused and says what
-    differs."""
-    if meta_path.exists():
-        saved = json.loads(meta_path.read_text(encoding="utf-8"))
+    differs. A blank or unreadable file counts as missing and is written again."""
+    saved = _saved_settings(meta_path)
+    if saved is not None:
         if saved != settings:
             raise ValueError(
                 f"{meta_path.name} was made with different settings ("

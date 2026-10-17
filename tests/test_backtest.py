@@ -473,3 +473,20 @@ def test_held_out_with_a_development_persona_saves_in_the_development_folder(
     held = tmp_path / "bt" / "held-out" / "keeps-coming-with-own" / "full"
     assert (held / "v2-SAL-04.jsonl").exists()
     assert not (held / f"{PID}.jsonl").exists()
+
+
+# --- A settings file left half-written by a stopped run (2026-10-17) ---
+
+
+@pytest.mark.parametrize("content", [b"", b"\x00" * 322, b'{"futures": 5', b"[1, 2]", b"\xff\xfe"])
+def test_a_blank_or_unreadable_settings_file_counts_as_missing(
+    tmp_path: Path, content: bytes
+) -> None:  # fmt: skip
+    meta = tmp_path / "p.meta.json"
+    meta.write_bytes(content)
+    settings = {"futures": 500, "seed": 42}
+    backtest._check_settings(meta, settings)  # no crash: written again from the settings
+    assert json.loads(meta.read_text(encoding="utf-8")) == settings
+    backtest._check_settings(meta, settings)  # and it now guards a resume as usual
+    with pytest.raises(ValueError, match="different settings"):
+        backtest._check_settings(meta, {"futures": 100, "seed": 42})
