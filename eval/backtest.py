@@ -33,6 +33,7 @@ from typing import Any
 from lookahead.db import connect
 from lookahead.forecast.path import (
     DEFAULT_OPTIONS,
+    Forecast,
     ForecastOptions,
     build_forecast,
     forecaster_settings,
@@ -205,6 +206,18 @@ def run_origin_with_paths(
     keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> tuple[dict[str, Any], tuple[tuple[int, ...], ...]]:  # fmt: skip
     """`run_origin`, and every future's daily balance (for the calibration step)."""
+    record, paths, _ = run_origin_full(conn, persona_id, dataset, origin, futures, archetype,
+                                       held_out, keep_paths, options, keeps)  # fmt: skip
+    return record, paths
+
+
+def run_origin_full(
+    conn: sqlite3.Connection, persona_id: str, dataset: str, origin: date, futures: int,
+    archetype: str | None = None, held_out: bool | None = None, keep_paths: bool = True,
+    options: ForecastOptions = DEFAULT_OPTIONS,
+    keeps: KeepsComing | None = DEFAULT_KEEPS,
+) -> tuple[dict[str, Any], tuple[tuple[int, ...], ...], Forecast]:  # fmt: skip
+    """`run_origin_with_paths`, and the forecast itself (its items, series and set-aside rows)."""
     if dataset == "synthetic" and archetype is None:
         persona = build_persona(persona_id)
         archetype, held_out = persona.archetype, persona.held_out
@@ -244,7 +257,7 @@ def run_origin_with_paths(
         "realized": realized, "realized_lowest_cents": min(realized),
         "realized_first_below_buffer": below[0].isoformat() if below else None,
         "realized_below_zero": min(realized) < 0,
-    }, sim.paths  # fmt: skip
+    }, sim.paths, forecast  # fmt: skip
 
 
 def version_settings(persona_id: str = "") -> dict[str, int | str]:

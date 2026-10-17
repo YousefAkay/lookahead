@@ -31,13 +31,12 @@ from eval.berka_gate import load
 from eval.berka_split import assert_development_only as berka_development_only
 from eval.berka_split import development_accounts
 from eval.personas_db import persona_db
-from lookahead.forecast.path import DEFAULT_OPTIONS, build_forecast
+from lookahead.forecast.path import DEFAULT_OPTIONS, Forecast, build_forecast
 from lookahead.generator.archetypes import assert_development_only, development_ids
-from lookahead.recurring_store import series_as_of
 
 WINDOW_DAYS = 91
 MIN_HISTORY_DAYS = 91
-MIN_ROWS = 20
+MIN_ROWS = 8  # was 20; changed on 2026-10-17 (DECISIONS.md) after counting, before scoring
 CANDIDATE_MINIMA = (5, 8, 10, 12, 15, 20)  # shares at other row minima, for the proposal only
 SET_ASIDE = ("Large payment", "Large deposit", "Pass-through")
 OUT = DATA / "runs" / "anchor-history"
@@ -46,6 +45,15 @@ REPORT = Path("docs/results/anchor_history_2026-10-17.md")
 
 def unscheduled_count(conn: sqlite3.Connection, account: str, origin: date) -> dict[str, int]:
     """History in days before the origin and the unscheduled rows of the last 91 days."""
+    f = build_forecast(conn, account, "weekday", origin, None, 30, 10, options=DEFAULT_OPTIONS)
+    return count_from_forecast(conn, account, origin, f)
+
+
+def count_from_forecast(
+    conn: sqlite3.Connection, account: str, origin: date, f: Forecast | None
+) -> dict[str, int]:
+    """The same counts from a forecast already made at `origin`: its series and the rows it sets
+    aside. `unscheduled_cents` is the sum of the unscheduled rows (signed cents)."""
     first = conn.execute(
         "SELECT MIN(posted_date) FROM transactions WHERE account = ? AND posted_date <= ?",
         (account, origin.isoformat()),
@@ -57,11 +65,10 @@ def unscheduled_count(conn: sqlite3.Connection, account: str, origin: date) -> d
         " AND posted_date BETWEEN ? AND ?",
         (account, start.isoformat(), origin.isoformat()),
     ).fetchall()
-    series, _ = series_as_of(conn, account, origin)
+    series = f.series if f else ()
     in_series = {fp for s in series if s.status != "rejected" for fp in s.evidence}
-    f = build_forecast(conn, account, "weekday", origin, None, 30, 10, options=DEFAULT_OPTIONS)
     aside = Counter((e.day, e.cents) for e in (f.big_events if f else ()) if e.group in SET_ASIDE)
-    n_series = n_aside = n_unscheduled = 0
+    n_series = n_aside = n_unscheduled = total = 0
     for day, cents, fingerprint in rows:
         key = (date.fromisoformat(day), cents)
         if fingerprint in in_series:
@@ -71,8 +78,10 @@ def unscheduled_count(conn: sqlite3.Connection, account: str, origin: date) -> d
             n_aside += 1
         else:
             n_unscheduled += 1
+            total += cents
     return {"history_days": history, "rows": len(rows), "series": n_series,
-            "set_aside": n_aside, "unscheduled": n_unscheduled}  # fmt: skip
+            "set_aside": n_aside, "unscheduled": n_unscheduled,
+            "unscheduled_cents": total}  # fmt: skip
 
 
 def berka_account(args: tuple[int, pd.DataFrame]) -> dict[str, Any]:

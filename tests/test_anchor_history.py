@@ -33,10 +33,12 @@ def test_a_short_history_does_not_qualify(tmp_path: Path) -> None:
 
 
 def test_both_conditions_are_needed() -> None:
-    assert ah.qualifies({"history_days": 91, "unscheduled": 20})
+    assert ah.MIN_ROWS == 8  # changed from 20 on 2026-10-17, from counts alone
+    assert ah.qualifies({"history_days": 91, "unscheduled": 8})
     assert not ah.qualifies({"history_days": 90, "unscheduled": 99})
-    assert not ah.qualifies({"history_days": 400, "unscheduled": 19})
+    assert not ah.qualifies({"history_days": 400, "unscheduled": 7})
     assert ah.qualifies({"history_days": 400, "unscheduled": 19}, 15)
+    assert not ah.qualifies({"history_days": 400, "unscheduled": 19}, 20)
 
 
 def test_the_window_is_the_91_days_ending_on_the_origin(tmp_path: Path) -> None:
