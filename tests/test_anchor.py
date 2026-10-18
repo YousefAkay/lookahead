@@ -105,3 +105,18 @@ def test_the_bootstrap_resamples_accounts_with_a_fixed_seed() -> None:
 def test_held_out_personas_are_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         anchor.run_persona("v2-ITIGHT-04", False, tmp_path, [LATE], 20)
+
+
+def _record(moved: bool, p50_shift: int = 0) -> dict:
+    base = {f: [1, 2] for f in ("p10", "p50", "p90", "point")}
+    base |= {"shortfall_probability": 0.1, "median_lowest_cents": 5}
+    variant = {**{f: [x + p50_shift for x in base[f]] for f in ("p10", "p50", "p90", "point")},
+               "shortfall_probability": 0.1, "median_lowest_cents": 5, "moved": moved}  # fmt: skip
+    return {**base, "variants": {"1": dict(variant), "0.5": dict(variant)}}
+
+
+def test_unmoved_origins_are_counted_and_checked_against_the_default() -> None:
+    same = [_record(False), _record(False), _record(True, 7)]
+    assert anchor.unmoved_differences(same) == (4, 0)  # 2 records x 2 variants, none differ
+    broken = [_record(False, 3)]  # not moved, yet different: a bug the check must see
+    assert anchor.unmoved_differences(broken) == (2, 2)

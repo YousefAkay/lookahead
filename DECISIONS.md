@@ -1758,6 +1758,29 @@ These are readings of the words in the rule above, written down before the full 
 - **Which origins:** the dip measures (error, lowest-balance bias, coverage, Brier, dips caught) leave out origins already below the line (the buffer on the synthetic sets, "one month's outflow" on Berka). CRPS uses every origin.
 - **Condition 10 (my account can only veto)** stays "not judged" until conditions 1 to 9 pass. Only then do I run the anchored forecast on my account.
 
+### 2026-10-17: Experiment 3 (net-flow anchoring) is rejected and stays off
+Report: `docs/results/anchor_2026-10-17.md` (synthetic and Berka development only; my account was not run). Judged one condition at a time with the readings I fixed before the run. **Verdict: it passes condition 1 and fails conditions 2 to 9 as judged; condition 10 is not judged**, because conditions 1 to 9 did not pass and my account is only run after they do. The forecaster's default is unchanged.
+
+**Variants tried: 3** (λ = 1, λ = 0.5, and the minimum history of 8 rows instead of 20).
+
+**Share of origins moved (λ = 1).** 12-month set: 700 of 800 (87.5 percent), in all 20 personas; the rest are short of 91 days of history. 24-month set: 800 of 800. Berka primary: 5,329 of 8,000 (66.6 percent), in 192 of 200 accounts; in the zero-estimate stratum 150 of 512 (29.3 percent), in 46 of its 83 accounts. λ = 0.5 moved the same origins within two.
+
+**What failed.**
+- **Condition 1 passed.** On both synthetic sets the origins it did not move equal arm 5, and the default equals arm 5 at 800 of 800 records. On Berka, 2,671 of the 8,000 origins are below the minimum (91 days of history or 8 unscheduled rows; here all 2,671 have enough days and too few rows, none is short of the days); of the 5,344 (origin, variant) pairs it did not move, 0 differ from the default. This check is now in the report (`unmoved_differences`) and has a test.
+- **2 to 5 failed on both synthetic sets.** Archetypes worse by more than 1 percent: 5 of 8 on the 12-month set, 6 of 8 on the 24-month set; the 24-month averages over archetypes got worse (30-day error +6.1 percent, absolute bias +5.0 percent). IFAM's 30-day error went from $2,292 to $2,771 and its 30-day coverage from 54 to 32 percent. The CRPS and Brier skills against "balance stays" fell on the 24-month set (0.478 to 0.432 and 0.629 to 0.441).
+- **6, 7 and 8 failed on Berka.** The 30-day CRPS changed by -0.2 percent (95 percent interval -0.8 to +0.3; it needed +1 percent with a lower end above 0). Dips caught at the 70 percent precision bar fell from 123 to 107 of 283 episodes. The zero-estimate stratum's 30-day error rose by 1.3 percent, over the 1 percent limit.
+- **9 failed:** λ = 0.5 flips the direction on the 12-month set (both changes are about zero, so that flip says little) and on Berka.
+
+**My prediction, written before the run, against the report (λ = 1; 30-day error and absolute lowest-balance bias, from the archetype tables).**
+- *"It should help DRENT and ITIGHT in both synthetic sets."* Right in one place only: ITIGHT, 24-month, bias $4,455 to $4,060 (but its error rose $7,477 to $9,113). Wrong in the rest. DRENT, 12-month: error $938 to $938, bias $103 to $104 (no change). DRENT, 24-month: $919 to $991 and $107 to $129 (worse on both). ITIGHT, 12-month: error $7,735 to $7,853, bias $4,575 to $4,584 (worse error, flat bias).
+- *"It could hurt SAL and TIGHT."* SAL was not hurt in either set (12-month $334 to $333 and $64 to $62; 24-month $227 to $226 and $7 to $5). TIGHT was not hurt on the 24-month set ($250 to $244, bias $-80 to $-80). On the 12-month set the report lists TIGHT as worse by more than 1 percent on the absolute bias ($65 to $66; error $321 to $322), so the prediction was met only technically, by the rule's own 1 percent measure, and the harm is negligible in dollars.
+- *"On Berka the zero-estimate origins are where it should help most."* Partly. In that stratum the bias went $277 to $265 and the coverage moved towards 80 (30 days 44.2 to 45.5 percent), but the 30-day error rose $382 to $387 (+1.3 percent), against +0.2 percent over all Berka origins ($534 to $535), and the stratum failed its veto.
+- *Not predicted:* the report lists as worse by more than 1 percent, on the 12-month set DHOME, IFAM, ITIGHT, SEM and TIGHT, and on the 24-month set DHOME, DRENT, FREE, IFAM, ITIGHT and SEM; and FREE, whose 30-day error fell in both sets ($1,338 to $1,269 and $617 to $553). On the 24-month set FREE is on the "worse" list only because of the absolute bias ($-59 to $-114), not the error, which fell.
+
+**A lump observation, measured and not tested.** On the 24-month set the shift is large for IFAM and ITIGHT (median $20 and $58 a day) and tiny on the 12-month set ($0.4 and $1.6 a day). Those personas receive lumpy family transfers, and my reading is that the trailing figure counts them as ordinary unscheduled flow and carries them 30 days forward. I have not tested that.
+
+**Nothing is tried to rescue it.** The window, the trimming, the minimum and λ stay as they were; I do not adjust the anchoring after seeing these results. Anything new would need its own adopt rule written first. The code stays in `eval/anchor.py` as an experiment and is not used by the forecaster.
+
 ## Known issues
 
 - 2026-10-17: the dip chance is overconfident at the low end: origins with a predicted chance under 1% still dipped 2.4 to 4.0 percent of the time (experiment 1, both sets). Not fixed yet.

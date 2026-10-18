@@ -495,8 +495,24 @@ def account_crps(records: list[Record], key: str | None, day: int | None) -> dic
     return {a: float(np.mean(v)) / 100 for a, v in by.items()}
 
 
+UNMOVED_FIELDS = ("p10", "p50", "p90", "point", "shortfall_probability", "median_lowest_cents")
+
+
+def unmoved_differences(records: list[Record]) -> tuple[int, int]:
+    """Condition 1 without an arm to compare with: of the (origin, variant) pairs the anchoring
+    did not move, how many (checked, differing) from the default forecast of the same record in
+    p10, p50, p90, the point forecast, the dip chance or the median lowest balance."""
+    checked = differing = 0
+    for r in records:
+        for v in r["variants"].values():
+            if not v["moved"]:
+                checked += 1
+                differing += any(v[f] != r[f] for f in UNMOVED_FIELDS)
+    return checked, differing
+
+
 def berka_section(records: list[Record]) -> tuple[list[str], dict[str, bool]]:
-    """Conditions 6 to 9 on the Berka primary development accounts."""
+    """Conditions 1 and 6 to 9 on the Berka primary development accounts."""
     verdict: dict[str, bool] = {}
     accounts = sorted({r["account"] for r in records})
     out = [f"## Berka, primary development accounts ({len(accounts)} accounts, "
@@ -504,6 +520,23 @@ def berka_section(records: list[Record]) -> tuple[list[str], dict[str, bool]]:
            "The 30-day CRPS is the CRPS of the balance on forecast day 30; the mean over all 30 "
            "days is given as information. CRPS uses every origin; the error, bias, coverage and "
            "Brier use the origins not already below one month's outflow.", ""]  # fmt: skip
+    # condition 1
+    checked, differing = unmoved_differences(records)
+    below = sum(not r["qualifies"] for r in records)
+    few_days = sum(r["counts"]["history_days"] < ah.MIN_HISTORY_DAYS for r in records)
+    few_rows = sum(
+        r["counts"]["history_days"] >= ah.MIN_HISTORY_DAYS
+        and r["counts"]["unscheduled"] < ah.MIN_ROWS
+        for r in records
+    )
+    verdict["1"] = differing == 0
+    out += [f"**Condition 1 (unchanged where it should be): {'PASS' if verdict['1'] else 'FAIL'}.**"
+            f" Origins below the minimum ({ah.MIN_HISTORY_DAYS} days of history or {ah.MIN_ROWS} "
+            f"unscheduled rows): {below:,} of {len(records):,} ({few_days:,} short of the days, "
+            f"{few_rows:,} with enough days but too few rows). (Origin, variant) "
+            f"pairs the anchoring did not move: {checked:,}; of those, differing from the default "
+            f"forecast of the same record in p10, p50, p90, the point forecast, the dip chance or "
+            f"the median lowest balance: {differing}.", ""]  # fmt: skip
     # share moved
     out += ["### Share of origins moved", "",
             "| variant | origins moved | meeting the minimum | origins | accounts with an origin "
@@ -688,6 +721,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "report":
         text = report()
         REPORT.write_text(text, encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # the report has "λ"
         print(text)
         return 0
     if args.set == "berka":
