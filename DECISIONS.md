@@ -1819,8 +1819,20 @@ I am not running experiments 4 to 6 for now. The Berka part of the futures pass 
 - **Where the saving pass stands (saved files are git-ignored, not committed).** The 12-month and 24-month synthetic sets are fully saved, and each passes the gate: the default's p10, p50, p90, dip chance, median lowest balance and CRPS, recomputed from the saved paths, equal the experiment 3 records at 800 of 800 origins on each set. The Berka pass is not started and no Berka futures are saved. When it resumes, a worker should load only its own account's rows instead of receiving all the frames from the parent.
 - **The alert-threshold re-pick and the held-out final test also wait until the forecaster is final.** Held-out data is opened once, and nothing may be tuned after it. It is still unopened.
 
+### 2026-10-19: Stable series identity (week 5, item 1): what I chose and what lost
+My decisions about a recurring series (confirm, reject, end, rename, category, edit, rent rule, "continues") were stored against the series key, and a card-cluster key ends in the median amount of its purchases, so it moves. A decision then stopped applying, or a confirmed habit was counted twice (2026-10-12). Now decisions are stored against a stable id.
+- **The key stays as it is.** The forecast draws its random numbers from the key; changing it would change every simulated future and make the saved futures and the experiment 3 records stale. The id is separate. With no decisions nothing changes: raw detection is identical, and a persona re-run on the new code equals the experiment 3 records (40 of 40 origins, on a 12-month and a 24-month persona).
+- **Won: an id plus a table of the payments remembered with it** (`series_members`). A series is found again by the payments it still shares with its remembered ones, so the id survives a moving median, new payments, older payments added by a later import, and the oldest payment dropping out. Tested.
+- **Lost: an id derived only from the oldest payment's fingerprint.** It broke both of my own cases (older payments added later; the oldest payment dropping out), so I built the table instead.
+- **A price change.** A new cluster carries on an older one of the same merchant and cadence that stopped appearing (starts after its last payment, within two periods), and the two are shown as one series with one history. Only for a series I have decided something about. Never from one I ended or rejected: a resubscription starts new.
+- **One function writes decisions, always by id.** A test fails if any code writes an old key. Old keys are still read, so a database not yet migrated keeps working.
+- **Migration** (`python -m lookahead.identity`): report, dry run (counts only, writes nothing), apply (a verified byte copy first, one transaction, a check that no decision is lost, rolled back otherwise). Decisions that name no series today are kept, never deleted, and re-attached only with `--reattach`, only when exactly one series of that family exists.
+- **Versions.** I did not bump `LOGIC_VERSION` (it would mark 974 saved synthetic and Berka records stale for no change). A new `REPLAY_VERSION` (4) rebuilds the page cache and the Time Machine steps, which do depend on decisions.
+- **Can this change my real forecast? Yes.** A confirmed habit that was counted twice is now counted once, and a decision that stopped applying can apply again after the migration. The apply output prints counts of series whose forecast contribution changed.
+
 ## Known issues
 
+- 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
 - 2026-10-17: the dip chance is overconfident at the low end: origins with a predicted chance under 1% still dipped 2.4 to 4.0 percent of the time (experiment 1, both sets). Not fixed yet.
 
 ## Tests
