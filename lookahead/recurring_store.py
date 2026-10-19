@@ -37,14 +37,16 @@ from lookahead.flows import Flow, Txn, flow_types
 from lookahead.recurring import CADENCES, Series, detect, expected_dates
 from lookahead.rent import RentRule, assign_cycles, next_window_day, rent_cents
 from lookahead.resolve import UserDecisions, load_user_decisions
-from lookahead.series_identity import Habit, assign_ids, head_of, successors
+from lookahead.series_identity import Habit, assign_ids, head_of, is_id, successors
 from lookahead.taxonomy import CATEGORIES
 
 # Bump when detection or the replay of decisions changes what a stored series holds; the
 # pages then rebuild the saved copy by themselves instead of showing an older one.
-# 2: a series with a rent rule is called Rent; 3: saved results record the forecaster's settings;
-# 4: decisions are kept against a stable id, not the key that moves with the amount
-LOGIC_VERSION = 4
+# 2: a series with a rent rule is called Rent; 3: saved results record the forecaster's settings
+LOGIC_VERSION = 3
+# Bump when how decisions are replayed changes what a saved series or Time Machine step holds
+# (not the backtest records: with no decisions the series are unchanged). 4: stable ids.
+REPLAY_VERSION = 4
 ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent", "rename")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 
@@ -103,18 +105,36 @@ class Decision:
 # --- The dated log ---
 
 
+def _ref(series: "Stored | str") -> tuple[str, tuple[str, ...]]:
+    """The id a decision is written against, and the payments to remember for it."""
+    if isinstance(series, Stored):
+        return series.id or series.key, series.evidence
+    return series, ()
+
+
 def decide(
-    conn: sqlite3.Connection, account: str, key: str, action: str,
+    conn: sqlite3.Connection, account: str, series: "Stored | str", action: str,
     details: dict[str, object] | None = None, when: date | None = None,
 ) -> int:  # fmt: skip
-    """Append one decision to the log. Returns its id."""
+    """Append one decision to the log, against the series' stable id (never an old key), and
+    remember which payments belong to that id. The only function that writes a decision.
+    Returns its id."""
     if action not in ACTIONS:
         raise ValueError(f"unknown action {action!r}")
+    series_id, evidence = _ref(series)
+    if not (is_id(series_id) or series_id.startswith("user|")):
+        raise ValueError(f"decisions are written against a series id, not {series_id!r}")
+    day = (when or date.today()).isoformat()
     with conn:
         cursor = conn.execute(
             "INSERT INTO recurring_decisions (account, series_key, action, details, decided_at)"
             " VALUES (?, ?, ?, ?, ?)",
-            (account, key, action, json.dumps(details or {}), (when or date.today()).isoformat()),
+            (account, series_id, action, json.dumps(details or {}), day),
+        )
+        conn.executemany(
+            "INSERT OR IGNORE INTO series_members (account, fingerprint, series_id, added_on)"
+            " VALUES (?, ?, ?, ?)",
+            [(account, fp, series_id, day) for fp in evidence],
         )
     return int(cursor.lastrowid or 0)
 
@@ -144,7 +164,7 @@ def confirm(
             "id",
         )  # fmt: skip
     }
-    decide(conn, account, series.id or series.key, "confirm", snapshot, when)
+    decide(conn, account, series, "confirm", snapshot, when)
 
 
 def confirm_all(
@@ -159,27 +179,28 @@ def confirm_all(
 
 
 def set_category(
-    conn: sqlite3.Connection, account: str, key: str, category: str | None,
+    conn: sqlite3.Connection, account: str, series: "Stored | str", category: str | None,
     when: date | None = None,
 ) -> None:  # fmt: skip
     """Give every payment of a series one category (None: back to each row's own)."""
     if category is not None and category not in CATEGORIES:
         raise ValueError(f"unknown category {category!r}")
-    decide(conn, account, key, "category", {"category": category}, when)
+    decide(conn, account, series, "category", {"category": category}, when)
 
 
 def link_continuation(
-    conn: sqlite3.Connection, account: str, key: str, previous_key: str,
+    conn: sqlite3.Connection, account: str, series: "Stored | str", previous: "Stored | str",
     when: date | None = None,
 ) -> None:  # fmt: skip
-    """Say that series `key` carries on the ended series `previous_key`."""
-    if key == previous_key:
+    """Say that `series` carries on the ended series `previous`."""
+    new_id, old_id = _ref(series)[0], _ref(previous)[0]
+    if new_id == old_id:
         raise ValueError("a series cannot continue itself")
-    decide(conn, account, key, "continue", {"previous": previous_key}, when)
+    decide(conn, account, series, "continue", {"previous": old_id}, when)
 
 
 def set_rent_rule(
-    conn: sqlite3.Connection, account: str, key: str, rule: RentRule | None,
+    conn: sqlite3.Connection, account: str, series: "Stored | str", rule: RentRule | None,
     when: date | None = None,
 ) -> None:  # fmt: skip
     """Say which amounts and which days of the month a series is paid in (None: remove it)."""
@@ -187,11 +208,11 @@ def set_rent_rule(
         "amounts_cents": list(rule.amounts_cents), "from_day": rule.from_day,
         "to_day": rule.to_day,
     }  # fmt: skip
-    decide(conn, account, key, "rent", details, when)
+    decide(conn, account, series, "rent", details, when)
 
 
 def set_name(
-    conn: sqlite3.Connection, account: str, key: str, name: str | None,
+    conn: sqlite3.Connection, account: str, series: "Stored | str", name: str | None,
     when: date | None = None,
 ) -> None:  # fmt: skip
     """Give a series a name of your own, shown instead of the detected one (None: take it
@@ -199,7 +220,7 @@ def set_name(
     clean = " ".join(name.split()) if name else ""
     if len(clean) > 60:
         raise ValueError("a name of at most 60 characters")
-    decide(conn, account, key, "rename", {"name": clean or None}, when)
+    decide(conn, account, series, "rename", {"name": clean or None}, when)
 
 
 def rent_rule_of(s: Stored) -> RentRule | None:
@@ -209,17 +230,21 @@ def rent_rule_of(s: Stored) -> RentRule | None:
     return RentRule(s.allowed_cents, s.window[0], s.window[1])
 
 
-def reject(conn: sqlite3.Connection, account: str, key: str, when: date | None = None) -> None:
-    decide(conn, account, key, "reject", None, when)
+def reject(
+    conn: sqlite3.Connection, account: str, series: "Stored | str", when: date | None = None
+) -> None:
+    decide(conn, account, series, "reject", None, when)
 
 
-def end(conn: sqlite3.Connection, account: str, key: str, when: date | None = None) -> None:
-    decide(conn, account, key, "end", None, when)
+def end(
+    conn: sqlite3.Connection, account: str, series: "Stored | str", when: date | None = None
+) -> None:
+    decide(conn, account, series, "end", None, when)
 
 
 def edit(
-    conn: sqlite3.Connection, account: str, key: str, next_date: date | None = None,
-    amount_cents: int | None = None, when: date | None = None,
+    conn: sqlite3.Connection, account: str, series: "Stored | str",
+    next_date: date | None = None, amount_cents: int | None = None, when: date | None = None,
 ) -> None:  # fmt: skip
     if next_date is None and amount_cents is None:
         raise ValueError("nothing to edit: give a next date or an amount")
@@ -228,7 +253,7 @@ def edit(
         details["next_date"] = next_date.isoformat()
     if amount_cents is not None:
         details["amount_cents"] = int(amount_cents)
-    decide(conn, account, key, "edit", details, when)
+    decide(conn, account, series, "edit", details, when)
 
 
 def add_series(
@@ -253,6 +278,24 @@ def add_series(
             (key, decision_id),
         )
     return key
+
+
+def load_members(
+    conn: sqlite3.Connection, account: str, as_of: date | None = None
+) -> dict[str, str]:
+    """fingerprint -> series id, for the payments remembered by `as_of` (first writer wins)."""
+    try:
+        rows = conn.execute(
+            "SELECT fingerprint, series_id FROM series_members"
+            " WHERE account = ? AND added_on <= ? ORDER BY added_on, rowid",
+            (account, (as_of or date.max).isoformat()),
+        ).fetchall()
+    except sqlite3.OperationalError:  # an older database without the table
+        return {}
+    out: dict[str, str] = {}
+    for fp, series_id in rows:
+        out.setdefault(fp, series_id)
+    return out
 
 
 def load_decisions(
@@ -296,6 +339,7 @@ def current_series(
     as_of: date,
     user: UserDecisions | None = None,
     key: bytes | None = None,
+    members: dict[str, str] | None = None,
 ) -> list[Stored]:
     """Every series on `as_of`: detected from rows posted by then, with the decisions given
     (already cut at a date by the caller) replayed on top. Sorted by key."""
@@ -311,7 +355,7 @@ def current_series(
         for s in series.values()
         if s.evidence and s.last_paid is not None
     ]
-    ids = assign_ids(habits)
+    ids = assign_ids(habits, {k: v.evidence for k, v in series.items()}, members)
     series = {k: replace(s, id=ids.get(k, k)) for k, s in series.items()}
     ref = {k: k for k in series} | {i: k for k, i in ids.items()}
     decided: set[str] = set()
@@ -562,7 +606,7 @@ def series_as_of(
     day = as_of or max(t.posted_date for t in txns)
     series = current_series(
         txns, {r[0]: r[5] for r in raw}, load_decisions(conn, account, as_of), day,
-        load_user_decisions(conn, as_of), key,
+        load_user_decisions(conn, as_of), key, load_members(conn, account, as_of),
     )  # fmt: skip
     return series, day
 
@@ -576,14 +620,14 @@ def refresh(conn: sqlite3.Connection, account: str, key: bytes | None = None) ->
             conn.execute("DELETE FROM recurring_series WHERE account = ?", (account,))
             conn.execute(
                 "INSERT OR REPLACE INTO recurring_cache_info (account, version, as_of)"
-                " VALUES (?, ?, '')", (account, LOGIC_VERSION),
+                " VALUES (?, ?, '')", (account, REPLAY_VERSION),
             )  # fmt: skip
         return []
     with conn:
         conn.execute("DELETE FROM recurring_series WHERE account = ?", (account,))
         conn.execute(
             "INSERT OR REPLACE INTO recurring_cache_info (account, version, as_of)"
-            " VALUES (?, ?, ?)", (account, LOGIC_VERSION, as_of.isoformat()),
+            " VALUES (?, ?, ?)", (account, REPLAY_VERSION, as_of.isoformat()),
         )  # fmt: skip
         conn.executemany(
             "INSERT INTO recurring_series (account, series_key, data, as_of) VALUES (?, ?, ?, ?)",
@@ -604,7 +648,7 @@ def cache_current(conn: sqlite3.Connection, account: str) -> bool:
         ).fetchone()[0]
     except sqlite3.OperationalError:  # an older database without these tables
         return False
-    return saved is not None and saved[0] == LOGIC_VERSION and saved[1] == (last or "")
+    return saved is not None and saved[0] == REPLAY_VERSION and saved[1] == (last or "")
 
 
 def ensure_current(

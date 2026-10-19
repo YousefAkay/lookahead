@@ -4,9 +4,12 @@ A detected series has a *key*, and a card-cluster key ends in the median amount 
 purchases, so it moves. The key stays as it is (the forecast draws its random numbers from it).
 My decisions are stored against an *id* that does not move:
 
-- the id is the family of the key (the key without its trailing amount) plus the fingerprint
-  of the series' oldest payment. Payments are only ever added at the end, so the oldest one,
-  and with it the id, stays the same when the median amount drifts or new payments arrive;
+- the id is made once, from the family of the key (the key without its trailing amount) plus
+  the fingerprint of the series' oldest payment at that time. When I decide something about a
+  series, the payments it holds are remembered against its id (table `series_members`), and
+  later the series is found again by the payments it still shares. So the id survives a
+  drifting median, new payments, older payments added by a later import, and the oldest payment
+  dropping out;
 - after a price change a habit can show up as a new cluster. The new cluster takes over from an
   older one of the same family and cadence that stopped appearing: it starts after the older
   one's last payment, within two periods of it. It never takes over from a series I ended or
@@ -15,7 +18,8 @@ My decisions are stored against an *id* that does not move:
 This file only holds the rules, on plain values; `recurring_store` uses them.
 """
 
-from collections.abc import Collection, Sequence
+from collections import Counter
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -53,15 +57,34 @@ def make_id(family: str, first_fingerprint: str) -> str:
     return f"{PREFIX}{family}|@{first_fingerprint}"
 
 
-def assign_ids(habits: Sequence[Habit]) -> dict[str, str]:
-    """key -> id for every habit. Two habits that would get the same id (the same family and the
-    same oldest payment) cannot both have it: the later key keeps its own key as its id."""
+def assign_ids(
+    habits: Sequence[Habit],
+    evidence: Mapping[str, Sequence[str]] | None = None,
+    members: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """key -> id for every habit.
+
+    `members` (fingerprint -> id) holds the payments remembered when a decision was made. A
+    habit takes the id its payments share most with it, so it keeps its id when older payments
+    are added or its oldest payment drops out. One id goes to one habit (the larger overlap
+    wins). A habit with no remembered payment gets a derived id: its family plus its oldest
+    payment (or its own key, if that id is taken)."""
+    evidence, members = evidence or {}, members or {}
+    votes: list[tuple[int, str, str]] = []
+    for h in habits:
+        counts = Counter(members[fp] for fp in evidence.get(h.key, ()) if fp in members)
+        votes += [(-n, series_id, h.key) for series_id, n in counts.items()]
     out: dict[str, str] = {}
     taken: set[str] = set()
+    for _, series_id, key in sorted(votes):
+        if key not in out and series_id not in taken:
+            out[key] = series_id
+            taken.add(series_id)
     for h in sorted(habits, key=lambda h: h.key):
-        wanted = make_id(family_of(h.key), h.first_fingerprint)
-        out[h.key] = h.key if wanted in taken else wanted
-        taken.add(out[h.key])
+        if h.key not in out:
+            wanted = make_id(family_of(h.key), h.first_fingerprint)
+            out[h.key] = h.key if wanted in taken else wanted
+            taken.add(out[h.key])
     return out
 
 

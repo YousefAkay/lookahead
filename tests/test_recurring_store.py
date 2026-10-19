@@ -75,7 +75,7 @@ def test_refresh_stores_detected_series_with_fingerprints_as_evidence(
 def test_confirm_reject_and_the_latest_one_wins(conn: sqlite3.Connection) -> None:
     series = by_name(refresh(conn, ACCOUNT))
     confirm(conn, ACCOUNT, series["Phone Co"], date(2026, 6, 21))
-    reject(conn, ACCOUNT, series["Gym Club"].key, date(2026, 6, 21))
+    reject(conn, ACCOUNT, series["Gym Club"], date(2026, 6, 21))
     got = by_name(refresh(conn, ACCOUNT))
     assert (got["Phone Co"].status, got["Gym Club"].status) == ("confirmed", "rejected")
     assert got[None].status == "detected"  # the e-Transfer candidate: untouched
@@ -86,7 +86,7 @@ def test_confirm_reject_and_the_latest_one_wins(conn: sqlite3.Connection) -> Non
 def test_an_edit_holds_until_the_next_payment_posts(conn: sqlite3.Connection) -> None:
     phone = by_name(refresh(conn, ACCOUNT))["Phone Co"]
     assert phone.next_expected == date(2026, 7, 10)
-    edit(conn, ACCOUNT, phone.key, next_date=date(2026, 7, 15), amount_cents=-7000,
+    edit(conn, ACCOUNT, phone, next_date=date(2026, 7, 15), amount_cents=-7000,
          when=date(2026, 6, 21))  # fmt: skip
     edited = by_name(refresh(conn, ACCOUNT))["Phone Co"]
     assert (edited.next_expected, edited.expected_cents, edited.edited) == (
@@ -98,12 +98,12 @@ def test_an_edit_holds_until_the_next_payment_posts(conn: sqlite3.Connection) ->
         date(2026, 8, 10), -6500, False,
     )  # fmt: skip
     with pytest.raises(ValueError, match="nothing to edit"):
-        edit(conn, ACCOUNT, phone.key)
+        edit(conn, ACCOUNT, phone)
 
 
 def test_an_ended_series_stays_ended_and_flags_a_later_payment(conn: sqlite3.Connection) -> None:
     gym = by_name(refresh(conn, ACCOUNT))["Gym Club"]
-    end(conn, ACCOUNT, gym.key, date(2026, 6, 21))
+    end(conn, ACCOUNT, gym, date(2026, 6, 21))
     ended = by_name(refresh(conn, ACCOUNT))["Gym Club"]
     assert not ended.active and not ended.paid_after_end
     insert(conn, date(2026, 7, 6), -4000, "bill payment", "Gym Club ")
@@ -144,7 +144,7 @@ def test_a_confirmed_series_stays_if_detection_loses_it(conn: sqlite3.Connection
 def test_replay_uses_only_decisions_made_by_the_date(conn: sqlite3.Connection) -> None:
     series = by_name(refresh(conn, ACCOUNT))
     confirm(conn, ACCOUNT, series["Phone Co"], date(2026, 6, 25))
-    reject(conn, ACCOUNT, series["Gym Club"].key, date(2026, 7, 2))
+    reject(conn, ACCOUNT, series["Gym Club"], date(2026, 7, 2))
     raw = conn.execute(
         "SELECT id, posted_date, amount_cents, description, sub_description, fingerprint"
         " FROM transactions"
@@ -243,7 +243,7 @@ def test_a_series_category_applies_to_its_payments_only(tmp_path: Path) -> None:
     club = series["Bigstore.Ca Club"]
     assert len(club.evidence) == 5  # the monthly charges, not the shopping
     confirm(c, ACCOUNT, club, date(2026, 11, 20))
-    set_category(c, ACCOUNT, club.key, "Subscriptions", date(2026, 11, 20))
+    set_category(c, ACCOUNT, club, "Subscriptions", date(2026, 11, 20))
     club = {s.name: s for s in refresh(c, ACCOUNT)}["Bigstore.Ca Club"]
     assert club.category == "Subscriptions" and club.status == "confirmed"
     changes = row_overrides(refresh(c, ACCOUNT))
@@ -252,10 +252,10 @@ def test_a_series_category_applies_to_its_payments_only(tmp_path: Path) -> None:
                for o in changes.values())  # fmt: skip
     shopping = {f"fp{n:03d}" for n in range(12, 17)}
     assert not shopping & set(changes)  # my other purchases there: untouched
-    set_category(c, ACCOUNT, club.key, None, date(2026, 11, 25))  # back to each row's own
+    set_category(c, ACCOUNT, club, None, date(2026, 11, 25))  # back to each row's own
     assert {s.name: s for s in refresh(c, ACCOUNT)}["Bigstore.Ca Club"].category is None
     with pytest.raises(ValueError, match="unknown category"):
-        set_category(c, ACCOUNT, club.key, "Fun")
+        set_category(c, ACCOUNT, club, "Fun")
 
 
 def test_linking_a_continuation_shows_one_series_with_one_history(tmp_path: Path) -> None:
@@ -266,8 +266,8 @@ def test_linking_a_continuation_shows_one_series_with_one_history(tmp_path: Path
     old, new = before["Bigstore Member"], before["Bigstore.Ca Club"]
     assert not old.active and new.active and len(before) == 2
     confirm(c, ACCOUNT, old, date(2026, 11, 20))
-    set_category(c, ACCOUNT, old.key, "Subscriptions", date(2026, 11, 20))
-    link_continuation(c, ACCOUNT, new.key, old.key, date(2026, 11, 21))
+    set_category(c, ACCOUNT, old, "Subscriptions", date(2026, 11, 20))
+    link_continuation(c, ACCOUNT, new, old, date(2026, 11, 21))
     (one,) = refresh(c, ACCOUNT)
     assert one.key == new.key and one.name == "Bigstore.Ca Club" and one.active
     assert one.evidence == old.evidence + new.evidence and len(one.evidence) == 11
@@ -287,7 +287,7 @@ def test_linking_a_continuation_shows_one_series_with_one_history(tmp_path: Path
     txns = [Txn(r[0], date.fromisoformat(r[1]), r[2], r[3], r[4]) for r in raw]
     assert len({g for g in merchant_groups(txns).values() if g}) == 2
     with pytest.raises(ValueError, match="itself"):
-        link_continuation(c, ACCOUNT, new.key, new.key)
+        link_continuation(c, ACCOUNT, new, new)
 
 
 def test_a_link_is_replayed_only_from_its_date(tmp_path: Path) -> None:
@@ -295,7 +295,7 @@ def test_a_link_is_replayed_only_from_its_date(tmp_path: Path) -> None:
 
     c = subscription_db(tmp_path)
     before = {s.name: s for s in refresh(c, ACCOUNT)}
-    link_continuation(c, ACCOUNT, before["Bigstore.Ca Club"].key, before["Bigstore Member"].key,
+    link_continuation(c, ACCOUNT, before["Bigstore.Ca Club"], before["Bigstore Member"],
                       date(2026, 11, 21))  # fmt: skip
     earlier, _ = series_as_of(c, ACCOUNT, date(2026, 11, 15))
     assert len(earlier) == 2  # the link did not exist yet
@@ -319,8 +319,8 @@ def test_an_older_decision_table_is_migrated_keeping_every_decision(tmp_path: Pa
     assert [tuple(r) for r in rows] == [(7, "k1", "confirm"), (9, "k2", "reject")]
     from lookahead.recurring_store import decide
 
-    decide(c, "test", "k1", "category", {"category": "Subscriptions"})  # now allowed
-    decide(c, "test", "k1", "continue", {"previous": "k2"})
+    decide(c, "test", "sid|k1", "category", {"category": "Subscriptions"})  # now allowed
+    decide(c, "test", "sid|k1", "continue", {"previous": "sid|k2"})
     c.close()
     assert connect(path).execute("SELECT COUNT(*) FROM recurring_decisions").fetchone()[0] == 4
 
@@ -446,8 +446,8 @@ def test_the_decision_table_accepts_rent_after_migrating_an_old_one(tmp_path: Pa
     )
     old.close()
     c = connect(path)  # migrates a table that has category and continue but not rent or rename
-    decide(c, "test", "k1", "rent", {"amounts_cents": [1], "from_day": 30, "to_day": 7})
-    decide(c, "test", "k1", "rename", {"name": "Mobile"})
+    decide(c, "test", "sid|k1", "rent", {"amounts_cents": [1], "from_day": 30, "to_day": 7})
+    decide(c, "test", "sid|k1", "rename", {"name": "Mobile"})
     ids = [r[0] for r in c.execute("SELECT decision_id FROM recurring_decisions ORDER BY 1")]
     assert ids[0] == 3 and len(ids) == 3
 
@@ -529,11 +529,11 @@ def test_a_detected_series_can_be_renamed_and_the_name_taken_back(conn: sqlite3.
     from lookahead.recurring_store import set_name
 
     phone = by_name(refresh(conn, ACCOUNT))["Phone Co"]
-    set_name(conn, ACCOUNT, phone.key, "Mobile", date(2026, 9, 1))
+    set_name(conn, ACCOUNT, phone, "Mobile", date(2026, 9, 1))
     renamed = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
     assert (renamed.name, renamed.named_by_me) == ("Mobile", True)
     assert renamed.evidence == phone.evidence and renamed.expected_cents == phone.expected_cents
-    set_name(conn, ACCOUNT, phone.key, None, date(2026, 9, 2))  # back to the detected name
+    set_name(conn, ACCOUNT, phone, None, date(2026, 9, 2))  # back to the detected name
     back = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
     assert (back.name, back.named_by_me) == ("Phone Co", False)
 
@@ -542,7 +542,7 @@ def test_a_rename_applies_only_from_the_day_it_was_made(conn: sqlite3.Connection
     from lookahead.recurring_store import series_as_of, set_name
 
     phone = by_name(refresh(conn, ACCOUNT))["Phone Co"]
-    set_name(conn, ACCOUNT, phone.key, "Mobile", date(2026, 9, 1))
+    set_name(conn, ACCOUNT, phone, "Mobile", date(2026, 9, 1))
     before, _ = series_as_of(conn, ACCOUNT, date(2026, 8, 31))
     after, _ = series_as_of(conn, ACCOUNT, date(2026, 9, 2))
     assert {s.key: s for s in before}[phone.key].name == "Phone Co"
@@ -562,7 +562,7 @@ def test_a_saved_copy_from_an_older_logic_version_is_refreshed(
     first = ensure_current(conn, ACCOUNT)
     assert len(first) == 3 and cache_current(conn, ACCOUNT)
     assert ensure_current(conn, ACCOUNT) == first  # current: read as saved
-    monkeypatch.setattr(recurring_store, "LOGIC_VERSION", recurring_store.LOGIC_VERSION + 1)
+    monkeypatch.setattr(recurring_store, "REPLAY_VERSION", recurring_store.REPLAY_VERSION + 1)
     assert not cache_current(conn, ACCOUNT)  # the code changed what a series holds
     ensure_current(conn, ACCOUNT)
     assert cache_current(conn, ACCOUNT)
@@ -603,19 +603,19 @@ def test_a_series_with_a_rent_rule_is_called_rent_unless_i_named_it(
 
     phone = by_name(refresh(conn, ACCOUNT))["Phone Co"]
     rule = RentRule((6500,), 8, 12)
-    set_rent_rule(conn, ACCOUNT, phone.key, rule, date(2026, 9, 1))
+    set_rent_rule(conn, ACCOUNT, phone, rule, date(2026, 9, 1))
     rent = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
     assert (rent.name, rent.named_by_me) == ("Rent", True)  # safe to show: my word, not text
 
-    set_name(conn, ACCOUNT, phone.key, "My flat", date(2026, 9, 2))  # a name I set wins
+    set_name(conn, ACCOUNT, phone, "My flat", date(2026, 9, 2))  # a name I set wins
     mine = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
     assert mine.name == "My flat"
 
-    set_name(conn, ACCOUNT, phone.key, None, date(2026, 9, 3))  # taken back: the default again
+    set_name(conn, ACCOUNT, phone, None, date(2026, 9, 3))  # taken back: the default again
     again = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
     assert again.name == "Rent"
 
-    set_rent_rule(conn, ACCOUNT, phone.key, None, date(2026, 9, 4))  # no rule: detected name
+    set_rent_rule(conn, ACCOUNT, phone, None, date(2026, 9, 4))  # no rule: detected name
     plain = {s.key: s for s in refresh(conn, ACCOUNT)}[phone.key]
     assert (plain.name, plain.named_by_me) == ("Phone Co", False)
 
@@ -625,7 +625,7 @@ def test_the_rent_name_is_in_the_saved_series_too(conn: sqlite3.Connection) -> N
     from lookahead.rent import RentRule
 
     phone = by_name(refresh(conn, ACCOUNT))["Phone Co"]
-    set_rent_rule(conn, ACCOUNT, phone.key, RentRule((6500,), 8, 12), date(2026, 9, 1))
+    set_rent_rule(conn, ACCOUNT, phone, RentRule((6500,), 8, 12), date(2026, 9, 1))
     refresh(conn, ACCOUNT)
     assert {s.key: s for s in load_series(conn, ACCOUNT)}[phone.key].name == "Rent"
 
@@ -666,8 +666,8 @@ def test_confirm_all_leaves_rejected_ended_and_confirmed_series_alone(
     from lookahead.recurring_store import confirm_all
 
     series = {s.name: s for s in refresh(conn, ACCOUNT)}
-    reject(conn, ACCOUNT, series["Gym Club"].key, date(2026, 9, 1))
-    end(conn, ACCOUNT, series["Phone Co"].key, date(2026, 9, 1))
+    reject(conn, ACCOUNT, series["Gym Club"], date(2026, 9, 1))
+    end(conn, ACCOUNT, series["Phone Co"], date(2026, 9, 1))
     for_all = refresh(conn, ACCOUNT)
     before = len(load_decisions(conn, ACCOUNT))
     done = confirm_all(conn, ACCOUNT, for_all, date(2026, 9, 2))

@@ -100,12 +100,21 @@ def test_a_decision_keeps_applying_after_the_key_moved(
     )  # fmt: skip
 
 
-def test_a_decision_stored_against_an_old_key_that_moved_still_does_not_apply(
+def old_key_decision(conn, key: str, action: str, day: date) -> None:  # type: ignore[no-untyped-def]
+    """A row as the log looked before ids existed: written straight, since nothing may write it."""
+    with conn:
+        conn.execute(
+            "INSERT INTO recurring_decisions (account, series_key, action, details, decided_at)"
+            " VALUES ('a', ?, ?, '{}', ?)", (key, action, day.isoformat()),
+        )  # fmt: skip
+
+
+def test_a_decision_in_an_old_log_still_applies_while_its_key_exists_and_is_lost_after(
     conn,  # type: ignore[no-untyped-def]
 ) -> None:
-    """Decisions made before ids existed: only the migration can bring them back."""
+    """Reading old keys keeps working; once the key moved only the migration can bring it back."""
     (early,) = series_on(EARLY, [])
-    rs.reject(conn, "a", early.key, EARLY)
+    old_key_decision(conn, early.key, "reject", EARLY)
     assert series_on(EARLY, rs.load_decisions(conn, "a", EARLY))[0].status == "rejected"
     (later,) = series_on(LATER, rs.load_decisions(conn, "a", LATER))
     assert later.status == "detected"
@@ -221,3 +230,91 @@ def test_two_price_changes_make_one_series_with_the_oldest_id(conn) -> None:  # 
     (now,) = on(last, rs.load_decisions(conn, "a", last))  # one series, not three
     assert now.status == "confirmed" and now.id == first.id and now.expected_cents < -1800
     assert len(now.evidence) == 51 and len(now.continues) == 2  # one history of three clusters
+
+
+# --- The payments remembered with an id keep it stable (condition F) ---
+
+
+def with_members(conn, day: date, rows=ROWS):  # type: ignore[no-untyped-def]
+    past = [t for t in rows if t.posted_date <= day]
+    fp = {t.row_id: f"fp{t.row_id}" for t in rows}
+    decisions = rs.load_decisions(conn, "a", day)
+    return rs.current_series(past, fp, decisions, day, members=rs.load_members(conn, "a", day))
+
+
+def test_older_payments_added_later_do_not_change_the_id(conn) -> None:  # type: ignore[no-untyped-def]
+    """I decide when only the later payments are known; an earlier import then adds older ones."""
+    recent = [t for t in ROWS if t.posted_date >= date(2026, 2, 17)]
+    (known,) = rs.current_series(
+        [t for t in recent if t.posted_date <= EARLY], FINGERPRINT, [], EARLY
+    )
+    rs.reject(conn, "a", known, EARLY)
+    (now,) = with_members(conn, EARLY)  # every payment, including the older ones
+    assert now.id == known.id and now.status == "rejected"
+    assert now.evidence[0] != known.evidence[0]  # the oldest payment is not the one it started with
+
+
+def test_without_the_remembered_payments_the_older_payments_would_change_the_id() -> None:
+    recent = [t for t in ROWS if t.posted_date >= date(2026, 2, 17) and t.posted_date <= EARLY]
+    (known,) = rs.current_series(recent, FINGERPRINT, [], EARLY)
+    (now,) = series_on(EARLY, [])
+    assert now.id != known.id  # this is what the table is for
+
+
+def test_the_oldest_payment_dropping_out_does_not_change_the_id(conn) -> None:  # type: ignore[no-untyped-def]
+    (known,) = series_on(EARLY, [])
+    rs.end(conn, "a", known, EARLY)
+    later_rows = [t for t in ROWS if t.posted_date >= date(2026, 2, 17)]
+    (now,) = with_members(conn, LATER, later_rows)
+    assert now.id == known.id and not now.active
+    assert now.evidence[0] != known.evidence[0]
+
+
+def test_two_habits_never_share_an_id_through_the_table(conn) -> None:  # type: ignore[no-untyped-def]
+    (first,) = series_on(EARLY, [])
+    rs.confirm(conn, "a", first, EARLY)
+    members = rs.load_members(conn, "a")
+    assert set(members.values()) == {first.id}
+
+
+# --- One function writes decisions, always by id (condition G) ---
+
+
+@pytest.mark.parametrize("old_key", ["merchant|out|Corner Cafe|1204", "merchant|out|Corner Cafe",
+                                     "own transfer|out|5000", "e-transfer|in|tok"])  # fmt: skip
+def test_no_decision_can_be_written_against_an_old_key(old_key: str, conn) -> None:  # type: ignore[no-untyped-def]
+    for write in (rs.reject, rs.end, lambda c, a, k: rs.set_name(c, a, k, "x"),
+                  lambda c, a, k: rs.set_category(c, a, k, "Groceries"),
+                  lambda c, a, k: rs.edit(c, a, k, amount_cents=-100),
+                  lambda c, a, k: rs.set_rent_rule(c, a, k, None)):  # fmt: skip
+        with pytest.raises(ValueError, match="series id"):
+            write(conn, "a", old_key)
+    with pytest.raises(ValueError, match="series id"):
+        rs.link_continuation(conn, "a", old_key, "sid|x|@fp1")
+    assert conn.execute("SELECT COUNT(*) FROM recurring_decisions").fetchone()[0] == 0
+
+
+def test_every_decision_a_screen_or_function_writes_is_an_id(conn) -> None:  # type: ignore[no-untyped-def]
+    (early,) = series_on(EARLY, [])
+    rs.confirm(conn, "a", early, EARLY)
+    rs.set_name(conn, "a", early, "My cafe", EARLY)
+    rs.link_continuation(conn, "a", early, "sid|merchant|out|Old|@fp0", EARLY)
+    key = rs.add_series(conn, "a", "Rent", "out", "monthly", EARLY, 100000, EARLY)
+    stored = [r[0] for r in conn.execute("SELECT series_key FROM recurring_decisions")]
+    assert all(k.startswith(("sid|", "user|")) for k in stored) and key.startswith("user|")
+
+
+def test_the_only_insert_into_the_decision_log_is_in_decide() -> None:
+    """No screen or module writes the log by hand (the migration, once built, is the one
+    exception and is listed here by name)."""
+    root = Path(__file__).resolve().parent.parent
+    allowed = {"lookahead/recurring_store.py", "lookahead/db.py", "lookahead/identity.py"}
+    found = {
+        str(f.relative_to(root)).replace("\\", "/")
+        for folder in ("lookahead", "app", "eval")
+        for f in (root / folder).rglob("*.py")
+        if "INSERT INTO recurring_decisions" in f.read_text("utf-8")
+    }
+    assert found <= allowed, found - allowed
+    store = (root / "lookahead/recurring_store.py").read_text("utf-8")
+    assert store.count("INSERT INTO recurring_decisions") == 1  # decide(), nowhere else

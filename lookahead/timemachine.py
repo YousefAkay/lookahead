@@ -50,7 +50,7 @@ from lookahead.forecast.path import (
 from lookahead.forecast.simulate import N_FUTURES
 from lookahead.forecast.start import HORIZON_DAYS
 from lookahead.merchants import is_private_path
-from lookahead.recurring_store import LOGIC_VERSION
+from lookahead.recurring_store import REPLAY_VERSION
 
 MIN_HISTORY = timedelta(weeks=8)  # the weekday baseline needs eight weeks behind the date
 METHOD = "weekday"
@@ -237,11 +237,11 @@ def precompute(
     if _is_private_db(conn) and not is_private_path(out_path):
         raise ValueError("steps of a private database are saved in data/private/ only")
     settings = {"futures": futures, "method": method, "format": STEP_FORMAT,
-                "logic": LOGIC_VERSION, "forecaster": forecaster_settings()}  # fmt: skip
+                "logic": REPLAY_VERSION, "forecaster": forecaster_settings()}  # fmt: skip
     meta_path = out_path.with_suffix(".meta.json")
     if meta_path.exists():
         saved = json.loads(meta_path.read_text(encoding="utf-8"))
-        if (saved.get("format"), saved.get("logic")) != (STEP_FORMAT, LOGIC_VERSION):
+        if (saved.get("format"), saved.get("logic")) != (STEP_FORMAT, REPLAY_VERSION):
             raise ValueError("these snapshots were made with an older version: make them again")
         if saved != settings:
             raise ValueError(

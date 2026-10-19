@@ -258,11 +258,11 @@ if chosen is not None:
                 st.rerun()
             if cols[2].button("Not recurring", width="stretch",
                               disabled=chosen.status == "rejected"):  # fmt: skip
-                reject(conn, account, chosen.key)
+                reject(conn, account, chosen)
                 refresh(conn, account, stored_key)
                 st.rerun()
             if cols[3].button("It ended", width="stretch", disabled=not chosen.active):
-                end(conn, account, chosen.key)
+                end(conn, account, chosen)
                 refresh(conn, account, stored_key)
                 st.rerun()
 
@@ -315,7 +315,7 @@ if chosen is not None:
                 changed_cents = new_cents if new_cents != chosen.expected_cents else None
                 st.session_state.pop("editing", None)
                 if changed_date is not None or changed_cents is not None:
-                    edit(conn, account, chosen.key, next_date=changed_date,
+                    edit(conn, account, chosen, next_date=changed_date,
                          amount_cents=changed_cents)  # fmt: skip
                     refresh(conn, account, stored_key)
                 st.rerun()
@@ -350,7 +350,7 @@ if chosen is not None:
                     )  # fmt: skip
                     save_category = st.form_submit_button("Save category")
                 if save_category:
-                    set_category(conn, account, chosen.key,
+                    set_category(conn, account, chosen,
                                  None if choice == OWN_CATEGORY else choice)  # fmt: skip
                     refresh(conn, account, stored_key)
                     st.rerun()
@@ -363,7 +363,7 @@ if chosen is not None:
                 save_name = st.form_submit_button("Save name")
             if save_name:
                 try:
-                    set_name(conn, account, chosen.key, new_name)
+                    set_name(conn, account, chosen, new_name)
                 except ValueError as problem:
                     st.warning(f"Could not save: {problem}")
                 else:
@@ -398,7 +398,7 @@ if chosen is not None:
                     clear_rent = st.form_submit_button("Remove rent rule", disabled=rule is None)
                 if save_rent:
                     try:
-                        set_rent_rule(conn, account, chosen.key,
+                        set_rent_rule(conn, account, chosen,
                                       RentRule(parse_dollars(amounts_text), int(first_day),
                                                int(last_day)))  # fmt: skip
                     except ValueError as problem:
@@ -407,7 +407,7 @@ if chosen is not None:
                         refresh(conn, account, stored_key)
                         st.rerun()
                 if clear_rent:
-                    set_rent_rule(conn, account, chosen.key, None)
+                    set_rent_rule(conn, account, chosen, None)
                     refresh(conn, account, stored_key)
                     st.rerun()
             ended = [s for s in listed if not s.active and s.key != chosen.key]
@@ -423,7 +423,7 @@ if chosen is not None:
                     )  # fmt: skip
                     link = st.form_submit_button("Link them")
                 if link and previous is not None:
-                    link_continuation(conn, account, chosen.key, previous.key)
+                    link_continuation(conn, account, chosen, previous)
                     refresh(conn, account, stored_key)
                     st.rerun()
 

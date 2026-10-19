@@ -152,10 +152,10 @@ def test_a_confirmation_or_planned_item_made_after_a_date_is_not_used_then(
     base = summary(next(iter(replay(conn, PID, [origin], futures=FUTURES))))
     series, _ = series_as_of(conn, PID, origin)
     biggest = min((s for s in series if s.direction == "out"), key=lambda s: s.expected_cents)
-    reject(conn, PID, biggest.key, origin + timedelta(days=1))  # decided the day after
+    reject(conn, PID, biggest, origin + timedelta(days=1))  # decided the day after
     add_planned(conn, PID, origin + timedelta(days=9), -90_000, "Later", origin + timedelta(days=2))
     assert summary(next(iter(replay(conn, PID, [origin], futures=FUTURES)))) == base
-    reject(conn, PID, biggest.key, origin - timedelta(days=1))  # decided the day before
+    reject(conn, PID, biggest, origin - timedelta(days=1))  # decided the day before
     changed = summary(next(iter(replay(conn, PID, [origin], futures=FUTURES))))
     assert changed != base  # known by then, so it counts
 
@@ -301,14 +301,14 @@ def test_steps_of_a_private_database_are_saved_in_data_private_only(
 def test_the_meta_file_carries_versions_and_a_resume_across_versions_is_refused(
     conn: sqlite3.Connection, tmp_path: Path
 ) -> None:
-    from lookahead.recurring_store import LOGIC_VERSION
+    from lookahead.recurring_store import REPLAY_VERSION
     from lookahead.timemachine import STEP_FORMAT
 
     out = tmp_path / "snap.jsonl"
     precompute(conn, PID, DAYS[:1], out, futures=FUTURES)
     meta = json.loads(out.with_suffix(".meta.json").read_text(encoding="utf-8"))
-    assert meta["format"] == STEP_FORMAT and meta["logic"] == LOGIC_VERSION
-    meta["logic"] = LOGIC_VERSION - 1  # made by older code
+    assert meta["format"] == STEP_FORMAT and meta["logic"] == REPLAY_VERSION
+    meta["logic"] = REPLAY_VERSION - 1  # made by older code
     out.with_suffix(".meta.json").write_text(json.dumps(meta), encoding="utf-8")
     with pytest.raises(ValueError, match="older version"):
         precompute(conn, PID, DAYS[:2], out, futures=FUTURES)

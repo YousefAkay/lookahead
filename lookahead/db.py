@@ -143,6 +143,16 @@ CREATE TABLE IF NOT EXISTS recurring_cache_info (
     version INTEGER NOT NULL,
     as_of   TEXT NOT NULL
 );
+-- Which payments (fingerprints) belong to which stable series id, written when a decision is
+-- made about a series. A series keeps its id when older payments appear or the oldest drops out,
+-- because it is found again by the payments it still shares. First writer wins; never rewritten.
+CREATE TABLE IF NOT EXISTS series_members (
+    account     TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    series_id   TEXT NOT NULL,
+    added_on    TEXT NOT NULL,
+    PRIMARY KEY (account, fingerprint)
+);
 CREATE TABLE IF NOT EXISTS recurring_decisions (
     decision_id INTEGER PRIMARY KEY,
     account     TEXT    NOT NULL,

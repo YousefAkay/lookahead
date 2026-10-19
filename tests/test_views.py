@@ -181,7 +181,7 @@ def test_series_rows_show_recurring_outflow_and_the_series_category(db: sqlite3.
     assert set(after.loc[list(rent.evidence), "flow_type"]) == {"transfer"}
 
     confirm(db, account, card)
-    set_category(db, account, card.key, "Entertainment")
+    set_category(db, account, card, "Entertainment")
     confirm(db, account, rent)
     refresh(db, account)
     shown = transactions(db, account).set_index("fingerprint")
