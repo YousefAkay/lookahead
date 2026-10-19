@@ -10,6 +10,7 @@ import random
 import shutil
 import sqlite3
 from collections import Counter
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -334,6 +335,7 @@ def test_explain_says_what_the_collision_is_and_prints_no_names(tmp_path: Path) 
     assert "collision 1: kind = two old decision keys now name ONE series (2 old keys" in text
     assert "price-change rule" in text and "confirm x1" in text and "category x1" in text
     assert "only in the after list: 0" in text
+    assert "still share remembered payments with another series: 0" in text
     assert not any(word in text for word in ("Cafe", "Gym", "Pool", "Phone", "sid|", "|out|"))
     assert identity.main(["dry-run", "--db", str(db), "--explain"]) == 0
 
@@ -356,3 +358,139 @@ def test_explain_names_an_extra_series_its_kind_its_actions_and_a_split() -> Non
     assert "extra series 1: kind = inactive (stopped itself)" in text
     assert "decision actions attached: confirm x1" in text
     assert "one habit split in two" in text
+
+
+# A habit joined by a continue link I made (a subscription under a new merchant name)
+
+FIT_OLD, FIT_NEW = "merchant|out|Fitplace", "merchant|out|Fitplace Online"
+
+
+def build_link_db(path: Path, old_n: int, new_n: int, with_log: bool = True) -> Path:
+    """A monthly charge of $25: `old_n` payments under one merchant name, then `new_n` under
+    another. The old log: confirms on both, and 'the new one continues the old one'."""
+    conn = connect(path)
+    for i in range(old_n + new_n):
+        year, month = 2025 + i // 12, i % 12 + 1
+        day = shift_to_business_day(monthly_date(year, month, 8), "later")
+        name = "Fitplace " if i < old_n else "Fitplace Online "
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES (?, ?, -2500, 'bill payment', ?, 0, ?, 'f', '2026-10-01')",
+            (ACCOUNT, day.isoformat(), name, f"fp{i:04d}"),
+        )  # fmt: skip
+    conn.commit()
+    if with_log:
+        snap = {
+            "kind": "merchant", "direction": "out", "cadence": "monthly", "anchor": "2025-01-08",
+            "anchor_day": 8, "amount_type": "fixed", "expected_cents": -2500,
+            "range_cents": [-2500, -2500], "name": "Fitplace",
+        }  # fmt: skip
+        rows = [(FIT_OLD, "confirm", snap, "2026-03-01"), (FIT_NEW, "confirm", snap, "2026-03-02"),
+                (FIT_NEW, "continue", {"previous": FIT_OLD}, "2026-03-03")]  # fmt: skip
+        conn.executemany(
+            "INSERT INTO recurring_decisions (account, series_key, action, details, decided_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [(ACCOUNT, k, a, json.dumps(d), day) for k, a, d, day in rows],
+        )
+        conn.commit()
+    conn.close()
+    return path
+
+
+@pytest.mark.parametrize(("old_n", "new_n"), [(8, 4), (4, 8), (6, 6)])
+def test_a_habit_joined_by_my_continue_link_stays_one_series(
+    old_n: int, new_n: int, tmp_path: Path
+) -> None:
+    db = build_link_db(tmp_path / "t.db", old_n, new_n)
+    assert len(today(db)) == 1  # the link already joins them
+    counts = identity.dry_run(db, None)
+    assert counts["collisions"] == 1 and counts["decisions"] == 3
+    assert counts["series_before"] == counts["series_after"] == 1
+    assert counts["decisions_applying_before"] == counts["decisions_applying_after"] == 3
+    identity.apply(db, None)
+    (habit,) = today(db).values()
+    assert habit.status == "confirmed" and len(habit.evidence) == old_n + new_n
+    assert len(habit.continues) == 1
+
+
+# A leftover of a habit never shows as a separate series, whatever joined it (condition 3);
+# the three cases that must stay separate (condition 4)
+
+
+def clusters(db: Path, merchant: str) -> list[rs.Stored]:
+    conn = connect(db)
+    try:
+        found = [s for s in rs.series_as_of(conn, ACCOUNT)[0] if merchant in s.key]
+    finally:
+        conn.close()
+    return sorted(found, key=lambda s: s.anchor)
+
+
+def test_a_confirmed_snapshot_folds_into_the_one_series_that_holds_its_payments(
+    tmp_path: Path,
+) -> None:
+    """Two confirmations were made about one habit under two ids: the first on a few of its
+    payments, the second on most. The first id is held by nobody, but exactly one series has its
+    payments: the decision applies to that series, not to a separate snapshot."""
+    db = build_db(tmp_path / "t.db", log=False)
+    conn = connect(db)
+    (old, new) = clusters(db, "Corner Cafe")
+    few = replace(new, id="sid|test|@few", evidence=new.evidence[:3])
+    most = replace(new, id="sid|test|@most", evidence=new.evidence[3:])
+    rs.confirm(conn, ACCOUNT, few, date(2026, 8, 2))
+    rs.set_category(conn, ACCOUNT, few, "Groceries", date(2026, 8, 3))
+    rs.confirm(conn, ACCOUNT, most, date(2026, 8, 4))
+    conn.close()
+    found = clusters(db, "Corner Cafe")
+    assert len(found) == 2  # the old and the new cluster; no snapshot beside them
+    assert all(s.detected_now for s in found)
+    assert found[1].status == "confirmed" and found[1].category == "Groceries"
+
+
+def test_two_real_habits_at_one_merchant_stay_two_series(tmp_path: Path) -> None:
+    db = build_db(tmp_path / "t.db", log=False)
+    conn = connect(db)
+    for habit in clusters(db, "City Pool"):
+        rs.confirm(conn, ACCOUNT, habit, date(2026, 8, 5))
+    conn.close()
+    pools = clusters(db, "City Pool")
+    assert len(pools) == 2 and {s.status for s in pools} == {"confirmed"}
+    assert pools[0].id != pools[1].id
+
+
+def test_two_habits_recorded_under_one_id_are_left_separate_not_merged(tmp_path: Path) -> None:
+    """Genuinely ambiguous: one id remembers the payments of two habits paid in the same weeks.
+    They overlap in time, so nothing is folded."""
+    db = build_db(tmp_path / "t.db", log=False)
+    conn = connect(db)
+    first, second = clusters(db, "City Pool")
+    both = replace(first, evidence=first.evidence + second.evidence)
+    rs.confirm(conn, ACCOUNT, both, date(2026, 8, 5))
+    conn.close()
+    pools = clusters(db, "City Pool")
+    assert len(pools) == 2
+    sizes = sorted(len(s.evidence) for s in pools)
+    assert sizes == sorted([len(first.evidence), len(second.evidence)])
+
+
+def test_a_series_i_ended_is_not_carried_on_and_a_new_one_starts_a_new_id(tmp_path: Path) -> None:
+    db = build_db(tmp_path / "t.db", log=False)
+    conn = connect(db)
+    old, new = clusters(db, "Corner Cafe")
+    rs.end(conn, ACCOUNT, old, date(2026, 5, 25))
+    conn.close()
+    old_after, new_after = clusters(db, "Corner Cafe")
+    assert not old_after.active and old_after.id == old.id
+    assert new_after.status == "detected" and new_after.active  # not ended with it
+    assert new_after.id != old.id and len(new_after.evidence) == len(new.evidence)
+
+
+def test_a_rejected_series_is_not_carried_on_either(tmp_path: Path) -> None:
+    db = build_db(tmp_path / "t.db", log=False)
+    conn = connect(db)
+    old, new = clusters(db, "Corner Cafe")
+    rs.reject(conn, ACCOUNT, old, date(2026, 5, 25))
+    conn.close()
+    old_after, new_after = clusters(db, "Corner Cafe")
+    assert old_after.status == "rejected" and new_after.status == "detected"

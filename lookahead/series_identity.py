@@ -120,3 +120,34 @@ def head_of(key: str, chain: dict[str, str]) -> str:
         key = chain[key]
         seen.add(key)
     return key
+
+
+def folds(
+    habits: Sequence[Habit], ids: Mapping[str, str], shares: Mapping[str, Collection[str]]
+) -> dict[str, str]:
+    """older key -> newer key, for detected series that are part of a habit another series
+    already holds the id of. `shares[key]` is the set of ids whose remembered payments the series
+    contains; a series that does not hold an id it shares is a leftover of that habit, however it
+    got separated (a continue link, a price change, a confirmed snapshot). Folded as a chain in
+    time order, never across a time overlap.
+
+    Left separate, because it is genuinely ambiguous: a series that shares payments with
+    two or more other series, and series of one habit that were paid in the same weeks (two real
+    habits at one merchant)."""
+    by_key = {h.key: h for h in habits}
+    holder = {i: k for k, i in ids.items()}
+    groups: dict[str, list[str]] = {}
+    for key in sorted(by_key):
+        mine = shares.get(key, ())
+        if ids.get(key) in mine:
+            continue  # it holds an id of its own
+        others = {holder[i] for i in mine if i in holder and holder[i] != key}
+        if len(others) == 1:
+            groups.setdefault(next(iter(others)), []).append(key)
+    out: dict[str, str] = {}
+    for first, others in groups.items():
+        order = sorted([first, *others], key=lambda k: (by_key[k].last_day, k))
+        pairs = list(zip(order, order[1:], strict=False))
+        if all(by_key[a].last_day < by_key[b].first_day for a, b in pairs):
+            out |= dict(pairs)
+    return out

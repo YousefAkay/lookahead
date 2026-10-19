@@ -118,8 +118,6 @@ def make_plan(conn: sqlite3.Connection, key: bytes | None, reattach: bool) -> Pl
                 if new_details is not None:
                     plan.moves[d.decision_id] = (d.key, new_details)
                 continue
-            if s.id in targets and targets[s.id] != d.key:
-                plan.counts["collisions"] += 1  # two old keys now name one series
             targets.setdefault(s.id, d.key)
             plan.landed.setdefault(s.id, []).append(d)
             plan.moves[d.decision_id] = (s.id, new_details)
@@ -128,6 +126,8 @@ def make_plan(conn: sqlite3.Connection, key: bytes | None, reattach: bool) -> Pl
                     planned.add(fp)
                     plan.members.append((account, fp, s.id, d.decided_at.isoformat()))
     plan.counts["members_added"] = len(plan.members)
+    # a collision: one series that two or more old keys now name (counted per series)
+    plan.counts["collisions"] = sum(len({d.key for d in ds}) > 1 for ds in plan.landed.values())
     return plan
 
 
@@ -305,6 +305,15 @@ def explain_lines(plan: Plan, before: dict[str, object], after: dict[str, object
         f"series only in the before list: {len(gone)}; only in the after list: {len(extra)}"
     )
     remembered = after["remembered"]
+    sharing = [
+        n
+        for n, ids in remembered.items()
+        if any(o != n and ids & oi for o, oi in remembered.items())
+    ]  # type: ignore[attr-defined]
+    lines.append(
+        f"series that still share remembered payments with another series: {len(sharing)} "
+        "(genuinely ambiguous, left separate on purpose)"
+    )
     for n, name in enumerate(extra, 1):
         kind = after["kinds"][name]  # type: ignore[index]
         mine = remembered[name]  # type: ignore[index]

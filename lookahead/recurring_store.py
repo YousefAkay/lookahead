@@ -37,7 +37,7 @@ from lookahead.flows import Flow, Txn, flow_types
 from lookahead.recurring import CADENCES, Series, detect, expected_dates
 from lookahead.rent import RentRule, assign_cycles, next_window_day, rent_cents
 from lookahead.resolve import UserDecisions, load_user_decisions
-from lookahead.series_identity import Habit, assign_ids, head_of, is_id, successors
+from lookahead.series_identity import Habit, assign_ids, folds, head_of, is_id, successors
 from lookahead.taxonomy import CATEGORIES
 
 # Bump when detection or the replay of decisions changes what a stored series holds; the
@@ -375,6 +375,13 @@ def current_series(
               for k, s in series.items()}  # fmt: skip
     named = {d.key for d in decisions if is_id(d.key)}
     decided |= {k for k, ids_k in shares.items() if ids_k & named}
+    # An id nobody holds, whose remembered payments sit in exactly one series, names that
+    # series (not a separate snapshot of it). With two or more such series it is ambiguous:
+    # no match, and the decision keeps its snapshot.
+    for named_id in sorted(named - set(ref)):
+        sharing = [k for k, ids_k in shares.items() if named_id in ids_k]
+        if len(sharing) == 1:
+            ref[named_id] = sharing[0]
     # A new cluster carries on a decided series that stopped appearing (a price change),
     # never one I ended or rejected. Series without decisions are left alone.
     stopped = {
@@ -388,6 +395,8 @@ def current_series(
         if carried | set(chain.values()) == carried:
             break
         carried |= set(chain.values())
+    for older, newer in folds(habits, ids, shares).items():  # parts of one habit: one series
+        chain.setdefault(older, newer)
     head = {k: head_of(k, chain) for k in series}
 
     def target(ref_key: str) -> str:
@@ -472,7 +481,7 @@ def current_series(
             joined = _joined(series.pop(k), joined)
         series[newest] = replace(_joined(series[newest], joined), id=keep_id)
     for new_key, old_key in links:  # after everything else, so both sides are up to date
-        if new_key in series and old_key in series:
+        if new_key in series and old_key in series and new_key != old_key:
             series[new_key] = _joined(series[new_key], series.pop(old_key))
     return sorted(series.values(), key=lambda s: s.key)
 
