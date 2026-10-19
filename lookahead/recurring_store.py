@@ -37,12 +37,14 @@ from lookahead.flows import Flow, Txn, flow_types
 from lookahead.recurring import CADENCES, Series, detect, expected_dates
 from lookahead.rent import RentRule, assign_cycles, next_window_day, rent_cents
 from lookahead.resolve import UserDecisions, load_user_decisions
+from lookahead.series_identity import Habit, assign_ids, head_of, successors
 from lookahead.taxonomy import CATEGORIES
 
 # Bump when detection or the replay of decisions changes what a stored series holds; the
 # pages then rebuild the saved copy by themselves instead of showing an older one.
-# 2: a series with a rent rule is called Rent; 3: saved results record the forecaster's settings
-LOGIC_VERSION = 3
+# 2: a series with a rent rule is called Rent; 3: saved results record the forecaster's settings;
+# 4: decisions are kept against a stable id, not the key that moves with the amount
+LOGIC_VERSION = 4
 ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent", "rename")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 
@@ -76,6 +78,7 @@ class Stored:
     allowed_cents: tuple[int, ...] = ()  # rent rule: the amounts it may be paid in (sizes)
     window: tuple[int, int] | None = None  # rent rule: from-day and to-day of the month
     named_by_me: bool = False  # the name is my own text (hand-added or renamed), safe to show
+    id: str = ""  # stable identity (lookahead.series_identity); my decisions are stored against it
 
 
 @dataclass(frozen=True)
@@ -138,9 +141,10 @@ def confirm(
             "allowed_cents",
             "window",
             "named_by_me",
+            "id",
         )  # fmt: skip
     }
-    decide(conn, account, series.key, "confirm", snapshot, when)
+    decide(conn, account, series.id or series.key, "confirm", snapshot, when)
 
 
 def confirm_all(
@@ -300,18 +304,50 @@ def current_series(
         s.key: _from_detected(s, fingerprint, posted)
         for s in detect(txns, user, as_of=as_of, key=key)
     }
+    # Stable ids: a decision names a series by its id (or, in an older log, by its key).
+    day_of = {fingerprint[r]: d for r, d in posted.items()}
+    habits = [
+        Habit(s.key, s.evidence[0], day_of[s.evidence[0]], s.last_paid, s.cadence)
+        for s in series.values()
+        if s.evidence and s.last_paid is not None
+    ]
+    ids = assign_ids(habits)
+    series = {k: replace(s, id=ids.get(k, k)) for k, s in series.items()}
+    ref = {k: k for k in series} | {i: k for k, i in ids.items()}
+    decided: set[str] = set()
+    latest: dict[str, str] = {}  # the latest confirm / reject / end of each series
+    for d in decisions:
+        if d.key in ref:
+            decided.add(ref[d.key])
+            if d.action in ("confirm", "reject", "end"):
+                latest[ref[d.key]] = d.action
+    # A new cluster carries on a decided series that stopped appearing (a price change),
+    # never one I ended or rejected. Series without decisions are left alone.
+    stopped = {k for k in series if latest.get(k) in ("reject", "end")}
+    carried = set(decided)  # a series that carries one on can be carried on in its turn
+    while True:
+        chain = successors(habits, stopped | (set(series) - carried))
+        if carried | set(chain.values()) == carried:
+            break
+        carried |= set(chain.values())
+    head = {k: head_of(k, chain) for k in series}
+
+    def target(ref_key: str) -> str:
+        return head.get(ref[ref_key], ref[ref_key]) if ref_key in ref else ref_key
+
     links: list[tuple[str, str]] = []  # (series, the ended one it continues), in log order
     rules: dict[str, RentRule | None] = {}  # the latest rent rule of each series
     names: dict[str, str | None] = {}  # the latest name of my own for each series
     for d in decisions:
+        k = target(d.key)
         if d.action == "rent":
-            rules[d.key] = _rule_from(d.details)
+            rules[k] = _rule_from(d.details)
             continue
         if d.action == "rename":
-            names[d.key] = d.details.get("name")  # type: ignore[assignment]
+            names[k] = d.details.get("name")  # type: ignore[assignment]
             continue
         if d.action == "continue":
-            links.append((d.key, str(d.details["previous"])))
+            links.append((k, ref.get(str(d.details["previous"]), str(d.details["previous"]))))
             continue
         if d.action == "add":
             cadence, direction = str(d.details["cadence"]), str(d.details["direction"])
@@ -326,24 +362,26 @@ def current_series(
                 next_expected=_next_from(cadence, anchor, direction, max(as_of, anchor)),
                 status="user-added", active=True, detected_now=False, named_by_me=True,
                 evidence=tuple(fingerprint[t.row_id] for t in found),
-                last_paid=found[-1].posted_date if found else None,
+                last_paid=found[-1].posted_date if found else None, id=d.key,
             )  # fmt: skip
+            ref[d.key] = d.key
             continue
-        if d.key not in series:
+        if k not in series:
             if d.action != "confirm" or "cadence" not in d.details:
                 continue  # a decision about a series that no longer exists
-            series[d.key] = _from_snapshot(d, as_of)  # confirmed once: it stays
+            series[k] = replace(_from_snapshot(d, as_of), id=d.key)  # confirmed once: it stays
+            ref[d.key] = k
             continue
-        s = series[d.key]
+        s = series[k]
         paid_since = s.last_paid is not None and s.last_paid > d.decided_at
         if d.action == "confirm" and s.status != "user-added":
-            series[d.key] = replace(s, status="confirmed")
+            series[k] = replace(s, status="confirmed")
         elif d.action == "reject":
-            series[d.key] = replace(s, status="rejected")
+            series[k] = replace(s, status="rejected")
         elif d.action == "category":
-            series[d.key] = replace(s, category=d.details.get("category"))  # type: ignore[arg-type]
+            series[k] = replace(s, category=d.details.get("category"))  # type: ignore[arg-type]
         elif d.action == "end":  # stays ended; a later payment is flagged, for an alert
-            series[d.key] = replace(s, active=False, paid_after_end=paid_since)
+            series[k] = replace(s, active=False, paid_after_end=paid_since)
         elif d.action == "edit" and not paid_since:
             changes: dict[str, object] = {"edited": True}
             if "next_date" in d.details:
@@ -351,7 +389,7 @@ def current_series(
             if "amount_cents" in d.details:
                 amount = int(d.details["amount_cents"])  # type: ignore[call-overload]
                 changes |= {"expected_cents": amount, "range_cents": (amount, amount)}
-            series[d.key] = replace(s, **changes)  # type: ignore[arg-type]
+            series[k] = replace(s, **changes)  # type: ignore[arg-type]
     for k, name in names.items():  # after the loop: the latest wins, and None gives it back
         if name and k in series:
             series[k] = replace(series[k], name=name, named_by_me=True)
@@ -363,6 +401,17 @@ def current_series(
                 series[k] = _with_rent_rule(series[k], rule, txns, fingerprint, flows, as_of)
                 if not series[k].named_by_me:  # a name I set myself still wins
                     series[k] = replace(series[k], name="Rent", named_by_me=True)
+    olds: dict[str, list[str]] = {}  # newest series of a chain -> the earlier ones
+    for k in series:
+        if k in head and head[k] != k:
+            olds.setdefault(head[k], []).append(k)
+    for newest, earlier in olds.items():  # a price change: one series, one history, oldest id
+        earlier.sort(key=lambda k: (series[k].last_paid or date.min, k))
+        oldest_id = series[earlier[0]].id
+        joined = series.pop(earlier[0])
+        for k in earlier[1:]:
+            joined = _joined(series.pop(k), joined)
+        series[newest] = replace(_joined(series[newest], joined), id=oldest_id)
     for new_key, old_key in links:  # after everything else, so both sides are up to date
         if new_key in series and old_key in series:
             series[new_key] = _joined(series[new_key], series.pop(old_key))
