@@ -9,6 +9,7 @@ import json
 import random
 import shutil
 import sqlite3
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -53,9 +54,8 @@ def old_log(conn: sqlite3.Connection) -> None:
         )
 
 
-@pytest.fixture
-def db(tmp_path: Path) -> Path:
-    path = tmp_path / "t.db"
+def build_db(path: Path, old_weeks: int = 20, new_weeks: int = 11, log: bool = True) -> Path:
+    """The cafe habit pays the old price for `old_weeks` weeks and the new one for `new_weeks`."""
     conn = connect(path)
     n = 0
 
@@ -76,8 +76,8 @@ def db(tmp_path: Path) -> Path:
         day = shift_to_business_day(monthly_date(2026, m, 10), "later")
         insert(day, -6500, "bill payment", "Phone Co ")
     rng = random.Random(5)
-    for i in range(31):
-        cents = -((1200 if i < 20 else 1550) + rng.randint(-20, 20))
+    for i in range(old_weeks + new_weeks):
+        cents = -((1200 if i < old_weeks else 1550) + rng.randint(-20, 20))
         day = date(2026, 1, 6) + timedelta(days=7 * i)
         insert(day, cents, "pos purchase", CARD.format("Corner Cafe"))
     for i in range(14):
@@ -92,9 +92,15 @@ def db(tmp_path: Path) -> Path:
         day = date(2026, 1, 9) + timedelta(days=int(10.9 * i) + 1)
         insert(day, -rng.choice([1500, 2300, 2750, 3100]), "pos purchase", CARD.format("City Pool"))
     conn.commit()
-    old_log(conn)
+    if log:
+        old_log(conn)
     conn.close()
     return path
+
+
+@pytest.fixture
+def db(tmp_path: Path) -> Path:
+    return build_db(tmp_path / "t.db")
 
 
 def keys(path: Path) -> dict[int, str]:
@@ -272,3 +278,81 @@ def test_the_forecast_counts_move_when_a_re_attached_decision_changes_what_is_pl
     assert flagged["forecast_series_removed"] == 1  # the phone bill is no longer placed
     assert flagged["forecast_series_added"] == flagged["forecast_series_changed"] == 0
     assert identity.dry_run(db, None, reattach=True) == flagged  # and it is repeatable
+
+
+# One habit that a price change had already joined must stay one series after the migration
+
+
+@pytest.mark.parametrize(("old_weeks", "new_weeks"), [(20, 11), (10, 21), (15, 16)])
+def test_a_joined_habit_stays_one_series_whichever_cluster_is_bigger(
+    old_weeks: int, new_weeks: int, tmp_path: Path
+) -> None:
+    db = build_db(tmp_path / "t.db", old_weeks, new_weeks, log=False)
+    old, new = sorted(k for k in today(db) if "Corner Cafe" in k)  # the two clusters' keys
+    older, newer = sorted((old, new), key=lambda k: today(db)[k].anchor)
+    snapshot = {**SNAPSHOT, "key": older}
+    conn = sqlite3.connect(db)
+    with conn:
+        conn.executemany(
+            "INSERT INTO recurring_decisions (account, series_key, action, details, decided_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [(ACCOUNT, older, "confirm", json.dumps(snapshot), "2026-05-25"),
+             (ACCOUNT, newer, "category", json.dumps({"category": "Fun"}), "2026-08-01")],
+        )  # fmt: skip
+    conn.close()
+    before = today(db)
+    assert len([k for k in before if "Corner Cafe" in k]) == 1  # already joined by the old keys
+    counts = identity.dry_run(db, None)
+    assert counts["collisions"] == 1  # two old keys now name one series: harmless, and counted
+    assert counts["series_before"] == counts["series_after"]
+    assert counts["decisions_applying_before"] == counts["decisions_applying_after"]
+    identity.apply(db, None)
+    (cafe,) = [s for k, s in today(db).items() if "Corner Cafe" in k]
+    assert cafe.status == "confirmed" and cafe.category == "Fun" and len(cafe.continues) == 1
+    assert identity.dry_run(db, None)["decisions_moved_to_id"] == 0  # and it is stable
+
+
+# --explain: counts and kinds only
+
+
+def test_explain_says_what_the_collision_is_and_prints_no_names(tmp_path: Path) -> None:
+    db = build_db(tmp_path / "t.db", 10, 21, log=False)
+    cafes = [k for k in today(db) if "Corner Cafe" in k]
+    older, newer = sorted(cafes, key=lambda k: today(db)[k].anchor)
+    conn = sqlite3.connect(db)
+    with conn:
+        conn.executemany(
+            "INSERT INTO recurring_decisions (account, series_key, action, details, decided_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [(ACCOUNT, older, "confirm", json.dumps({**SNAPSHOT, "key": older}), "2026-05-25"),
+             (ACCOUNT, newer, "category", json.dumps({"category": "Fun"}), "2026-08-01")],
+        )  # fmt: skip
+    conn.close()
+    lines: list[str] = []
+    identity.dry_run(db, None, explain=lines)
+    text = "\n".join(lines)
+    assert "collision 1: kind = two old decision keys now name ONE series (2 old keys" in text
+    assert "price-change rule" in text and "confirm x1" in text and "category x1" in text
+    assert "only in the after list: 0" in text
+    assert not any(word in text for word in ("Cafe", "Gym", "Pool", "Phone", "sid|", "|out|"))
+    assert identity.main(["dry-run", "--db", str(db), "--explain"]) == 0
+
+
+def test_explain_names_an_extra_series_its_kind_its_actions_and_a_split() -> None:
+    state = {
+        "series": {"a|k1": object()},
+        "kinds": {"a|k1": "active"},
+        "actions": {"a|k1": Counter()},
+        "remembered": {"a|k1": {"i"}},
+    }
+    after = {
+        "series": {"a|k1": object(), "a|k2": object()},
+        "kinds": {"a|k1": "active", "a|k2": "inactive (stopped itself)"},
+        "actions": {"a|k1": Counter(), "a|k2": Counter({"confirm": 1})},
+        "remembered": {"a|k1": {"i"}, "a|k2": {"i"}},
+    }
+    text = "\n".join(identity.explain_lines(identity.Plan(), state, after))
+    assert "series before (1): active 1" in text and "series after (2)" in text
+    assert "extra series 1: kind = inactive (stopped itself)" in text
+    assert "decision actions attached: confirm x1" in text
+    assert "one habit split in two" in text

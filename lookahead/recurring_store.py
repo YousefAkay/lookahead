@@ -360,14 +360,28 @@ def current_series(
     ref = {k: k for k in series} | {i: k for k, i in ids.items()}
     decided: set[str] = set()
     latest: dict[str, str] = {}  # the latest confirm / reject / end of each series
+    latest_id: dict[str, str] = {}  # the same, by the id the decision names
     for d in decisions:
         if d.key in ref:
             decided.add(ref[d.key])
             if d.action in ("confirm", "reject", "end"):
                 latest[ref[d.key]] = d.action
+        if d.action in ("confirm", "reject", "end") and is_id(d.key):
+            latest_id[d.key] = d.action
+    # A series that shares remembered payments with an id I decided about is part of that
+    # habit, even if another series holds the id (a price change joined two clusters: only one
+    # of them can hold it, and the other must still be carried on, not left behind).
+    shares = {k: {(members or {})[fp] for fp in s.evidence if fp in (members or {})}
+              for k, s in series.items()}  # fmt: skip
+    named = {d.key for d in decisions if is_id(d.key)}
+    decided |= {k for k, ids_k in shares.items() if ids_k & named}
     # A new cluster carries on a decided series that stopped appearing (a price change),
     # never one I ended or rejected. Series without decisions are left alone.
-    stopped = {k for k in series if latest.get(k) in ("reject", "end")}
+    stopped = {
+        k for k in series
+        if latest.get(k) in ("reject", "end")
+        or any(latest_id.get(i) in ("reject", "end") for i in shares[k])
+    }  # fmt: skip
     carried = set(decided)  # a series that carries one on can be carried on in its turn
     while True:
         chain = successors(habits, stopped | (set(series) - carried))
@@ -451,11 +465,12 @@ def current_series(
             olds.setdefault(head[k], []).append(k)
     for newest, earlier in olds.items():  # a price change: one series, one history, oldest id
         earlier.sort(key=lambda k: (series[k].last_paid or date.min, k))
-        oldest_id = series[earlier[0]].id
+        chain_ids = [series[k].id for k in (*earlier, newest)]
+        keep_id = next((i for i in chain_ids if i in named), chain_ids[0])  # the one I decided on
         joined = series.pop(earlier[0])
         for k in earlier[1:]:
             joined = _joined(series.pop(k), joined)
-        series[newest] = replace(_joined(series[newest], joined), id=oldest_id)
+        series[newest] = replace(_joined(series[newest], joined), id=keep_id)
     for new_key, old_key in links:  # after everything else, so both sides are up to date
         if new_key in series and old_key in series:
             series[new_key] = _joined(series[new_key], series.pop(old_key))

@@ -53,6 +53,7 @@ class Plan:
     moves: dict[int, tuple[str, str | None]] = field(default_factory=dict)
     members: list[tuple[str, str, str, str]] = field(default_factory=list)
     counts: Counter[str] = field(default_factory=Counter)
+    landed: dict[str, list[Decision]] = field(default_factory=dict)  # new id -> its decisions
 
 
 def _accounts(conn: sqlite3.Connection) -> list[str]:
@@ -120,6 +121,7 @@ def make_plan(conn: sqlite3.Connection, key: bytes | None, reattach: bool) -> Pl
             if s.id in targets and targets[s.id] != d.key:
                 plan.counts["collisions"] += 1  # two old keys now name one series
             targets.setdefault(s.id, d.key)
+            plan.landed.setdefault(s.id, []).append(d)
             plan.moves[d.decision_id] = (s.id, new_details)
             for fp in s.evidence:
                 if fp not in remembered and fp not in planned:
@@ -145,15 +147,41 @@ def _resolves(d: Decision, series: Sequence[Stored]) -> bool:
     return d.key in names or (d.action == "confirm" and "cadence" in d.details)
 
 
+def kind_of(s: Stored, ended: set[str]) -> str:
+    """One word for what a series is today (for the explanation; no names)."""
+    if s.status == "user-added":
+        return "hand-added"
+    if not s.detected_now and s.status == "confirmed":
+        return "confirmed snapshot"
+    if s.status == "rejected":
+        return "rejected"
+    if not s.active:
+        return "ended by me" if (s.key in ended or s.id in ended) else "inactive (stopped itself)"
+    return "active"
+
+
 def measure(conn: sqlite3.Connection, key: bytes | None) -> dict[str, object]:
     """The state the checks and the counts are read from: series and decisions that apply."""
     series: dict[str, Stored] = {}
+    kinds: dict[str, str] = {}
+    actions: dict[str, Counter[str]] = {}
+    remembered: dict[str, set[str]] = {}
     applying = 0
     for account in _accounts(conn):
         found, _ = series_as_of(conn, account, None, key)
-        series |= {f"{account}|{s.key}": s for s in found}
-        applying += sum(_resolves(d, found) for d in load_decisions(conn, account))
-    return {"series": series, "applying": applying}
+        decisions = load_decisions(conn, account)
+        members = load_members(conn, account)
+        ended = {d.key for d in decisions if d.action == "end"}
+        for s in found:
+            name = f"{account}|{s.key}"
+            series[name] = s
+            kinds[name] = kind_of(s, ended)
+            names = {s.key, s.id} | set(s.continues)
+            actions[name] = Counter(d.action for d in decisions if d.key in names)
+            remembered[name] = {members[fp] for fp in s.evidence if fp in members}
+        applying += sum(_resolves(d, found) for d in decisions)
+    return {"series": series, "applying": applying, "kinds": kinds, "actions": actions,
+            "remembered": remembered}  # fmt: skip
 
 
 def _rows(conn: sqlite3.Connection) -> dict[int, tuple[str, str, str, str]]:
@@ -184,10 +212,14 @@ def execute(conn: sqlite3.Connection, plan: Plan) -> None:
 
 
 def run_migration(
-    conn: sqlite3.Connection, key: bytes | None, reattach: bool = False
+    conn: sqlite3.Connection,
+    key: bytes | None,
+    reattach: bool = False,
+    explain: list[str] | None = None,
 ) -> dict[str, int]:
     """Plan, write (inside the open transaction), check, and return the counts. Raises
-    IdentityCheckError if a decision would be lost; the caller then rolls back."""
+    IdentityCheckError if a decision would be lost; the caller then rolls back. With `explain`,
+    lines (counts and kinds only, no names) are appended to it."""
     before_rows = _rows(conn)
     before = measure(conn, key)
     plan = make_plan(conn, key, reattach)
@@ -207,6 +239,8 @@ def run_migration(
         raise IdentityCheckError(
             f"decisions that apply fell from {before['applying']} to {after['applying']}"
         )
+    if explain is not None:
+        explain.extend(explain_lines(plan, before, after))
     counts = dict(plan.counts)
     old_series, new_series = before["series"], after["series"]
     assert isinstance(old_series, dict) and isinstance(new_series, dict)
@@ -231,6 +265,59 @@ def run_migration(
                  "orphans_without_candidate", "orphans_reattached", "members_added"):  # fmt: skip
         counts.setdefault(name, 0)
     return {k: int(v) for k, v in sorted(counts.items())}
+
+
+def _list_actions(actions: Counter[str]) -> str:
+    return ", ".join(f"{a} x{c}" for a, c in sorted(actions.items())) or "none"
+
+
+def explain_lines(plan: Plan, before: dict[str, object], after: dict[str, object]) -> list[str]:
+    """What the collisions are, and why the series count changed. Counts and kinds only."""
+    lines: list[str] = []
+    crowded = {i: ds for i, ds in plan.landed.items() if len({d.key for d in ds}) > 1}
+    lines.append(f"collisions: {plan.counts['collisions']}")
+    for n, ds in enumerate(crowded.values(), 1):
+        old_keys = {d.key for d in ds}
+        linked = any(d.action == "continue" for d in ds)
+        lines.append(
+            f"collision {n}: kind = two old decision keys now name ONE series "
+            f"({len(old_keys)} old keys, {len(ds)} decisions, 1 series); the extra keys are "
+            "earlier clusters that this series carried on"
+        )
+        if linked:
+            rule = "a 'continue' link I made joined them"
+        else:
+            rule = (
+                "the price-change rule joined them (a newer cluster of the same merchant and "
+                "cadence carried on an older one that stopped); harmless in itself: every "
+                "decision still applies to the one series"
+            )
+        lines.append("  rule: " + rule)
+        lines.append("  actions: " + _list_actions(Counter(d.action for d in ds)))
+    for title, state in (("before", before), ("after", after)):
+        kinds = Counter(state["kinds"].values())  # type: ignore[attr-defined]
+        shown = ", ".join(f"{k} {n}" for k, n in sorted(kinds.items()))
+        lines.append(f"series {title} ({sum(kinds.values())}): {shown}")
+    old, new = before["series"], after["series"]
+    gone = set(old) - set(new)  # type: ignore[arg-type]
+    extra = sorted(set(new) - set(old))  # type: ignore[arg-type]
+    lines.append(
+        f"series only in the before list: {len(gone)}; only in the after list: {len(extra)}"
+    )
+    remembered = after["remembered"]
+    for n, name in enumerate(extra, 1):
+        kind = after["kinds"][name]  # type: ignore[index]
+        mine = remembered[name]  # type: ignore[index]
+        siblings = [o for o, ids in remembered.items() if o != name and ids & mine]  # type: ignore[attr-defined]
+        lines.append(
+            f"extra series {n}: kind = {kind}; decision actions attached: "
+            + _list_actions(after["actions"][name])  # type: ignore[index]
+        )
+        lines.append(
+            f"  shares remembered payments with {len(siblings)} other series"
+            + (" -> one habit split in two (they hold the same remembered id)" if siblings else "")
+        )
+    return lines
 
 
 def _without(details: str, name: str) -> dict[str, object]:
@@ -259,12 +346,14 @@ def _in_memory_copy(db: Path) -> sqlite3.Connection:
     return copy
 
 
-def dry_run(db: Path, key: bytes | None, reattach: bool = False) -> dict[str, int]:
+def dry_run(
+    db: Path, key: bytes | None, reattach: bool = False, explain: list[str] | None = None
+) -> dict[str, int]:
     """The counts `apply` would report, from an in-memory copy. Writes nothing."""
     copy = _in_memory_copy(db)
     try:
         copy.execute("BEGIN")
-        counts = run_migration(copy, key, reattach)
+        counts = run_migration(copy, key, reattach, explain)
         copy.execute("ROLLBACK")
     finally:
         copy.close()
@@ -373,6 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=["report", "dry-run", "apply", "check"])
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--reattach", action="store_true", help="also re-attach clear orphans")
+    parser.add_argument("--explain", action="store_true", help="dry-run: explain the collisions")
     parser.add_argument("--backup", type=Path, help="for check: the backup file to compare with")
     args = parser.parse_args(argv)
     if not args.db.exists():
@@ -388,7 +478,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "dry-run":
         try:
-            _print("dry run: nothing written", dry_run(args.db, key, args.reattach))
+            lines: list[str] = []
+            _print("dry run: nothing written", dry_run(args.db, key, args.reattach, lines))
+            if args.explain:
+                print("explain (counts and kinds only):")
+                print("\n".join("  " + line for line in lines))
         except IdentityCheckError as error:
             print(f"the check would FAIL: {error}")
             return 1
