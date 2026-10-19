@@ -1811,6 +1811,14 @@ Other readings: dip measures leave out origins already below the line; CRPS uses
 
 **Order.** The rule is committed first; then the futures store is saved (on 2 jobs, after I close other apps); then the counts-only check of eligible origins; then a `--quick` run; the full run only after I say go.
 
+### 2026-10-19: Experiments 4 to 6 are parked (not run, not failed)
+I am not running experiments 4 to 6 for now. The Berka part of the futures pass (200 accounts, about 8,000 origins) needs more memory than my 8 GB laptop has free while I am using it: this week it sat at 91 to 98 percent in use, and a long run stopped itself on my memory rules more than once. A 32 GB MacBook is coming, so the runs wait for it.
+
+- **Nothing is adopted.** The forecaster stays at the current default. Experiment 4 has not been scored, and I have not looked at any of its outcomes.
+- **This is "not run", not "failed".** The experiment 4 rule (2026-10-17) and the futures-store code (b8c8b24) stay committed as they are, so the work can resume on the other machine without redesigning anything.
+- **Where the saving pass stands (saved files are git-ignored, not committed).** The 12-month and 24-month synthetic sets are fully saved, and each passes the gate: the default's p10, p50, p90, dip chance, median lowest balance and CRPS, recomputed from the saved paths, equal the experiment 3 records at 800 of 800 origins on each set. The Berka pass is not started and no Berka futures are saved. When it resumes, a worker should load only its own account's rows instead of receiving all the frames from the parent.
+- **The alert-threshold re-pick and the held-out final test also wait until the forecaster is final.** Held-out data is opened once, and nothing may be tuned after it. It is still unopened.
+
 ## Known issues
 
 - 2026-10-17: the dip chance is overconfident at the low end: origins with a predicted chance under 1% still dipped 2.4 to 4.0 percent of the time (experiment 1, both sets). Not fixed yet.
