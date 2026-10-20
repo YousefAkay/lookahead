@@ -1046,3 +1046,89 @@ def test_review_page_warns_about_screenshots_only_for_my_data(isolated: Path) ->
     freeze_demo(isolated)
     at = run(REVIEW)
     assert "do not screenshot" not in page_text(at)  # synthetic text is safe to show
+
+
+# --- Suggestions on the Recurring page (week 5, item 2) ---
+
+
+def add_a_possible_subscription(tmp_path: Path) -> None:
+    """Two monthly charges of the same amount at a merchant nothing else is paid to, posted just
+    before the data ends: detection cannot call it a series (it needs three), so it is a
+    possible subscription."""
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "demo.db")
+    with conn:
+        for n, day in enumerate(("2026-08-20", "2026-09-19")):
+            conn.execute(
+                "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+                " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+                " VALUES ('synthetic-B', ?, -1299, 'bill payment', 'Zenstudio ', 0, ?, 'f',"
+                " '2026-10-01')", (day, f"suggest-fp-{n}"),
+            )  # fmt: skip
+    conn.close()
+
+
+def with_a_suggestion(isolated: Path) -> AppTest:
+    run(RECURRING)  # builds the demo database
+    add_a_possible_subscription(isolated)
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    return at
+
+
+def suggest_buttons(at: AppTest, label: str) -> list:  # type: ignore[type-arg]
+    return [b for b in at.button if b.label == label and str(b.key).startswith("suggest_")]
+
+
+def test_the_recurring_page_shows_a_suggestion_and_says_nothing_changes_until_i_click(
+    isolated: Path,
+) -> None:
+    at = with_a_suggestion(isolated)
+    text = page_text(at)
+    assert "Suggestions" in text and "Nothing changes until you click Looks right" in text
+    assert "may be a monthly subscription" in text and "$12.99" in text
+    assert (
+        len(suggest_buttons(at, "Looks right")) == 1 and len(suggest_buttons(at, "Not this")) == 1
+    )
+
+
+def test_looks_right_on_a_suggestion_adds_the_series_and_the_suggestion_goes(
+    isolated: Path,
+) -> None:
+    from lookahead.db import connect_readonly
+    from lookahead.recurring_store import load_decisions
+
+    at = with_a_suggestion(isolated)
+    suggest_buttons(at, "Looks right")[0].click().run()
+    assert not at.exception, at.exception
+    assert not suggest_buttons(at, "Looks right")  # nothing left to suggest
+    conn = connect_readonly(isolated / "demo.db")
+    added = [d for d in load_decisions(conn, "synthetic-B") if d.action == "add"]
+    conn.close()
+    assert len(added) == 1 and added[0].details["name"] == "Zenstudio"
+    assert added[0].key.startswith("user|")
+
+
+def test_not_this_hides_the_suggestion_and_decides_nothing_about_recurring_payments(
+    isolated: Path,
+) -> None:
+    from lookahead.db import connect_readonly
+    from lookahead.recurring_store import load_decisions
+
+    at = with_a_suggestion(isolated)
+    before = stored_series(isolated, "synthetic-B")
+    suggest_buttons(at, "Not this")[0].click().run()
+    assert not at.exception, at.exception
+    assert not suggest_buttons(at, "Looks right")
+    conn = connect_readonly(isolated / "demo.db")
+    assert load_decisions(conn, "synthetic-B") == []
+    conn.close()
+    assert set(stored_series(isolated, "synthetic-B")) == set(before)
+
+
+def test_with_nothing_to_suggest_the_page_has_no_suggestions_panel(isolated: Path) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert "Suggestions" not in page_text(at) and not suggest_buttons(at, "Looks right")

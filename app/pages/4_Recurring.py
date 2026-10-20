@@ -53,6 +53,7 @@ from lookahead.recurring_store import (  # noqa: E402
     set_rent_rule,
 )
 from lookahead.rent import RentRule, parse_dollars, rent_cents  # noqa: E402
+from lookahead.setting_proposals import accept, current_proposals, describe, dismiss  # noqa: E402
 from lookahead.taxonomy import CATEGORIES  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
@@ -153,6 +154,31 @@ if last_date is not None and any(last_date < s.next_expected < date.today() for 
         "payment due since then that has not been seen yet; it may already have posted.</p>",
         unsafe_allow_html=True,
     )
+
+# --- Suggestions: what I used to type by hand, prefilled from history ---
+suggestions = current_proposals(conn, account, stored_key, series=series)
+if suggestions:
+    st.markdown(
+        "<h3>Suggestions</h3>"
+        '<p class="la-note">Prefilled from your history. Nothing changes until you click '
+        "Looks right.</p>",
+        unsafe_allow_html=True,
+    )
+    for suggestion in suggestions:
+        with st.container(border=True):
+            st.markdown(describe(suggestion, hide_names=display_key is not None))
+            st.caption(
+                f"{suggestion.confidence.capitalize()} · based on {len(suggestion.evidence)} "
+                "payments · an estimate from past payments"
+            )
+            ok_col, no_col, _ = st.columns([1, 1, 4])
+            if ok_col.button("Looks right", key=f"suggest_ok|{suggestion.key}", type="primary"):
+                accept(conn, account, suggestion, series)
+                refresh(conn, account, stored_key)
+                st.rerun()
+            if no_col.button("Not this", key=f"suggest_no|{suggestion.key}"):
+                dismiss(conn, account, suggestion)
+                st.rerun()
 
 # --- The cards ---
 by_key = {s.key: s for s in listed}
