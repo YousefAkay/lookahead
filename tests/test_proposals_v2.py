@@ -1,0 +1,304 @@
+"""The scoring script for the proposals (eval.proposals_v2): code and tests only, no scoring run."""
+
+import json
+from datetime import date, timedelta
+from pathlib import Path
+
+import pytest
+
+from eval import proposals_v2 as pv
+from lookahead import recurring_store as rs
+from lookahead.generator.archetypes import HELD_OUT, LONG_HELD_OUT, development_ids
+from lookahead.generator.plant import PlantedEvent, read_answer_key, write_planted
+from lookahead.generator.schedules import GeneratedTxn
+from lookahead.rent import RentRule
+from lookahead.setting_proposals import SettingProposal
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(scope="module")
+def planted_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    root = tmp_path_factory.mktemp("planted")
+    for pid in development_ids(long=False):
+        write_planted(pid, root / "12")
+    return root
+
+
+def persona_with(planted_root: Path, what: str) -> str:
+    for pid in development_ids(long=False):
+        if any(e.what == what for e in read_answer_key(planted_root / "12", pid)):
+            return pid
+    raise AssertionError(what)
+
+
+def gen(day: date, cents: int, series: str) -> GeneratedTxn:
+    return GeneratedTxn(
+        posted_date=day, amount_cents=cents, txn_type="withdrawal", merchant="x",
+        category="Rent & housing", flow_type="recurring_outflow", series_id=series,
+    )  # fmt: skip
+
+
+# --- the matching rules ---
+
+
+def test_a_window_may_wrap_a_month_end() -> None:
+    rule = RentRule((90000,), 30, 3)
+    inside = [pv.in_window(d, rule) for d in (28, 30, 31, 1, 3, 4)]
+    assert inside == [False, True, True, True, True, False]
+    assert pv.in_window(2, RentRule((1,), 1, 4)) and not pv.in_window(5, RentRule((1,), 1, 4))
+
+
+def test_share_in_is_the_share_of_a_proposals_payments_that_are_the_events() -> None:
+    a, b, c = (date(2026, 1, 2), 1), (date(2026, 2, 2), 1), (date(2026, 3, 2), 1)
+    assert pv.share_in({a, b}, {a, b, c}) == 1.0 and pv.share_in({a, b}, {a}) == 0.5
+    assert pv.share_in(set(), {a}) == 0.0
+
+
+def rent_rows() -> list[GeneratedTxn]:
+    days = [date(2026, m, d) for m, d in [(1, 2), (2, 3), (3, 2), (4, 1), (5, 4), (6, 2), (7, 3)]]
+    return [gen(d, -(90000 if d.month < 5 else 95000), "p-rent") for d in days]
+
+
+def rent_event() -> PlantedEvent:
+    return PlantedEvent(
+        "p:rent-increase", "p", "rent", "increase", date(2026, 7, 3),
+        {"sizes_cents": [90000, 95000], "first_new_payment": "2026-05-04"},
+    )  # fmt: skip
+
+
+def rent_proposal(rule: RentRule) -> SettingProposal:
+    return SettingProposal("rent", "sid|x", "rent|sid|x", "t", (), "likely", rent=rule)
+
+
+def test_a_rent_proposal_needs_both_sizes_and_a_window_over_the_send_days() -> None:
+    rows = rent_rows()
+    pairs = {(t.posted_date, t.amount_cents) for t in rows}
+    ok = rent_proposal(RentRule((90000, 95000), 1, 4))
+    assert pv.matches(ok, rent_event(), rows, pairs)
+    assert not pv.matches(rent_proposal(RentRule((95000,), 1, 4)), rent_event(), rows, pairs)
+    wrong_days = rent_proposal(RentRule((90000, 95000), 10, 12))
+    assert not pv.matches(wrong_days, rent_event(), rows, pairs)
+
+
+def test_a_proposal_about_other_payments_is_not_a_match() -> None:
+    rows = rent_rows()
+    other = {(date(2026, m, 15), -1500) for m in range(1, 5)}
+    assert not pv.matches(rent_proposal(RentRule((90000, 95000), 1, 4)), rent_event(), rows, other)
+
+
+def test_a_link_needs_payments_on_both_sides_of_the_rename() -> None:
+    rows = [gen(date(2026, m, 8), -2500, "p-sub-x") for m in range(1, 9)]
+    event = PlantedEvent(
+        "p:subscription-rename", "p", "link", "rename", date(2026, 7, 8),
+        {"series_id": "p-sub-x", "first_new_payment": "2026-06-08"},
+    )  # fmt: skip
+    link = SettingProposal("link", "a", "link|a|b", "t", (), "likely")
+    both = {(t.posted_date, t.amount_cents) for t in rows}
+    assert pv.matches(link, event, rows, both)
+    assert not pv.matches(link, event, rows, {p for p in both if p[0].month < 6})  # only old side
+    assert not pv.matches(link, event, rows, {p for p in both if p[0].month >= 6})  # only new side
+
+
+def test_a_possible_subscription_matches_the_planted_charges_only() -> None:
+    rows = [gen(date(2026, m, 5), -1299, "p-sub-planted") for m in (7, 8, 9)]
+    event = PlantedEvent("p:new", "p", "possible", "new", date(2026, 8, 5), {})
+    proposal = SettingProposal("possible", "k", "possible|k", "t", (), "possible")
+    assert pv.matches(proposal, event, rows, {(date(2026, 7, 5), -1299), (date(2026, 8, 5), -1299)})
+    other = {(date(2026, 7, 6), -999), (date(2026, 8, 6), -999)}
+    assert not pv.matches(proposal, event, rows, other)
+
+
+# --- the adopt rule (b) and the leakage flag (e) ---
+
+
+def test_a_kind_with_fewer_than_twenty_planted_events_cannot_pass() -> None:
+    ok, reasons = pv.kind_status(pv.KindScore(shown=20, matched=18, events=19, recovered=15))
+    assert not ok and any("cannot pass" in r for r in reasons)
+
+
+def test_precision_and_recall_both_have_to_clear_their_bars() -> None:
+    assert pv.kind_status(pv.KindScore(shown=10, matched=8, events=25, recovered=15))[0]
+    assert not pv.kind_status(pv.KindScore(shown=10, matched=7, events=25, recovered=15))[0]
+    assert not pv.kind_status(pv.KindScore(shown=10, matched=8, events=25, recovered=14))[0]
+    assert not pv.kind_status(pv.KindScore(shown=0, matched=0, events=25, recovered=20))[0]
+
+
+def test_precision_above_ninety_five_percent_raises_the_leakage_flag() -> None:
+    ok, reasons = pv.kind_status(pv.KindScore(shown=40, matched=39, events=30, recovered=25))
+    assert not ok and any("LEAKAGE CHECK FIRST" in r for r in reasons)
+    _, quiet = pv.kind_status(pv.KindScore(shown=40, matched=34, events=30, recovered=25))
+    assert not any("LEAKAGE" in r for r in quiet)
+
+
+# --- (c) one click against zero ---
+
+
+def test_one_click_more_than_one_percent_worse_for_any_archetype_fails_the_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pv, "stats", lambda rows: {"n": len(rows), "err30": rows[0]["err"]})
+    zero = [{"archetype": "A", "err": 100.0}, {"archetype": "B", "err": 200.0}]
+    one = [{"archetype": "A", "err": 100.9}, {"archetype": "B", "err": 202.1}]
+    table = pv.compare_arms(zero, one)
+    assert table["A"]["ok"] and not table["B"]["ok"]
+    assert table["B"]["change"] == pytest.approx(0.0105)
+    text = pv.report_text(pv.Scores(), 1, table)
+    assert "FAILS" in text and "1 of 2 archetypes" in text
+
+
+# --- the ledger, the report, the refusals ---
+
+
+def test_every_run_is_counted_in_the_variant_ledger(tmp_path: Path) -> None:
+    ledger = tmp_path / "variants.json"
+    assert pv.record_variant(ledger, "spec as written", ["12"], False) == 1
+    assert pv.record_variant(ledger, "a changed proposer", ["12", "long"], True) == 2
+    entries = json.loads(ledger.read_text("utf-8"))
+    assert [e["label"] for e in entries] == ["spec as written", "a changed proposer"]
+    assert all({"code", "planter_version", "seed", "when"} <= set(e) for e in entries)
+
+
+def test_the_report_shows_n_for_every_kind_and_the_variant_count() -> None:
+    scores = pv.Scores(personas=3)
+    scores.kinds["rent"] = pv.KindScore(shown=4, matched=3, events=18, observable=18, recovered=9)
+    text = pv.report_text(scores, 2)
+    assert "Variants tried so far: 2" in text
+    assert "| rent | 18 | 18 | 4 | 75% (3/4) | 50% (9/18) |" in text
+    assert "| link | 0 | 0 | 0 | - (0/0) | - (0/0) |" in text and "cannot pass" in text
+
+
+@pytest.mark.parametrize("held_out", [sorted(HELD_OUT)[0], sorted(LONG_HELD_OUT)[0]])
+def test_held_out_personas_are_refused(held_out: str, tmp_path: Path) -> None:
+    with pytest.raises(ValueError), pv.planted_db(held_out, Path("12"), tmp_path, tmp_path):
+        pass
+
+
+def test_an_answer_key_that_is_not_the_planters_output_is_refused(
+    planted_root: Path, tmp_path: Path
+) -> None:
+    pid = development_ids(long=False)[0]
+    copy = tmp_path / "root"
+    (copy / "12" / pid).mkdir(parents=True)
+    for name in ("export.csv", "answer_key.json"):
+        (copy / "12" / pid / name).write_bytes((planted_root / "12" / pid / name).read_bytes())
+    key = json.loads((copy / "12" / pid / "answer_key.json").read_text("utf-8"))
+    fake = {"event_id": f"{pid}:fake", "persona_id": pid, "kind": "rent", "what": "late",
+            "observable_from": "2026-08-01", "details": {}}  # fmt: skip
+    key["events"].append(fake)
+    (copy / "12" / pid / "answer_key.json").write_text(json.dumps(key), encoding="utf-8")
+    with (
+        pytest.raises(ValueError, match="answer key on disk"),
+        pv.planted_db(pid, Path("12"), tmp_path / "w", copy),
+    ):
+        pass
+
+
+# --- precision and recall on a planted persona, with a controlled proposer ---
+
+
+def rent_evidence(db: pv.PlantedDb) -> tuple[str, ...]:
+    pid = db.persona.persona.persona_id
+    rows = db.conn.execute(
+        "SELECT fingerprint FROM transactions WHERE account = ? AND description = 'withdrawal'"
+        " AND sub_description LIKE 'Free Interac%'", (pid,),
+    ).fetchall()  # fmt: skip
+    return tuple(r[0] for r in rows)
+
+
+def test_a_good_rent_proposal_is_matched_and_recovers_the_event(
+    planted_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid = persona_with(planted_root, "increase")
+    with pv.planted_db(pid, Path("12"), tmp_path, planted_root) as db:
+        event = next(e for e in db.events if e.what == "increase")
+        sizes = tuple(sorted(event.details["sizes_cents"]))
+        good = SettingProposal("rent", "sid|x", "rent|sid|x", "t", rent_evidence(db), "likely",
+                               rent=RentRule(sizes, 1, 31))  # fmt: skip
+        monkeypatch.setattr(pv, "current_proposals", lambda *a, **k: [good])
+        days = pv.backtest_origins()[-3:]
+        scores = pv.score_planted(db, days)
+    rent = scores.kinds["rent"]
+    assert (rent.shown, rent.matched) == (1, 1) and rent.recovered >= 1 and rent.events >= 1
+    assert scores.kinds["link"].shown == 0 and scores.kinds["possible"].shown == 0
+
+
+def test_a_proposal_that_misses_the_new_size_is_shown_but_not_matched(
+    planted_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid = persona_with(planted_root, "increase")
+    with pv.planted_db(pid, Path("12"), tmp_path, planted_root) as db:
+        event = next(e for e in db.events if e.what == "increase")
+        bad = SettingProposal(
+            "rent",
+            "sid|x",
+            "rent|sid|x",
+            "t",
+            rent_evidence(db),
+            "likely",
+            rent=RentRule((min(event.details["sizes_cents"]),), 1, 31),
+        )
+        monkeypatch.setattr(pv, "current_proposals", lambda *a, **k: [bad])
+        scores = pv.score_planted(db, pv.backtest_origins()[-3:])
+    rent = scores.kinds["rent"]
+    assert rent.shown == 1 and rent.matched == 0 and rent.recovered == 0
+
+
+def test_a_proposal_shown_only_long_after_the_event_does_not_count_as_recall(
+    planted_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid = persona_with(planted_root, "increase")
+    with pv.planted_db(pid, Path("12"), tmp_path, planted_root) as db:
+        event = next(e for e in db.events if e.what == "increase")
+        sizes = tuple(sorted(event.details["sizes_cents"]))
+        good = SettingProposal("rent", "sid|x", "rent|sid|x", "t", rent_evidence(db), "likely",
+                               rent=RentRule(sizes, 1, 31))  # fmt: skip
+        late = event.observable_from + timedelta(days=61)
+        monkeypatch.setattr(
+            pv, "current_proposals", lambda c, p, as_of=None, **k: [good] if as_of >= late else []
+        )
+        origins = [event.observable_from, late]
+        scores = pv.score_planted(db, origins)
+    increase_recovered = scores.kinds["rent"].recovered
+    assert scores.kinds["rent"].matched == 1 and increase_recovered == 0
+
+
+# --- the plumbing end to end, on two planted personas and two origins (not a result) ---
+
+
+def test_the_scorer_runs_end_to_end_and_counts_the_run(planted_root: Path, tmp_path: Path) -> None:
+    ledger = tmp_path / "variants.json"
+    text = pv.run_score(
+        ["12"], "plumbing", tmp_path / "w", planted_root, origin_days=pv.backtest_origins()[-2:],
+        personas=2, ledger=ledger,
+    )  # fmt: skip
+    assert "Personas scored: 2" in text and "Variants tried so far: 1" in text
+    assert json.loads(ledger.read_text("utf-8"))[0]["label"] == "plumbing"
+
+
+def test_the_arms_run_end_to_end_with_a_handful_of_futures(
+    planted_root: Path, tmp_path: Path
+) -> None:
+    pid = development_ids(long=False)[0]
+    with pv.planted_db(pid, Path("12"), tmp_path, planted_root) as db:
+        zero, one, done = pv.forecast_arms(db, pv.backtest_origins()[-2:], futures=20)
+        decisions = rs.load_decisions(db.conn, pid)
+    assert len(zero) == len(one) == 2 and set(done) == set(pv.KINDS)
+    assert all(d.key.startswith(("sid|", "user|")) for d in decisions)
+    assert all(d.decided_at in pv.backtest_origins()[-2:] for d in decisions)  # dated at an origin
+
+
+# --- (d) zero-confirmation forecasts do not read the proposers ---
+
+
+def test_nothing_in_the_forecast_reads_the_proposers() -> None:
+    readers = []
+    for folder in ("lookahead/forecast", "eval", "lookahead"):
+        for path in (ROOT / folder).glob("*.py"):
+            if path.name in ("setting_proposals.py", "proposals_v2.py", "proposals_recover.py"):
+                continue
+            if "setting_proposals" in path.read_text("utf-8"):
+                readers.append(path.name)
+    assert readers == []  # only the app page and the scorers import them
+    app = (ROOT / "app" / "pages" / "4_Recurring.py").read_text("utf-8")
+    assert "setting_proposals" in app
