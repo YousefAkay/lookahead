@@ -469,12 +469,27 @@ def test_nothing_for_a_name_i_added_by_hand_even_if_its_payments_are_not_found()
     assert proposals == []
 
 
-def test_card_purchases_only_are_not_proposed() -> None:
-    rows = [
-        Txn(i + 1, d, -400, "pos purchase", "Opos Coffeebar         toron ")
-        for i, d in enumerate([date(2025, 1, 10), date(2025, 2, 10)])
+def card_pair(first_cents: int, second_cents: int, second_day: date) -> list[Txn]:
+    text = "Opos Netflix.Com         +1866 "
+    return [
+        Txn(1, date(2025, 1, 10), -first_cents, "pos purchase", text),
+        Txn(2, second_day, -second_cents, "pos purchase", text),
     ]
-    proposals, _ = possible_for(rows)
+
+
+def test_a_subscription_paid_by_card_is_proposed_when_the_amounts_are_exactly_equal() -> None:
+    (p,), _ = possible_for(card_pair(1454, 1454, date(2025, 2, 10)))
+    assert p.kind == "possible" and p.amount_cents == -1454
+
+
+@pytest.mark.parametrize(
+    ("second_cents", "second_day"),
+    [(1460, date(2025, 2, 10)), (1454, date(2025, 2, 3)), (1454, date(2025, 2, 17))],
+)
+def test_card_purchases_that_are_not_exactly_one_amount_a_month_apart_are_not_proposed(
+    second_cents: int, second_day: date
+) -> None:
+    proposals, _ = possible_for(card_pair(1454, second_cents, second_day))
     assert proposals == []
 
 

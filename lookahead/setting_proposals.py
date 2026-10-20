@@ -319,6 +319,7 @@ def propose_links(
 POSSIBLE_MIN_GAP, POSSIBLE_MAX_GAP = 25, 38  # days between the two charges
 POSSIBLE_STALE_DAYS = 45  # the latest charge is no older than this
 POSSIBLE_SAME_AMOUNT = 0.01  # the two amounts are the same to within 1 percent
+CARD_MIN_GAP, CARD_MAX_GAP = 28, 34  # paid by card: exactly the same amount, a calendar month apart
 
 
 def propose_possible(
@@ -333,7 +334,8 @@ def propose_possible(
     """A merchant with exactly two payments, about a month apart, of the same amount, the latest
     still recent: a subscription that detection cannot call a series yet (it needs three).
     Always "possible". Nothing for a merchant that has any other payment, for payments that
-    already belong to a series, for a name I added by hand, or for card purchases only."""
+    already belong to a series, or for a name I added by hand. Paid by card (most subscriptions
+    are), the two amounts must be exactly equal and a calendar month apart."""
     past = [t for t in txns if t.posted_date <= as_of]
     groups, card_rows = _groups(past, user, key)
     covered = {fp for s in series for fp in s.evidence}
@@ -343,7 +345,7 @@ def propose_possible(
     for (_, merchant, kind, direction), rows in sorted(groups.items(), key=lambda kv: kv[0]):
         if kind != "merchant" or direction != "out" or merchant is None or len(rows) != 2:
             continue
-        if merchant.casefold() in added or all(t.row_id in card_rows for t in rows):
+        if merchant.casefold() in added:
             continue
         first, second = sorted(rows, key=lambda t: (t.posted_date, t.row_id))
         a, b = abs(first.amount_cents), abs(second.amount_cents)
@@ -352,6 +354,10 @@ def propose_possible(
             continue
         if not POSSIBLE_MIN_GAP <= gap <= POSSIBLE_MAX_GAP:
             continue
+        if all(t.row_id in card_rows for t in rows) and (
+            a != b or not CARD_MIN_GAP <= gap <= CARD_MAX_GAP
+        ):
+            continue  # most subscriptions are card payments, but a shop is not one: exact only
         if (as_of - second.posted_date).days > POSSIBLE_STALE_DAYS:
             continue
         prints = tuple(fingerprint[t.row_id] for t in (first, second))
