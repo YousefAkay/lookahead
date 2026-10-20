@@ -1876,6 +1876,14 @@ I wrote a test for the open risk before building anything else: after a rent inc
 - **Fix, proposer:** a rent proposal goes to the live series when there is one, and is not made when the latest payment is more than 50 days before the data ends.
 - Made before the planter and before any scoring run, so it is not a variant of anything scored.
 
+### 2026-10-20: The planter has run (copies only, nothing scored): what the spec gives, found before any scoring
+Generated with `python -m lookahead.generator.plant --set both` in 2 seconds, into `data/backtest/planted/` (git-ignored). The existing sets are byte-identical: the combined hash of the 40 regenerated development exports and of the 6 stored synthetic files is the same before and after. Held-out personas are refused (tested). **Month numbering, a reading of the spec:** month 1 is October 2025 in both sets (the 24-month personas have a year of history before it); so the same calendar months are used in both. **Planted events (n), seed 2026:** rent 18 (7 increases, 11 late-payment patterns), link 9, possible 25 (12-month set: 8, 5, 13; 24-month set: 10, 4, 12).
+Three consequences of the spec as written, which I have **not** changed (a change would be a variant, and nothing has been scored):
+- **Rent n = 18 and link n = 9 are below the 20 the adopt rule requires, so those two kinds cannot pass** (they would be reported with their n).
+- **Possible subscription: only 10 of 25 are observable at an origin.** The last origin is 31 August 2026, so a subscription whose first charge is in month 11 (August) has one charge by then; its second charge falls after every origin. Recall is measured over the planted events, so its ceiling is 40 percent, below the 60 percent required: **as written, this kind cannot pass either.**
+- Rent (18 of 18) and link (9 of 9) events are all observable by the last origin.
+Whether to change the spec (more personas or rates, a different month range for P1) is for me to decide before any scoring run; if I do, it is recorded here as a variant, with the reason.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
