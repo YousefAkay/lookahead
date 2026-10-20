@@ -136,3 +136,30 @@ def test_a_no_prints_a_veto(db: Path, capsys: pytest.CaptureFixture[str]) -> Non
 def test_a_missing_database_is_reported_not_created(tmp_path: Path) -> None:
     assert pr.main(["--db", str(tmp_path / "nope.db")]) == 2
     assert not (tmp_path / "nope.db").exists()
+
+
+def test_the_hand_entries_are_hidden_from_the_copy_before_the_proposers_run(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    accept_everything(db)  # the entries exist in the database
+    real = connect(db)
+    present = {r[0] for r in real.execute("SELECT DISTINCT action FROM recurring_decisions")}
+    assert {"rent", "continue", "add"} <= present
+    assert current_proposals(real, ACCOUNT) == []  # with them there, nothing is proposed
+    real.close()
+    seen: list[set[str]] = []
+    original = pr.current_proposals
+
+    def spy(conn: sqlite3.Connection, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        seen.append({r[0] for r in conn.execute("SELECT DISTINCT action FROM recurring_decisions")})
+        return original(conn, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pr, "current_proposals", spy)
+    result = pr.recover(copy_of(db))
+    assert seen and all(not ({"rent", "continue", "add"} & actions) for actions in seen)
+    assert result == {"rent": (1, 0), "link": (1, 0), "hand-added": (1, 0)}  # so it can say yes
+    after = connect(db)  # the real database still has them
+    assert {"rent", "continue", "add"} <= {
+        r[0] for r in after.execute("SELECT DISTINCT action FROM recurring_decisions")
+    }
+    after.close()
