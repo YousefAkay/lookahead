@@ -296,6 +296,21 @@ def propose_rent(
     return out
 
 
+def _best_rent_group(
+    series: Sequence[Stored], txns: Sequence[Txn], fingerprint: dict[int, str],
+    user: UserDecisions | None, key: bytes | None, as_of: date, evidence: Collection[str],
+) -> tuple[int, str, list[Txn], list[Stored]] | None:  # fmt: skip
+    """The outgoing e-Transfer recipient whose payments overlap `evidence` most, as (overlap,
+    group key, its payments, its detected series). None if none overlaps."""
+    mine = set(evidence)
+    best: tuple[int, str, list[Txn], list[Stored]] | None = None
+    for group_key, rows, family in _rent_groups(series, txns, user, key, as_of):
+        overlap = len(mine & {fingerprint[t.row_id] for t in rows})
+        if overlap > (best[0] if best else 0):
+            best = (overlap, group_key, rows, family)
+    return best if best and best[0] >= 0.5 * max(len(mine), 1) else None
+
+
 def rent_reason(
     series: Sequence[Stored], decisions: Sequence[Decision], txns: Sequence[Txn],
     fingerprint: dict[int, str], user: UserDecisions | None, key: bytes | None, as_of: date,
@@ -303,14 +318,26 @@ def rent_reason(
 ) -> str:  # fmt: skip
     """Why there is no rent proposal for the recipient whose payments include `evidence` (the
     fingerprints of a rent series of mine): a reason code from REASONS, or "proposal_made"."""
-    mine = set(evidence)
-    best: tuple[int, str] = (0, "entry_not_found")
-    for group_key, rows, family in _rent_groups(series, txns, user, key, as_of):
-        overlap = len(mine & {fingerprint[t.row_id] for t in rows})
-        if overlap > best[0]:
-            result = _rent_for_group(group_key, rows, family, decisions, fingerprint, as_of)
-            best = (overlap, "proposal_made" if isinstance(result, SettingProposal) else result)
-    return best[1] if best[0] >= 0.5 * max(len(mine), 1) else "no_candidate_series"
+    best = _best_rent_group(series, txns, fingerprint, user, key, as_of, evidence)
+    if best is None:
+        return "no_candidate_series"
+    _, group_key, rows, family = best
+    result = _rent_for_group(group_key, rows, family, decisions, fingerprint, as_of)
+    return "proposal_made" if isinstance(result, SettingProposal) else result
+
+
+def rent_profile(
+    series: Sequence[Stored], txns: Sequence[Txn], fingerprint: dict[int, str],
+    user: UserDecisions | None, key: bytes | None, as_of: date, evidence: Collection[str],
+) -> tuple[int, int, int] | None:  # fmt: skip
+    """Counts only, for the recipient that `evidence` points to: (payments, of them at or above
+    the rent floor, different months with such a payment). No amounts, dates or names."""
+    best = _best_rent_group(series, txns, fingerprint, user, key, as_of, evidence)
+    if best is None:
+        return None
+    rows = best[2]
+    big = [t for t in rows if abs(t.amount_cents) >= MIN_RENT_CENTS]
+    return len(rows), len(big), len({(t.posted_date.year, t.posted_date.month) for t in big})
 
 
 # --- link: one subscription under two merchant names ---

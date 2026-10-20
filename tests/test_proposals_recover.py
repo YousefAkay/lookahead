@@ -3,7 +3,7 @@
 import hashlib
 import re
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,8 +12,15 @@ from eval import proposals_recover as pr
 from lookahead import recurring_store as rs
 from lookahead.calendar_rules import monthly_date, shift_to_business_day
 from lookahead.db import connect
+from lookahead.generator.schedules import GeneratedTxn
 from lookahead.rent import RentRule
-from lookahead.setting_proposals import accept, current_proposals
+from lookahead.setting_proposals import (
+    accept,
+    current_proposals,
+    proposal_inputs,
+    rent_profile,
+    rent_reason,
+)
 
 ACCOUNT = "a"
 RENT_DAYS = [
@@ -318,3 +325,147 @@ def test_the_explanation_prints_codes_and_counts_only(
     )
     for line in out.splitlines():
         assert re.fullmatch(shape, line), line
+
+
+# --- the migration re-merges a link's two names through the members table ---
+
+
+def legacy_link_db(path: Path) -> sqlite3.Connection:
+    """Two names of one subscription, and a decision log as it was before ids existed: a confirm
+    on each, and 'the new one continues the old one'."""
+    conn = subscription_db(path, new_cents=2500)
+    rows = [
+        ("merchant|out|Fitplace", "confirm", "2026-03-01"),
+        ("merchant|out|Fitplace Online", "confirm", "2026-03-02"),
+        ("merchant|out|Fitplace Online", "continue", "2026-03-03"),
+    ]
+    with conn:
+        for key, action, day in rows:
+            details = '{"previous": "merchant|out|Fitplace"}' if action == "continue" else "{}"
+            conn.execute(
+                "INSERT INTO recurring_decisions (account, series_key, action, details, decided_at)"
+                " VALUES (?, ?, ?, ?, ?)", (ACCOUNT, key, action, details, day),
+            )  # fmt: skip
+    return conn
+
+
+def test_a_migrated_link_is_found_although_the_members_table_still_joins_its_two_names(
+    tmp_path: Path,
+) -> None:
+    """The migration remembers the payments of both names under one id; hiding the link decision
+    must also undo that merge in the copy, or there are no two series left to link."""
+    from lookahead import identity
+
+    legacy_link_db(tmp_path / "t.db").close()
+    identity.apply(tmp_path / "t.db", None)  # the real migration, as I ran it
+    conn = connect(tmp_path / "t.db")
+    assert len([s for s in rs.series_as_of(conn, ACCOUNT)[0] if "Fitplace" in (s.name or "")]) == 1
+    conn.close()
+    result, reasons, _ = pr.recover_detailed(copy_of(tmp_path / "t.db"))
+    assert result["link"] == (1, 0), reasons["link"]
+
+
+def test_the_explanation_says_how_many_series_detection_alone_finds_for_a_link(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Counts only: what the entry rests on, and what detection alone finds there."""
+    from lookahead import identity
+
+    legacy_link_db(tmp_path / "t.db").close()
+    identity.apply(tmp_path / "t.db", None)
+    out = recover_text(tmp_path / "t.db", capsys)
+    assert "link: yes 1, no 0 -> ok" in out
+    assert "detail: link entry rests on 12 payments; detection alone finds 2 series" in out
+    assert "covering 12 of them" in out
+
+
+# --- rent: amounts stored exactly as the real importer stores them ---
+
+
+def import_bank_export(path: Path, rows: list[GeneratedTxn]) -> sqlite3.Connection:
+    """A bank file written and read back by the real importer (signed integer cents)."""
+    from datetime import datetime
+
+    from lookahead.generator.writer import write_export
+    from lookahead.ingest.scotiabank import parse_export
+    from lookahead.ingest.store import store_exports
+
+    export = path.parent / "export.csv"
+    write_export(rows, 5_000_000, export)
+    conn = connect(path)
+    store_exports(conn, ACCOUNT, [(export.name, parse_export(export))], datetime(2026, 10, 1))
+    return conn
+
+
+def etransfer(day: date, cents: int) -> GeneratedTxn:
+    return GeneratedTxn(
+        posted_date=day, amount_cents=cents, txn_type="withdrawal", merchant="Interac e-Transfer",
+        category="Rent & housing", flow_type="recurring_outflow", series_id="x-rent",
+        description="withdrawal", sub_description="Free Interac E-Transfer ",
+    )  # fmt: skip
+
+
+def test_ordinary_rent_imported_the_way_the_real_importer_stores_it_is_proposed(
+    tmp_path: Path,
+) -> None:
+    """Debits are negative integer cents; the proposer takes the size and compares it in cents."""
+    rows = [etransfer(d, -(120000 if i < 8 else 125000)) for i, d in enumerate(RENT_DAYS)]
+    conn = import_bank_export(tmp_path / "t.db", rows)
+    stored = {r[0] for r in conn.execute("SELECT amount_cents FROM transactions")}
+    assert stored == {-120000, -125000}  # signed cents, exactly
+    (proposal,) = current_proposals(conn, ACCOUNT)
+    assert proposal.rent is not None and proposal.rent.amounts_cents == (120000, 125000)
+    conn.close()
+
+
+def test_known_many_small_e_transfers_to_the_same_recipient_pull_the_median_under_the_floor(
+    tmp_path: Path,
+) -> None:
+    """Not a unit or sign bug: the floor is applied to the median of every outgoing e-Transfer to
+    the recipient. Rows with no printed recipient are one group, so small e-Transfers to anyone
+    can pull rent under $100 and the reason is amount_too_small. A design question, pinned here."""
+    rows = [etransfer(d, -120000) for d in RENT_DAYS]
+    days = RENT_DAYS * 2
+    small = [etransfer(d + timedelta(days=9), -(2500 + 100 * i)) for i, d in enumerate(days)]
+    conn = import_bank_export(tmp_path / "t.db", sorted(rows + small, key=lambda t: t.posted_date))
+    assert [p for p in current_proposals(conn, ACCOUNT) if p.kind == "rent"] == []
+    inputs = proposal_inputs(conn, ACCOUNT)
+    assert inputs is not None
+    rent_prints = {inputs.fingerprint[t.row_id] for t in inputs.txns if t.amount_cents == -120000}
+    code = rent_reason(
+        inputs.series,
+        inputs.decisions,
+        inputs.txns,
+        inputs.fingerprint,
+        inputs.user,
+        None,
+        inputs.day,
+        rent_prints,
+    )
+    assert code == "amount_too_small"
+    profile = rent_profile(
+        inputs.series, inputs.txns, inputs.fingerprint, inputs.user, None, inputs.day, rent_prints
+    )
+    months = len({(d.year, d.month) for d in RENT_DAYS})
+    assert profile == (len(RENT_DAYS) * 3, len(RENT_DAYS), months)  # all, big, months
+    conn.close()
+
+
+def test_explain_gives_the_rent_recipient_profile_as_counts_only(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    days = RENT_DAYS * 2
+    rows = [etransfer(d, -120000) for d in RENT_DAYS]
+    rows += [etransfer(d + timedelta(days=9), -(2500 + 100 * i)) for i, d in enumerate(days)]
+    conn = import_bank_export(tmp_path / "t.db", sorted(rows, key=lambda t: t.posted_date))
+    series, _ = rs.series_as_of(conn, ACCOUNT)
+    big = max(series, key=lambda s: abs(s.expected_cents))
+    rs.set_rent_rule(conn, ACCOUNT, big, RentRule((120000,), 1, 4), date(2026, 1, 5))
+    conn.close()
+    out = recover_text(tmp_path / "t.db", capsys)
+    assert "why not (1): amount_too_small" in out
+    months = len({(d.year, d.month) for d in RENT_DAYS})
+    profile = "detail: rent recipient has 36 payments, 12 of them at or above the $100 floor"
+    assert f"{profile}, in {months} different months" in out
+    for leak in ("120000", "1200", "2500", "2025", "2026"):
+        assert leak not in out

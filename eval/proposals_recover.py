@@ -25,8 +25,10 @@ import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Collection
+from datetime import date
 from pathlib import Path
 
+from eval.rent_rule_origins import detection_only
 from lookahead import recurring_store as rs
 from lookahead.identity import _accounts, _in_memory_copy
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key
@@ -38,6 +40,7 @@ from lookahead.setting_proposals import (
     link_reason,
     possible_reason,
     proposal_inputs,
+    rent_profile,
     rent_reason,
 )
 
@@ -93,14 +96,46 @@ def _find(series: list[rs.Stored], ref: str) -> rs.Stored | None:
     return next((s for s in series if ref in (s.id, s.key) or ref in s.continues), None)
 
 
+def _undo_link_merges(
+    copy: sqlite3.Connection, account: str, entries: list[rs.Stored], key: bytes | None
+) -> list[str]:
+    """Hiding a link must also undo the merge the migration left behind. The migration remembers
+    the payments of both names under one id (the members table), which joins the two series again
+    even without the link decision. For each linked series, detection alone says which payments are
+    the newer name's; those are forgotten in the copy, so the two names are two series, as they
+    were before I linked them. Returns one counts-only line per entry."""
+    lines = []
+    inputs = proposal_inputs(copy, account, key)
+    for both in entries:
+        if inputs is None:
+            lines.append("link entry: nothing posted")
+            continue
+        raw = detection_only(copy, account, inputs.day, key)
+        parts = [r for r in raw if _overlap(r.evidence, both.evidence, "smaller")]
+        covered = len(set().union(*(set(r.evidence) for r in parts)) & set(both.evidence))
+        lines.append(
+            f"link entry rests on {len(both.evidence)} payments; detection alone finds "
+            f"{len(parts)} series covering {covered} of them"
+        )
+        if len(parts) >= 2:
+            newer = max(parts, key=lambda r: (r.last_paid or date.min, r.key))
+            with copy:
+                copy.executemany(
+                    "DELETE FROM series_members WHERE account = ? AND fingerprint = ?",
+                    [(account, fp) for fp in newer.evidence],
+                )
+    return lines
+
+
 def recover_detailed(
     copy: sqlite3.Connection, key: bytes | None = None
-) -> tuple[dict[str, tuple[int, int]], dict[str, Counter[str]]]:
-    """({kind: (recovered, not recovered)}, {kind: count of each reason code for a "no"}) for the
-    hand entries in `copy`, which is changed (the entries are deleted from it): hand it a
-    throw-away copy."""
+) -> tuple[dict[str, tuple[int, int]], dict[str, Counter[str]], dict[str, list[str]]]:
+    """({kind: (recovered, not recovered)}, {kind: count of each reason code for a "no"}, {kind:
+    counts-only detail lines}) for the hand entries in `copy`, which is changed (the entries are
+    deleted from it): hand it a throw-away copy."""
     results: dict[str, list[bool]] = {k: [] for k in KINDS}
     reasons: dict[str, Counter[str]] = {k: Counter() for k in KINDS}
+    details: dict[str, list[str]] = {k: [] for k in KINDS}
 
     def note(kind: str, reason: str | None) -> None:
         results[kind].append(reason is None)
@@ -115,6 +150,9 @@ def recover_detailed(
             (d.key, str(d.details.get("previous"))) for d in decisions if d.action == "continue"
         ]
         added = [s for s in before if s.status == "user-added"]
+        refs = {n for n, _ in links} | {o for _, o in links}
+        linked = {t.key: t for ref in refs if (t := _find(before, ref)) is not None}
+        details["link"] += _undo_link_merges(copy, account, list(linked.values()), key)
         with copy:  # hide my hand entries from the copy before asking the proposers
             copy.execute(
                 "DELETE FROM recurring_decisions WHERE account = ?"
@@ -138,6 +176,20 @@ def recover_detailed(
                     inputs.series, inputs.decisions, inputs.txns, inputs.fingerprint,
                     inputs.user, key, inputs.day, mine.evidence,
                 ))  # fmt: skip
+                profile = rent_profile(
+                    inputs.series,
+                    inputs.txns,
+                    inputs.fingerprint,
+                    inputs.user,
+                    key,
+                    inputs.day,
+                    mine.evidence,
+                )
+                if profile is not None:
+                    details["rent"].append(
+                        f"rent recipient has {profile[0]} payments, {profile[1]} of them at or "
+                        f"above the $100 floor, in {profile[2]} different months"
+                    )
         for new_ref, old_ref in links:
             both = _find(before, new_ref) or _find(before, old_ref)
             if both is None or inputs is None:
@@ -168,7 +220,7 @@ def recover_detailed(
                     inputs.user, key, inputs.day, s.name or "",
                 ))  # fmt: skip
     counts = {k: (sum(v), len(v) - sum(v)) for k, v in results.items()}
-    return counts, reasons
+    return counts, reasons, details
 
 
 def recover(copy: sqlite3.Connection, key: bytes | None = None) -> dict[str, tuple[int, int]]:
@@ -191,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         print("note: no PSEUDONYM_KEY, e-Transfers that name a recipient are not detected")
     copy = _in_memory_copy(args.db)
     try:
-        result, reasons = recover_detailed(copy, key)
+        result, reasons, details = recover_detailed(copy, key)
     finally:
         copy.close()
     print("would the proposers recover my hand entries? (counts only)")
@@ -201,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.explain:
             for code, n in sorted(reasons[kind].items()):
                 print(f"    why not ({n}): {code} - {REASONS.get(code, code)}")
+            for line in details[kind]:
+                print(f"    detail: {line}")
     return 0
 
 
