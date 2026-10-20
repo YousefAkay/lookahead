@@ -171,3 +171,86 @@ def propose_rent(
             )
         )
     return out
+
+
+# --- link: one subscription under two merchant names ---
+
+LINK_AMOUNT_TOLERANCE = 0.05  # the two amounts differ by at most 5 percent
+LINK_PERIOD_DAYS = {"weekly": 7, "biweekly": 14, "semimonthly": 15, "monthly": 31, "yearly": 366}
+LINK_MAX_GAP_PERIODS = 2
+
+
+def _first_day(s: Stored, day_of: dict[str, date]) -> date | None:
+    return day_of.get(s.evidence[0]) if s.evidence else None
+
+
+def _share_a_word(a: str | None, b: str | None) -> bool:
+    def words(text: str | None) -> set[str]:
+        return {w for w in (text or "").casefold().split() if len(w) > 2}
+
+    return bool(words(a) & words(b))
+
+
+def propose_links(
+    series: Sequence[Stored],
+    decisions: Sequence[Decision],
+    txns: Sequence[Txn],
+    fingerprint: dict[int, str],
+    as_of: date,
+) -> list[SettingProposal]:
+    """The same fixed payment under a new merchant name: an older series that stopped, and a
+    newer one of another merchant that starts after its last payment, within two periods, with the
+    same cadence and about the same amount. "Likely" when the new one starts about one period
+    after the last old payment (or the names share a word); otherwise "possible".
+
+    No proposal when either series carries a decision of mine, when they overlap in time (two
+    real subscriptions), when they are the same merchant (a price change, not a new name), or
+    when the match is not one to one (a new series that could continue two old ones, or the
+    other way round): prefer no proposal over a doubtful one."""
+    day_of = {fingerprint[t.row_id]: t.posted_date for t in txns if t.posted_date <= as_of}
+    pool = [
+        s for s in series
+        if s.kind == "merchant" and s.direction == "out" and s.amount_type == "fixed"
+        and s.evidence and s.last_paid is not None and s.last_paid <= as_of
+        and not has_decision(s, decisions)
+    ]  # fmt: skip
+    candidates: list[tuple[Stored, Stored, int]] = []
+    for old in pool:
+        period = LINK_PERIOD_DAYS.get(old.cadence)
+        if period is None:
+            continue
+        for new in pool:
+            first = _first_day(new, day_of)
+            if new is old or first is None or new.cadence != old.cadence:
+                continue
+            if family_of(new.key) == family_of(old.key):
+                continue
+            gap = (first - old.last_paid).days  # type: ignore[operator]
+            if not 0 < gap <= LINK_MAX_GAP_PERIODS * period:
+                continue
+            a, b = abs(old.expected_cents), abs(new.expected_cents)
+            if abs(a - b) > LINK_AMOUNT_TOLERANCE * max(a, b):
+                continue
+            candidates.append((old, new, gap))
+    out: list[SettingProposal] = []
+    for old, new, gap in candidates:
+        if sum(c[0] is old for c in candidates) > 1 or sum(c[1] is new for c in candidates) > 1:
+            continue  # ambiguous: not one to one
+        period = LINK_PERIOD_DAYS[old.cadence]
+        on_time = abs(gap - period) <= max(5, 0.25 * period)
+        likely = on_time or _share_a_word(old.name, new.name)
+        amount = f"${abs(new.expected_cents) / 100:,.2f}"
+        out.append(
+            SettingProposal(
+                kind="link",
+                series_id=new.id or new.key,
+                other_id=old.id or old.key,
+                key=f"link|{new.id or new.key}|{old.id or old.key}",
+                title=(
+                    f"{new.name} looks like {old.name} under a new name ({amount} {new.cadence})"
+                ),
+                evidence=old.evidence + new.evidence,
+                confidence="likely" if likely else "possible",
+            )
+        )
+    return sorted(out, key=lambda p: p.key)

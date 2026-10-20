@@ -1,16 +1,18 @@
 """Proposals for recurring settings (lookahead.setting_proposals). Made-up payments only."""
 
 import sqlite3
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 
 from lookahead import recurring_store as rs
+from lookahead.calendar_rules import monthly_date, shift_to_business_day
 from lookahead.db import connect
 from lookahead.flows import Txn
 from lookahead.rent import RentRule
-from lookahead.setting_proposals import best_window, has_decision, propose_rent
+from lookahead.setting_proposals import best_window, has_decision, propose_links, propose_rent
 
 ETRANSFER = "Free Interac E-Transfer "
 ACCOUNT = "a"
@@ -166,3 +168,147 @@ def test_a_hand_added_series_counts_as_decided() -> None:
 def test_a_series_nobody_decided_about_has_no_decision() -> None:
     (_,), series = proposals_for(rent_rows(DAYS, SIZES))
     assert not any(has_decision(s, []) for s in series)
+
+
+# --- link: one subscription under two merchant names ---
+
+
+def monthly_rows(plan: list[tuple[str, int, int, int]], start_id: int = 1) -> list[Txn]:
+    """plan: (merchant text, cents, first month number, how many months). Month 1 = Jan 2025."""
+    rows: list[Txn] = []
+    for name, cents, first, count in plan:
+        for m in range(first, first + count):
+            year, month = 2025 + (m - 1) // 12, (m - 1) % 12 + 1
+            day = shift_to_business_day(monthly_date(year, month, 8), "later")
+            rows.append(Txn(start_id + len(rows), day, -cents, "bill payment", f"{name} "))
+    return sorted(rows, key=lambda t: (t.posted_date, t.row_id))
+
+
+def links_for(
+    txns: list[Txn], decisions: list[rs.Decision] | None = None, as_of: date | None = None
+):  # type: ignore[no-untyped-def]
+    day = as_of or max(t.posted_date for t in txns)
+    past = [t for t in txns if t.posted_date <= day]
+    fp = fingerprints(txns)
+    series = rs.current_series(past, fp, decisions or [], day)
+    return propose_links(series, decisions or [], txns, fp, day), series
+
+
+RENAMED = [("Fitplace", 2500, 1, 8), ("Fitplace Online", 2500, 9, 4)]
+
+
+def test_a_subscription_under_a_new_name_is_proposed_as_a_link() -> None:
+    (p,), series = links_for(monthly_rows(RENAMED))
+    old, new = sorted(series, key=lambda s: s.anchor)
+    assert p.kind == "link" and p.series_id == new.id and p.other_id == old.id
+    assert p.confidence == "likely"  # it starts one period after the last old payment
+    assert p.key == f"link|{new.id}|{old.id}" and "under a new name" in p.title
+    assert set(p.evidence) == set(old.evidence) | set(new.evidence)
+
+
+def test_a_different_name_with_no_shared_word_is_only_possible() -> None:
+    plan = [("Fitplace", 2500, 1, 8), ("Zenstudio", 2500, 10, 4)]  # a month later than expected
+    (p,), _ = links_for(monthly_rows(plan))
+    assert p.confidence == "possible"
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        [("Fitplace", 2500, 1, 8), ("Fitplace Online", 3500, 9, 4)],  # the amount changed a lot
+        [("Fitplace", 2500, 1, 8), ("Fitplace Online", 2500, 14, 4)],  # long gap: a new start
+        [("Fitplace", 2500, 1, 8), ("Fitplace Online", 2500, 5, 8)],  # they overlap: two real ones
+    ],
+)
+def test_no_link_when_the_amount_the_gap_or_the_overlap_is_wrong(
+    plan: list[tuple[str, int, int, int]],
+) -> None:
+    proposals, series = links_for(monthly_rows(plan))
+    assert len(series) == 2 and proposals == []
+
+
+def test_no_link_between_different_cadences() -> None:
+    rows = monthly_rows([("Fitplace", 2500, 1, 8)])
+    weekly = [
+        Txn(100 + i, date(2025, 9, 10) + timedelta(days=7 * i), -2500, "bill payment", name)
+        for i, name in enumerate(["Fitplace Online "] * 10)
+    ]
+    proposals, _ = links_for(sorted(rows + weekly, key=lambda t: (t.posted_date, t.row_id)))
+    assert proposals == []
+
+
+def test_one_merchant_changing_its_price_is_not_a_new_name() -> None:
+    plan = [("Fitplace", 2500, 1, 8), ("Fitplace", 2600, 9, 4)]
+    proposals, _ = links_for(monthly_rows(plan))
+    assert proposals == []
+
+
+def test_two_new_names_for_one_old_one_are_ambiguous_so_nothing_is_proposed() -> None:
+    plan = [
+        ("Fitplace", 2500, 1, 8),
+        ("Fitplace Online", 2500, 9, 4),
+        ("Fitplace Plus", 2500, 9, 4),
+    ]
+    proposals, series = links_for(monthly_rows(plan))
+    assert len(series) == 3 and proposals == []
+
+
+def test_no_link_before_the_new_name_has_started() -> None:
+    txns = monthly_rows(RENAMED)
+    proposals, _ = links_for(txns, as_of=date(2025, 8, 31))
+    assert proposals == []
+
+
+def test_the_rows_after_the_date_are_not_used_for_a_link() -> None:
+    txns = monthly_rows(RENAMED)
+    (p,), _ = links_for(txns)
+    early, _ = links_for(txns, as_of=max(t.posted_date for t in txns) - timedelta(days=40))
+    assert len(early) <= 1
+    if early:
+        assert len(early[0].evidence) < len(p.evidence)
+
+
+@pytest.mark.parametrize("how", ["confirm", "reject", "end", "rename", "category", "link"])
+@pytest.mark.parametrize("which", ["old", "new"])
+def test_no_link_for_a_series_with_a_decision(
+    how: str, which: str, conn: sqlite3.Connection
+) -> None:
+    txns = monthly_rows(RENAMED)
+    (p,), series = links_for(txns)
+    old, new = sorted(series, key=lambda s: s.anchor)
+    target = old if which == "old" else new
+    when = date(2025, 12, 1)
+    if how == "confirm":
+        rs.confirm(conn, ACCOUNT, target, when)
+    elif how == "reject":
+        rs.reject(conn, ACCOUNT, target, when)
+    elif how == "end":
+        rs.end(conn, ACCOUNT, target, when)
+    elif how == "rename":
+        rs.set_name(conn, ACCOUNT, target, "Gym", when)
+    elif how == "category":
+        rs.set_category(conn, ACCOUNT, target, "Groceries", when)
+    else:
+        rs.link_continuation(conn, ACCOUNT, target, "sid|merchant|out|Elsewhere|@fp0", when)
+    proposals, _ = links_for(txns, rs.load_decisions(conn, ACCOUNT))
+    assert proposals == []
+
+
+def test_a_hand_added_series_is_never_part_of_a_link() -> None:
+    txns = monthly_rows(RENAMED)
+    (_,), series = links_for(txns)
+    old = min(series, key=lambda s: s.anchor)
+    hand = replace(old, status="user-added", id="user|1", key="user|1", kind="user")
+    new = max(series, key=lambda s: s.anchor)
+    last = max(t.posted_date for t in txns)
+    assert propose_links([hand, new], [], txns, fingerprints(txns), last) == []
+
+
+def test_accepting_a_link_joins_the_two_into_one_series(conn: sqlite3.Connection) -> None:
+    txns = monthly_rows(RENAMED)
+    (p,), series = links_for(txns)
+    old, new = sorted(series, key=lambda s: s.anchor)
+    rs.link_continuation(conn, ACCOUNT, new, old, date(2025, 12, 20))
+    decisions = rs.load_decisions(conn, ACCOUNT)
+    proposals, joined = links_for(txns, decisions)
+    assert len(joined) == 1 and proposals == []  # one history; nothing more to propose
