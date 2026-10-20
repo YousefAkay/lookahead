@@ -1862,6 +1862,14 @@ Not run, nothing built when this is written. It follows my 2026-10-06 direction:
 
 **Order of work and what is not done here.** Steps 1 to 5 (the three proposers, apply and dismiss, the Recurring page panel) are built first, with ordinary tests, before the planter. Step 6 (the planter and its answer key) and step 7 (the scoring script) come after this entry; no scoring is run on this laptop while I work.
 
+### 2026-10-20: "Looks right" proposals: I narrowed the guard before any scoring (follow-up to the entry above)
+The entry above says a proposal is made for a series only if I have made no decision about it. That was too broad: one click on "Looks right, confirm all" would have stopped every rent and link proposal for good, and confirming or renaming a series says nothing about whether its rent window or a link is right. So the guard now depends on the kind of proposal:
+- **Rent:** blocked by a rent rule already on the series, by "It ended" or "Not recurring" (the latest of confirm, reject and end counts), or by "Not this". Confirming, renaming and a category do not block it.
+- **Link:** blocked by an existing link involving either series, by an end or a reject on either series, or by "Not this". Confirming, renaming and a category do not block it.
+- **Possible subscription:** blocked by any decision on it (a name I added, or payments that already belong to a series), or by "Not this".
+- **A series I added by hand never gets a proposal.**
+I made this change before the planter was written and before any scoring run, so nothing scored is affected; the adopt rule (b) to (g) is unchanged. Any change to a proposer after the first scoring run still counts as a variant. Tests: a confirmed series with no rent rule still gets a rent proposal, a renamed series still gets a link proposal, "confirm all" hides nothing, and a live call uses every decision (including a click after the data's last day) while a replay as of an earlier date ignores later ones.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
