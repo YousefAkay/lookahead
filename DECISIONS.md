@@ -1830,6 +1830,13 @@ My decisions about a recurring series (confirm, reject, end, rename, category, e
 - **Versions.** I did not bump `LOGIC_VERSION` (it would mark 974 saved synthetic and Berka records stale for no change). A new `REPLAY_VERSION` (4) rebuilds the page cache and the Time Machine steps, which do depend on decisions.
 - **Can this change my real forecast? Yes.** A confirmed habit that was counted twice is now counted once, and a decision that stopped applying can apply again after the migration. The apply output prints counts of series whose forecast contribution changed.
 
+### 2026-10-20: Stable series identity: a leftover of a habit folds into it (found by my dry run)
+My dry run on my real database showed 5 series before and 6 after. One habit had been joined by a "continue" link I made, with a confirmation on each side, and after the move it came back as two series (the older one inactive, so the forecast did not change). My first fix handled only a price change, and my test did not use a continue link.
+- **The rule now:** a detected cluster that shares remembered payments with the series that holds an id folds into that series, whatever joined them (a continue link, a price change or a confirmed snapshot). The newest cluster survives and keeps the id my decisions name.
+- **Genuinely ambiguous, left separate on purpose (no match is better than a doubtful match):** a cluster that shares payments with two or more other series; clusters paid in the same weeks (two real habits at one merchant); a snapshot whose payments sit in two or more series. An ended or rejected series is still never carried on, and a resubscription starts a new id.
+- **The collision count** is now per series that two or more old keys land on (it counted decisions before). **`dry-run --explain`** prints the collision's kind, the series by kind, the extra series' decision actions and how many series still share payments. Counts and kinds only.
+- **Result on my real database:** 5 series before and 5 after, 11 of 11 decisions applying, nothing added, removed or changed in the forecast, 0 series still sharing payments. The full suite found 3 tests that still wrote old keys; I fixed the tests, not the rule.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
