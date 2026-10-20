@@ -7,9 +7,15 @@ not the lump-income / repeated-large-payment proposals of `lookahead.proposals` 
 - link: one subscription under two merchant names (a "continues" link);
 - possible: a monthly charge seen exactly twice.
 
-A proposal is made only for a series I have made **no decision about** (not confirmed, rent rule,
-linked, ended, rejected, renamed, categorised or hand-added). Rule zero: only rows posted on or
-before `as_of`. The method and the adopt rule are in DECISIONS.md (2026-10-20).
+What blocks a proposal depends on its kind (DECISIONS.md, 2026-10-20, narrowed before any scoring):
+- rent: an existing rent rule on the series, "It ended" or "Not recurring", or "Not this";
+  confirming, renaming or giving a category do not block it;
+- link: an existing link involving either series, an end or a reject on either, or "Not this";
+- possible subscription: any decision on it (it is a name I added, or its payments already belong
+  to a series), or "Not this";
+- a series added by hand never gets a proposal.
+Rule zero: only rows posted on or before `as_of`. The method and the adopt rule are in
+DECISIONS.md (2026-10-20).
 """
 
 import sqlite3
@@ -61,11 +67,49 @@ class SettingProposal:
     cadence: str | None = None
 
 
-def has_decision(s: Stored, decisions: Sequence[Decision]) -> bool:
-    """True if I have decided anything about this series (by id, by key, or by an earlier key it
-    carries on). A hand-added series always has one (its own "add")."""
-    names = {s.key, s.id, *s.continues}
-    return s.status == "user-added" or any(d.key in names for d in decisions)
+def _names(s: Stored) -> set[str]:
+    return {s.key, s.id, *s.continues}
+
+
+def standing(s: Stored, decisions: Sequence[Decision]) -> str | None:
+    """The latest of confirm / reject / end I decided about this series (None: none). The log is
+    in the order made, so a confirmation after an end puts it back."""
+    names, latest = _names(s), None
+    for d in decisions:
+        if d.key in names and d.action in ("confirm", "reject", "end"):
+            latest = d.action
+    return latest
+
+
+def has_link(s: Stored, decisions: Sequence[Decision]) -> bool:
+    """True if a "continues" link involves this series (either side), or it already carries one."""
+    names = _names(s)
+    return bool(s.continues) or any(
+        d.action == "continue" and (d.key in names or d.details.get("previous") in names)
+        for d in decisions
+    )
+
+
+def rent_blocked(s: Stored, decisions: Sequence[Decision]) -> bool:
+    """A rent proposal is blocked by a rent rule already on the series, by "It ended" or "Not
+    recurring" (the latest of confirm / reject / end), or because I added the series by hand.
+    Confirming, renaming and giving a category do not block it."""
+    return (
+        s.status == "user-added"
+        or bool(s.allowed_cents)
+        or standing(s, decisions) in ("reject", "end")
+    )
+
+
+def link_blocked(s: Stored, decisions: Sequence[Decision]) -> bool:
+    """A link proposal is blocked, for either series, by an existing link, by "It ended" or "Not
+    recurring", or because I added the series by hand. Confirming, renaming and giving a
+    category do not block it."""
+    return (
+        s.status == "user-added"
+        or has_link(s, decisions)
+        or standing(s, decisions) in ("reject", "end")
+    )
 
 
 def best_window(days: Sequence[int], cover: float = COVER) -> tuple[int, int] | None:
@@ -134,7 +178,7 @@ def propose_rent(
 ) -> list[SettingProposal]:
     """Rent sent by e-Transfer: allowed amounts and a window, for a recipient whose payments are
     about monthly, are not already one plain series (two or more sizes, or send days spread over
-    four days or more), and whose series I have not decided anything about."""
+    four days or more), and whose series is not blocked (see `rent_blocked`)."""
     past = [t for t in txns if t.posted_date <= as_of]
     groups, _ = _groups(past, user, key)
     by_family: dict[str, list[Stored]] = defaultdict(list)
@@ -146,7 +190,7 @@ def propose_rent(
         family = by_family.get(group_key)
         if kind != "e-transfer" or direction != "out" or not family:
             continue
-        if any(has_decision(s, decisions) for s in family):
+        if any(rent_blocked(s, decisions) for s in family):
             continue
         payments = [(t.posted_date, abs(t.amount_cents)) for t in rows]
         months = {(d.year, d.month) for d, _ in payments}
@@ -213,7 +257,7 @@ def propose_links(
     same cadence and about the same amount. "Likely" when the new one starts about one period
     after the last old payment (or the names share a word); otherwise "possible".
 
-    No proposal when either series carries a decision of mine, when they overlap in time (two
+    No proposal when either series is blocked (see `link_blocked`), when they overlap in time (two
     real subscriptions), when they are the same merchant (a price change, not a new name), or
     when the match is not one to one (a new series that could continue two old ones, or the
     other way round): prefer no proposal over a doubtful one."""
@@ -222,7 +266,7 @@ def propose_links(
         s for s in series
         if s.kind == "merchant" and s.direction == "out" and s.amount_type == "fixed"
         and s.evidence and s.last_paid is not None and s.last_paid <= as_of
-        and not has_decision(s, decisions)
+        and not link_blocked(s, decisions)
     ]  # fmt: skip
     candidates: list[tuple[Stored, Stored, int]] = []
     for old in pool:
@@ -332,11 +376,13 @@ def propose_possible(
 
 
 def current_proposals(
-    conn: sqlite3.Connection, account: str, key: bytes | None = None, as_of: date | None = None
-) -> list[SettingProposal]:
+    conn: sqlite3.Connection, account: str, key: bytes | None = None, as_of: date | None = None,
+    series: Sequence[Stored] | None = None,
+) -> list[SettingProposal]:  # fmt: skip
     """Every proposal on `as_of` (default: the account's last posting date), from the rows posted
     by then, the recurring decisions made by then and the dismissals made by then. Rent first,
-    then links, then possible subscriptions."""
+    then links, then possible subscriptions. `series` (the live series, if the caller has them)
+    saves a second detection; it is only valid for a live call (`as_of=None`)."""
     raw = conn.execute(
         "SELECT id, posted_date, amount_cents, description, sub_description, fingerprint"
         " FROM transactions WHERE account = ? AND posted_date <= ?",
@@ -348,7 +394,8 @@ def current_proposals(
     day = as_of or max(t.posted_date for t in txns)
     fingerprint = {r[0]: r[5] for r in raw}
     # rows are cut at `day`; decisions at `as_of` (None: a live call uses every decision made)
-    series, _ = rs.series_as_of(conn, account, as_of, key)
+    if series is None or as_of is not None:
+        series, _ = rs.series_as_of(conn, account, as_of, key)
     decisions = rs.load_decisions(conn, account, as_of)
     user = load_user_decisions(conn, as_of)
     found = [
@@ -390,3 +437,16 @@ def accept(
     else:
         raise ValueError(f"cannot apply a {proposal.kind!r} proposal")
     record_proposal_decision(conn, account, proposal.key, LOOKS_RIGHT, day)
+
+
+def describe(proposal: SettingProposal, hide_names: bool = False) -> str:
+    """The sentence shown to me. With `hide_names` (the page is replacing names) no merchant
+    name appears: only what kind of suggestion it is and the amounts."""
+    if not hide_names:
+        return proposal.title
+    if proposal.kind == "link":
+        return "One payment looks like another one under a new name"
+    if proposal.kind == "possible" and proposal.amount_cents:
+        amount = f"${abs(proposal.amount_cents) / 100:,.2f}"
+        return f"A payment of {amount} may be a monthly subscription (seen twice so far)"
+    return proposal.title

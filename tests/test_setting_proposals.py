@@ -14,10 +14,13 @@ from lookahead.flows import Txn
 from lookahead.rent import RentRule
 from lookahead.setting_proposals import (
     best_window,
-    has_decision,
+    has_link,
+    link_blocked,
     propose_links,
     propose_possible,
     propose_rent,
+    rent_blocked,
+    standing,
 )
 
 ETRANSFER = "Free Interac E-Transfer "
@@ -116,7 +119,7 @@ def test_rows_posted_after_the_date_are_never_used() -> None:
     assert early[0].rent is not None and late[0].rent is not None
 
 
-# No proposal for a series I have made a decision about
+# What blocks a rent proposal: a rent rule, "It ended", "Not recurring" (and "Not this")
 
 
 @pytest.fixture
@@ -147,10 +150,10 @@ def decide_about_the_series(conn: sqlite3.Connection, how: str, series: list[rs.
         raise AssertionError(how)
 
 
-@pytest.mark.parametrize(
-    "how", ["confirm", "reject", "end", "rent rule", "rename", "category", "link"]
-)
-def test_no_proposal_for_a_series_with_a_decision(how: str, conn: sqlite3.Connection) -> None:
+@pytest.mark.parametrize("how", ["reject", "end", "rent rule"])
+def test_a_rent_rule_it_ended_or_not_recurring_blocks_the_rent_proposal(
+    how: str, conn: sqlite3.Connection
+) -> None:
     txns = rent_rows(DAYS, SIZES)
     (first,), series = proposals_for(txns)
     assert first  # a proposal before the decision
@@ -158,22 +161,69 @@ def test_no_proposal_for_a_series_with_a_decision(how: str, conn: sqlite3.Connec
     decisions = rs.load_decisions(conn, ACCOUNT)
     proposals, series_after = proposals_for(txns, decisions)
     assert proposals == []
-    assert any(has_decision(s, decisions) for s in series_after)
+    assert any(rent_blocked(s, decisions) for s in series_after)
 
 
-def test_a_hand_added_series_counts_as_decided() -> None:
-    added = rs.Stored(
-        key="user|1", name="Rent", kind="user", direction="out", cadence="monthly",
+@pytest.mark.parametrize("how", ["confirm", "rename", "category", "link"])
+def test_confirming_renaming_a_category_or_a_link_do_not_block_the_rent_proposal(
+    how: str, conn: sqlite3.Connection
+) -> None:
+    txns = rent_rows(DAYS, SIZES)
+    _, series = proposals_for(txns)
+    decide_about_the_series(conn, how, series)
+    decisions = rs.load_decisions(conn, ACCOUNT)
+    proposals, series_after = proposals_for(txns, decisions)
+    assert len(proposals) == 1 and proposals[0].kind == "rent"
+    assert not any(rent_blocked(s, decisions) for s in series_after)
+
+
+def test_a_confirmed_series_with_no_rent_rule_still_gets_a_rent_proposal(
+    conn: sqlite3.Connection,
+) -> None:
+    txns = rent_rows(DAYS, SIZES)
+    _, series = proposals_for(txns)
+    for s in series:  # "confirm all" on everything detected
+        rs.confirm(conn, ACCOUNT, s, date(2025, 9, 30))
+    proposals, after = proposals_for(txns, rs.load_decisions(conn, ACCOUNT))
+    assert {s.status for s in after} == {"confirmed"}
+    assert len(proposals) == 1 and proposals[0].rent is not None
+
+
+def test_an_ended_series_confirmed_again_is_proposed_again(conn: sqlite3.Connection) -> None:
+    """The latest of confirm / reject / end counts, as everywhere else."""
+    txns = rent_rows(DAYS, SIZES)
+    _, series = proposals_for(txns)
+    big = max(series, key=lambda s: len(s.evidence))
+    rs.end(conn, ACCOUNT, big, date(2025, 9, 29))
+    assert proposals_for(txns, rs.load_decisions(conn, ACCOUNT))[0] == []
+    rs.confirm(conn, ACCOUNT, big, date(2025, 9, 30))
+    assert len(proposals_for(txns, rs.load_decisions(conn, ACCOUNT))[0]) == 1
+
+
+def hand_added(key: str = "user|1") -> rs.Stored:
+    return rs.Stored(
+        key=key, name="Rent", kind="user", direction="out", cadence="monthly",
         anchor=date(2025, 1, 1), anchor_day=1, amount_type="fixed", expected_cents=-90000,
         range_cents=(-90000, -90000), next_expected=date(2025, 11, 1), status="user-added",
-        active=True, id="user|1",
+        active=True, id=key,
     )  # fmt: skip
-    assert has_decision(added, [])
 
 
-def test_a_series_nobody_decided_about_has_no_decision() -> None:
+def test_a_hand_added_series_never_gets_a_proposal() -> None:
+    added = hand_added()
+    assert rent_blocked(added, []) and link_blocked(added, [])
+
+
+def test_standing_is_the_latest_confirm_reject_or_end() -> None:
     (_,), series = proposals_for(rent_rows(DAYS, SIZES))
-    assert not any(has_decision(s, []) for s in series)
+    s = series[0]
+    log = [
+        rs.Decision(s.id, "confirm", {}, date(2025, 1, 1), 1),
+        rs.Decision(s.id, "end", {}, date(2025, 2, 1), 2),
+        rs.Decision(s.id, "rename", {"name": "x"}, date(2025, 3, 1), 3),
+    ]
+    assert standing(s, log) == "end" and standing(s, log[:1]) == "confirm"
+    assert standing(s, []) is None and has_link(s, log) is False
 
 
 # --- link: one subscription under two merchant names ---
@@ -274,15 +324,7 @@ def test_the_rows_after_the_date_are_not_used_for_a_link() -> None:
         assert len(early[0].evidence) < len(p.evidence)
 
 
-@pytest.mark.parametrize("how", ["confirm", "reject", "end", "rename", "category", "link"])
-@pytest.mark.parametrize("which", ["old", "new"])
-def test_no_link_for_a_series_with_a_decision(
-    how: str, which: str, conn: sqlite3.Connection
-) -> None:
-    txns = monthly_rows(RENAMED)
-    (p,), series = links_for(txns)
-    old, new = sorted(series, key=lambda s: s.anchor)
-    target = old if which == "old" else new
+def decide_about_one_of_the_two(conn: sqlite3.Connection, how: str, target: rs.Stored) -> None:
     when = date(2025, 12, 1)
     if how == "confirm":
         rs.confirm(conn, ACCOUNT, target, when)
@@ -296,8 +338,43 @@ def test_no_link_for_a_series_with_a_decision(
         rs.set_category(conn, ACCOUNT, target, "Groceries", when)
     else:
         rs.link_continuation(conn, ACCOUNT, target, "sid|merchant|out|Elsewhere|@fp0", when)
-    proposals, _ = links_for(txns, rs.load_decisions(conn, ACCOUNT))
+
+
+@pytest.mark.parametrize("how", ["reject", "end", "link"])
+@pytest.mark.parametrize("which", ["old", "new"])
+def test_an_end_a_reject_or_an_existing_link_on_either_series_blocks_the_link_proposal(
+    how: str, which: str, conn: sqlite3.Connection
+) -> None:
+    txns = monthly_rows(RENAMED)
+    (p,), series = links_for(txns)
+    old, new = sorted(series, key=lambda s: s.anchor)
+    decide_about_one_of_the_two(conn, how, old if which == "old" else new)
+    proposals, series_after = links_for(txns, rs.load_decisions(conn, ACCOUNT))
     assert proposals == []
+
+
+@pytest.mark.parametrize("how", ["confirm", "rename", "category"])
+@pytest.mark.parametrize("which", ["old", "new"])
+def test_confirming_renaming_or_a_category_do_not_block_the_link_proposal(
+    how: str, which: str, conn: sqlite3.Connection
+) -> None:
+    txns = monthly_rows(RENAMED)
+    (before,), series = links_for(txns)
+    old, new = sorted(series, key=lambda s: s.anchor)
+    decide_about_one_of_the_two(conn, how, old if which == "old" else new)
+    proposals, _ = links_for(txns, rs.load_decisions(conn, ACCOUNT))
+    assert [p.key for p in proposals] == [before.key]
+
+
+def test_confirm_all_on_the_two_names_does_not_hide_the_link_proposal(
+    conn: sqlite3.Connection,
+) -> None:
+    txns = monthly_rows(RENAMED)
+    _, series = links_for(txns)
+    for s in series:
+        rs.confirm(conn, ACCOUNT, s, date(2025, 12, 1))
+    proposals, after = links_for(txns, rs.load_decisions(conn, ACCOUNT))
+    assert {s.status for s in after} == {"confirmed"} and len(proposals) == 1
 
 
 def test_a_hand_added_series_is_never_part_of_a_link() -> None:

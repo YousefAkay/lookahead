@@ -157,3 +157,54 @@ def test_every_decision_a_click_writes_is_an_id(conn: sqlite3.Connection) -> Non
         accept(conn, ACCOUNT, proposal, rs.series_as_of(conn, ACCOUNT)[0], date(2026, 1, 5))
     keys = [d.key for d in rs.load_decisions(conn, ACCOUNT)]
     assert keys and all(k.startswith(("sid|", "user|")) for k in keys)
+
+
+# (a) a live call uses every decision; (b) a replay as of a date ignores later decisions
+
+
+def test_a_live_call_uses_every_decision_including_a_click_after_the_last_posting_day(
+    conn: sqlite3.Connection,
+) -> None:
+    proposals = by_kind(conn)
+    series, _ = rs.series_as_of(conn, ACCOUNT)
+    after_the_data = date(2026, 3, 1)  # months after the last row (31 December 2025)
+    assert after_the_data > LAST_DAY
+    accept(conn, ACCOUNT, proposals["rent"], series, after_the_data)
+    dismiss(conn, ACCOUNT, proposals["link"], after_the_data)
+    live = {p.kind for p in current_proposals(conn, ACCOUNT)}
+    assert "rent" not in live and "link" not in live and "possible" in live
+
+
+def test_a_replay_as_of_an_earlier_date_ignores_every_decision_made_after_that_date(
+    conn: sqlite3.Connection,
+) -> None:
+    proposals = by_kind(conn)
+    series, _ = rs.series_as_of(conn, ACCOUNT)
+    accept(conn, ACCOUNT, proposals["rent"], series, date(2025, 12, 20))
+    dismiss(conn, ACCOUNT, proposals["link"], date(2025, 12, 21))
+    accept(conn, ACCOUNT, proposals["possible"], series, date(2025, 12, 22))
+    assert {p.kind for p in current_proposals(conn, ACCOUNT, as_of=date(2025, 12, 19))} == {
+        "rent", "link", "possible",
+    }  # fmt: skip
+    only_rent = {p.kind for p in current_proposals(conn, ACCOUNT, as_of=date(2025, 12, 20))}
+    assert "rent" not in only_rent and {"link", "possible"} <= only_rent
+    assert not {p.kind for p in current_proposals(conn, ACCOUNT, as_of=date(2025, 12, 31))} & {
+        "rent", "link", "possible",
+    }  # fmt: skip
+
+
+# confirm all does not hide a proposal; a series added by hand gets none
+
+
+def test_confirm_all_does_not_hide_the_rent_and_link_proposals(conn: sqlite3.Connection) -> None:
+    series, _ = rs.series_as_of(conn, ACCOUNT)
+    confirmed = rs.confirm_all(conn, ACCOUNT, series, date(2025, 12, 31))
+    assert confirmed >= 1
+    kinds = {p.kind for p in current_proposals(conn, ACCOUNT)}
+    assert {"rent", "link"} <= kinds
+
+
+def test_a_series_added_by_hand_never_gets_a_proposal(conn: sqlite3.Connection) -> None:
+    key = rs.add_series(conn, ACCOUNT, "Rent", "out", "monthly", date(2025, 12, 1), 95000)
+    found = current_proposals(conn, ACCOUNT)
+    assert all(p.series_id != key and p.other_id != key for p in found)
