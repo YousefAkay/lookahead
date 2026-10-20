@@ -20,7 +20,7 @@ DECISIONS.md (2026-10-20).
 
 import sqlite3
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
 from math import ceil
@@ -168,6 +168,114 @@ def _monthly(dates: Sequence[date]) -> bool:
     return sum(20 <= g <= 50 for g in gaps) >= 0.8 * len(gaps)
 
 
+REASONS = {
+    "entry_not_found": "the entry (its series) is not in the account's series",
+    "no_candidate_series": "no detected series (or recipient or merchant) to attach a proposal to",
+    "guard_blocked_by_end_or_reject": "blocked: I ended it or called it not recurring",
+    "guard_blocked_by_link": "blocked: a link already involves it",
+    "guard_blocked_by_hand_added": "blocked: it is a series I added by hand",
+    "guard_blocked_by_rent_rule": "blocked: a rent rule is already on it",
+    "too_few_payments": "too few payments",
+    "amount_too_small": "the amount is too small to be rent",
+    "not_monthly": "the payments are not about monthly",
+    "outside_freshness_limit": "the latest payment is too old (outside the freshness limit)",
+    "window_or_amounts_unfit": "no window of two weeks or less, or more than three amounts",
+    "an_ordinary_series_covers_it": "one amount on about one day: an ordinary series covers it",
+    "amounts_not_equal": "a proposal exists but its amounts are not the same as mine",
+    "window_not_covered": "a proposal exists but its window does not cover mine",
+    "same_merchant": "both are the same merchant (a price change, not a new name)",
+    "not_fixed_merchant_series": "not a fixed-amount merchant series",
+    "different_cadence": "the two do not have the same cadence",
+    "gap_not_in_range": "they overlap in time, or the new one starts too long after the old one",
+    "amounts_differ": "the amounts differ too much",
+    "not_one_to_one": "the match is ambiguous (more than one possible partner)",
+    "not_two_payments": "the merchant does not have exactly two payments",
+    "gap_not_monthly": "the two payments are not about a month apart",
+    "card_not_exact": "paid by card: the amounts are not exactly equal a month apart",
+    "already_in_a_series": "the payments already belong to a series",
+    "name_added_by_hand": "the name was added by hand",
+}
+
+
+def _blocked_reason(s: Stored, decisions: Sequence[Decision], kind: str) -> str | None:
+    """Why a series blocks a proposal of this kind (None: it does not). The same rule as
+    `rent_blocked` / `link_blocked`, with the reason."""
+    if s.status == "user-added":
+        return "guard_blocked_by_hand_added"
+    if standing(s, decisions) in ("reject", "end"):
+        return "guard_blocked_by_end_or_reject"
+    if kind == "rent" and s.allowed_cents:
+        return "guard_blocked_by_rent_rule"
+    if kind == "link" and has_link(s, decisions):
+        return "guard_blocked_by_link"
+    return None
+
+
+def _rent_for_group(
+    group_key: str, rows: Sequence[Txn], family: Sequence[Stored], decisions: Sequence[Decision],
+    fingerprint: dict[int, str], as_of: date,
+) -> "SettingProposal | str":  # fmt: skip
+    """A rent proposal for one recipient's payments, or the reason there is none."""
+    if not family:
+        return "no_candidate_series"
+    for s in family:
+        reason = _blocked_reason(s, decisions, "rent")
+        if reason:
+            return reason
+    payments = [(t.posted_date, abs(t.amount_cents)) for t in rows]
+    months = {(d.year, d.month) for d, _ in payments}
+    if len(payments) < MIN_PAYMENTS or len(months) < MIN_PAYMENTS:
+        return "too_few_payments"
+    if median(a for _, a in payments) < MIN_RENT_CENTS:
+        return "amount_too_small"
+    if not _monthly([d for d, _ in payments]):
+        return "not_monthly"
+    if (as_of - max(d for d, _ in payments)).days > RENT_STALE_DAYS:
+        return "outside_freshness_limit"  # the rent stopped; the account went on
+    sizes = _sizes_going_forward(payments)
+    window = best_window([d.day for d, _ in payments])
+    if window is None or not 1 <= len(sizes) <= MAX_SIZES:
+        return "window_or_amounts_unfit"
+    width = (window[1] - window[0]) % 31 + 1
+    if len(sizes) < 2 and width < 4:
+        return "an_ordinary_series_covers_it"
+    live = [s for s in family if s.active]  # the live series if there is one
+    target = max(live or family, key=lambda s: (len(s.evidence), s.key))
+    rule = RentRule(tuple(sizes), window[0], window[1])
+    amounts = " or ".join(f"${a / 100:,.2f}" for a in sizes)
+    return SettingProposal(
+        kind="rent",
+        series_id=target.id or target.key,
+        key=f"rent|{target.id or target.key}",
+        title=(
+            f"Looks like rent sent by e-Transfer: {amounts}, "
+            f"between day {window[0]} and day {window[1]} of the month"
+        ),
+        evidence=tuple(fingerprint[t.row_id] for t in rows),
+        confidence="likely" if len(payments) >= 2 * MIN_PAYMENTS else "possible",
+        rent=rule,
+    )
+
+
+def _rent_groups(
+    series: Sequence[Stored], txns: Sequence[Txn], user: UserDecisions | None,
+    key: bytes | None, as_of: date,
+) -> list[tuple[str, list[Txn], list[Stored]]]:  # fmt: skip
+    """(recipient group, its payments, the detected series of that recipient), for every
+    outgoing e-Transfer recipient."""
+    past = [t for t in txns if t.posted_date <= as_of]
+    groups, _ = _groups(past, user, key)
+    by_family: dict[str, list[Stored]] = defaultdict(list)
+    for s in series:
+        if s.kind == "e-transfer" and s.direction == "out":
+            by_family[family_of(s.key)].append(s)
+    return [
+        (group_key, rows, by_family.get(group_key, []))
+        for (group_key, _, kind, direction), rows in sorted(groups.items())
+        if kind == "e-transfer" and direction == "out"
+    ]
+
+
 def propose_rent(
     series: Sequence[Stored],
     decisions: Sequence[Decision],
@@ -180,55 +288,29 @@ def propose_rent(
     """Rent sent by e-Transfer: allowed amounts and a window, for a recipient whose payments are
     about monthly, are not already one plain series (two or more sizes, or send days spread over
     four days or more), and whose series is not blocked (see `rent_blocked`)."""
-    past = [t for t in txns if t.posted_date <= as_of]
-    groups, _ = _groups(past, user, key)
-    by_family: dict[str, list[Stored]] = defaultdict(list)
-    for s in series:
-        if s.kind == "e-transfer" and s.direction == "out":
-            by_family[family_of(s.key)].append(s)
-    out: list[SettingProposal] = []
-    for (group_key, _, kind, direction), rows in sorted(groups.items()):
-        family = by_family.get(group_key)
-        if kind != "e-transfer" or direction != "out" or not family:
-            continue
-        if any(rent_blocked(s, decisions) for s in family):
-            continue
-        payments = [(t.posted_date, abs(t.amount_cents)) for t in rows]
-        months = {(d.year, d.month) for d, _ in payments}
-        if len(payments) < MIN_PAYMENTS or len(months) < MIN_PAYMENTS:
-            continue
-        if median(a for _, a in payments) < MIN_RENT_CENTS:
-            continue
-        if not _monthly([d for d, _ in payments]):
-            continue
-        if (as_of - max(d for d, _ in payments)).days > RENT_STALE_DAYS:
-            continue  # the rent stopped; the account went on
-        sizes = _sizes_going_forward(payments)
-        window = best_window([d.day for d, _ in payments])
-        if window is None or not 1 <= len(sizes) <= MAX_SIZES:
-            continue
-        width = (window[1] - window[0]) % 31 + 1
-        if len(sizes) < 2 and width < 4:
-            continue  # one amount on about one day: an ordinary series already covers it
-        live = [s for s in family if s.active]  # the live series if there is one
-        target = max(live or family, key=lambda s: (len(s.evidence), s.key))
-        rule = RentRule(tuple(sizes), window[0], window[1])
-        amounts = " or ".join(f"${a / 100:,.2f}" for a in sizes)
-        out.append(
-            SettingProposal(
-                kind="rent",
-                series_id=target.id or target.key,
-                key=f"rent|{target.id or target.key}",
-                title=(
-                    f"Looks like rent sent by e-Transfer: {amounts}, "
-                    f"between day {window[0]} and day {window[1]} of the month"
-                ),
-                evidence=tuple(fingerprint[t.row_id] for t in rows),
-                confidence="likely" if len(payments) >= 2 * MIN_PAYMENTS else "possible",
-                rent=rule,
-            )
-        )
+    out = []
+    for group_key, rows, family in _rent_groups(series, txns, user, key, as_of):
+        result = _rent_for_group(group_key, rows, family, decisions, fingerprint, as_of)
+        if isinstance(result, SettingProposal):
+            out.append(result)
     return out
+
+
+def rent_reason(
+    series: Sequence[Stored], decisions: Sequence[Decision], txns: Sequence[Txn],
+    fingerprint: dict[int, str], user: UserDecisions | None, key: bytes | None, as_of: date,
+    evidence: Collection[str],
+) -> str:  # fmt: skip
+    """Why there is no rent proposal for the recipient whose payments include `evidence` (the
+    fingerprints of a rent series of mine): a reason code from REASONS, or "proposal_made"."""
+    mine = set(evidence)
+    best: tuple[int, str] = (0, "entry_not_found")
+    for group_key, rows, family in _rent_groups(series, txns, user, key, as_of):
+        overlap = len(mine & {fingerprint[t.row_id] for t in rows})
+        if overlap > best[0]:
+            result = _rent_for_group(group_key, rows, family, decisions, fingerprint, as_of)
+            best = (overlap, "proposal_made" if isinstance(result, SettingProposal) else result)
+    return best[1] if best[0] >= 0.5 * max(len(mine), 1) else "no_candidate_series"
 
 
 # --- link: one subscription under two merchant names ---
@@ -249,6 +331,35 @@ def _share_a_word(a: str | None, b: str | None) -> bool:
     return bool(words(a) & words(b))
 
 
+def _link_pair_reason(
+    old: Stored, new: Stored, day_of: dict[str, date], decisions: Sequence[Decision], as_of: date
+) -> str | None:  # fmt: skip
+    """Why `new` cannot be `old` under a new name (None: it can, before the one-to-one test)."""
+    for s in (old, new):
+        if not (
+            s.kind == "merchant" and s.direction == "out" and s.amount_type == "fixed"
+            and s.evidence and s.last_paid is not None and s.last_paid <= as_of
+        ):  # fmt: skip
+            return "not_fixed_merchant_series"
+    for s in (old, new):
+        reason = _blocked_reason(s, decisions, "link")
+        if reason:
+            return reason
+    period = LINK_PERIOD_DAYS.get(old.cadence)
+    first = _first_day(new, day_of)
+    if period is None or first is None or new.cadence != old.cadence:
+        return "different_cadence"
+    if family_of(new.key) == family_of(old.key):
+        return "same_merchant"
+    gap = (first - old.last_paid).days  # type: ignore[operator]
+    if not 0 < gap <= LINK_MAX_GAP_PERIODS * period:
+        return "gap_not_in_range"
+    a, b = abs(old.expected_cents), abs(new.expected_cents)
+    if abs(a - b) > LINK_AMOUNT_TOLERANCE * max(a, b):
+        return "amounts_differ"
+    return None
+
+
 def propose_links(
     series: Sequence[Stored],
     decisions: Sequence[Decision],
@@ -266,30 +377,13 @@ def propose_links(
     when the match is not one to one (a new series that could continue two old ones, or the
     other way round): prefer no proposal over a doubtful one."""
     day_of = {fingerprint[t.row_id]: t.posted_date for t in txns if t.posted_date <= as_of}
-    pool = [
-        s for s in series
-        if s.kind == "merchant" and s.direction == "out" and s.amount_type == "fixed"
-        and s.evidence and s.last_paid is not None and s.last_paid <= as_of
-        and not link_blocked(s, decisions)
-    ]  # fmt: skip
     candidates: list[tuple[Stored, Stored, int]] = []
-    for old in pool:
-        period = LINK_PERIOD_DAYS.get(old.cadence)
-        if period is None:
-            continue
-        for new in pool:
+    for old in series:
+        for new in series:
+            if new is old or _link_pair_reason(old, new, day_of, decisions, as_of) is not None:
+                continue
             first = _first_day(new, day_of)
-            if new is old or first is None or new.cadence != old.cadence:
-                continue
-            if family_of(new.key) == family_of(old.key):
-                continue
-            gap = (first - old.last_paid).days  # type: ignore[operator]
-            if not 0 < gap <= LINK_MAX_GAP_PERIODS * period:
-                continue
-            a, b = abs(old.expected_cents), abs(new.expected_cents)
-            if abs(a - b) > LINK_AMOUNT_TOLERANCE * max(a, b):
-                continue
-            candidates.append((old, new, gap))
+            candidates.append((old, new, (first - old.last_paid).days))  # type: ignore[operator]
     out: list[SettingProposal] = []
     for old, new, gap in candidates:
         if sum(c[0] is old for c in candidates) > 1 or sum(c[1] is new for c in candidates) > 1:
@@ -314,12 +408,95 @@ def propose_links(
     return sorted(out, key=lambda p: p.key)
 
 
+def link_reason(
+    series: Sequence[Stored], decisions: Sequence[Decision], txns: Sequence[Txn],
+    fingerprint: dict[int, str], as_of: date, evidence: Collection[str],
+) -> str:  # fmt: skip
+    """Why there is no link proposal for the two names whose payments are `evidence` (a series of
+    mine that a link joined, now separate again): a code from REASONS, or "proposal_made"."""
+    mine = set(evidence)
+    parts = [
+        s for s in series if s.evidence and len(mine & set(s.evidence)) >= 0.5 * len(s.evidence)
+    ]
+    if len(parts) < 2:
+        return "no_candidate_series"  # detection does not see two separate series there
+    parts.sort(key=lambda s: (s.last_paid or date.min, s.key))
+    old, new = parts[0], parts[-1]
+    day_of = {fingerprint[t.row_id]: t.posted_date for t in txns if t.posted_date <= as_of}
+    reason = _link_pair_reason(old, new, day_of, decisions, as_of)
+    if reason is not None:
+        return reason
+    made = propose_links(series, decisions, txns, fingerprint, as_of)
+    pair = {new.id, old.id}
+    return (
+        "proposal_made"
+        if any({p.series_id, p.other_id} == pair for p in made)
+        else "not_one_to_one"
+    )
+
+
 # --- possible: a monthly charge seen exactly twice ---
 
 POSSIBLE_MIN_GAP, POSSIBLE_MAX_GAP = 25, 38  # days between the two charges
 POSSIBLE_STALE_DAYS = 45  # the latest charge is no older than this
 POSSIBLE_SAME_AMOUNT = 0.01  # the two amounts are the same to within 1 percent
 CARD_MIN_GAP, CARD_MAX_GAP = 28, 34  # paid by card: exactly the same amount, a calendar month apart
+
+
+def _possible_for_group(
+    merchant: str, rows: Sequence[Txn], card_rows: Collection[int], covered: Collection[str],
+    added: Collection[str], fingerprint: dict[int, str], as_of: date,
+) -> "SettingProposal | str":  # fmt: skip
+    """A possible-subscription proposal for one merchant's payments, or the reason there is none."""
+    if len(rows) != 2:
+        return "not_two_payments"
+    if merchant.casefold() in added:
+        return "name_added_by_hand"
+    first, second = sorted(rows, key=lambda t: (t.posted_date, t.row_id))
+    a, b = abs(first.amount_cents), abs(second.amount_cents)
+    gap = (second.posted_date - first.posted_date).days
+    if min(a, b) < 100 or abs(a - b) > POSSIBLE_SAME_AMOUNT * max(a, b):
+        return "amounts_differ"
+    if not POSSIBLE_MIN_GAP <= gap <= POSSIBLE_MAX_GAP:
+        return "gap_not_monthly"
+    if all(t.row_id in card_rows for t in rows) and (
+        a != b or not CARD_MIN_GAP <= gap <= CARD_MAX_GAP
+    ):
+        return "card_not_exact"  # most subscriptions are card payments, but a shop is not one
+    if (as_of - second.posted_date).days > POSSIBLE_STALE_DAYS:
+        return "outside_freshness_limit"
+    prints = tuple(fingerprint[t.row_id] for t in (first, second))
+    if any(fp in covered for fp in prints):
+        return "already_in_a_series"
+    return SettingProposal(
+        kind="possible",
+        series_id=f"possible|{prints[0]}",
+        key=f"possible|{prints[0]}",
+        title=f"{merchant} may be a monthly subscription (${b / 100:,.2f}, seen twice so far)",
+        evidence=prints,
+        confidence="possible",
+        name=merchant,
+        amount_cents=second.amount_cents,
+        anchor=second.posted_date,
+        cadence="monthly",
+    )
+
+
+def _possible_context(
+    series: Sequence[Stored], decisions: Sequence[Decision], txns: Sequence[Txn],
+    user: UserDecisions | None, key: bytes | None, as_of: date,
+) -> tuple[list[tuple[str, list[Txn]]], set[int], set[str], set[str]]:  # fmt: skip
+    past = [t for t in txns if t.posted_date <= as_of]
+    groups, card_rows = _groups(past, user, key)
+    covered = {fp for s in series for fp in s.evidence}
+    added = {(s.name or "").casefold() for s in series if s.status == "user-added"}
+    added |= {str(d.details.get("name", "")).casefold() for d in decisions if d.action == "add"}
+    merchants = [
+        (merchant, rows)
+        for (_, merchant, kind, direction), rows in sorted(groups.items(), key=lambda kv: kv[0])
+        if kind == "merchant" and direction == "out" and merchant is not None
+    ]
+    return merchants, card_rows, covered, added
 
 
 def propose_possible(
@@ -336,53 +513,73 @@ def propose_possible(
     Always "possible". Nothing for a merchant that has any other payment, for payments that
     already belong to a series, or for a name I added by hand. Paid by card (most subscriptions
     are), the two amounts must be exactly equal and a calendar month apart."""
-    past = [t for t in txns if t.posted_date <= as_of]
-    groups, card_rows = _groups(past, user, key)
-    covered = {fp for s in series for fp in s.evidence}
-    added = {(s.name or "").casefold() for s in series if s.status == "user-added"}
-    added |= {str(d.details.get("name", "")).casefold() for d in decisions if d.action == "add"}
-    out: list[SettingProposal] = []
-    for (_, merchant, kind, direction), rows in sorted(groups.items(), key=lambda kv: kv[0]):
-        if kind != "merchant" or direction != "out" or merchant is None or len(rows) != 2:
-            continue
-        if merchant.casefold() in added:
-            continue
-        first, second = sorted(rows, key=lambda t: (t.posted_date, t.row_id))
-        a, b = abs(first.amount_cents), abs(second.amount_cents)
-        gap = (second.posted_date - first.posted_date).days
-        if min(a, b) < 100 or abs(a - b) > POSSIBLE_SAME_AMOUNT * max(a, b):
-            continue
-        if not POSSIBLE_MIN_GAP <= gap <= POSSIBLE_MAX_GAP:
-            continue
-        if all(t.row_id in card_rows for t in rows) and (
-            a != b or not CARD_MIN_GAP <= gap <= CARD_MAX_GAP
-        ):
-            continue  # most subscriptions are card payments, but a shop is not one: exact only
-        if (as_of - second.posted_date).days > POSSIBLE_STALE_DAYS:
-            continue
-        prints = tuple(fingerprint[t.row_id] for t in (first, second))
-        if any(fp in covered for fp in prints):
-            continue
-        out.append(
-            SettingProposal(
-                kind="possible",
-                series_id=f"possible|{prints[0]}",
-                key=f"possible|{prints[0]}",
-                title=(
-                    f"{merchant} may be a monthly subscription (${b / 100:,.2f}, seen twice so far)"
-                ),
-                evidence=prints,
-                confidence="possible",
-                name=merchant,
-                amount_cents=second.amount_cents,
-                anchor=second.posted_date,
-                cadence="monthly",
-            )
-        )
+    merchants, card_rows, covered, added = _possible_context(
+        series, decisions, txns, user, key, as_of
+    )
+    out = []
+    for merchant, rows in merchants:
+        result = _possible_for_group(merchant, rows, card_rows, covered, added, fingerprint, as_of)
+        if isinstance(result, SettingProposal):
+            out.append(result)
     return out
 
 
+def possible_reason(
+    series: Sequence[Stored], decisions: Sequence[Decision], txns: Sequence[Txn],
+    fingerprint: dict[int, str], user: UserDecisions | None, key: bytes | None, as_of: date,
+    name: str,
+) -> str:  # fmt: skip
+    """Why there is no possible-subscription proposal for the merchant called `name`: a code from
+    REASONS, or "proposal_made"."""
+    merchants, card_rows, covered, added = _possible_context(
+        series, decisions, txns, user, key, as_of
+    )
+    for merchant, rows in merchants:
+        if merchant.casefold() == name.casefold():
+            result = _possible_for_group(
+                merchant, rows, card_rows, covered, added, fingerprint, as_of
+            )
+            return "proposal_made" if isinstance(result, SettingProposal) else result
+    return "no_candidate_series"
+
+
 # --- showing, accepting and dismissing ---
+
+
+@dataclass(frozen=True)
+class Inputs:
+    """What the proposers read on one day: the rows, the series, the decisions made by then."""
+
+    series: Sequence[Stored]
+    decisions: Sequence[Decision]
+    txns: Sequence[Txn]
+    fingerprint: dict[int, str]
+    user: UserDecisions | None
+    day: date
+
+
+def proposal_inputs(
+    conn: sqlite3.Connection, account: str, key: bytes | None = None, as_of: date | None = None,
+    series: Sequence[Stored] | None = None,
+) -> Inputs | None:  # fmt: skip
+    """The proposers' inputs on `as_of` (default: the account's last posting date): rows posted
+    by then, the series and recurring decisions as of `as_of` (None: a live call uses every
+    decision made). `series` (the live series, if the caller has them) saves a second detection;
+    it is only valid for a live call. None if nothing was posted."""
+    raw = conn.execute(
+        "SELECT id, posted_date, amount_cents, description, sub_description, fingerprint"
+        " FROM transactions WHERE account = ? AND posted_date <= ?",
+        (account, (as_of or date.max).isoformat()),
+    ).fetchall()
+    txns = [Txn(r[0], date.fromisoformat(r[1]), r[2], r[3], r[4]) for r in raw]
+    if not txns:
+        return None
+    if series is None or as_of is not None:
+        series, _ = rs.series_as_of(conn, account, as_of, key)
+    return Inputs(
+        series, rs.load_decisions(conn, account, as_of), txns, {r[0]: r[5] for r in raw},
+        load_user_decisions(conn, as_of), as_of or max(t.posted_date for t in txns),
+    )  # fmt: skip
 
 
 def current_proposals(
@@ -393,25 +590,14 @@ def current_proposals(
     by then, the recurring decisions made by then and the dismissals made by then. Rent first,
     then links, then possible subscriptions. `series` (the live series, if the caller has them)
     saves a second detection; it is only valid for a live call (`as_of=None`)."""
-    raw = conn.execute(
-        "SELECT id, posted_date, amount_cents, description, sub_description, fingerprint"
-        " FROM transactions WHERE account = ? AND posted_date <= ?",
-        (account, (as_of or date.max).isoformat()),
-    ).fetchall()
-    txns = [Txn(r[0], date.fromisoformat(r[1]), r[2], r[3], r[4]) for r in raw]
-    if not txns:
+    inputs = proposal_inputs(conn, account, key, as_of, series)
+    if inputs is None:
         return []
-    day = as_of or max(t.posted_date for t in txns)
-    fingerprint = {r[0]: r[5] for r in raw}
-    # rows are cut at `day`; decisions at `as_of` (None: a live call uses every decision made)
-    if series is None or as_of is not None:
-        series, _ = rs.series_as_of(conn, account, as_of, key)
-    decisions = rs.load_decisions(conn, account, as_of)
-    user = load_user_decisions(conn, as_of)
+    i = inputs
     found = [
-        *propose_rent(series, decisions, txns, fingerprint, user, key, day),
-        *propose_links(series, decisions, txns, fingerprint, day),
-        *propose_possible(series, decisions, txns, fingerprint, user, key, day),
+        *propose_rent(i.series, i.decisions, i.txns, i.fingerprint, i.user, key, i.day),
+        *propose_links(i.series, i.decisions, i.txns, i.fingerprint, i.day),
+        *propose_possible(i.series, i.decisions, i.txns, i.fingerprint, i.user, key, i.day),
     ]
     dismissed = proposal_decisions_as_of(conn, account, as_of)
     return [p for p in found if dismissed.get(p.key) != NOT_THIS_TIME]

@@ -80,6 +80,26 @@ def affected_origins(
     return len(days), with_rule, changed
 
 
+def rule_timing(conn: sqlite3.Connection, account: str) -> tuple[int, int, int]:
+    """(rent rules I have now, of which made after the last origin, of which made after the data
+    ends). A decision counts at an origin only if it was made on or before that day, so a rule made
+    after the last origin was never in force in the backtest."""
+    bounds = conn.execute(
+        "SELECT MIN(posted_date), MAX(posted_date) FROM transactions WHERE account = ?", (account,)
+    ).fetchone()
+    if bounds[0] is None:
+        return 0, 0, 0
+    first, last = date.fromisoformat(bounds[0]), date.fromisoformat(bounds[1])
+    days = origin_days(first, last)
+    latest: dict[str, rs.Decision | None] = {}
+    for d in rs.load_decisions(conn, account):
+        if d.action == "rent":
+            latest[d.key] = d if d.details else None  # a later empty rule takes it away
+    rules = [d for d in latest.values() if d is not None]
+    after_origin = sum(not days or d.decided_at > days[-1] for d in rules)
+    return len(rules), after_origin, sum(d.decided_at > last for d in rules)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.rent_rule_origins")
     parser.add_argument("--db", type=Path, required=True)
@@ -95,15 +115,23 @@ def main(argv: list[str] | None = None) -> int:
     copy = _in_memory_copy(args.db)
     try:
         total = [0, 0, 0]
+        timing = [0, 0, 0]
         for account in _accounts(copy):  # a rent rule is a decision: only these can matter
             for i, n in enumerate(affected_origins(copy, account, key)):
                 total[i] += n
+            for i, n in enumerate(rule_timing(copy, account)):
+                timing[i] += n
     finally:
         copy.close()
     print("origins checked (weekly, like the real backtest):", total[0])
     print("origins with a series that has a rent rule:", total[1])
     print("origins where the rent fix could change the forecast:", total[2])
+    print("rent rules I have now:", timing[0])
+    print("  of which made after the last origin (never in force in the backtest):", timing[1])
+    print("  of which made after the data ends:", timing[2])
     print("-> the baseline cannot have changed" if total[2] == 0 else "-> rerun the real backtest")
+    if timing[0] and timing[1] == timing[0]:
+        print("-> every rent rule is newer than the last origin: the backtest never used one")
     return 0
 
 

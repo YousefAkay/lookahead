@@ -103,3 +103,40 @@ def test_the_script_prints_counts_only_and_leaves_the_database_alone(
 
 def test_a_missing_database_is_reported(tmp_path: Path) -> None:
     assert ro.main(["--db", str(tmp_path / "nope.db")]) == 2
+
+
+def test_a_rule_made_after_the_last_origin_was_never_in_force_in_the_backtest(
+    tmp_path: Path,
+) -> None:
+    conn = stopped_then_raised(tmp_path / "t.db")
+    give_rent_rule(conn, date(2026, 3, 1))  # after every origin that fits
+    assert ro.rule_timing(conn, ACCOUNT) == (1, 1, 1)
+    assert ro.affected_origins(conn, ACCOUNT)[1] == 0  # no origin sees it
+
+
+def test_a_rule_made_early_was_in_force_at_the_origins(tmp_path: Path) -> None:
+    conn = stopped_then_raised(tmp_path / "t.db")
+    give_rent_rule(conn, date(2025, 3, 1))
+    assert ro.rule_timing(conn, ACCOUNT) == (1, 0, 0)
+    assert ro.affected_origins(conn, ACCOUNT)[1] > 0
+
+
+def test_a_rule_taken_away_is_not_counted(tmp_path: Path) -> None:
+    conn = stopped_then_raised(tmp_path / "t.db")
+    give_rent_rule(conn, date(2026, 3, 1))
+    series, _ = rs.series_as_of(conn, ACCOUNT)
+    rent = max(series, key=lambda s: len(s.evidence))
+    rs.set_rent_rule(conn, ACCOUNT, rent, None, date(2026, 3, 2))
+    assert ro.rule_timing(conn, ACCOUNT) == (0, 0, 0)
+
+
+def test_the_script_says_so_when_every_rule_is_newer_than_the_last_origin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = stopped_then_raised(tmp_path / "t.db")
+    give_rent_rule(conn, date(2026, 3, 1))
+    conn.close()
+    assert ro.main(["--db", str(tmp_path / "t.db")]) == 0
+    out = capsys.readouterr().out
+    assert "made after the last origin (never in force in the backtest): 1" in out
+    assert "the backtest never used one" in out and "2026" not in out

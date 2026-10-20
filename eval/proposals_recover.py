@@ -3,30 +3,46 @@
 amounts, dates, names or keys.
 
     python -m eval.proposals_recover --db data/private/db/lookahead.db
+    python -m eval.proposals_recover --db data/private/db/lookahead.db --explain
 
 It opens the database read-only, works on an in-memory copy, removes my hand entries from the copy
 (the rent rules, the "continues" links and the series I added by hand), runs the proposers as they
-would run today, and counts for each kind whether a proposal would have given the same thing:
-- rent: a proposal on that series with the same allowed amounts and a window that covers at least
-  80 percent of the days of mine;
-- link: a proposal that joins the same two series;
+run today (rows to the data's last day, every other decision of mine still in force), and counts for
+each kind whether a proposal would have given the same thing. An entry is found by the payments it
+rests on, not by its id (a migrated link can name one id on both sides):
+- rent: a rent proposal on the same payments with the same allowed amounts and a window that covers
+  at least 80 percent of the days of mine;
+- link: a link proposal that rests on at least 80 percent of the same payments;
 - hand-added: a "possible subscription" proposal with the same name, or a series that detection
   finds on its own from at least 80 percent of the same payments.
-A "no" for a kind vetoes that kind. Nothing is written to the database or to disk.
+A "no" for a kind vetoes that kind. With --explain, each "no" also prints only a reason code and its
+plain meaning (a count per code): never a name, amount, date, merchant or key. Nothing is written
+to the database or to disk.
 """
 
 import argparse
 import sqlite3
 import sys
+from collections import Counter
+from collections.abc import Collection
 from pathlib import Path
 
 from lookahead import recurring_store as rs
 from lookahead.identity import _accounts, _in_memory_copy
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key
 from lookahead.rent import RentRule
-from lookahead.setting_proposals import SettingProposal, current_proposals
+from lookahead.setting_proposals import (
+    REASONS,
+    SettingProposal,
+    current_proposals,
+    link_reason,
+    possible_reason,
+    proposal_inputs,
+    rent_reason,
+)
 
 SHARE = 0.80
+KINDS = ("rent", "link", "hand-added")
 
 
 def _window_days(rule: RentRule) -> set[int]:
@@ -36,11 +52,18 @@ def _window_days(rule: RentRule) -> set[int]:
 
 
 def rent_recovered(mine: RentRule, proposal: SettingProposal) -> bool:
+    return rent_gap(mine, proposal) is None
+
+
+def rent_gap(mine: RentRule, proposal: SettingProposal) -> str | None:
+    """None if the proposal gives my rule; else why not (a REASONS code)."""
     theirs = proposal.rent
     if theirs is None or set(theirs.amounts_cents) != set(mine.amounts_cents):
-        return False
+        return "amounts_not_equal"
     wanted = _window_days(mine)
-    return len(wanted & _window_days(theirs)) >= SHARE * len(wanted)
+    if len(wanted & _window_days(theirs)) < SHARE * len(wanted):
+        return "window_not_covered"
+    return None
 
 
 def _latest_rent_rules(decisions: list[rs.Decision]) -> dict[str, RentRule]:
@@ -57,56 +80,106 @@ def _latest_rent_rules(decisions: list[rs.Decision]) -> dict[str, RentRule]:
     return rules
 
 
-def _links_recovered(links: list[tuple[str, str]], found: list[SettingProposal]) -> list[bool]:
-    pairs = [{p.series_id, p.other_id} for p in found if p.kind == "link"]
-    return [{new, old} in pairs for new, old in links]
+def _overlap(a: Collection[str], b: Collection[str], share_of: str = "smaller") -> bool:
+    """The two sets of payments are mostly the same ones."""
+    a, b = set(a), set(b)
+    if not a or not b:
+        return False
+    base = min(len(a), len(b)) if share_of == "smaller" else len(b)
+    return len(a & b) >= SHARE * base
 
 
-def _added_recovered(
-    added: list[rs.Stored], found: list[SettingProposal], after: list[rs.Stored]
-) -> list[bool]:
-    names = {(p.name or "").casefold() for p in found if p.kind == "possible"}
-    detected = [set(o.evidence) for o in after if o.detected_now]
-    out = []
-    for s in added:
-        mine = set(s.evidence)
-        by_name = (s.name or "").casefold() in names
-        alone = bool(mine) and any(len(mine & other) >= SHARE * len(mine) for other in detected)
-        out.append(by_name or alone)
-    return out
+def _find(series: list[rs.Stored], ref: str) -> rs.Stored | None:
+    return next((s for s in series if ref in (s.id, s.key) or ref in s.continues), None)
 
 
-def recover(copy: sqlite3.Connection, key: bytes | None = None) -> dict[str, tuple[int, int]]:
-    """{kind: (recovered, not recovered)} for the hand entries in `copy`, which is changed
-    (the entries are deleted from it): hand it a throw-away copy."""
-    results: dict[str, list[bool]] = {"rent": [], "link": [], "hand-added": []}
+def recover_detailed(
+    copy: sqlite3.Connection, key: bytes | None = None
+) -> tuple[dict[str, tuple[int, int]], dict[str, Counter[str]]]:
+    """({kind: (recovered, not recovered)}, {kind: count of each reason code for a "no"}) for the
+    hand entries in `copy`, which is changed (the entries are deleted from it): hand it a
+    throw-away copy."""
+    results: dict[str, list[bool]] = {k: [] for k in KINDS}
+    reasons: dict[str, Counter[str]] = {k: Counter() for k in KINDS}
+
+    def note(kind: str, reason: str | None) -> None:
+        results[kind].append(reason is None)
+        if reason is not None:
+            reasons[kind][reason] += 1
+
     for account in _accounts(copy):
-        series, _ = rs.series_as_of(copy, account, None, key)
+        before, _ = rs.series_as_of(copy, account, None, key)
         decisions = rs.load_decisions(copy, account)
         rules = _latest_rent_rules(decisions)
         links = [
             (d.key, str(d.details.get("previous"))) for d in decisions if d.action == "continue"
         ]
-        added = [s for s in series if s.status == "user-added"]
-        with copy:
+        added = [s for s in before if s.status == "user-added"]
+        with copy:  # hide my hand entries from the copy before asking the proposers
             copy.execute(
                 "DELETE FROM recurring_decisions WHERE account = ?"
                 " AND action IN ('rent', 'continue', 'add')", (account,),
             )  # fmt: skip
         found = current_proposals(copy, account, key)
+        inputs = proposal_inputs(copy, account, key)
+        for ref, rule in rules.items():
+            mine = _find(before, ref)
+            if mine is None or inputs is None:
+                note("rent", "entry_not_found")
+                continue
+            near = [p for p in found if p.kind == "rent" and _overlap(p.evidence, mine.evidence)]
+            gaps = [rent_gap(rule, p) for p in near]
+            if any(g is None for g in gaps):
+                note("rent", None)
+            elif near:
+                note("rent", gaps[0])
+            else:
+                note("rent", rent_reason(
+                    inputs.series, inputs.decisions, inputs.txns, inputs.fingerprint,
+                    inputs.user, key, inputs.day, mine.evidence,
+                ))  # fmt: skip
+        for new_ref, old_ref in links:
+            both = _find(before, new_ref) or _find(before, old_ref)
+            if both is None or inputs is None:
+                note("link", "entry_not_found")
+                continue
+            hit = any(
+                p.kind == "link" and _overlap(p.evidence, both.evidence, "mine") for p in found
+            )
+            note("link", None if hit else link_reason(
+                inputs.series, inputs.decisions, inputs.txns, inputs.fingerprint, inputs.day,
+                both.evidence,
+            ))  # fmt: skip
         after, _ = rs.series_as_of(copy, account, None, key)
-        results["rent"] += [
-            any(p.kind == "rent" and p.series_id == sid and rent_recovered(rule, p) for p in found)
-            for sid, rule in rules.items()
-        ]
-        results["link"] += _links_recovered(links, found)
-        results["hand-added"] += _added_recovered(added, found, after)
-    return {k: (sum(v), len(v) - sum(v)) for k, v in results.items()}
+        detected = [set(o.evidence) for o in after if o.detected_now]
+        names = {(p.name or "").casefold() for p in found if p.kind == "possible"}
+        for s in added:
+            mine_ev = set(s.evidence)
+            alone = bool(mine_ev) and any(
+                len(mine_ev & other) >= SHARE * len(mine_ev) for other in detected
+            )
+            if (s.name or "").casefold() in names or alone:
+                note("hand-added", None)
+            elif inputs is None:
+                note("hand-added", "entry_not_found")
+            else:
+                note("hand-added", possible_reason(
+                    inputs.series, inputs.decisions, inputs.txns, inputs.fingerprint,
+                    inputs.user, key, inputs.day, s.name or "",
+                ))  # fmt: skip
+    counts = {k: (sum(v), len(v) - sum(v)) for k, v in results.items()}
+    return counts, reasons
+
+
+def recover(copy: sqlite3.Connection, key: bytes | None = None) -> dict[str, tuple[int, int]]:
+    """{kind: (recovered, not recovered)}; see `recover_detailed`."""
+    return recover_detailed(copy, key)[0]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.proposals_recover")
     parser.add_argument("--db", type=Path, required=True)
+    parser.add_argument("--explain", action="store_true", help="a reason code for each no")
     args = parser.parse_args(argv)
     if not args.db.exists():
         print(f"database not found: {args.db}")
@@ -118,13 +191,16 @@ def main(argv: list[str] | None = None) -> int:
         print("note: no PSEUDONYM_KEY, e-Transfers that name a recipient are not detected")
     copy = _in_memory_copy(args.db)
     try:
-        result = recover(copy, key)
+        result, reasons = recover_detailed(copy, key)
     finally:
         copy.close()
     print("would the proposers recover my hand entries? (counts only)")
     for kind, (yes, no) in result.items():
         verdict = "nothing to check" if yes + no == 0 else ("VETO" if no else "ok")
         print(f"  {kind}: yes {yes}, no {no} -> {verdict}")
+        if args.explain:
+            for code, n in sorted(reasons[kind].items()):
+                print(f"    why not ({n}): {code} - {REASONS.get(code, code)}")
     return 0
 
 
