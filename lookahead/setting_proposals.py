@@ -12,6 +12,7 @@ linked, ended, rejected, renamed, categorised or hand-added). Rule zero: only ro
 before `as_of`. The method and the adopt rule are in DECISIONS.md (2026-10-20).
 """
 
+import sqlite3
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -19,11 +20,15 @@ from datetime import date
 from math import ceil
 from statistics import median
 
+from lookahead import recurring_store as rs
 from lookahead.flows import Txn
+from lookahead.proposals import LOOKS_RIGHT, NOT_THIS_TIME
+from lookahead.proposals import decide as record_proposal_decision
+from lookahead.proposals import decisions_as_of as proposal_decisions_as_of
 from lookahead.recurring import _groups
 from lookahead.recurring_store import Decision, Stored
 from lookahead.rent import RentRule
-from lookahead.resolve import UserDecisions
+from lookahead.resolve import UserDecisions, load_user_decisions
 from lookahead.series_identity import family_of
 
 # rent
@@ -321,3 +326,67 @@ def propose_possible(
             )
         )
     return out
+
+
+# --- showing, accepting and dismissing ---
+
+
+def current_proposals(
+    conn: sqlite3.Connection, account: str, key: bytes | None = None, as_of: date | None = None
+) -> list[SettingProposal]:
+    """Every proposal on `as_of` (default: the account's last posting date), from the rows posted
+    by then, the recurring decisions made by then and the dismissals made by then. Rent first,
+    then links, then possible subscriptions."""
+    raw = conn.execute(
+        "SELECT id, posted_date, amount_cents, description, sub_description, fingerprint"
+        " FROM transactions WHERE account = ? AND posted_date <= ?",
+        (account, (as_of or date.max).isoformat()),
+    ).fetchall()
+    txns = [Txn(r[0], date.fromisoformat(r[1]), r[2], r[3], r[4]) for r in raw]
+    if not txns:
+        return []
+    day = as_of or max(t.posted_date for t in txns)
+    fingerprint = {r[0]: r[5] for r in raw}
+    # rows are cut at `day`; decisions at `as_of` (None: a live call uses every decision made)
+    series, _ = rs.series_as_of(conn, account, as_of, key)
+    decisions = rs.load_decisions(conn, account, as_of)
+    user = load_user_decisions(conn, as_of)
+    found = [
+        *propose_rent(series, decisions, txns, fingerprint, user, key, day),
+        *propose_links(series, decisions, txns, fingerprint, day),
+        *propose_possible(series, decisions, txns, fingerprint, user, key, day),
+    ]
+    dismissed = proposal_decisions_as_of(conn, account, as_of)
+    return [p for p in found if dismissed.get(p.key) != NOT_THIS_TIME]
+
+
+def dismiss(
+    conn: sqlite3.Connection, account: str, proposal: SettingProposal, when: date | None = None
+) -> None:
+    """ "Not this": a dated row, so it stays dismissed and an earlier replay still shows it."""
+    record_proposal_decision(conn, account, proposal.key, NOT_THIS_TIME, when or date.today())
+
+
+def accept(
+    conn: sqlite3.Connection, account: str, proposal: SettingProposal, series: Sequence[Stored],
+    when: date | None = None,
+) -> None:  # fmt: skip
+    """ "Looks right": write the real recurring decision (only through `recurring_store`, by stable
+    id), then log the click. Rent: a rent rule on the series; link: a "continues" link; possible:
+    a series added by hand."""
+    day = when or date.today()
+    by_id = {s.id or s.key: s for s in series}
+    if proposal.kind == "rent" and proposal.rent is not None:
+        rs.set_rent_rule(conn, account, by_id[proposal.series_id], proposal.rent, day)
+    elif proposal.kind == "link" and proposal.other_id is not None:
+        rs.link_continuation(
+            conn, account, by_id[proposal.series_id], by_id[proposal.other_id], day
+        )
+    elif proposal.kind == "possible" and proposal.name and proposal.amount_cents:
+        rs.add_series(
+            conn, account, proposal.name, "out", proposal.cadence or "monthly",
+            proposal.anchor or day, abs(proposal.amount_cents), day,
+        )  # fmt: skip
+    else:
+        raise ValueError(f"cannot apply a {proposal.kind!r} proposal")
+    record_proposal_decision(conn, account, proposal.key, LOOKS_RIGHT, day)
