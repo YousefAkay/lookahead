@@ -49,6 +49,11 @@ class SettingProposal:
     confidence: str  # likely / possible
     rent: RentRule | None = None
     other_id: str | None = None  # link: the older series
+    # possible: what "Looks right" hands to `add_series` (there is no series yet)
+    name: str | None = None
+    amount_cents: int | None = None  # signed, money out is negative
+    anchor: date | None = None  # the date of the latest charge
+    cadence: str | None = None
 
 
 def has_decision(s: Stored, decisions: Sequence[Decision]) -> bool:
@@ -254,3 +259,65 @@ def propose_links(
             )
         )
     return sorted(out, key=lambda p: p.key)
+
+
+# --- possible: a monthly charge seen exactly twice ---
+
+POSSIBLE_MIN_GAP, POSSIBLE_MAX_GAP = 25, 38  # days between the two charges
+POSSIBLE_STALE_DAYS = 45  # the latest charge is no older than this
+POSSIBLE_SAME_AMOUNT = 0.01  # the two amounts are the same to within 1 percent
+
+
+def propose_possible(
+    series: Sequence[Stored],
+    decisions: Sequence[Decision],
+    txns: Sequence[Txn],
+    fingerprint: dict[int, str],
+    user: UserDecisions | None,
+    key: bytes | None,
+    as_of: date,
+) -> list[SettingProposal]:
+    """A merchant with exactly two payments, about a month apart, of the same amount, the latest
+    still recent: a subscription that detection cannot call a series yet (it needs three).
+    Always "possible". Nothing for a merchant that has any other payment, for payments that
+    already belong to a series, for a name I added by hand, or for card purchases only."""
+    past = [t for t in txns if t.posted_date <= as_of]
+    groups, card_rows = _groups(past, user, key)
+    covered = {fp for s in series for fp in s.evidence}
+    added = {(s.name or "").casefold() for s in series if s.status == "user-added"}
+    added |= {str(d.details.get("name", "")).casefold() for d in decisions if d.action == "add"}
+    out: list[SettingProposal] = []
+    for (_, merchant, kind, direction), rows in sorted(groups.items(), key=lambda kv: kv[0]):
+        if kind != "merchant" or direction != "out" or merchant is None or len(rows) != 2:
+            continue
+        if merchant.casefold() in added or all(t.row_id in card_rows for t in rows):
+            continue
+        first, second = sorted(rows, key=lambda t: (t.posted_date, t.row_id))
+        a, b = abs(first.amount_cents), abs(second.amount_cents)
+        gap = (second.posted_date - first.posted_date).days
+        if min(a, b) < 100 or abs(a - b) > POSSIBLE_SAME_AMOUNT * max(a, b):
+            continue
+        if not POSSIBLE_MIN_GAP <= gap <= POSSIBLE_MAX_GAP:
+            continue
+        if (as_of - second.posted_date).days > POSSIBLE_STALE_DAYS:
+            continue
+        prints = tuple(fingerprint[t.row_id] for t in (first, second))
+        if any(fp in covered for fp in prints):
+            continue
+        out.append(
+            SettingProposal(
+                kind="possible",
+                series_id=f"possible|{prints[0]}",
+                key=f"possible|{prints[0]}",
+                title=(
+                    f"{merchant} may be a monthly subscription (${b / 100:,.2f}, seen twice so far)"
+                ),
+                evidence=prints,
+                confidence="possible",
+                name=merchant,
+                amount_cents=second.amount_cents,
+                anchor=second.posted_date,
+                cadence="monthly",
+            )
+        )
+    return out

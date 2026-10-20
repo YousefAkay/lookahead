@@ -12,7 +12,13 @@ from lookahead.calendar_rules import monthly_date, shift_to_business_day
 from lookahead.db import connect
 from lookahead.flows import Txn
 from lookahead.rent import RentRule
-from lookahead.setting_proposals import best_window, has_decision, propose_links, propose_rent
+from lookahead.setting_proposals import (
+    best_window,
+    has_decision,
+    propose_links,
+    propose_possible,
+    propose_rent,
+)
 
 ETRANSFER = "Free Interac E-Transfer "
 ACCOUNT = "a"
@@ -312,3 +318,95 @@ def test_accepting_a_link_joins_the_two_into_one_series(conn: sqlite3.Connection
     decisions = rs.load_decisions(conn, ACCOUNT)
     proposals, joined = links_for(txns, decisions)
     assert len(joined) == 1 and proposals == []  # one history; nothing more to propose
+
+
+# --- possible: a monthly charge seen exactly twice ---
+
+
+def possible_for(
+    txns: list[Txn], decisions: list[rs.Decision] | None = None, as_of: date | None = None
+):  # type: ignore[no-untyped-def]
+    day = as_of or max(t.posted_date for t in txns)
+    past = [t for t in txns if t.posted_date <= day]
+    fp = fingerprints(txns)
+    series = rs.current_series(past, fp, decisions or [], day)
+    return propose_possible(series, decisions or [], txns, fp, None, None, day), series
+
+
+def test_two_monthly_charges_of_one_amount_are_a_possible_subscription() -> None:
+    (p,), series = possible_for(monthly_rows([("Zenstudio", 1299, 1, 2)]))
+    assert series == []  # detection needs three
+    assert p.kind == "possible" and p.confidence == "possible"
+    assert p.name == "Zenstudio" and p.amount_cents == -1299 and p.cadence == "monthly"
+    assert p.anchor == date(2025, 2, 10) and len(p.evidence) == 2
+    assert p.key == p.series_id == f"possible|{p.evidence[0]}"
+    assert "may be a monthly subscription" in p.title and "$12.99" in p.title
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        [("Zenstudio", 1299, 1, 1)],  # one charge
+        [("Zenstudio", 1299, 1, 3)],  # three charges: a normal series
+        [("Zenstudio", 1299, 1, 1), ("Zenstudio", 1499, 2, 1)],  # the amount differs
+        [("Zenstudio", 1299, 1, 1), ("Zenstudio", 1299, 4, 1)],  # three months apart
+        [("Zenstudio", 50, 1, 2)],  # under a dollar
+    ],
+)
+def test_no_possible_subscription_for_other_patterns(plan: list[tuple[str, int, int, int]]) -> None:
+    proposals, _ = possible_for(monthly_rows(plan))
+    assert proposals == []
+
+
+def test_a_merchant_with_other_payments_is_not_proposed() -> None:
+    rows = monthly_rows([("Zenstudio", 1299, 1, 2)])
+    extra = Txn(99, date(2025, 2, 20), -777, "bill payment", "Zenstudio ")
+    proposals, _ = possible_for(sorted([*rows, extra], key=lambda t: (t.posted_date, t.row_id)))
+    assert proposals == []
+
+
+def test_a_stale_pair_is_not_proposed_and_rows_after_the_date_are_not_used() -> None:
+    txns = monthly_rows([("Zenstudio", 1299, 1, 2), ("Otherplace", 2000, 5, 1)])
+    stale, _ = possible_for(txns, as_of=date(2025, 5, 30))
+    assert stale == []  # the latest charge was 3 months before
+    before, _ = possible_for(txns, as_of=date(2025, 1, 31))
+    assert before == []  # only one charge was posted by then
+
+
+def test_nothing_for_charges_that_already_belong_to_a_series(conn: sqlite3.Connection) -> None:
+    txns = monthly_rows([("Zenstudio", 1299, 1, 2)])
+    key = rs.add_series(conn, ACCOUNT, "Zenstudio", "out", "monthly", date(2025, 2, 10), 1299)
+    decisions = rs.load_decisions(conn, ACCOUNT)
+    proposals, series = possible_for(txns, decisions)
+    assert [s.key for s in series] == [key] and series[0].status == "user-added"
+    assert proposals == []  # a hand-added series already has these payments
+
+
+def test_nothing_for_a_name_i_added_by_hand_even_if_its_payments_are_not_found() -> None:
+    txns = monthly_rows([("Zenstudio", 1299, 1, 2)])
+    add = rs.Decision(
+        "user|1", "add", {"name": "ZENSTUDIO", "direction": "out", "cadence": "monthly",
+                          "anchor": "2025-02-10", "amount_cents": -1299}, date(2025, 2, 11), 1,
+    )  # fmt: skip
+    proposals, _ = possible_for(txns, [add])
+    assert proposals == []
+
+
+def test_card_purchases_only_are_not_proposed() -> None:
+    rows = [
+        Txn(i + 1, d, -400, "pos purchase", "Opos Coffeebar         toron ")
+        for i, d in enumerate([date(2025, 1, 10), date(2025, 2, 10)])
+    ]
+    proposals, _ = possible_for(rows)
+    assert proposals == []
+
+
+def test_accepting_a_possible_subscription_adds_it_and_it_is_not_proposed_again(
+    conn: sqlite3.Connection,
+) -> None:
+    txns = monthly_rows([("Zenstudio", 1299, 1, 2)])
+    (p,), _ = possible_for(txns)
+    assert p.name and p.amount_cents and p.anchor and p.cadence
+    rs.add_series(conn, ACCOUNT, p.name, "out", p.cadence, p.anchor, abs(p.amount_cents))
+    proposals, series = possible_for(txns, rs.load_decisions(conn, ACCOUNT))
+    assert proposals == [] and len(series) == 1 and len(series[0].evidence) == 2
