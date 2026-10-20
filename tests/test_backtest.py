@@ -227,9 +227,9 @@ def test_a_confirmation_made_after_the_origin_is_not_used_but_one_before_it_is(
     series, _ = series_as_of(conn, PID, ORIGIN)
     # rejecting the largest outflow series changes the forecast only if it is known by then
     biggest = min((s for s in series if s.direction == "out"), key=lambda s: s.expected_cents)
-    reject(conn, PID, biggest.key, ORIGIN + timedelta(days=1))  # decided the day after
+    reject(conn, PID, biggest, ORIGIN + timedelta(days=1))  # decided the day after
     assert forecast_part(run_origin(conn, PID, "synthetic", ORIGIN, FUTURES)) == forecast_part(base)
-    reject(conn, PID, biggest.key, ORIGIN - timedelta(days=1))  # decided the day before
+    reject(conn, PID, biggest, ORIGIN - timedelta(days=1))  # decided the day before
     assert forecast_part(run_origin(conn, PID, "synthetic", ORIGIN, FUTURES)) != forecast_part(base)
 
 

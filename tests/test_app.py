@@ -469,8 +469,8 @@ def test_looks_right_confirm_all_confirms_every_detected_series_and_logs_each(
     log = load_decisions(conn, "synthetic-B")
     conn.close()
     assert sorted(d.key for d in log if d.action == "confirm") == sorted(
-        s.key for s in before.values()
-    )
+        s.id for s in before.values()
+    )  # decisions are written against the stable id
     assert len(log) == 6  # one decision each, nothing else
     assert not [b for b in at.button if b.label.startswith("Looks right")]  # nothing left
     assert "nothing left to review" in page_text(at)
@@ -628,7 +628,7 @@ def test_forecast_page_says_so_when_no_income_is_assumed(isolated: Path) -> None
     conn = connect(isolated / "demo.db")
     for s in ensure_current(conn, "synthetic-B"):
         if s.direction == "in":
-            reject(conn, "synthetic-B", s.key)  # no income series left
+            reject(conn, "synthetic-B", s)  # no income series left
     conn.close()
     at = run(FORECAST)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
