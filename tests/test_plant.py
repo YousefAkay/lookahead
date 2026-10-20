@@ -135,18 +135,30 @@ def test_a_renamed_subscription_keeps_its_amount_and_dates_and_changes_its_text(
     assert d["new_name"] in NAMES
 
 
-def test_a_new_subscription_has_two_or_three_whole_dollar_monthly_charges() -> None:
+def test_a_new_subscription_starts_in_month_8_with_whole_dollar_monthly_charges() -> None:
     seed = first_seed_with(RENT_PERSONA, "new")
     rows, events = planted(RENT_PERSONA, seed)
     event = next(e for e in events if e.what == "new")
     planted_rows = [t for t in rows if t.series_id == f"{RENT_PERSONA}-sub-planted"]
     mine = sorted(planted_rows, key=lambda t: t.posted_date)
-    assert 2 <= len(mine) <= 3 and event.details["first_month"] in (10, 11)
+    assert len(mine) == 5 and event.details["first_month"] == 8  # May to September 2026
     assert len({t.amount_cents for t in mine}) == 1
     assert -3000 <= mine[0].amount_cents <= -500 and mine[0].amount_cents % 100 == 0
     assert event.observable_from == mine[1].posted_date
     gaps = [(b.posted_date - a.posted_date).days for a, b in zip(mine, mine[1:], strict=False)]
     assert all(25 <= g <= 38 for g in gaps)
+
+
+def test_every_planted_new_subscription_shows_exactly_two_charges_at_an_origin() -> None:
+    """Month 8 is May: the second charge is in June, well before the last origin (31 August)."""
+    seen = 0
+    for seed in range(10):
+        for event in (e for e in planted(RENT_PERSONA, seed)[1] if e.what == "new"):
+            seen += 1
+            first = date.fromisoformat(event.details["charge_dates"][0])
+            assert date(2026, 5, 1) <= first <= date(2026, 5, 31)
+            assert event.observable_from <= date(2026, 6, 30)
+    assert seen >= 5
 
 
 def untouched(batch: tuple[GeneratedTxn, ...] | list[GeneratedTxn]) -> list[GeneratedTxn]:

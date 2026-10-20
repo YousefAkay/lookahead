@@ -182,8 +182,8 @@ class KindScore:
     shown: int = 0  # distinct proposals shown at any origin
     matched: int = 0  # of those, matching a planted event
     events: int = 0  # planted events (n)
-    observable: int = 0  # of those, observable at or before the last origin
-    recovered: int = 0  # events matched by a proposal shown in time
+    observable: int = 0  # of those, complete by the last origin: the recall denominator
+    recovered: int = 0  # of those, matched by a proposal shown in time
 
 
 @dataclass
@@ -215,22 +215,26 @@ def score_planted(db: PlantedDb, origin_days: Sequence[date]) -> Scores:
         events = [e for e in db.events if e.kind == kind]
         ks.shown, ks.events = len(mine), len(events)
         ks.matched = sum(any(matches(p, e, db.rows, pairs[k]) for e in events) for k, p, _ in mine)
-        ks.observable = sum(e.observable_from <= last for e in events)
+        # Only events whose evidence is complete by the last origin, as the answer key defines it
+        # (never by what a proposer showed), can be recovered or missed; the rest are excluded.
+        counted = [e for e in events if e.observable_from <= last]
+        ks.observable = len(counted)
         ks.recovered = sum(
             any(
                 matches(p, e, db.rows, pairs[k])
                 and any(d <= e.observable_from + timedelta(days=RECALL_DAYS) for d in days)
                 for k, p, days in mine
             )
-            for e in events
+            for e in counted
         )
     return scores
 
 
 def kind_status(ks: KindScore) -> tuple[bool, list[str]]:
-    """The adopt rule (b) and the leakage flag (e) for one kind."""
+    """The adopt rule (b) and the leakage flag (e) for one kind. Recall is over the planted events
+    that are complete by the last origin; the rest are reported as excluded."""
     precision = ks.matched / ks.shown if ks.shown else 0.0
-    recall = ks.recovered / ks.events if ks.events else 0.0
+    recall = ks.recovered / ks.observable if ks.observable else 0.0
     reasons = []
     if ks.events < MIN_EVENTS:
         reasons.append(f"only {ks.events} planted events (need {MIN_EVENTS}): cannot pass")
@@ -333,8 +337,14 @@ def record_variant(ledger: Path, label: str, sets: Sequence[str], arms: bool) ->
 
 
 HEADER = (
-    "| kind | planted events (n) | observable at an origin | proposals shown | precision "
-    "| recall | adopt rule (b), (e) |"
+    "| kind | planted events (n) | counted for recall | excluded (not yet observable) "
+    "| proposals shown | precision | recall | adopt rule (b), (e) |"
+)
+CARD_NOTE = (
+    "Caution on the possible-subscription precision: the card-pair rule of the proposer (exactly "
+    "equal amounts a calendar month apart; commit 308757c) was made after the planter was written "
+    "and before any scoring, and it matches exactly what the planter plants, so precision on "
+    "planted card pairs is likely flattering."
 )
 
 
@@ -346,21 +356,23 @@ def report_text(
         f"Personas scored: {scores.personas}. Variants tried so far: {variants}. "
         "Synthetic, development only; the real account only vetoes (a separate script).",
         "",
+        CARD_NOTE,
+        "",
         HEADER,
-        "|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for kind in KINDS:
         ks = scores.kinds[kind]
         ok, reasons = kind_status(ks)
         shown = f"{ks.matched / ks.shown:.0%} ({ks.matched}/{ks.shown})" if ks.shown else "- (0/0)"
         found = (
-            f"{ks.recovered / ks.events:.0%} ({ks.recovered}/{ks.events})"
-            if ks.events
+            f"{ks.recovered / ks.observable:.0%} ({ks.recovered}/{ks.observable})"
+            if ks.observable
             else "- (0/0)"
         )
         verdict = "passes" if ok else "; ".join(reasons)
-        cells = [kind, ks.events, ks.observable, ks.shown, shown, found, verdict]
-        lines.append("| " + " | ".join(str(c) for c in cells) + " |")
+        cells = [kind, ks.events, ks.observable, ks.events - ks.observable, ks.shown, shown, found]
+        lines.append("| " + " | ".join(str(c) for c in cells) + f" | {verdict} |")
     if arms is not None:
         lines += [
             "",
@@ -375,10 +387,10 @@ def report_text(
             )
         worse = sum(not a["ok"] for a in arms.values())
         lines.append(
-            f"\nRule (c): {'holds' if not worse else 'FAILS'} "
+            f"{chr(10)}Rule (c): {'holds' if not worse else 'FAILS'} "
             f"({worse} of {len(arms)} archetypes worse by more than 1%)."
         )
-    return "\n".join(lines) + "\n"
+    return chr(10).join(lines) + chr(10)
 
 
 def run_score(

@@ -8,15 +8,19 @@ change to an event, a rate, a range or the seed is a variant and is counted in t
 The existing persona sets are not touched: this reads the generator's rows and writes *copies*
 (a bank export and an answer key per persona) into its own folder. Held-out personas are refused.
 
-Events, each decided independently per persona (one random stream per (seed, persona id, event)):
-- R1 late rent (rent paid by e-Transfer): with probability 0.6, from month 4 on, each rent payment
+Events, each decided independently per persona (one random stream per (seed, persona id, event)).
+Rates are those of the amendment of 2026-10-20 (planter version 2; the first spec had 0.6, 0.5, 0.5,
+0.5 and P1 in month 10 or 11):
+- R1 late rent (rent paid by e-Transfer): with probability 0.9, from month 4 on, each rent payment
   is sent late with probability 0.4, by 2 to 8 days, with the usual business-day shift;
-- R2 rent increase (the same personas): with probability 0.5, in a month drawn from 5 to 9, rent
+- R2 rent increase (the same personas): with probability 0.8, in a month drawn from 5 to 9, rent
   rises by 5 to 12 percent, rounded to $5, for all later payments;
-- L1 renamed subscription (personas with subscriptions): with probability 0.5 one is picked; in a
-  month drawn from 4 to 9 its text changes to another made-up name; amount and cadence unchanged;
-- P1 new subscription: with probability 0.5, a made-up name, whole dollars from $5 to $30, monthly,
-  first charge in month 10 or 11.
+- L1 renamed subscription (personas with subscriptions): with probability 1.0 one is picked; in a
+  month drawn from 4 to 9 its text changes to another made-up name; amount and cadence unchanged.
+  (One rename per persona, and only 24 of the 40 personas have a subscription that qualifies, so
+  24 is the most this kind can have; 1.0 is the rate that reaches it);
+- P1 new subscription: with probability 0.8, a made-up name, whole dollars from $5 to $30, monthly,
+  first charge in month 8 (so it has exactly two charges at origins in June and July).
 Noise: none. **Months are counted from 1 October 2025 in both sets** (the 24-month personas have a
 year of history before that: "the same rules one year earlier"), so month 1 is October 2025 and
 month 12 is September 2026 whichever set a persona belongs to.
@@ -47,14 +51,14 @@ from lookahead.generator.schedules import GeneratedTxn
 from lookahead.generator.writer import export_rows, write_export
 
 SEED = 2026
-PLANTER_VERSION = 1
+PLANTER_VERSION = 2  # 2: the amendment of 2026-10-20 (higher rates, P1 in month 8)
 FIRST_MONTH = date(2025, 10, 1)  # month 1, in both sets
 
-R1_PERSONA, R1_PAYMENT = 0.6, 0.4
+R1_PERSONA, R1_PAYMENT = 0.9, 0.4
 R1_FROM_MONTH, R1_DAYS = 4, (2, 8)
-R2_PERSONA, R2_MONTHS, R2_PERCENT, R2_ROUND_CENTS = 0.5, (5, 9), (5, 12), 500
-L1_PERSONA, L1_MONTHS = 0.5, (4, 9)
-P1_PERSONA, P1_MONTHS, P1_DOLLARS = 0.5, (10, 11), (5, 30)
+R2_PERSONA, R2_MONTHS, R2_PERCENT, R2_ROUND_CENTS = 0.8, (5, 9), (5, 12), 500
+L1_PERSONA, L1_MONTHS = 1.0, (4, 9)
+P1_PERSONA, P1_MONTHS, P1_DOLLARS = 0.8, (8, 8), (5, 30)
 NAMES = (
     "Zenstudio", "Quillbox", "Vantaplay", "Mirabeam", "Orbitly", "Pixelnest", "Lumora",
     "Tidewave", "Brightloom", "Kestrelhub",

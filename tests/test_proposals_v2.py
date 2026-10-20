@@ -113,22 +113,36 @@ def test_a_possible_subscription_matches_the_planted_charges_only() -> None:
 
 
 def test_a_kind_with_fewer_than_twenty_planted_events_cannot_pass() -> None:
-    ok, reasons = pv.kind_status(pv.KindScore(shown=20, matched=18, events=19, recovered=15))
+    ks = pv.KindScore(shown=20, matched=18, events=19, observable=19, recovered=15)
+    ok, reasons = pv.kind_status(ks)
     assert not ok and any("cannot pass" in r for r in reasons)
 
 
 def test_precision_and_recall_both_have_to_clear_their_bars() -> None:
-    assert pv.kind_status(pv.KindScore(shown=10, matched=8, events=25, recovered=15))[0]
-    assert not pv.kind_status(pv.KindScore(shown=10, matched=7, events=25, recovered=15))[0]
-    assert not pv.kind_status(pv.KindScore(shown=10, matched=8, events=25, recovered=14))[0]
-    assert not pv.kind_status(pv.KindScore(shown=0, matched=0, events=25, recovered=20))[0]
+    def status(**kw: int) -> bool:
+        base = {"shown": 10, "matched": 8, "events": 25, "observable": 20, "recovered": 12}
+        return pv.kind_status(pv.KindScore(**{**base, **kw}))[0]
+
+    assert status()
+    assert not status(matched=7)  # precision 70 percent
+    assert not status(recovered=11)  # recall 55 percent of the 20 counted
+    assert not status(shown=0, matched=0)
+
+
+def test_recall_is_over_the_events_complete_by_the_last_origin_only() -> None:
+    ks = pv.KindScore(shown=10, matched=8, events=25, observable=10, recovered=6)
+    ok, reasons = pv.kind_status(ks)
+    assert ok, reasons  # 6 of the 10 counted, although 6 of 25 would be 24 percent
+    zero = pv.KindScore(shown=10, matched=8, events=25, observable=0, recovered=0)
+    assert not pv.kind_status(zero)[0]  # nothing counted is not a pass
 
 
 def test_precision_above_ninety_five_percent_raises_the_leakage_flag() -> None:
-    ok, reasons = pv.kind_status(pv.KindScore(shown=40, matched=39, events=30, recovered=25))
+    loud = pv.KindScore(shown=40, matched=39, events=30, observable=30, recovered=25)
+    ok, reasons = pv.kind_status(loud)
     assert not ok and any("LEAKAGE CHECK FIRST" in r for r in reasons)
-    _, quiet = pv.kind_status(pv.KindScore(shown=40, matched=34, events=30, recovered=25))
-    assert not any("LEAKAGE" in r for r in quiet)
+    quiet = pv.KindScore(shown=40, matched=34, events=30, observable=30, recovered=25)
+    assert not any("LEAKAGE" in r for r in pv.kind_status(quiet)[1])
 
 
 # --- (c) one click against zero ---
@@ -159,13 +173,19 @@ def test_every_run_is_counted_in_the_variant_ledger(tmp_path: Path) -> None:
     assert all({"code", "planter_version", "seed", "when"} <= set(e) for e in entries)
 
 
-def test_the_report_shows_n_for_every_kind_and_the_variant_count() -> None:
+def test_the_report_shows_n_the_excluded_events_and_the_variant_count() -> None:
     scores = pv.Scores(personas=3)
-    scores.kinds["rent"] = pv.KindScore(shown=4, matched=3, events=18, observable=18, recovered=9)
+    scores.kinds["rent"] = pv.KindScore(shown=4, matched=3, events=18, observable=12, recovered=9)
     text = pv.report_text(scores, 2)
     assert "Variants tried so far: 2" in text
-    assert "| rent | 18 | 18 | 4 | 75% (3/4) | 50% (9/18) |" in text
-    assert "| link | 0 | 0 | 0 | - (0/0) | - (0/0) |" in text and "cannot pass" in text
+    assert "| rent | 18 | 12 | 6 | 4 | 75% (3/4) | 75% (9/12) |" in text  # 6 events excluded
+    assert "| link | 0 | 0 | 0 | 0 | - (0/0) | - (0/0) |" in text and "cannot pass" in text
+
+
+def test_every_report_repeats_the_card_pair_caution() -> None:
+    for arms in (None, {}):
+        text = pv.report_text(pv.Scores(), 1, arms)
+        assert "likely flattering" in text and "308757c" in text and "after the planter" in text
 
 
 @pytest.mark.parametrize("held_out", [sorted(HELD_OUT)[0], sorted(LONG_HELD_OUT)[0]])
@@ -302,3 +322,21 @@ def test_nothing_in_the_forecast_reads_the_proposers() -> None:
     assert readers == []  # only the app page and the scorers import them
     app = (ROOT / "app" / "pages" / "4_Recurring.py").read_text("utf-8")
     assert "setting_proposals" in app
+
+
+def test_events_not_complete_by_the_last_origin_are_excluded_from_recall_by_the_answer_key(
+    planted_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even a proposal that matches such an event cannot make it count: the answer key decides."""
+    pid = persona_with(planted_root, "increase")
+    with pv.planted_db(pid, Path("12"), tmp_path, planted_root) as db:
+        early = pv.backtest_origins()[:2]  # December 2025: before any event is complete
+        event = next(e for e in db.events if e.what == "increase")
+        sizes = tuple(sorted(event.details["sizes_cents"]))
+        good = SettingProposal("rent", "sid|x", "rent|sid|x", "t", rent_evidence(db), "likely",
+                               rent=RentRule(sizes, 1, 31))  # fmt: skip
+        monkeypatch.setattr(pv, "current_proposals", lambda *a, **k: [good])
+        scores = pv.score_planted(db, early)
+    rent = scores.kinds["rent"]
+    assert rent.events >= 1 and rent.observable == 0 and rent.recovered == 0
+    assert rent.matched == 1  # precision still sees it; recall does not
