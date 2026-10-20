@@ -1870,6 +1870,12 @@ The entry above says a proposal is made for a series only if I have made no deci
 - **A series I added by hand never gets a proposal.**
 I made this change before the planter was written and before any scoring run, so nothing scored is affected; the adopt rule (b) to (g) is unchanged. Any change to a proposer after the first scoring run still counts as a variant. Tests: a confirmed series with no rent rule still gets a rent proposal, a renamed series still gets a link proposal, "confirm all" hides nothing, and a live call uses every decision (including a click after the data's last day) while a replay as of an earlier date ignores later ones.
 
+### 2026-10-20: A rent rule keeps the rent going, and rent that stopped is not proposed (settled before the planter or any scoring)
+I wrote a test for the open risk before building anything else: after a rent increase I accept a rent proposal that covers the old and the new amount, and the forecast must place the next rent. **It failed**: the schedule skips any series detection calls inactive, even one with a rent rule, so a rule on the old-amount series (inactive once the old amount stops and the new one is not yet a series) placed nothing. Two more cases failed with it: the proposal was attached to the stale old-amount series when a live one existed, and a rent that stopped months ago was still proposed.
+- **Fix, replay:** a series with a rent rule is active unless I ended it ("It ended"); "Not recurring" still wins; confirming again after an end puts it back. Replay version 5, so saved pages and Time Machine steps rebuild. With no decisions nothing changes, so the zero-confirmation forecasts and the saved futures are untouched.
+- **Fix, proposer:** a rent proposal goes to the live series when there is one, and is not made when the latest payment is more than 50 days before the data ends.
+- Made before the planter and before any scoring run, so it is not a variant of anything scored.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.

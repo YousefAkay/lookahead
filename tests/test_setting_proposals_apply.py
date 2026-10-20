@@ -17,8 +17,9 @@ ACCOUNT = "a"
 RENT_DAYS = [
     date(2025, 1, 2), date(2025, 2, 3), date(2025, 3, 3), date(2025, 3, 31), date(2025, 5, 2),
     date(2025, 6, 4), date(2025, 7, 1), date(2025, 8, 2), date(2025, 9, 3), date(2025, 9, 30),
+    date(2025, 11, 3), date(2025, 12, 1),
 ]  # fmt: skip
-RENT_SIZES = [90000] * 6 + [95000] * 4
+RENT_SIZES = [90000] * 8 + [95000] * 4  # the rent rises in September; it is still being paid
 LAST_DAY = date(2025, 12, 31)
 
 
@@ -208,3 +209,16 @@ def test_a_series_added_by_hand_never_gets_a_proposal(conn: sqlite3.Connection) 
     key = rs.add_series(conn, ACCOUNT, "Rent", "out", "monthly", date(2025, 12, 1), 95000)
     found = current_proposals(conn, ACCOUNT)
     assert all(p.series_id != key and p.other_id != key for p in found)
+
+
+def test_an_end_decided_after_the_last_posting_day_blocks_the_rent_proposal_in_a_live_call(
+    conn: sqlite3.Connection,
+) -> None:
+    """Pins the decisions a live call reads: "It ended" on the rent series, clicked months after
+    the data ends, must hide the rent proposal (the guard reads the log, not only the series)."""
+    proposals = by_kind(conn)
+    series, _ = rs.series_as_of(conn, ACCOUNT)
+    rent = next(s for s in series if s.id == proposals["rent"].series_id)
+    rs.end(conn, ACCOUNT, rent, date(2026, 3, 1))
+    assert "rent" not in {p.kind for p in current_proposals(conn, ACCOUNT)}
+    assert "rent" in {p.kind for p in current_proposals(conn, ACCOUNT, as_of=LAST_DAY)}

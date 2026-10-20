@@ -45,6 +45,7 @@ MAX_WINDOW_DAYS = 14
 COVER = 0.8  # the window covers at least this share of past payments
 SIZE_TOLERANCE = 0.03  # amounts within 3 percent (or $5) are one size
 RECENT_PAYMENTS = 6  # the sizes of the latest payments are the ones used going forward
+RENT_STALE_DAYS = 50  # rent whose latest payment is older than this has stopped: no proposal
 
 
 @dataclass(frozen=True)
@@ -200,6 +201,8 @@ def propose_rent(
             continue
         if not _monthly([d for d, _ in payments]):
             continue
+        if (as_of - max(d for d, _ in payments)).days > RENT_STALE_DAYS:
+            continue  # the rent stopped; the account went on
         sizes = _sizes_going_forward(payments)
         window = best_window([d.day for d, _ in payments])
         if window is None or not 1 <= len(sizes) <= MAX_SIZES:
@@ -207,7 +210,8 @@ def propose_rent(
         width = (window[1] - window[0]) % 31 + 1
         if len(sizes) < 2 and width < 4:
             continue  # one amount on about one day: an ordinary series already covers it
-        target = max(family, key=lambda s: (len(s.evidence), s.key))
+        live = [s for s in family if s.active]  # the live series if there is one
+        target = max(live or family, key=lambda s: (len(s.evidence), s.key))
         rule = RentRule(tuple(sizes), window[0], window[1])
         amounts = " or ".join(f"${a / 100:,.2f}" for a in sizes)
         out.append(

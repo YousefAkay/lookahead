@@ -45,8 +45,9 @@ from lookahead.taxonomy import CATEGORIES
 # 2: a series with a rent rule is called Rent; 3: saved results record the forecaster's settings
 LOGIC_VERSION = 3
 # Bump when how decisions are replayed changes what a saved series or Time Machine step holds
-# (not the backtest records: with no decisions the series are unchanged). 4: stable ids.
-REPLAY_VERSION = 4
+# (not the backtest records: with no decisions the series are unchanged). 4: stable ids;
+# 5: a series with a rent rule is active unless I ended it.
+REPLAY_VERSION = 5
 ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent", "rename")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 
@@ -466,6 +467,11 @@ def current_series(
         for k, rule in rented:
             if series[k].direction == "out" and series[k].status != "rejected":
                 series[k] = _with_rent_rule(series[k], rule, txns, fingerprint, flows, as_of)
+                ended = latest.get(k) == "end" or latest_id.get(series[k].id) == "end"
+                if not series[k].active and not ended:
+                    # a rent rule says the rent goes on, even if detection calls the series
+                    # inactive (the old amount stopped); only "It ended" puts it out
+                    series[k] = replace(series[k], active=True)
                 if not series[k].named_by_me:  # a name I set myself still wins
                     series[k] = replace(series[k], name="Rent", named_by_me=True)
     olds: dict[str, list[str]] = {}  # newest series of a chain -> the earlier ones
