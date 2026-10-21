@@ -192,7 +192,7 @@ REASONS = {
     "not_one_to_one": "the match is ambiguous (more than one possible partner)",
     "not_two_payments": "the merchant does not have exactly two payments",
     "gap_not_monthly": "the two payments are not about a month apart",
-    "card_not_exact": "paid by card: the amounts are not exactly equal a month apart",
+    "card_not_a_month_apart": "paid by card: the two payments are not a calendar month apart",
     "already_in_a_series": "the payments already belong to a series",
     "name_added_by_hand": "the name was added by hand",
 }
@@ -491,8 +491,8 @@ def link_reason(
 
 POSSIBLE_MIN_GAP, POSSIBLE_MAX_GAP = 25, 38  # days between the two charges
 POSSIBLE_STALE_DAYS = 45  # the latest charge is no older than this
-POSSIBLE_SAME_AMOUNT = 0.01  # the two amounts are the same to within 1 percent
-CARD_MIN_GAP, CARD_MAX_GAP = 28, 34  # paid by card: exactly the same amount, a calendar month apart
+POSSIBLE_SAME_AMOUNT = 0.05  # the two amounts differ by at most 5 percent of the larger one
+CARD_MIN_GAP, CARD_MAX_GAP = 28, 34  # paid by card: a calendar month apart
 
 
 def _possible_for_group(
@@ -511,10 +511,8 @@ def _possible_for_group(
         return "amounts_differ"
     if not POSSIBLE_MIN_GAP <= gap <= POSSIBLE_MAX_GAP:
         return "gap_not_monthly"
-    if all(t.row_id in card_rows for t in rows) and (
-        a != b or not CARD_MIN_GAP <= gap <= CARD_MAX_GAP
-    ):
-        return "card_not_exact"  # most subscriptions are card payments, but a shop is not one
+    if all(t.row_id in card_rows for t in rows) and not CARD_MIN_GAP <= gap <= CARD_MAX_GAP:
+        return "card_not_a_month_apart"  # paid by card: a calendar month, not just "about a month"
     if (as_of - second.posted_date).days > POSSIBLE_STALE_DAYS:
         return "outside_freshness_limit"
     prints = tuple(fingerprint[t.row_id] for t in (first, second))
@@ -560,11 +558,12 @@ def propose_possible(
     key: bytes | None,
     as_of: date,
 ) -> list[SettingProposal]:
-    """A merchant with exactly two payments, about a month apart, of the same amount, the latest
-    still recent: a subscription that detection cannot call a series yet (it needs three).
-    Always "possible". Nothing for a merchant that has any other payment, for payments that
-    already belong to a series, or for a name I added by hand. Paid by card (most subscriptions
-    are), the two amounts must be exactly equal and a calendar month apart."""
+    """A merchant with exactly two payments, about a month apart, of about the same amount (within
+    5 percent of the larger, so a currency conversion passes), the latest still recent: a
+    subscription that detection cannot call a series yet (it needs three). Always "possible",
+    never confirmed by itself: two one-off purchases look the same. Nothing for a merchant that
+    has any other payment, for payments that already belong to a series, or for a name I added by
+    hand. Paid by card (most subscriptions are), the two must be a calendar month apart."""
     merchants, card_rows, covered, added = _possible_context(
         series, decisions, txns, user, key, as_of
     )

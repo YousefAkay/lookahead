@@ -484,13 +484,54 @@ def test_a_subscription_paid_by_card_is_proposed_when_the_amounts_are_exactly_eq
 
 @pytest.mark.parametrize(
     ("second_cents", "second_day"),
-    [(1460, date(2025, 2, 10)), (1454, date(2025, 2, 3)), (1454, date(2025, 2, 17))],
+    [(1454, date(2025, 2, 3)), (1454, date(2025, 2, 17)), (1454, date(2025, 3, 20))],
 )
-def test_card_purchases_that_are_not_exactly_one_amount_a_month_apart_are_not_proposed(
+def test_card_purchases_that_are_not_a_calendar_month_apart_are_not_proposed(
     second_cents: int, second_day: date
 ) -> None:
     proposals, _ = possible_for(card_pair(1454, second_cents, second_day))
     assert proposals == []
+
+
+def pair_of(card: bool, first: int, second: int) -> list[Txn]:
+    """Two payments at one merchant, a calendar month apart, by card or as a bill payment."""
+    if card:
+        return card_pair(first, second, date(2025, 2, 10))
+    return [
+        Txn(1, date(2025, 1, 10), -first, "bill payment", "Zenstudio "),
+        Txn(2, date(2025, 2, 10), -second, "bill payment", "Zenstudio "),
+    ]
+
+
+@pytest.mark.parametrize("card", [False, True])
+def test_a_pair_three_percent_apart_is_proposed(card: bool) -> None:
+    """A currency conversion moves the amount by a few percent: 12.99 and 13.38 are 3 percent."""
+    txns = pair_of(card, 1299, 1338)
+    (p,), _ = possible_for(txns)
+    assert p.kind == "possible" and p.amount_cents == -1338
+
+
+@pytest.mark.parametrize("card", [False, True])
+def test_a_pair_seven_percent_apart_is_not_proposed(card: bool) -> None:
+    txns = pair_of(card, 1299, 1390)
+    proposals, _ = possible_for(txns)
+    assert proposals == []
+
+
+def test_two_one_off_purchases_a_month_apart_within_five_percent_are_only_possible(
+    conn: sqlite3.Connection,
+) -> None:
+    """The proposer cannot tell a subscription from two similar one-off purchases, so it only says
+    'may be' with the lowest confidence, and nothing is decided or confirmed on its own."""
+    shop = "Opos Bookshop            toron "
+    txns = [
+        Txn(1, date(2025, 1, 10), -2400, "pos purchase", shop),
+        Txn(2, date(2025, 2, 10), -2490, "pos purchase", shop),
+    ]
+    (p,), series = possible_for(txns)
+    assert p.confidence == "possible" and "may be" in p.title
+    assert series == [] and rs.load_decisions(conn, ACCOUNT) == []  # nothing decided or confirmed
+    assert all(s.status != "confirmed" for s in series)
 
 
 def test_accepting_a_possible_subscription_adds_it_and_it_is_not_proposed_again(
