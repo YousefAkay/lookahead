@@ -17,9 +17,6 @@ from lookahead.rent import RentRule
 from lookahead.setting_proposals import (
     accept,
     current_proposals,
-    proposal_inputs,
-    rent_profile,
-    rent_reason,
 )
 
 ACCOUNT = "a"
@@ -418,54 +415,35 @@ def test_ordinary_rent_imported_the_way_the_real_importer_stores_it_is_proposed(
     conn.close()
 
 
-def test_known_many_small_e_transfers_to_the_same_recipient_pull_the_median_under_the_floor(
-    tmp_path: Path,
-) -> None:
-    """Not a unit or sign bug: the floor is applied to the median of every outgoing e-Transfer to
-    the recipient. Rows with no printed recipient are one group, so small e-Transfers to anyone
-    can pull rent under $100 and the reason is amount_too_small. A design question, pinned here."""
+def test_rent_among_many_small_unnamed_e_transfers_is_proposed(tmp_path: Path) -> None:
+    """The floor is applied to the rent cluster, not to the median of the whole recipient group,
+    so small e-Transfers to the same (or no) recipient no longer pull rent under $100."""
     rows = [etransfer(d, -120000) for d in RENT_DAYS]
     days = RENT_DAYS * 2
     small = [etransfer(d + timedelta(days=9), -(2500 + 100 * i)) for i, d in enumerate(days)]
     conn = import_bank_export(tmp_path / "t.db", sorted(rows + small, key=lambda t: t.posted_date))
-    assert [p for p in current_proposals(conn, ACCOUNT) if p.kind == "rent"] == []
-    inputs = proposal_inputs(conn, ACCOUNT)
-    assert inputs is not None
-    rent_prints = {inputs.fingerprint[t.row_id] for t in inputs.txns if t.amount_cents == -120000}
-    code = rent_reason(
-        inputs.series,
-        inputs.decisions,
-        inputs.txns,
-        inputs.fingerprint,
-        inputs.user,
-        None,
-        inputs.day,
-        rent_prints,
-    )
-    assert code == "amount_too_small"
-    profile = rent_profile(
-        inputs.series, inputs.txns, inputs.fingerprint, inputs.user, None, inputs.day, rent_prints
-    )
-    months = len({(d.year, d.month) for d in RENT_DAYS})
-    assert profile == (len(RENT_DAYS) * 3, len(RENT_DAYS), months)  # all, big, months
+    (proposal,) = [p for p in current_proposals(conn, ACCOUNT) if p.kind == "rent"]
+    assert proposal.rent is not None and proposal.rent.amounts_cents == (120000,)
+    assert len(proposal.evidence) == len(RENT_DAYS)  # the cluster, not the 36 payments
     conn.close()
 
 
 def test_explain_gives_the_rent_recipient_profile_as_counts_only(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    days = RENT_DAYS * 2
-    rows = [etransfer(d, -120000) for d in RENT_DAYS]
-    rows += [etransfer(d + timedelta(days=9), -(2500 + 100 * i)) for i, d in enumerate(days)]
+    """The rent stopped in June but small e-Transfers go on to December: no proposal, because the
+    rent cluster is stale. The profile counts payments only."""
+    rows = [etransfer(d, -120000) for d in RENT_DAYS[:6]]
+    rows += [etransfer(d + timedelta(days=9), -(2500 + 100 * i)) for i, d in enumerate(RENT_DAYS)]
     conn = import_bank_export(tmp_path / "t.db", sorted(rows, key=lambda t: t.posted_date))
     series, _ = rs.series_as_of(conn, ACCOUNT)
     big = max(series, key=lambda s: abs(s.expected_cents))
     rs.set_rent_rule(conn, ACCOUNT, big, RentRule((120000,), 1, 4), date(2026, 1, 5))
     conn.close()
     out = recover_text(tmp_path / "t.db", capsys)
-    assert "why not (1): amount_too_small" in out
-    months = len({(d.year, d.month) for d in RENT_DAYS})
-    profile = "detail: rent recipient has 36 payments, 12 of them at or above the $100 floor"
+    assert "why not (1): outside_freshness_limit" in out
+    months = len({(d.year, d.month) for d in RENT_DAYS[:6]})
+    profile = "detail: rent recipient has 18 payments, 6 of them at or above the $100 floor"
     assert f"{profile}, in {months} different months" in out
     for leak in ("120000", "1200", "2500", "2025", "2026"):
         assert leak not in out

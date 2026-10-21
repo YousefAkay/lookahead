@@ -502,3 +502,74 @@ def test_accepting_a_possible_subscription_adds_it_and_it_is_not_proposed_again(
     rs.add_series(conn, ACCOUNT, p.name, "out", p.cadence, p.anchor, abs(p.amount_cents))
     proposals, series = possible_for(txns, rs.load_decisions(conn, ACCOUNT))
     assert proposals == [] and len(series) == 1 and len(series[0].evidence) == 2
+
+
+# --- rent is judged on a cluster of the recipient's payments, not on the whole group ---
+
+from lookahead.setting_proposals import rent_reason  # noqa: E402
+
+
+def mixed_group(rent: list[tuple[date, int]], small: list[tuple[date, int]]) -> list[Txn]:
+    rows = sorted([*rent, *small])
+    return [Txn(i + 1, d, -c, "withdrawal", ETRANSFER) for i, (d, c) in enumerate(rows)]
+
+
+def small_transfers(count: int, cents: int = 2500) -> list[tuple[date, int]]:
+    start = date(2025, 1, 10)
+    return [(start + timedelta(days=3 * i), cents + 100 * (i % 7)) for i in range(count)]
+
+
+def test_rent_among_many_small_unnamed_e_transfers_is_proposed() -> None:
+    txns = mixed_group(list(zip(DAYS, [90000] * 6 + [95000] * 4, strict=True)), small_transfers(60))
+    (p,), _ = proposals_for(txns)
+    assert p.rent is not None and p.rent.amounts_cents == (90000, 95000)
+    assert len(p.evidence) == len(DAYS)  # judged on the rent cluster: ten payments, not seventy
+
+
+def monthly_small(count: int = 9) -> list[tuple[date, int]]:
+    """A regular $40 e-Transfer on the 5th: it makes a detected series, so the rent code looks at
+    the recipient's payments instead of stopping at 'no series'."""
+    return [(date(2025, 1 + i % 12, 5), 4000) for i in range(count)]
+
+
+def reason_for(txns: list[Txn], series: list, wanted: set[int]) -> str:  # type: ignore[type-arg]
+    fp = fingerprints(txns)
+    return rent_reason(
+        series, [], txns, fp, None, None, max(t.posted_date for t in txns),
+        {fp[t.row_id] for t in txns if t.row_id in wanted},
+    )  # fmt: skip
+
+
+def test_a_group_of_only_small_transfers_gets_no_proposal() -> None:
+    txns = mixed_group([], monthly_small() + small_transfers(40))
+    proposals, series = proposals_for(txns)
+    assert series and proposals == []  # there is a series; the recipient has no rent in it
+    assert reason_for(txns, series, {t.row_id for t in txns}) == "amount_too_small"
+
+
+def test_an_irregular_friend_paid_150_now_and_then_is_not_rent() -> None:
+    day, friend = date(2025, 1, 6), []
+    for g in (0, 23, 71, 12, 95, 33, 8):  # days between payments: nothing monthly about it
+        day += timedelta(days=g)
+        friend.append((day, 15000))
+    txns = mixed_group([], friend + monthly_small() + small_transfers(12))
+    proposals, series = proposals_for(txns)
+    assert series and proposals == []
+    big = {t.row_id for t in txns if abs(t.amount_cents) == 15000}
+    assert reason_for(txns, series, big) == "not_monthly"
+
+
+def test_an_irregular_friend_in_the_same_group_as_the_rent_is_left_out_of_the_rent() -> None:
+    rent = list(zip(DAYS, [90000] * 6 + [95000] * 4, strict=True))
+    friend = [(date(2025, 1, 20) + timedelta(days=g), 15000) for g in (0, 41, 97, 130, 210)]
+    txns = mixed_group(rent, friend + small_transfers(30))
+    (p,), _ = proposals_for(txns)
+    assert p.rent is not None and p.rent.amounts_cents == (90000, 95000)  # not 15000
+    assert len(p.evidence) == len(DAYS)
+
+
+def test_rent_that_rose_ten_percent_stays_one_cluster_among_noise() -> None:
+    rent = list(zip(DAYS, [100000] * 7 + [110000] * 3, strict=True))
+    txns = mixed_group(rent, small_transfers(50))
+    (p,), _ = proposals_for(txns)
+    assert p.rent is not None and p.rent.amounts_cents == (100000, 110000)

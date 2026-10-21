@@ -46,6 +46,7 @@ COVER = 0.8  # the window covers at least this share of past payments
 SIZE_TOLERANCE = 0.03  # amounts within 3 percent (or $5) are one size
 RECENT_PAYMENTS = 6  # the sizes of the latest payments are the ones used going forward
 RENT_STALE_DAYS = 50  # rent whose latest payment is older than this has stopped: no proposal
+RENT_BAND = 0.15  # sizes within 15 percent of one another can be one rent (a rise of 5 to 12)
 
 
 @dataclass(frozen=True)
@@ -211,25 +212,49 @@ def _blocked_reason(s: Stored, decisions: Sequence[Decision], kind: str) -> str 
     return None
 
 
+def _rent_cluster(rows: Sequence[Txn]) -> tuple[list[Txn], str | None]:
+    """The payments of a recipient that can be rent: at or above the floor, similar in amount
+    (within RENT_BAND of one size, so a rent rise stays in), roughly monthly. Small e-Transfers
+    to the same recipient, or to none, are left out and never pull the rent under the floor. The
+    cluster with the most payments wins. Returns (cluster, None), or ([], the reason there is
+    none)."""
+    big = [t for t in rows if abs(t.amount_cents) >= MIN_RENT_CENTS]
+    if not big:
+        return [], "amount_too_small"
+    best: tuple[tuple[int, float], list[Txn]] | None = None
+    for anchor in _size_clusters([abs(t.amount_cents) for t in big]):
+        centre = median(anchor)
+        near = [t for t in big if abs(abs(t.amount_cents) - centre) <= RENT_BAND * centre]
+        dates = [t.posted_date for t in near]
+        months = {(d.year, d.month) for d in dates}
+        if len(near) < MIN_PAYMENTS or len(months) < MIN_PAYMENTS or not _monthly(dates):
+            continue
+        if best is None or (len(near), centre) > best[0]:
+            best = ((len(near), centre), near)
+    if best is not None:
+        return best[1], None
+    months = {(t.posted_date.year, t.posted_date.month) for t in big}
+    if len(big) < MIN_PAYMENTS or len(months) < MIN_PAYMENTS:
+        return [], "too_few_payments"
+    return [], "not_monthly"
+
+
 def _rent_for_group(
     group_key: str, rows: Sequence[Txn], family: Sequence[Stored], decisions: Sequence[Decision],
     fingerprint: dict[int, str], as_of: date,
 ) -> "SettingProposal | str":  # fmt: skip
-    """A rent proposal for one recipient's payments, or the reason there is none."""
+    """A rent proposal for one recipient's payments, or the reason there is none. It is judged on
+    the rent cluster of the recipient (see `_rent_cluster`), not on the whole group."""
     if not family:
         return "no_candidate_series"
     for s in family:
         reason = _blocked_reason(s, decisions, "rent")
         if reason:
             return reason
-    payments = [(t.posted_date, abs(t.amount_cents)) for t in rows]
-    months = {(d.year, d.month) for d, _ in payments}
-    if len(payments) < MIN_PAYMENTS or len(months) < MIN_PAYMENTS:
-        return "too_few_payments"
-    if median(a for _, a in payments) < MIN_RENT_CENTS:
-        return "amount_too_small"
-    if not _monthly([d for d, _ in payments]):
-        return "not_monthly"
+    cluster, reason = _rent_cluster(rows)
+    if reason:
+        return reason
+    payments = [(t.posted_date, abs(t.amount_cents)) for t in cluster]
     if (as_of - max(d for d, _ in payments)).days > RENT_STALE_DAYS:
         return "outside_freshness_limit"  # the rent stopped; the account went on
     sizes = _sizes_going_forward(payments)
@@ -251,7 +276,7 @@ def _rent_for_group(
             f"Looks like rent sent by e-Transfer: {amounts}, "
             f"between day {window[0]} and day {window[1]} of the month"
         ),
-        evidence=tuple(fingerprint[t.row_id] for t in rows),
+        evidence=tuple(fingerprint[t.row_id] for t in cluster),
         confidence="likely" if len(payments) >= 2 * MIN_PAYMENTS else "possible",
         rent=rule,
     )
