@@ -163,13 +163,15 @@ def test_every_planted_new_subscription_shows_exactly_two_charges_at_an_origin()
 
 def untouched(batch: tuple[GeneratedTxn, ...] | list[GeneratedTxn]) -> list[GeneratedTxn]:
     """The rows no event can change: not rent, not a subscription."""
-    return [t for t in batch if not any(k in (t.series_id or "") for k in ("-rent", "-sub-"))]
+    return [
+        t for t in batch if not any(k in (t.series_id or "") for k in ("-rent", "-sub-", "-noise"))
+    ]
 
 
 def test_every_row_that_is_not_part_of_an_event_is_unchanged() -> None:
     for seed in range(8):
         rows, events = planted(RENT_PERSONA, seed)
-        assert untouched(rows) == untouched(rows_of(RENT_PERSONA)) and len(events) <= 4
+        assert untouched(rows) == untouched(rows_of(RENT_PERSONA)) and len(events) <= 6
 
 
 def test_a_persona_without_e_transfer_rent_gets_no_rent_event() -> None:
@@ -232,3 +234,74 @@ def test_a_planted_export_parses_and_the_answer_key_reads_back(tmp_path: Path) -
 def test_the_development_sets_have_twenty_personas_each() -> None:
     assert len(development_ids(long=False)) == len(development_ids(long=True)) == 20
     assert date(2025, 10, 1) + timedelta(days=364) == END
+
+
+# --- planter version 3 (2026-10-21): small unnamed e-Transfers, and foreign-currency pairs ---
+
+import lookahead.generator.plant as plant_module  # noqa: E402
+
+
+def noise_of(rows: list[GeneratedTxn]) -> list[GeneratedTxn]:
+    return [t for t in rows if t.series_id and t.series_id.endswith("-noise-etransfer")]
+
+
+def test_the_planter_is_version_3_and_says_so_in_the_answer_key(tmp_path: Path) -> None:
+    import json
+
+    assert plant_module.PLANTER_VERSION == 3
+    write_planted(RENT_PERSONA, tmp_path)
+    key = json.loads((tmp_path / RENT_PERSONA / "answer_key.json").read_text("utf-8"))
+    assert key["planter_version"] == 3
+
+
+def test_small_unnamed_e_transfers_are_added_among_the_rent_and_are_not_a_scored_kind() -> None:
+    seed = first_seed_with(RENT_PERSONA, "small-etransfers")
+    rows, events = planted(RENT_PERSONA, seed)
+    event = next(e for e in events if e.what == "small-etransfers")
+    small = noise_of(rows)
+    assert event.kind == "noise" and event.details["count"] == len(small) > 20
+    assert all(-6000 <= t.amount_cents <= -500 and t.amount_cents % 100 == 0 for t in small)
+    assert {t.sub_description for t in small} == {
+        "Free Interac E-Transfer "
+    }  # unnamed, like the rent
+    assert {t.txn_type for t in small} == {"withdrawal"}
+    assert len({t.posted_date.day for t in small}) > 5
+    rent = rent_of(rows)
+    assert min(t.posted_date for t in small) >= min(t.posted_date for t in rent)
+    assert max(t.posted_date for t in small) <= END
+
+
+def test_a_persona_that_pays_rent_by_a_bill_payment_gets_no_small_e_transfers() -> None:
+    assert all(not noise_of(planted(BILL_RENT_PERSONA, s)[0]) for s in SEEDS)
+
+
+def test_a_foreign_currency_subscription_moves_one_to_four_percent_between_charges() -> None:
+    seed = first_seed_with(RENT_PERSONA, "new-fx")
+    rows, events = planted(RENT_PERSONA, seed)
+    event = next(e for e in events if e.what == "new-fx")
+    fx = [t for t in rows if t.series_id == f"{RENT_PERSONA}-sub-planted-fx"]
+    mine = sorted(fx, key=lambda t: t.posted_date)
+    assert event.kind == "possible" and len(mine) == 5
+    assert event.observable_from == mine[1].posted_date
+    assert {t.currency for t in mine} == {"USD"} and len(
+        {t.original_amount_cents for t in mine}
+    ) == 1
+    usd = -mine[0].original_amount_cents
+    assert 500 <= usd <= 2000 and usd % 100 == 0
+    a, b = abs(mine[0].amount_cents), abs(mine[1].amount_cents)
+    assert 0.0099 <= abs(a - b) / max(a, b) <= 0.0401 and a != b
+    assert all(abs(abs(t.amount_cents) - a) / a <= 0.0412 for t in mine)  # all within 4 percent
+
+
+def test_the_new_events_do_not_change_the_events_of_version_2() -> None:
+    """The new streams are new: switching the version 3 events off gives the same old events."""
+    seed = 3
+    with_new = planted(RENT_PERSONA, seed)[1]
+    saved = plant_module.N1_PERSONA, plant_module.P2_PERSONA
+    plant_module.N1_PERSONA = plant_module.P2_PERSONA = 0.0
+    try:
+        without = plant(RENT_PERSONA, rows_of(RENT_PERSONA), seed)[1]
+    finally:
+        plant_module.N1_PERSONA, plant_module.P2_PERSONA = saved
+    old = [e for e in with_new if e.what not in ("small-etransfers", "new-fx")]
+    assert old == without and len(old) >= 1

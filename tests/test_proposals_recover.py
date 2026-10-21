@@ -122,9 +122,10 @@ def test_the_script_prints_counts_only_and_leaves_the_database_untouched(
     assert hashlib.sha256(db.read_bytes()).hexdigest() == before  # read-only
     assert "rent: yes 1, no 0 -> ok" in out and "link: yes 1, no 0 -> ok" in out
     assert "hand-added: yes 1, no 0 -> ok" in out
+    body = without_note(out)
     for leak in ("Zenstudio", "Fitplace", "sid|", "$", "2025", "2026", "900", "950"):
-        assert leak not in out
-    assert not re.search(r"\d{4}-\d{2}-\d{2}", out)
+        assert leak not in body
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", body)
 
 
 def test_a_no_prints_a_veto(db: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -192,6 +193,12 @@ def subscription_db(path: Path, new_cents: int) -> sqlite3.Connection:
         insert_row(conn, month_day(month), -cents, "bill payment", name, f"s{month:03d}")
     conn.commit()
     return conn
+
+
+def without_note(out: str) -> str:
+    """The output minus the fixed 'not an independent check' line (which carries a change date)."""
+    lines = [x for x in out.splitlines() if "not an independent check" not in x]
+    return chr(10).join(lines)
 
 
 def recover_text(path: Path, capsys: pytest.CaptureFixture[str]) -> str:
@@ -314,13 +321,14 @@ def test_the_explanation_prints_codes_and_counts_only(
     rs.set_rent_rule(conn, ACCOUNT, rent, RentRule((120000,), 1, 4), date(2026, 1, 5))
     conn.close()
     out = recover_text(db, capsys)
+    body = without_note(out)
     for leak in ("Zenstudio", "Fitplace", "Gadgetclub", "sid|", "$", "2025", "2026", "120000"):
-        assert leak not in out
+        assert leak not in body.replace("$100 floor", "")
     shape = (
         r"(would the proposers.*|  (rent|link|hand-added): yes \d+, no \d+ -> .*"
         r"|    why not \(\d+\): [a-z_]+ - [a-z ,().:;-]+)"
     )
-    for line in out.splitlines():
+    for line in without_note(out).splitlines():
         assert re.fullmatch(shape, line), line
 
 
@@ -446,4 +454,12 @@ def test_explain_gives_the_rent_recipient_profile_as_counts_only(
     profile = "detail: rent recipient has 18 payments, 6 of them at or above the $100 floor"
     assert f"{profile}, in {months} different months" in out
     for leak in ("120000", "1200", "2500", "2025", "2026"):
-        assert leak not in out
+        assert leak not in without_note(out)
+
+
+def test_the_veto_output_says_the_rerun_is_not_an_independent_check(
+    db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert pr.main(["--db", str(db)]) == 0
+    out = capsys.readouterr().out
+    assert "not an independent check" in out and "rent cluster" in out and "5 percent" in out

@@ -167,9 +167,7 @@ def matches(
         old_side, new_side = [p for p in mine if p[0] < cut], [p for p in mine if p[0] >= cut]
         return share_in(pairs, series) >= SHARE and bool(old_side) and bool(new_side)
     if event.kind == "possible":
-        planted = _series_pairs(
-            rows, lambda t: bool(t.series_id and t.series_id.endswith("-sub-planted"))
-        )
+        planted = _series_pairs(rows, lambda t: bool(t.series_id and "-sub-planted" in t.series_id))
         return share_in(pairs, planted) >= SHARE
     return False
 
@@ -319,12 +317,14 @@ def code_version() -> str:
         return "unknown"
 
 
-def record_variant(ledger: Path, label: str, sets: Sequence[str], arms: bool) -> int:
+def record_variant(
+    ledger: Path, label: str, sets: Sequence[str], arms: bool, kind: str = "scored run"
+) -> int:
     """Append this run to the ledger; returns how many variants are on it now (this one
     included)."""
     entries = json.loads(ledger.read_text("utf-8")) if ledger.exists() else []
     entries.append({
-        "label": label, "when": datetime.now().isoformat(timespec="seconds"),
+        "label": label, "kind": kind, "when": datetime.now().isoformat(timespec="seconds"),
         "code": code_version(), "planter_version": PLANTER_VERSION, "seed": SEED,
         "sets": list(sets), "arms": arms,
     })  # fmt: skip
@@ -336,6 +336,13 @@ def record_variant(ledger: Path, label: str, sets: Sequence[str], arms: bool) ->
 # --- The report ---
 
 
+NOT_INDEPENDENT = (
+    "Not an independent check: the rent cluster rule, the 5 percent tolerance of the possible-"
+    "subscription proposer and the planter additions of version 3 (noise and currency pairs) were "
+    "chosen on 2026-10-21 because of what my real-account veto run showed, so a veto rerun after "
+    "them is expected to pass and shows that the changes work on my case, not that they would "
+    "have worked blind."
+)
 HEADER = (
     "| kind | planted events (n) | counted for recall | excluded (not yet observable) "
     "| proposals shown | precision | recall | adopt rule (b), (e) |"
@@ -357,6 +364,8 @@ def report_text(
         "Synthetic, development only; the real account only vetoes (a separate script).",
         "",
         CARD_NOTE,
+        "",
+        NOT_INDEPENDENT,
         "",
         HEADER,
         "|---|---|---|---|---|---|---|---|",
@@ -414,7 +423,7 @@ def run_score(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.proposals_v2")
-    parser.add_argument("command", choices=["quick", "score"])
+    parser.add_argument("command", choices=["quick", "score", "variant"])
     parser.add_argument("--label", default="spec as written")
     parser.add_argument("--set", choices=["12", "long", "both"], default="both")
     parser.add_argument("--arms", action="store_true", help="also the forecast arms (heavy)")
@@ -422,6 +431,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     sets = {"12": ["12"], "long": ["long"], "both": ["12", "long"]}[args.set]
     start = time.time()
+    if args.command == "variant":  # a change of a proposer or of the planter: counted, not scored
+        ledger = PLANTED / "variants.json"
+        print(f"variants on the ledger: {record_variant(ledger, args.label, [], False, 'change')}")
+        return 0
     if args.command == "quick":
         text = run_score(
             sets[:1],

@@ -46,6 +46,10 @@ from lookahead.setting_proposals import (
 
 SHARE = 0.80
 KINDS = ("rent", "link", "hand-added")
+NOT_INDEPENDENT_NOTE = (
+    "note: not an independent check after the changes of 2026-10-21 (rent cluster, 5 percent "
+    "tolerance, planter version 3): I chose them because of what this account showed."
+)
 
 
 def _window_days(rule: RentRule) -> set[int]:
@@ -247,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         copy.close()
     print("would the proposers recover my hand entries? (counts only)")
+    print(f"  {NOT_INDEPENDENT_NOTE}")
     for kind, (yes, no) in result.items():
         verdict = "nothing to check" if yes + no == 0 else ("VETO" if no else "ok")
         print(f"  {kind}: yes {yes}, no {no} -> {verdict}")

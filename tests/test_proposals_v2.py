@@ -340,3 +340,31 @@ def test_events_not_complete_by_the_last_origin_are_excluded_from_recall_by_the_
     rent = scores.kinds["rent"]
     assert rent.events >= 1 and rent.observable == 0 and rent.recovered == 0
     assert rent.matched == 1  # precision still sees it; recall does not
+
+
+def test_every_report_says_the_veto_rerun_after_the_real_account_changes_is_not_independent() -> (
+    None
+):
+    for arms in (None, {}):
+        text = pv.report_text(pv.Scores(), 4, arms)
+        assert "Not an independent check" in text and "rent cluster rule" in text
+        assert "5 percent tolerance" in text and "planter additions of version 3" in text
+
+
+def test_a_change_goes_on_the_variant_ledger_without_a_scored_run(tmp_path: Path) -> None:
+    ledger = tmp_path / "variants.json"
+    assert pv.record_variant(ledger, "rent cluster", [], False, "change") == 1
+    assert pv.record_variant(ledger, "5 percent tolerance", [], False, "change") == 2
+    assert pv.record_variant(ledger, "planter version 3", [], False, "change") == 3
+    assert pv.record_variant(ledger, "first scored run", ["12"], False) == 4
+    kinds = [e["kind"] for e in json.loads(ledger.read_text("utf-8"))]
+    assert kinds == ["change", "change", "change", "scored run"]
+
+
+def test_the_variant_command_adds_a_change_to_the_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(pv, "PLANTED", tmp_path)
+    assert pv.main(["variant", "--label", "rent cluster"]) == 0
+    assert "variants on the ledger: 1" in capsys.readouterr().out
+    assert json.loads((tmp_path / "variants.json").read_text("utf-8"))[0]["kind"] == "change"
