@@ -15,6 +15,7 @@ from lookahead.db import connect
 from lookahead.generator.schedules import GeneratedTxn
 from lookahead.rent import RentRule
 from lookahead.setting_proposals import (
+    SettingProposal,
     accept,
     current_proposals,
 )
@@ -508,15 +509,27 @@ def test_a_different_forward_amount_vetoes(db: Path, capsys: pytest.CaptureFixtu
     assert line.startswith("rent: forward amount same no;")
 
 
-def test_a_window_that_misses_payment_days_inside_my_window_vetoes(
+def test_the_proposal_window_now_covers_every_send_day_so_a_wide_rule_of_mine_is_recovered(
     db: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    rent_rule_with(
-        db, (95000,), 1, 31
-    )  # every payment day is inside mine; the proposal's is 1 to 4
+    """Before the window change (DECISIONS.md, 2026-10-22) the proposal's window was 1 to 4 and
+    missed the 30th and the 31st, which a wide rule of mine (1 to 31) contains: a veto. The window
+    now covers all twelve send days, so it is recovered."""
+    rent_rule_with(db, (95000,), 1, 31)
     out, line = rent_line(db, capsys)
-    assert "rent: yes 0, no 1 -> VETO" in out and "why not (1): window_misses_payment_days" in out
-    assert line.endswith("payment days covered 10 of 12")  # the 30th and the 31st are missed
+    assert "rent: yes 1, no 0 -> ok" in out and line.endswith("payment days covered 12 of 12")
+
+
+def test_a_window_that_misses_payment_days_inside_my_window_vetoes() -> None:
+    """The veto itself is unchanged (3590bcc): a proposal window of 1 to 4 misses a payment on the
+    30th that lies inside my window 28 to 4."""
+    proposal = SettingProposal(
+        "rent", "sid|x", "rent|sid|x", "t", (), "likely", rent=RentRule((95000,), 1, 4)
+    )
+    mine = RentRule((95000,), 28, 4)
+    comparison = pr.compare_rent(mine, proposal, [1, 2, 3, 4, 30])
+    assert (comparison.covered, comparison.inside) == (4, 5) and not comparison.recovered
+    assert comparison.reason == "window_misses_payment_days"
 
 
 def test_a_narrower_window_of_mine_that_the_proposal_covers_does_not_veto(

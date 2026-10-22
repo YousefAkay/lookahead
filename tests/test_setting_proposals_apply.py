@@ -76,7 +76,7 @@ def test_looks_right_on_rent_writes_a_rent_rule_by_id_and_logs_the_click(
     (decision,) = [d for d in rs.load_decisions(conn, ACCOUNT) if d.action == "rent"]
     assert decision.key == proposal.series_id and decision.key.startswith("sid|")
     rule = next(s for s in rs.series_as_of(conn, ACCOUNT)[0] if s.id == proposal.series_id)
-    assert rule.allowed_cents == (90000, 95000) and rule.window == (1, 4)
+    assert rule.allowed_cents == (90000, 95000) and rule.window == (30, 4)  # all send days
     assert decisions_as_of(conn, ACCOUNT)[proposal.key] == "looks right"
     assert "rent" not in by_kind(conn)  # a series with a decision is not proposed again
 
@@ -87,7 +87,7 @@ def test_a_rent_rule_from_a_click_equals_the_same_rule_typed_by_hand(
     proposal = by_kind(conn)["rent"]
     series, _ = rs.series_as_of(conn, ACCOUNT)
     target = next(s for s in series if s.id == proposal.series_id)
-    rs.set_rent_rule(conn, ACCOUNT, target, RentRule((90000, 95000), 1, 4), date(2026, 1, 5))
+    rs.set_rent_rule(conn, ACCOUNT, target, RentRule((90000, 95000), 30, 4), date(2026, 1, 5))
     typed = rs.series_as_of(conn, ACCOUNT)[0]
     other = connect(tmp_path / "other.db")
     conn.backup(other)

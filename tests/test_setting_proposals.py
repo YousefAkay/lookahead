@@ -57,7 +57,9 @@ def proposals_for(
 def test_two_sizes_and_a_window_are_proposed_for_rent_sent_by_e_transfer() -> None:
     (p,), _ = proposals_for(rent_rows(DAYS, SIZES))
     assert p.kind == "rent" and p.confidence == "likely"
-    assert p.rent == RentRule((90000, 95000), 1, 4)  # covers 8 of the 10 send days
+    # the window now covers all ten send days, the 30th and the 31st included (it was 1 to 4,
+    # which covered 8 of 10: DECISIONS.md, 2026-10-22)
+    assert p.rent == RentRule((90000, 95000), 30, 4)
     assert len(p.evidence) == 10 and p.series_id.startswith("sid|")
     assert p.key == f"rent|{p.series_id}" and "$900.00 or $950.00" in p.title
 
@@ -657,3 +659,50 @@ def test_one_amount_all_along_stays_one_allowed_amount() -> None:
     rent = rent_then_rise(14, 0, 120000, 120000)
     (p,), _ = proposals_for(mixed_group(rent, small_transfers(130)))
     assert p.rent is not None and p.rent.amounts_cents == (120000,)
+
+
+# --- the rent window covers every send day when it can (DECISIONS.md, 2026-10-22) ---
+
+from lookahead.setting_proposals import rent_window  # noqa: E402
+
+
+def test_a_late_payment_one_day_outside_the_80_percent_window_is_now_covered() -> None:
+    days = [2, 3, 3, 2, 3, 2, 3, 2, 3, 5]  # nine days fit 2 to 3; the 5th is outside
+    assert best_window(days) == (2, 3)  # the old rule: 80 percent is enough, the 5th is missed
+    assert rent_window(days) == (2, 5)  # the new rule covers it too
+
+
+def test_the_window_may_wrap_a_month_end_and_still_cover_everything() -> None:
+    assert rent_window([30, 31, 1, 2, 3, 30, 1, 2]) == (30, 3)
+
+
+def test_a_constant_pay_day_still_gives_a_narrow_window() -> None:
+    assert rent_window([5] * 10) == (5, 5)
+    assert rent_window([1, 1, 1, 2, 1, 1]) == (1, 2)
+
+
+def test_when_no_span_of_14_days_covers_everything_the_80_percent_rule_decides() -> None:
+    days = [3, 3, 4, 3, 4, 3, 4, 3, 4, 18]  # the 18th is a stray: no span of 14 days holds it
+    assert best_window(days, 1.0) is None
+    assert rent_window(days) == best_window(days) == (3, 4)
+
+
+def test_days_spread_over_more_than_two_weeks_in_the_same_way_are_still_unfit() -> None:
+    assert rent_window([1, 8, 15, 22, 29, 3, 10, 17, 24, 6]) is None  # not even 80 percent fits
+
+
+def test_a_proposal_with_a_late_payer_gets_the_wider_window() -> None:
+    rent = list(zip(DAYS, [90000] * 6 + [95000] * 4, strict=True))
+    (p,), _ = proposals_for(mixed_group(rent, small_transfers(60)))
+    assert p.rent is not None and p.rent.from_day == 30 and p.rent.to_day == 4
+    sent = {d.day for d in DAYS}
+    assert all(
+        (day >= 30 or day <= 4) for day in sent
+    )  # every send day, the 30th and the 31st included, is inside
+
+
+def test_a_constant_pay_day_among_two_sizes_gives_a_one_day_window() -> None:
+    days = [date(2025 + (m - 1) // 12, (m - 1) % 12 + 1, 5) for m in range(1, 13)]
+    rent = [(d, 90000 if i < 8 else 95000) for i, d in enumerate(days)]
+    (p,), _ = proposals_for(mixed_group(rent, small_transfers(100)))
+    assert p.rent is not None and (p.rent.from_day, p.rent.to_day) == (5, 5)

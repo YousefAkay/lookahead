@@ -137,6 +137,13 @@ def best_window(days: Sequence[int], cover: float = COVER) -> tuple[int, int] | 
     return start, (start + width - 2) % 31 + 1
 
 
+def rent_window(days: Sequence[int]) -> tuple[int, int] | None:
+    """The rent window (DECISIONS.md, 2026-10-22): the shortest span of days that covers **all**
+    the send days, at most MAX_WINDOW_DAYS wide (it may wrap a month end). If no such span exists,
+    the shortest span covering at least COVER (80 percent) of them, with the same tie-breaks."""
+    return best_window(days, 1.0) or best_window(days, COVER)
+
+
 def _size_clusters(amounts: Sequence[int]) -> list[list[int]]:
     """Amounts (positive cents, sorted) grouped into sizes: within 3 percent or $5 of the first."""
     out: list[list[int]] = []
@@ -263,7 +270,7 @@ def _rent_for_group(
     if (as_of - max(d for d, _ in payments)).days > RENT_STALE_DAYS:
         return "outside_freshness_limit"  # the rent stopped; the account went on
     sizes = _sizes_going_forward(payments)
-    window = best_window([d.day for d, _ in payments])
+    window = rent_window([d.day for d, _ in payments])
     if window is None or not 1 <= len(sizes) <= MAX_SIZES:
         return "window_or_amounts_unfit"
     width = (window[1] - window[0]) % 31 + 1
