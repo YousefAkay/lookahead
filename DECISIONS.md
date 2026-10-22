@@ -1928,6 +1928,11 @@ My veto rerun after the bug fix still said rent **no** (`window_misses_payment_d
 - **It is a variant** and goes on the variant ledger, prompted by my real account. **The veto rerun after it is not an independent check:** I chose the rule because of what that account showed, so a pass shows the change works on my case, not that it would have worked blind. The report and the veto script keep saying so.
 - A cost I accept: one late payment now stretches the window, so the window can be wider than the days I usually pay; the 14-day limit and the fallback bound that.
 
+### 2026-10-22: Rent is vetoed by my account in this round (under the 3590bcc definition); no more proposer changes for my account
+- **I accept the veto for rent.** Under the definition committed in 3590bcc (the same forward amount; the window covers every day of my past payments inside my window) the proposer does not recover my rent rule, and I will not change the proposers again for my account in this round.
+- Link (yes) and hand-added (yes) pass the veto. The rent kind stays marked **"vetoed by my account"** in every report, whatever part (b) shows, and it is not adopted.
+- This is a counts-only reading of my real account; real and synthetic results stay in separate columns, and the veto remains not independent of the changes made after it.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
