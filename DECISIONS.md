@@ -1911,6 +1911,13 @@ Running the veto script on my real account gave "no" for all three kinds. What t
 - Real and synthetic results stay in separate columns; the planted scores remain development, not evaluation.
 **Not changed:** every other proposer rule (the guards, the freshness limits, the link rules, the 5 percent link amount tolerance, the card-month gap) and the adopt rule.
 
+### 2026-10-22: When a rent proposal "recovers" my rent rule: decided on product grounds, prompted by my real account (a change of the veto, not of the proposers)
+After the three changes of 2026-10-21 my veto rerun said rent **no, amounts_not_equal, although a proposal exists** (link yes, hand-added yes). The old test asked for the same *set* of allowed amounts, which is not what the forecast uses: it places **only the larger allowed amount** (the cautious reading) and uses the window to predict the date, while payments are matched by amount whatever the day. So I decide now, before looking at which part differs, that a rent proposal **recovers** my rent rule if both hold:
+- **(a) the amount it would use going forward equals mine**: the larger allowed amount of the proposal equals the larger allowed amount of my rule;
+- **(b) its window covers the days of my past rent payments that fall inside my rule's window**: every one of those days; if none fall inside my window there is nothing to cover.
+Missing or extra older allowed amounts, and a wider or narrower window, are **reported but do not veto**. `--explain` prints counts only for rent: forward amount same (yes or no), allowed amounts missing and extra, payment days covered (N of M).
+This is prompted by my real account and the veto stays a veto: a "no" for a kind still stops that kind. The proposers are not changed, so this is not a proposer variant; it changes what the veto asks, and a veto rerun under the new definition is still not an independent check (the definition was chosen after the old one failed on my account).
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
