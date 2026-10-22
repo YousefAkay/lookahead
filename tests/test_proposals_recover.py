@@ -613,11 +613,23 @@ def test_the_window_line_says_80_percent_fallback_when_no_14_day_span_fits(
 def test_the_line_counts_my_rule_payments_that_are_not_in_the_rent_cluster(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A rule that also allows a small amount makes small e-Transfers count as its payments."""
+    """A rule that also allows an amount at or above the floor, paid now and then outside the rent
+    (an amount under the floor is no longer used to find e-Transfers), counts those payments."""
     conn = stray_day_rent(tmp_path / "t.db", distinct_small=True)
+    friend = [etransfer(date(2025, m, 20), -15000) for m in (2, 5, 8)]
+    for n, t in enumerate(friend):
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES (?, ?, ?, 'withdrawal', 'Free Interac E-Transfer ', 0, ?, 'f', 'x')",
+            (ACCOUNT, t.posted_date.isoformat(), t.amount_cents, f"friend{n}"),
+        )
+    conn.commit()
     series, _ = rs.series_as_of(conn, ACCOUNT)
     rent = max(series, key=lambda s: abs(s.expected_cents))
-    rs.set_rent_rule(conn, ACCOUNT, rent, RentRule((125000, 2500), 30, 4), date(2026, 1, 5))
+    rs.set_rent_rule(
+        conn, ACCOUNT, rent, RentRule((120000, 125000, 15000), 30, 4), date(2026, 1, 5)
+    )
     conn.close()
     lines = detail_lines(tmp_path / "t.db", capsys)
     mine = next(x for x in lines if x.startswith("rent payments of my rule"))
