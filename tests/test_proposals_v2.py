@@ -415,3 +415,139 @@ def test_the_report_lists_the_ledger_and_a_scored_run_gets_a_run_id(tmp_path: Pa
     text = pv.report_text(pv.Scores(), 2, None, entries)
     assert "## Variant ledger" in text and "1. change: a change" in text
     assert "2. scored run: first scored run" in text and entries[1]["run_id"] in text
+
+
+# --- part (b): groups, memory stop, resume, the saved report ---
+
+
+@pytest.fixture(autouse=True)
+def calm_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The tests do not depend on how full this laptop's memory is (a test may set its own)."""
+    monkeypatch.setattr(pv, "memory_load", lambda: 40)
+
+
+def make_event(what: str, **details: object) -> PlantedEvent:
+    kind = {"increase": "rent", "late": "rent", "rename": "link"}.get(what, "possible")
+    return PlantedEvent(f"p:{what}", "p", kind, what, date(2026, 6, 1), dict(details))
+
+
+def test_rent_increases_are_split_at_15_percent_and_pairs_into_plain_and_currency() -> None:
+    low = make_event("increase", old_cents=100000, new_cents=112000)
+    high = make_event("increase", old_cents=100000, new_cents=116000)
+    assert (
+        pv.event_group(low) == "increase below 15%" and pv.event_group(high) == "increase above 15%"
+    )
+    assert pv.event_group(make_event("late")) == "late payments"
+    assert pv.event_group(make_event("rename")) == "rename"
+    assert pv.event_group(make_event("new")) == "plain pairs"
+    assert pv.event_group(make_event("new-fx")) == "currency pairs"
+
+
+def test_scores_survive_a_round_trip_through_json_with_their_groups() -> None:
+    scores = pv.Scores(personas=2)
+    scores.kinds["rent"] = pv.KindScore(shown=3, matched=2, events=5, observable=4, recovered=3)
+    scores.groups["rent: late payments"] = pv.KindScore(events=2, observable=2, recovered=1)
+    again = pv.Scores.from_json(json.loads(json.dumps(scores.to_json())))
+    assert (
+        again.to_json() == scores.to_json() and again.groups["rent: late payments"].recovered == 1
+    )
+
+
+def part_b(planted_root: Path, tmp_path: Path, **kwargs):  # type: ignore[no-untyped-def]
+    return pv.run_part_b(
+        ["12"], "plumbing", tmp_path / "w", planted_root, origin_days=pv.backtest_origins()[-2:],
+        personas=2, ledger=tmp_path / "ledger.json", results_root=tmp_path / "res", **kwargs,
+    )  # fmt: skip
+
+
+def test_part_b_reports_per_kind_per_set_by_sub_kind_and_marks_rent_vetoed(
+    planted_root: Path, tmp_path: Path
+) -> None:
+    text = part_b(planted_root, tmp_path)
+    needles = [
+        "## Per kind, both sets together",
+        "## 12-month set alone",
+        "## By sub-kind",
+        "rent: increase below 15%",
+        "rent: increase above 15%",
+        "possible: currency pairs",
+        "possible: plain pairs",
+        "Leakage flag",
+        "likely flattering",
+        "Not an independent check",
+        "## Variant ledger",
+        "VETOED BY MY ACCOUNT",
+    ]
+    for needle in needles:
+        assert needle in text, needle
+    assert text.count("| rent |") >= 2 and "(b) fails" in text  # on two personas it cannot pass
+
+
+def test_rent_is_marked_vetoed_whatever_part_b_shows() -> None:
+    scores = pv.Scores(personas=40)
+    scores.kinds["rent"] = pv.KindScore(
+        shown=40, matched=36, events=30, observable=30, recovered=25
+    )
+    info = {"run_id": "r", "planter_version": 3, "seed": 2026, "code": "x", "origins": 40}
+    text = pv.part_b_text({"12": scores}, [], {**info, "seconds": 1.0})
+    row = next(x for x in text.splitlines() if x.startswith("| rent |"))
+    assert "(b) passes" in row and "VETOED BY MY ACCOUNT" in row
+
+
+def test_a_new_run_goes_on_the_ledger_once_and_a_resume_does_not_add_to_it(
+    planted_root: Path, tmp_path: Path
+) -> None:
+    part_b(planted_root, tmp_path)
+    entries = json.loads((tmp_path / "ledger.json").read_text("utf-8"))
+    assert len(entries) == 1 and entries[0]["run_id"].startswith("part-b-")
+    part_b(planted_root, tmp_path, run_id=entries[0]["run_id"])
+    assert len(json.loads((tmp_path / "ledger.json").read_text("utf-8"))) == 1
+
+
+def test_above_the_memory_line_the_run_stops_after_saving_and_a_resume_finishes_it(
+    planted_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    loads = iter([50, 95])  # fine for the first persona, too high for the second
+    monkeypatch.setattr(pv, "memory_load", lambda: next(loads))
+    with pytest.raises(pv.MemoryStop) as stop:
+        part_b(planted_root, tmp_path)
+    run_id = stop.value.run_id
+    done = sorted((tmp_path / "res" / run_id / "12").glob("*.json"))
+    assert len(done) == 1  # the first persona was saved before stopping
+    monkeypatch.setattr(pv, "memory_load", lambda: 40)
+    seen: list[str] = []
+    real = pv.planted_db
+
+    def spy(pid: str, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        seen.append(pid)
+        return real(pid, *args, **kwargs)
+
+    monkeypatch.setattr(pv, "planted_db", spy)
+    text = part_b(planted_root, tmp_path, run_id=run_id)
+    assert len(seen) == 1 and done[0].stem not in seen  # only the missing persona was run
+    assert "Personas scored: " not in text and "2 personas" in text
+
+
+def test_the_command_exits_3_with_the_run_id_when_memory_is_too_high(
+    planted_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:  # fmt: skip
+    monkeypatch.setattr(pv, "memory_load", lambda: 97)
+    monkeypatch.setattr(pv, "LEDGER", tmp_path / "ledger.json")
+    monkeypatch.setattr(pv, "PLANTED", planted_root)
+    code = pv.main(["part-b", "--set", "12", "--work", str(tmp_path / "w"), "--label", "x"])
+    out = capsys.readouterr().out
+    assert code == 3 and "STOPPED for memory" in out and "--resume part-b-" in out
+
+
+def test_the_run_is_saved_as_a_report_and_a_run_record_without_data(
+    planted_root: Path, tmp_path: Path
+) -> None:
+    part_b(planted_root, tmp_path, save_dir=tmp_path / "docs")
+    md = next((tmp_path / "docs").glob("proposals_v2_part_b_*.md"))
+    record = json.loads(md.with_suffix(".json").read_text("utf-8"))
+    assert {"run_id", "planter_version", "seed", "code", "origins", "seconds", "kinds"} <= set(
+        record
+    )
+    assert record["planter_version"] == 3 and "personas" in record and "groups" in record
+    assert "Variant ledger" in md.read_text("utf-8")

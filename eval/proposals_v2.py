@@ -187,17 +187,57 @@ class KindScore:
     recovered: int = 0  # of those, matched by a proposal shown in time
 
 
+FIELDS = ("shown", "matched", "events", "observable", "recovered")
+RISE_LIMIT = 0.15  # the report splits rent increases above and below this
+
+
+def event_group(event: PlantedEvent) -> str:
+    """The sub-kind an event belongs to, for the report (not for the adopt rule)."""
+    if event.what == "increase":
+        d = event.details
+        rise = (d["new_cents"] - d["old_cents"]) / d["old_cents"]
+        return "increase above 15%" if rise > RISE_LIMIT else "increase below 15%"
+    return {
+        "late": "late payments",
+        "rename": "rename",
+        "new": "plain pairs",
+        "new-fx": "currency pairs",
+    }.get(event.what, event.what)  # fmt: skip
+
+
 @dataclass
 class Scores:
     kinds: dict[str, KindScore] = field(default_factory=lambda: {k: KindScore() for k in KINDS})
     personas: int = 0
+    # sub-kinds ("rent: increase below 15%"): events, counted events, recovered, and the proposals
+    # that matched an event of the group (`matched`). Precision is only defined per kind: a
+    # proposal that matches nothing cannot be assigned to a group.
+    groups: dict[str, KindScore] = field(default_factory=dict)
 
     def add(self, other: "Scores") -> None:
         for kind in KINDS:
             mine, theirs = self.kinds[kind], other.kinds[kind]
-            for name in ("shown", "matched", "events", "observable", "recovered"):
+            for name in FIELDS:
+                setattr(mine, name, getattr(mine, name) + getattr(theirs, name))
+        for group, theirs in other.groups.items():
+            mine = self.groups.setdefault(group, KindScore())
+            for name in FIELDS:
                 setattr(mine, name, getattr(mine, name) + getattr(theirs, name))
         self.personas += other.personas
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "personas": self.personas,
+            "kinds": {k: {f: getattr(v, f) for f in FIELDS} for k, v in self.kinds.items()},
+            "groups": {k: {f: getattr(v, f) for f in FIELDS} for k, v in self.groups.items()},
+        }
+
+    @staticmethod
+    def from_json(data: dict[str, Any]) -> "Scores":
+        out = Scores(personas=data["personas"])
+        out.kinds = {k: KindScore(**v) for k, v in data["kinds"].items()}
+        out.groups = {k: KindScore(**v) for k, v in data["groups"].items()}
+        return out
 
 
 def score_planted(db: PlantedDb, origin_days: Sequence[date]) -> Scores:
@@ -215,19 +255,36 @@ def score_planted(db: PlantedDb, origin_days: Sequence[date]) -> Scores:
         mine = [(k, p, days) for k, (p, days) in seen.items() if p.kind == kind]
         events = [e for e in db.events if e.kind == kind]
         ks.shown, ks.events = len(mine), len(events)
-        ks.matched = sum(any(matches(p, e, db.rows, pairs[k]) for e in events) for k, p, _ in mine)
+        hits = {
+            k: [
+                e
+                for e in sorted(events, key=lambda e: e.event_id)
+                if matches(p, e, db.rows, pairs[k])
+            ]
+            for k, p, _ in mine
+        }  # fmt: skip
+        ks.matched = sum(bool(found) for found in hits.values())
+        for found in hits.values():  # a matched proposal counts for the group of its first event
+            if found:
+                scores.groups.setdefault(
+                    f"{kind}: {event_group(found[0])}", KindScore()
+                ).matched += 1
+        for e in events:
+            group = scores.groups.setdefault(f"{kind}: {event_group(e)}", KindScore())
+            group.events += 1
+            group.observable += e.observable_from <= last
         # Only events whose evidence is complete by the last origin, as the answer key defines it
         # (never by what a proposer showed), can be recovered or missed; the rest are excluded.
         counted = [e for e in events if e.observable_from <= last]
         ks.observable = len(counted)
-        ks.recovered = sum(
-            any(
-                matches(p, e, db.rows, pairs[k])
+        for e in counted:
+            hit = any(
+                e in hits[k]
                 and any(d <= e.observable_from + timedelta(days=RECALL_DAYS) for d in days)
                 for k, p, days in mine
-            )
-            for e in counted
-        )
+            )  # fmt: skip
+            ks.recovered += hit
+            scores.groups[f"{kind}: {event_group(e)}"].recovered += hit
     return scores
 
 
@@ -446,9 +503,203 @@ def run_score(
     return report_text(scores, variants, compare_arms(zero, one) if arms else None, entries)
 
 
+# --- part (b): the run on the planted development copies ---
+
+MEMORY_LIMIT = 92  # percent of physical memory in use: stop launching work above it
+VETO = (
+    "VETOED BY MY ACCOUNT (the definition of 3590bcc, the window): not adopted whatever (b) shows"
+)
+
+
+class MemoryStop(Exception):
+    """Memory use went above the stop line: the run saved what it had and stopped."""
+
+    def __init__(self, run_id: str, load: int) -> None:
+        super().__init__(f"memory {load}% is above {MEMORY_LIMIT}%: rerun with --resume {run_id}")
+        self.run_id = run_id
+
+
+def memory_load() -> int:
+    """Percent of physical memory in use (0 where it cannot be read)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Status(ctypes.Structure):
+            _fields_ = [("length", wintypes.DWORD), ("load", wintypes.DWORD),
+                        ("total", ctypes.c_ulonglong), ("avail", ctypes.c_ulonglong),
+                        ("tpage", ctypes.c_ulonglong), ("apage", ctypes.c_ulonglong),
+                        ("tvirt", ctypes.c_ulonglong), ("avirt", ctypes.c_ulonglong),
+                        ("ext", ctypes.c_ulonglong)]  # fmt: skip
+
+        status = Status()
+        status.length = ctypes.sizeof(status)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))  # type: ignore[attr-defined]
+        return int(status.load)
+    except (AttributeError, OSError, ImportError):
+        return 0
+
+
+def _per_set(scores: dict[str, Scores]) -> Scores:
+    total = Scores()
+    for part in scores.values():
+        total.add(part)
+    return total
+
+
+GROUPS = {
+    "rent": ("increase below 15%", "increase above 15%", "late payments"),
+    "link": ("rename",),
+    "possible": ("plain pairs", "currency pairs"),
+}
+
+
+def _kind_table(scores: Scores, official: bool) -> list[str]:
+    lines = [HEADER, "|---|---|---|---|---|---|---|---|"]
+    for kind in KINDS:
+        ks = scores.kinds[kind]
+        ok, reasons = kind_status(ks)
+        shown = f"{ks.matched / ks.shown:.0%} ({ks.matched}/{ks.shown})" if ks.shown else "- (0/0)"
+        found = (
+            f"{ks.recovered / ks.observable:.0%} ({ks.recovered}/{ks.observable})"
+            if ks.observable
+            else "- (0/0)"
+        )
+        verdict = "(b) passes" if ok else "(b) fails: " + "; ".join(reasons)
+        if kind == "rent" and official:
+            verdict = f"{VETO}. {verdict}"
+        cells = [kind, ks.events, ks.observable, ks.events - ks.observable, ks.shown, shown, found]
+        lines.append("| " + " | ".join(str(c) for c in cells) + f" | {verdict} |")
+    return lines
+
+
+def part_b_text(
+    per_set: dict[str, Scores], entries: Sequence[dict[str, Any]], info: dict[str, Any]
+) -> str:
+    """The report of part (b): per kind (both sets together: the rule is judged there), per set,
+    by sub-kind, the leakage flag, the cautions, the vetoed rent and the ledger."""
+    total = _per_set(per_set)
+    names = {"12": "12-month set", "long": "24-month set"}
+    lines = [
+        "# Proposals for recurring settings: part (b) on the planted development copies",
+        "",
+        f"Run {info['run_id']}: planter version {info['planter_version']}, seed {info['seed']}, "
+        f"code {info['code']}, {total.personas} personas, {info['origins']} weekly origins, "
+        f"{info['seconds']:.0f} s. Synthetic, development only; part (c) is not run here. "
+        f"The real account only vetoes (a separate, counts-only script).",
+        "",
+        CARD_NOTE,
+        "",
+        NOT_INDEPENDENT,
+        "",
+        "## Per kind, both sets together (the adopt rule (b) is judged here)",
+        "",
+        *_kind_table(total, official=True),
+        "",
+    ]
+    flags = [
+        k
+        for k in KINDS
+        if total.kinds[k].shown and total.kinds[k].matched / total.kinds[k].shown > LEAK_PRECISION
+    ]
+    if flags:
+        flag = ", ".join(flags) + ": a leakage check comes before anything is claimed."
+    else:
+        flag = "none raised."
+    lines.append("Leakage flag (precision above 95 percent): " + flag)
+    lines += [
+        "",
+        "Rule (b) per kind: precision at least 80 percent, recall at least 60 percent, at least "
+        "20 planted events. Nothing is adopted until part (c) is done as well.",
+        "",
+    ]
+    for key, title in names.items():
+        if key in per_set:
+            lines += [
+                f"## {title} alone (for information: n per set can be under 20)",
+                "",
+                *_kind_table(per_set[key], official=True),
+                "",
+            ]
+    lines += [
+        "## By sub-kind (recall over the events counted; matched proposals)",
+        "",
+        "| sub-kind | planted events (n) | counted | recovered | recall | proposals matching |",
+        "|---|---|---|---|---|---|",
+    ]
+    for kind, groups in GROUPS.items():
+        for group in groups:
+            g = total.groups.get(f"{kind}: {group}", KindScore())
+            recall = f"{g.recovered / g.observable:.0%}" if g.observable else "-"
+            cells = [f"{kind}: {group}", g.events, g.observable, g.recovered, recall, g.matched]
+            lines.append("| " + " | ".join(str(c) for c in cells) + " |")
+    lines += [
+        "",
+        "Precision is reported per kind only: a proposal that matches nothing cannot be assigned "
+        "to a sub-kind. The planted rent increases are 5 to 12 percent before rounding, so none "
+        "is expected above 15 percent.",
+        "",
+    ]
+    lines += ledger_lines(entries)
+    return chr(10).join(lines) + chr(10)
+
+
+def run_part_b(
+    sets: Sequence[str], label: str, work_dir: Path, planted_root: Path = PLANTED,
+    origin_days: Sequence[date] | None = None, personas: int | None = None,
+    run_id: str | None = None, ledger: Path | None = None, results_root: Path | None = None,
+    memory_limit: int = MEMORY_LIMIT, save_dir: Path | None = None,
+) -> str:  # fmt: skip
+    """Part (b) on the planted copies, one persona at a time: each persona's scores are saved as
+    soon as it is done, memory is checked before each one (above the limit: stop, `MemoryStop`),
+    and `run_id` resumes a stopped run. A new run goes on the ledger once, with its run id."""
+    days = list(origin_days or backtest_origins())
+    path = ledger or LEDGER
+    started = time.time()
+    if run_id is None:
+        record_variant(path, label, sets, False)
+        run_id = json.loads(path.read_text("utf-8"))[-1]["run_id"]
+    folder = (results_root or work_dir / "results") / run_id
+    per_set: dict[str, Scores] = {}
+    peak = 0
+    for name in sets:
+        per_set[name] = Scores()
+        for pid in development_ids(long=name == "long")[:personas]:
+            saved = folder / name / f"{pid}.json"
+            if saved.exists():
+                per_set[name].add(Scores.from_json(json.loads(saved.read_text("utf-8"))))
+                continue
+            load = memory_load()
+            peak = max(peak, load)
+            if load > memory_limit:
+                raise MemoryStop(run_id, load)
+            with planted_db(pid, Path(name), work_dir, planted_root) as db:
+                result = score_planted(db, days)
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            saved.write_text(json.dumps(result.to_json()), encoding="utf-8")
+            per_set[name].add(result)
+    entries = json.loads(path.read_text("utf-8"))
+    info = {"run_id": run_id, "planter_version": PLANTER_VERSION, "seed": SEED,
+            "code": code_version(), "origins": len(days), "seconds": time.time() - started,
+            "peak_memory_percent": peak, "label": label, "sets": list(sets),
+            "personas": {n: per_set[n].personas for n in per_set}}  # fmt: skip
+    text = part_b_text(per_set, entries, info)
+    if save_dir is not None:
+        save_dir.mkdir(parents=True, exist_ok=True)
+        (save_dir / f"proposals_v2_part_b_{run_id}.md").write_text(text, encoding="utf-8")
+        record = {**info, "kinds": _per_set(per_set).to_json()["kinds"],
+                  "groups": _per_set(per_set).to_json()["groups"]}  # fmt: skip
+        (save_dir / f"proposals_v2_part_b_{run_id}.json").write_text(
+            json.dumps(record, indent=1), encoding="utf-8"
+        )
+    return text
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.proposals_v2")
-    parser.add_argument("command", choices=["quick", "score", "variant"])
+    parser.add_argument("command", choices=["quick", "score", "variant", "part-b"])
+    parser.add_argument("--resume", default=None, help="part-b: the run id of a stopped run")
+    parser.add_argument("--save-dir", type=Path, default=Path("docs/results"))
     parser.add_argument("--label", default="spec as written")
     parser.add_argument("--set", choices=["12", "long", "both"], default="both")
     parser.add_argument(
@@ -461,6 +712,16 @@ def main(argv: list[str] | None = None) -> int:
     start = time.time()
     if args.command == "variant":  # a change of a proposer or of the planter: counted, not scored
         print(f"variants on the ledger: {record_variant(LEDGER, args.label, [], False, args.kind)}")
+        return 0
+    if args.command == "part-b":
+        try:
+            text = run_part_b(sets, args.label, args.work, run_id=args.resume,
+                              save_dir=args.save_dir)  # fmt: skip
+        except MemoryStop as stop:
+            print(f"STOPPED for memory: {stop}")
+            return 3
+        print(text)
+        print(f"({time.time() - start:.0f} s)")
         return 0
     if args.command == "quick":
         text = run_score(
