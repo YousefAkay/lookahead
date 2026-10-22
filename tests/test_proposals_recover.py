@@ -92,20 +92,16 @@ def test_a_rent_rule_with_other_amounts_is_not_recovered(db: Path) -> None:
     assert pr.recover(copy_of(db))["rent"] == (0, 1)
 
 
-def test_a_rent_rule_on_other_days_is_not_recovered(
-    db: Path,
-) -> None:
+def test_a_rent_rule_whose_window_holds_no_past_payment_has_nothing_to_cover(db: Path) -> None:
+    """DECISIONS.md, 2026-10-22: the window must cover the days of my past payments that fall inside
+    my window; if none do, there is nothing to cover (and the line says 0 of 0)."""
     conn = connect(db)
     (proposal,) = [p for p in current_proposals(conn, ACCOUNT) if p.kind == "rent"]
-    series, _ = rs.series_as_of(conn, ACCOUNT)
-    mine = RentRule(proposal.rent.amounts_cents, 1, 4)  # type: ignore[union-attr]
     far = RentRule(proposal.rent.amounts_cents, 15, 19)  # type: ignore[union-attr]
-    target = next(s for s in series if s.id == proposal.series_id)
-    rs.set_rent_rule(conn, ACCOUNT, target, far, date(2026, 1, 5))
+    comparison = pr.compare_rent(far, proposal, [d.day for d in RENT_DAYS])
+    assert (comparison.covered, comparison.inside) == (0, 0) and comparison.recovered
+    assert pr.rent_recovered(far, proposal, [d.day for d in RENT_DAYS])
     conn.close()
-    assert pr.recover(copy_of(db))["rent"] == (0, 1)
-    assert pr.rent_recovered(mine, proposal)
-    assert not pr.rent_recovered(far, proposal)
 
 
 def test_with_no_hand_entries_there_is_nothing_to_check(db: Path) -> None:
@@ -250,7 +246,7 @@ def test_explain_gives_a_reason_for_a_rent_rule_with_other_amounts(
     conn.close()
     out = recover_text(db, capsys)
     assert "rent: yes 0, no 1 -> VETO" in out
-    assert "why not (1): amounts_not_equal - a proposal exists but its amounts" in out
+    assert "why not (1): forward_amount_differs - a proposal exists but its larger amount" in out
 
 
 def test_explain_says_when_the_rent_stopped(
@@ -326,7 +322,9 @@ def test_the_explanation_prints_codes_and_counts_only(
         assert leak not in body.replace("$100 floor", "")
     shape = (
         r"(would the proposers.*|  (rent|link|hand-added): yes \d+, no \d+ -> .*"
-        r"|    why not \(\d+\): [a-z_]+ - [a-z ,().:;-]+)"
+        r"|    why not \(\d+\): [a-z_]+ - [a-z ,().:;-]+"
+        r"|    detail: rent: forward amount same (yes|no); allowed amounts missing \d+, extra \d+;"
+        r" payment days covered \d+ of \d+)"
     )
     for line in without_note(out).splitlines():
         assert re.fullmatch(shape, line), line
@@ -463,3 +461,79 @@ def test_the_veto_output_says_the_rerun_is_not_an_independent_check(
     assert pr.main(["--db", str(db)]) == 0
     out = capsys.readouterr().out
     assert "not an independent check" in out and "rent cluster" in out and "5 percent" in out
+
+
+# --- when a rent proposal recovers my rent rule (DECISIONS.md, 2026-10-22) ---
+
+
+def rent_rule_with(db: Path, amounts: tuple[int, ...], first: int, last: int) -> None:
+    conn = connect(db)
+    series, _ = rs.series_as_of(conn, ACCOUNT)
+    rent = next(s for s in series if s.kind == "e-transfer")
+    rs.set_rent_rule(conn, ACCOUNT, rent, RentRule(amounts, first, last), date(2026, 1, 5))
+    conn.close()
+
+
+def rent_line(db: Path, capsys: pytest.CaptureFixture[str]) -> tuple[str, str]:
+    out = recover_text(db, capsys)
+    line = next(x for x in out.splitlines() if "detail: rent:" in x)
+    return out, line.strip().removeprefix("detail: ")
+
+
+def test_the_same_forward_amount_and_a_covering_window_recover_the_rule(
+    db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rent_rule_with(db, (95000,), 1, 4)  # the proposal also allows the older 90000: one extra
+    out, line = rent_line(db, capsys)
+    assert "rent: yes 1, no 0 -> ok" in out
+    assert line == (
+        "rent: forward amount same yes; allowed amounts missing 0, extra 1; "
+        "payment days covered 10 of 10"
+    )
+
+
+def test_an_extra_old_amount_in_my_rule_is_reported_and_does_not_veto(
+    db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rent_rule_with(db, (80000, 95000), 1, 4)  # an old amount the proposal does not have
+    out, line = rent_line(db, capsys)
+    assert "rent: yes 1, no 0 -> ok" in out
+    assert line.startswith("rent: forward amount same yes; allowed amounts missing 1, extra 1;")
+
+
+def test_a_different_forward_amount_vetoes(db: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    rent_rule_with(db, (90000, 99000), 1, 4)  # the larger amount is not 95000
+    out, line = rent_line(db, capsys)
+    assert "rent: yes 0, no 1 -> VETO" in out and "why not (1): forward_amount_differs" in out
+    assert line.startswith("rent: forward amount same no;")
+
+
+def test_a_window_that_misses_payment_days_inside_my_window_vetoes(
+    db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rent_rule_with(
+        db, (95000,), 1, 31
+    )  # every payment day is inside mine; the proposal's is 1 to 4
+    out, line = rent_line(db, capsys)
+    assert "rent: yes 0, no 1 -> VETO" in out and "why not (1): window_misses_payment_days" in out
+    assert line.endswith("payment days covered 10 of 12")  # the 30th and the 31st are missed
+
+
+def test_a_narrower_window_of_mine_that_the_proposal_covers_does_not_veto(
+    db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rent_rule_with(db, (95000,), 1, 3)  # the proposal's window is wider: reported, not a veto
+    out, line = rent_line(db, capsys)
+    assert "rent: yes 1, no 0 -> ok" in out and "payment days covered 9 of 9" in line
+
+
+def test_the_rent_detail_line_is_counts_only(db: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    rent_rule_with(db, (80000, 95000), 1, 4)
+    out, line = rent_line(db, capsys)
+    assert re.fullmatch(
+        r"rent: forward amount same (yes|no); allowed amounts missing \d+, extra \d+; "
+        r"payment days covered \d+ of \d+",
+        line,
+    )
+    for leak in ("80000", "95000", "900", "950", "2025", "2026"):
+        assert leak not in without_note(out)

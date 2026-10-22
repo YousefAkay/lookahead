@@ -10,8 +10,10 @@ It opens the database read-only, works on an in-memory copy, removes my hand ent
 run today (rows to the data's last day, every other decision of mine still in force), and counts for
 each kind whether a proposal would have given the same thing. An entry is found by the payments it
 rests on, not by its id (a migrated link can name one id on both sides):
-- rent: a rent proposal on the same payments with the same allowed amounts and a window that covers
-  at least 80 percent of the days of mine;
+- rent (DECISIONS.md, 2026-10-22): a rent proposal on the same payments whose larger allowed
+  amount is the one my rule uses, and whose window covers every day of my past rent payments
+  that falls inside my rule's window; missing or extra older amounts and a wider or narrower
+  window are only reported;
 - link: a link proposal that rests on at least 80 percent of the same payments;
 - hand-added: a "possible subscription" proposal with the same name, or a series that detection
   finds on its own from at least 80 percent of the same payments.
@@ -25,6 +27,7 @@ import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Collection
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -58,19 +61,61 @@ def _window_days(rule: RentRule) -> set[int]:
     return set(days)
 
 
-def rent_recovered(mine: RentRule, proposal: SettingProposal) -> bool:
-    return rent_gap(mine, proposal) is None
+@dataclass(frozen=True)
+class RentComparison:
+    """How a rent proposal compares with my rent rule (counts and yes/no only)."""
+
+    forward_same: bool  # the larger allowed amount is the same
+    missing: int  # allowed amounts of mine the proposal does not have
+    extra: int  # allowed amounts the proposal has and mine does not
+    covered: int  # days of my past payments inside my window that its window covers
+    inside: int  # days of my past payments inside my window
+
+    @property
+    def recovered(self) -> bool:
+        """DECISIONS.md, 2026-10-22: (a) the same forward amount, (b) its window covers every day
+        of my past rent payments that falls inside my window. Missing or extra older amounts and
+        a wider or narrower window are reported but do not veto."""
+        return self.forward_same and self.covered == self.inside
+
+    @property
+    def reason(self) -> str | None:
+        if self.recovered:
+            return None
+        return "forward_amount_differs" if not self.forward_same else "window_misses_payment_days"
+
+    def line(self) -> str:
+        return (
+            f"rent: forward amount same {'yes' if self.forward_same else 'no'}; allowed amounts "
+            f"missing {self.missing}, extra {self.extra}; payment days covered {self.covered} "
+            f"of {self.inside}"
+        )
 
 
-def rent_gap(mine: RentRule, proposal: SettingProposal) -> str | None:
-    """None if the proposal gives my rule; else why not (a REASONS code)."""
+def compare_rent(mine: RentRule, proposal: SettingProposal, my_days: list[int]) -> RentComparison:
+    """Compare a rent proposal with my rule; `my_days` are the days of the month of my past rent
+    payments."""
     theirs = proposal.rent
-    if theirs is None or set(theirs.amounts_cents) != set(mine.amounts_cents):
-        return "amounts_not_equal"
-    wanted = _window_days(mine)
-    if len(wanted & _window_days(theirs)) < SHARE * len(wanted):
-        return "window_not_covered"
-    return None
+    if theirs is None:
+        return RentComparison(False, len(set(mine.amounts_cents)), 0, 0, 0)
+    inside = [d for d in my_days if d in _window_days(mine)]
+    return RentComparison(
+        forward_same=max(theirs.amounts_cents) == max(mine.amounts_cents),
+        missing=len(set(mine.amounts_cents) - set(theirs.amounts_cents)),
+        extra=len(set(theirs.amounts_cents) - set(mine.amounts_cents)),
+        covered=sum(d in _window_days(theirs) for d in inside),
+        inside=len(inside),
+    )
+
+
+def rent_recovered(mine: RentRule, proposal: SettingProposal, my_days: list[int]) -> bool:
+    return compare_rent(mine, proposal, my_days).recovered
+
+
+EXTRA_REASONS = {
+    "forward_amount_differs": "a proposal exists but its larger amount is not the one my rule uses",
+    "window_misses_payment_days": "a proposal exists but its window misses days of my payments",
+}
 
 
 def _latest_rent_rules(decisions: list[rs.Decision]) -> dict[str, RentRule]:
@@ -170,11 +215,16 @@ def recover_detailed(
                 note("rent", "entry_not_found")
                 continue
             near = [p for p in found if p.kind == "rent" and _overlap(p.evidence, mine.evidence)]
-            gaps = [rent_gap(rule, p) for p in near]
-            if any(g is None for g in gaps):
+            when = {inputs.fingerprint[t.row_id]: t.posted_date for t in inputs.txns}
+            my_days = [when[fp].day for fp in mine.evidence if fp in when]
+            compared = [compare_rent(rule, p, my_days) for p in near]
+            if compared:  # every comparison is reported; the best one decides
+                best = max(compared, key=lambda c: (c.recovered, c.forward_same, c.covered))
+                details["rent"].append(best.line())
+            if any(c.recovered for c in compared):
                 note("rent", None)
-            elif near:
-                note("rent", gaps[0])
+            elif compared:
+                note("rent", best.reason)
             else:
                 note("rent", rent_reason(
                     inputs.series, inputs.decisions, inputs.txns, inputs.fingerprint,
@@ -257,7 +307,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {kind}: yes {yes}, no {no} -> {verdict}")
         if args.explain:
             for code, n in sorted(reasons[kind].items()):
-                print(f"    why not ({n}): {code} - {REASONS.get(code, code)}")
+                print(
+                    f"    why not ({n}): {code} - {({**REASONS, **EXTRA_REASONS}).get(code, code)}"
+                )
             for line in details[kind]:
                 print(f"    detail: {line}")
     return 0
