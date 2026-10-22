@@ -1933,6 +1933,10 @@ My veto rerun after the bug fix still said rent **no** (`window_misses_payment_d
 - Link (yes) and hand-added (yes) pass the veto. The rent kind stays marked **"vetoed by my account"** in every report, whatever part (b) shows, and it is not adopted.
 - This is a counts-only reading of my real account; real and synthetic results stay in separate columns, and the veto remains not independent of the changes made after it.
 
+### 2026-10-22: Scoring runs in two parts, and the proposers and planter are frozen once part (b) has run
+Scoring the "Looks right" proposals has two parts, as the adopt rule of 2026-10-20 says. **Part (b)**, the precision and recall of each kind on the planted development copies, runs **now on this laptop** (one job, stopping before memory use passes 92 percent). **Part (c)**, one click against zero confirmations on the 30-day error, is heavy and runs **later on the MacBook**. **Nothing is adopted until both are done**, and the real account can still veto (rent already is: see the entry above).
+**The proposers and the planter are frozen once part (b) has run.** Part (b) runs on planter version 3 and the proposers as committed when it starts; any change to a proposer or to the planter after that is **a new variant** on the ledger (`docs/results/proposals_v2_ledger.json`), and part (b) would have to be run again for it. Part (b) is not an independent check of the changes I made after my real-account veto (they are listed on the ledger and the report says so), and its precision on planted card pairs is likely flattering (the report says that too). The report is saved under `docs/results/` with a run record.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
