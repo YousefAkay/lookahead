@@ -61,6 +61,9 @@ from lookahead.setting_proposals import SettingProposal, accept, current_proposa
 from lookahead.settings import set_safety_buffer_cents
 
 PLANTED = Path("data/backtest/planted")
+LEDGER = Path(
+    "docs/results/proposals_v2_ledger.json"
+)  # in the repo: variant names and run ids only
 KINDS = ("rent", "link", "possible")
 MIN_EVENTS, MIN_PRECISION, MIN_RECALL, LEAK_PRECISION = 20, 0.80, 0.60, 0.95
 SHARE = 0.80  # a proposal is about a planted event if this share of its payments are the event's
@@ -323,11 +326,15 @@ def record_variant(
     """Append this run to the ledger; returns how many variants are on it now (this one
     included)."""
     entries = json.loads(ledger.read_text("utf-8")) if ledger.exists() else []
-    entries.append({
-        "label": label, "kind": kind, "when": datetime.now().isoformat(timespec="seconds"),
+    now = datetime.now()
+    entry: dict[str, Any] = {
+        "label": label, "kind": kind, "when": now.isoformat(timespec="seconds"),
         "code": code_version(), "planter_version": PLANTER_VERSION, "seed": SEED,
         "sets": list(sets), "arms": arms,
-    })  # fmt: skip
+    }  # fmt: skip
+    if kind == "scored run":
+        entry["run_id"] = f"part-b-{now.strftime('%Y%m%d-%H%M%S')}"  # a synthetic run, no data
+    entries.append(entry)
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text(json.dumps(entries, indent=1), encoding="utf-8")
     return len(entries)
@@ -356,9 +363,22 @@ CARD_NOTE = (
 )
 
 
+def ledger_lines(entries: Sequence[dict[str, Any]]) -> list[str]:
+    """The variant ledger as a numbered list (names, kinds, code versions, run ids: no data)."""
+    lines = ["", "## Variant ledger (docs/results/proposals_v2_ledger.json)"]
+    for n, e in enumerate(entries, 1):
+        run = f", run {e['run_id']}" if e.get("run_id") else ""
+        lines.append(
+            f"{n}. {e['kind']}: {e['label']} (code {e['code']}, planter version "
+            f"{e['planter_version']}{run})"
+        )
+    return lines
+
+
 def report_text(
-    scores: Scores, variants: int, arms: dict[str, dict[str, Any]] | None = None
-) -> str:
+    scores: Scores, variants: int, arms: dict[str, dict[str, Any]] | None = None,
+    entries: Sequence[dict[str, Any]] | None = None,
+) -> str:  # fmt: skip
     lines = [
         "# Proposals for recurring settings: planted development personas",
         f"Personas scored: {scores.personas}. Variants tried so far: {variants}. "
@@ -400,6 +420,8 @@ def report_text(
             f"{chr(10)}Rule (c): {'holds' if not worse else 'FAILS'} "
             f"({worse} of {len(arms)} archetypes worse by more than 1%)."
         )
+    if entries:
+        lines += ledger_lines(entries)
     return chr(10).join(lines) + chr(10)
 
 
@@ -418,8 +440,10 @@ def run_score(
                 if arms:
                     z, o, _ = forecast_arms(db, days, futures)
                     zero, one = zero + z, one + o
-    variants = record_variant(ledger or planted_root / "variants.json", label, sets, arms)
-    return report_text(scores, variants, compare_arms(zero, one) if arms else None)
+    path = ledger or LEDGER
+    variants = record_variant(path, label, sets, arms)
+    entries = json.loads(path.read_text("utf-8"))
+    return report_text(scores, variants, compare_arms(zero, one) if arms else None, entries)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -436,8 +460,7 @@ def main(argv: list[str] | None = None) -> int:
     sets = {"12": ["12"], "long": ["long"], "both": ["12", "long"]}[args.set]
     start = time.time()
     if args.command == "variant":  # a change of a proposer or of the planter: counted, not scored
-        ledger = PLANTED / "variants.json"
-        print(f"variants on the ledger: {record_variant(ledger, args.label, [], False, args.kind)}")
+        print(f"variants on the ledger: {record_variant(LEDGER, args.label, [], False, args.kind)}")
         return 0
     if args.command == "quick":
         text = run_score(

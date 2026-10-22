@@ -364,18 +364,18 @@ def test_a_change_goes_on_the_variant_ledger_without_a_scored_run(tmp_path: Path
 def test_the_variant_command_adds_a_change_to_the_ledger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(pv, "PLANTED", tmp_path)
+    monkeypatch.setattr(pv, "LEDGER", tmp_path / "ledger.json")
     assert pv.main(["variant", "--label", "rent cluster"]) == 0
     assert "variants on the ledger: 1" in capsys.readouterr().out
-    assert json.loads((tmp_path / "variants.json").read_text("utf-8"))[0]["kind"] == "change"
+    assert json.loads((tmp_path / "ledger.json").read_text("utf-8"))[0]["kind"] == "change"
 
 
 def test_the_variant_command_takes_the_kind_of_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(pv, "PLANTED", tmp_path)
+    monkeypatch.setattr(pv, "LEDGER", tmp_path / "ledger.json")
     assert pv.main(["variant", "--label", "a fix", "--kind", "bug fix"]) == 0
-    assert json.loads((tmp_path / "variants.json").read_text("utf-8"))[0]["kind"] == "bug fix"
+    assert json.loads((tmp_path / "ledger.json").read_text("utf-8"))[0]["kind"] == "bug fix"
 
 
 def test_every_report_lists_the_changes_of_both_days() -> None:
@@ -387,3 +387,31 @@ def test_every_report_lists_the_changes_of_both_days() -> None:
         "rent window over every send day",
     ):
         assert word in text
+
+
+# --- the ledger lives in the repo ---
+
+
+def test_the_ledger_is_in_the_repo_is_not_ignored_and_holds_names_only() -> None:
+    import subprocess
+
+    path = ROOT / "docs" / "results" / "proposals_v2_ledger.json"
+    assert pv.LEDGER == Path("docs/results/proposals_v2_ledger.json") and path.exists()
+    ignored = subprocess.run(["git", "check-ignore", "-q", str(path)], cwd=ROOT).returncode
+    assert ignored == 1  # 1 = not ignored
+    entries = json.loads(path.read_text("utf-8"))
+    assert len(entries) >= 5
+    allowed = {"label", "kind", "when", "code", "planter_version", "seed", "sets", "arms", "run_id"}
+    assert all(set(e) <= allowed for e in entries)
+    assert [e["kind"] for e in entries[:5]] == ["change", "change", "change", "bug fix", "change"]
+
+
+def test_the_report_lists_the_ledger_and_a_scored_run_gets_a_run_id(tmp_path: Path) -> None:
+    ledger = tmp_path / "ledger.json"
+    pv.record_variant(ledger, "a change", [], False, "change")
+    pv.record_variant(ledger, "first scored run", ["12"], False)
+    entries = json.loads(ledger.read_text("utf-8"))
+    assert "run_id" not in entries[0] and entries[1]["run_id"].startswith("part-b-")
+    text = pv.report_text(pv.Scores(), 2, None, entries)
+    assert "## Variant ledger" in text and "1. change: a change" in text
+    assert "2. scored run: first scored run" in text and entries[1]["run_id"] in text
