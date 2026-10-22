@@ -1921,6 +1921,13 @@ This is prompted by my real account and the veto stays a veto: a "no" for a kind
 ### 2026-10-22: Bug fix (rent proposer), prompted by my real-account veto: the newest amount was lost after a small rise
 The spec (47cae94: "the latest sizes are the ones used going forward") was broken: amounts within 3 percent (or $5) of one another are one size, and a size was allowed only at its **median**, so after a small rise the proposal could stay on the old amount and miss the new one. A size is now allowed at its median **and at its latest amount**; the window rule (built from every payment of the rent cluster, 80 percent coverage, at most 14 days), the veto definition and everything else are unchanged. Tests on made-up data (a rise within 3 percent, a rise within $5, a rise that is a size of its own, a constant amount). Logged on the variant ledger as a bug fix.
 
+### 2026-10-22: The rent window covers every send day when it can (a variant, prompted by my real account; the veto definition is unchanged)
+My veto rerun after the bug fix still said rent **no** (`window_misses_payment_days`). The proposer's window covers only 80 percent of a cluster's send days by design, and the veto asks for every day of mine inside my window. I decided to change the proposer, not the veto:
+- **New window rule.** The window is the shortest span of days of the month that covers **all** the send days of the rent cluster, at most 14 days wide, wrapping a month end allowed. If no span of 14 days or less covers all of them, it falls back to the current rule: the shortest span covering at least 80 percent, with the same tie-breaks.
+- **The veto definition stays exactly as committed in 3590bcc** (the same forward amount; the window covers the days of my past payments inside my window; the rest only reported). Nothing else in the proposers changes.
+- **It is a variant** and goes on the variant ledger, prompted by my real account. **The veto rerun after it is not an independent check:** I chose the rule because of what that account showed, so a pass shows the change works on my case, not that it would have worked blind. The report and the veto script keep saying so.
+- A cost I accept: one late payment now stretches the window, so the window can be wider than the days I usually pay; the 14-day limit and the fallback bound that.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
