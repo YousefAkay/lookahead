@@ -376,3 +376,14 @@ def test_the_variant_command_takes_the_kind_of_entry(
     monkeypatch.setattr(pv, "PLANTED", tmp_path)
     assert pv.main(["variant", "--label", "a fix", "--kind", "bug fix"]) == 0
     assert json.loads((tmp_path / "variants.json").read_text("utf-8"))[0]["kind"] == "bug fix"
+
+
+def test_every_report_lists_the_changes_of_both_days() -> None:
+    text = pv.report_text(pv.Scores(), 5)
+    for word in (
+        "2026-10-21",
+        "2026-10-22",
+        "newest rent amount",
+        "rent window over every send day",
+    ):
+        assert word in text

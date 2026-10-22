@@ -339,9 +339,10 @@ def record_variant(
 NOT_INDEPENDENT = (
     "Not an independent check: the rent cluster rule, the 5 percent tolerance of the possible-"
     "subscription proposer and the planter additions of version 3 (noise and currency pairs) were "
-    "chosen on 2026-10-21 because of what my real-account veto run showed, so a veto rerun after "
-    "them is expected to pass and shows that the changes work on my case, not that they would "
-    "have worked blind."
+    "chosen on 2026-10-21, and the veto's rent definition, the bug fix for the newest rent amount "
+    "and the rent window over every send day on 2026-10-22, because of what my real-account veto "
+    "run showed, so a veto rerun after them is expected to pass and shows that the changes work "
+    "on my case, not that they would have worked blind."
 )
 HEADER = (
     "| kind | planted events (n) | counted for recall | excluded (not yet observable) "

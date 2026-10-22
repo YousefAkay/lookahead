@@ -37,8 +37,10 @@ from lookahead.identity import _accounts, _in_memory_copy
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key
 from lookahead.rent import RentRule
 from lookahead.setting_proposals import (
+    MAX_WINDOW_DAYS,
     REASONS,
     SettingProposal,
+    best_window,
     current_proposals,
     link_reason,
     possible_reason,
@@ -51,7 +53,9 @@ SHARE = 0.80
 KINDS = ("rent", "link", "hand-added")
 NOT_INDEPENDENT_NOTE = (
     "note: not an independent check after the changes of 2026-10-21 (rent cluster, 5 percent "
-    "tolerance, planter version 3): I chose them because of what this account showed."
+    "tolerance, planter version 3) and of 2026-10-22 (the veto's rent definition, the bug fix "
+    "for the newest rent amount, the rent window over every send day): I chose them because of "
+    "what this account showed."
 )
 
 
@@ -176,6 +180,34 @@ def _undo_link_merges(
     return lines
 
 
+def outside_best_span(days: list[int], width: int = MAX_WINDOW_DAYS) -> int:
+    """How many send days lie outside the best span of `width` days (it may wrap a month end)."""
+    best = 0
+    for start in range(1, 32):
+        inside = {(start - 1 + k) % 31 + 1 for k in range(width)}
+        best = max(best, sum(d in inside for d in days))
+    return len(days) - best
+
+
+def window_lines(
+    proposal: SettingProposal, when: dict[str, date], my_prints: Collection[str]
+) -> list[str]:
+    """Counts only: which window rule the proposal used, how many send days its rent cluster has,
+    how many of them lie outside the best 14-day span, and how many of my rule's payments are not
+    in the cluster."""
+    days = [when[fp].day for fp in proposal.evidence if fp in when]
+    rule = "all days" if best_window(days, 1.0) is not None else "80 percent fallback"
+    covered = sum(d in _window_days(proposal.rent) for d in days) if proposal.rent else 0
+    mine = set(my_prints)
+    return [
+        f"rent window: rule {rule}; cluster send days {len(days)}; outside the best "
+        f"{MAX_WINDOW_DAYS}-day span {outside_best_span(days)}; "
+        f"window covers {covered} of {len(days)}",
+        f"rent payments of my rule: {len(mine)}; not in the proposal's rent cluster: "
+        f"{len(mine - set(proposal.evidence))}",
+    ]
+
+
 def recover_detailed(
     copy: sqlite3.Connection, key: bytes | None = None
 ) -> tuple[dict[str, tuple[int, int]], dict[str, Counter[str]], dict[str, list[str]]]:
@@ -219,8 +251,12 @@ def recover_detailed(
             my_days = [when[fp].day for fp in mine.evidence if fp in when]
             compared = [compare_rent(rule, p, my_days) for p in near]
             if compared:  # every comparison is reported; the best one decides
-                best = max(compared, key=lambda c: (c.recovered, c.forward_same, c.covered))
+                pairs = list(zip(near, compared, strict=True))
+                chosen, best = max(
+                    pairs, key=lambda x: (x[1].recovered, x[1].forward_same, x[1].covered)
+                )
                 details["rent"].append(best.line())
+                details["rent"] += window_lines(chosen, when, mine.evidence)
             if any(c.recovered for c in compared):
                 note("rent", None)
             elif compared:

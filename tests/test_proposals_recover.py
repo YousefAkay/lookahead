@@ -325,7 +325,10 @@ def test_the_explanation_prints_codes_and_counts_only(
         r"(would the proposers.*|  (rent|link|hand-added): yes \d+, no \d+ -> .*"
         r"|    why not \(\d+\): [a-z_]+ - [a-z ,().:;-]+"
         r"|    detail: rent: forward amount same (yes|no); allowed amounts missing \d+, extra \d+;"
-        r" payment days covered \d+ of \d+)"
+        r" payment days covered \d+ of \d+"
+        r"|    detail: rent window: rule (all days|80 percent fallback); cluster send days \d+;"
+        r" outside the best 14-day span \d+; window covers \d+ of \d+"
+        r"|    detail: rent payments of my rule: \d+; not in the proposal's rent cluster: \d+)"
     )
     for line in without_note(out).splitlines():
         assert re.fullmatch(shape, line), line
@@ -550,3 +553,92 @@ def test_the_rent_detail_line_is_counts_only(db: Path, capsys: pytest.CaptureFix
     )
     for leak in ("80000", "95000", "900", "950", "2025", "2026"):
         assert leak not in without_note(out)
+
+
+# --- which window rule the proposal used (counts only) ---
+
+WINDOW_LINE = re.compile(
+    r"rent window: rule (all days|80 percent fallback); cluster send days (\d+); "
+    r"outside the best 14-day span (\d+); window covers (\d+) of (\d+)"
+)
+
+
+def detail_lines(db: Path, capsys: pytest.CaptureFixture[str]) -> list[str]:
+    out = recover_text(db, capsys)
+    return [x.strip().removeprefix("detail: ") for x in out.splitlines() if "detail: rent" in x]
+
+
+def test_the_window_line_says_all_days_when_a_14_day_span_covers_every_send_day(
+    db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rent_rule_with(db, (95000,), 1, 4)
+    lines = detail_lines(db, capsys)
+    match = WINDOW_LINE.fullmatch(next(x for x in lines if x.startswith("rent window")))
+    assert match is not None
+    rule, days, outside, covered, of = match.groups()
+    assert (rule, days, outside, covered, of) == ("all days", "12", "0", "12", "12")
+    assert "rent payments of my rule: 12; not in the proposal's rent cluster: 0" in lines
+
+
+def stray_day_rent(path: Path, distinct_small: bool = False) -> sqlite3.Connection:
+    """Twelve rent payments, eleven between the 30th and the 4th and one on the 18th, among small
+    e-Transfers (all of different amounts if `distinct_small`)."""
+    days = [d if i != 5 else date(2025, 6, 18) for i, d in enumerate(RENT_DAYS)]
+    rows = [etransfer(d, -(120000 if i < 8 else 125000)) for i, d in enumerate(days)]
+
+    def amount(i: int) -> int:
+        return 2500 + 100 * i if distinct_small else 2500 + 100 * (i % 5)
+
+    start = date(2025, 1, 12)
+    small = [etransfer(start + timedelta(days=5 * i), -amount(i)) for i in range(60)]
+    return import_bank_export(path, sorted(rows + small, key=lambda t: t.posted_date))
+
+
+def test_the_window_line_says_80_percent_fallback_when_no_14_day_span_fits(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = stray_day_rent(tmp_path / "t.db")
+    series, _ = rs.series_as_of(conn, ACCOUNT)
+    rent = max(series, key=lambda s: abs(s.expected_cents))
+    rs.set_rent_rule(conn, ACCOUNT, rent, RentRule((125000,), 30, 4), date(2026, 1, 5))
+    conn.close()
+    lines = detail_lines(tmp_path / "t.db", capsys)
+    match = WINDOW_LINE.fullmatch(next(x for x in lines if x.startswith("rent window")))
+    assert match is not None
+    rule, days, outside, covered, of = match.groups()
+    assert rule == "80 percent fallback" and days == of == "12" and outside == "1"
+    assert covered == "10"  # the 80 percent window (31 to 3) leaves out the 30th and the stray 18th
+
+
+def test_the_line_counts_my_rule_payments_that_are_not_in_the_rent_cluster(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A rule that also allows a small amount makes small e-Transfers count as its payments."""
+    conn = stray_day_rent(tmp_path / "t.db", distinct_small=True)
+    series, _ = rs.series_as_of(conn, ACCOUNT)
+    rent = max(series, key=lambda s: abs(s.expected_cents))
+    rs.set_rent_rule(conn, ACCOUNT, rent, RentRule((125000, 2500), 30, 4), date(2026, 1, 5))
+    conn.close()
+    lines = detail_lines(tmp_path / "t.db", capsys)
+    mine = next(x for x in lines if x.startswith("rent payments of my rule"))
+    pattern = r"rent payments of my rule: (\d+); not in the proposal's rent cluster: (\d+)"
+    found = re.fullmatch(pattern, mine)
+    assert found is not None and int(found.group(2)) > 0
+
+
+def test_the_window_lines_are_counts_only(db: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    rent_rule_with(db, (95000,), 1, 4)
+    out = recover_text(db, capsys)
+    for line in without_note(out).splitlines():
+        if "rent window" in line or "rent payments of my rule" in line:
+            assert not re.search(r"\$|\d{4}|sid\|", line.replace("14-day", ""))
+
+
+def test_the_veto_note_lists_the_changes_of_both_days(
+    db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert pr.main(["--db", str(db)]) == 0
+    note = next(x for x in capsys.readouterr().out.splitlines() if "not an independent check" in x)
+    for word in ("2026-10-21", "2026-10-22", "rent cluster", "5 percent", "planter version 3",
+                 "newest rent amount", "rent window"):  # fmt: skip
+        assert word in note
