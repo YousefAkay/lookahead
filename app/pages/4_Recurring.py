@@ -52,7 +52,7 @@ from lookahead.recurring_store import (  # noqa: E402
     set_name,
     set_rent_rule,
 )
-from lookahead.rent import RentRule, parse_dollars, rent_cents  # noqa: E402
+from lookahead.rent import RENT_FLOOR_CENTS, RentRule, parse_dollars, rent_cents  # noqa: E402
 from lookahead.setting_proposals import accept, current_proposals, describe, dismiss  # noqa: E402
 from lookahead.taxonomy import CATEGORIES  # noqa: E402
 from lookahead.ui import (  # noqa: E402
@@ -422,6 +422,12 @@ if chosen is not None:
                     )
                     save_rent = st.form_submit_button("Save rent rule")
                     clear_rent = st.form_submit_button("Remove rent rule", disabled=rule is None)
+                if rule is not None and any(a < RENT_FLOOR_CENTS for a in chosen.allowed_cents):
+                    st.warning(
+                        "An allowed amount under $100 stays in this rule, but it is not used to "
+                        "find rent among your e-Transfers (a common small amount would match "
+                        "unrelated payments). The larger amounts are the ones looked up."
+                    )
                 if save_rent:
                     try:
                         set_rent_rule(conn, account, chosen,

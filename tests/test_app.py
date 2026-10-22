@@ -1132,3 +1132,19 @@ def test_with_nothing_to_suggest_the_page_has_no_suggestions_panel(isolated: Pat
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-B").run()
     assert "Suggestions" not in page_text(at) and not suggest_buttons(at, "Looks right")
+
+
+def test_a_typed_rent_rule_with_a_small_amount_warns_and_never_crashes_the_page(
+    isolated: Path,
+) -> None:
+    at = run(RECURRING)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    open_series(at, "Netflix")
+    key = at.session_state["series"]
+    button(at, "Confirm").click().run()
+    field = next(t for t in at.text_input if t.key == f"rent_amounts|{key}")
+    field.set_value("15.49, 1250.00").run()  # a small amount that many payments of mine match
+    button(at, "Save rent rule").click().run()
+    assert not at.exception, at.exception
+    warnings = [str(w.value) for w in at.warning]
+    assert any("under $100" in w and "not used to find rent" in w for w in warnings)

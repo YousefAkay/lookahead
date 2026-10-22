@@ -23,6 +23,10 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
+RENT_FLOOR_CENTS = (
+    10_000  # $100: an allowed amount under it is not used to find rent among e-Transfers
+)
+
 
 @dataclass(frozen=True)
 class RentRule:
@@ -133,7 +137,13 @@ def next_window_day(rule: RentRule, as_of: date, paid_cycles: Collection[date]) 
         start, end = window(rule, as_of.year, as_of.month + back)
         if end >= as_of and start not in paid_cycles:
             return max(start, as_of)
-    raise ValueError("no window found")  # a window always ends within a month of its start
+    # Every cycle in reach looks paid (more payments than months were matched to the rule): never
+    # raise, a typed rule must not break the page. Take the first window that has not ended.
+    for back in (-1, 0, 1, 2):
+        start, end = window(rule, as_of.year, as_of.month + back)
+        if end >= as_of:
+            return max(start, as_of)
+    return as_of  # unreachable: a window always ends within a month of its start
 
 
 def _key(rule: RentRule, day: date, start: date) -> int:

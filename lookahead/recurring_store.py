@@ -35,7 +35,7 @@ from datetime import date, timedelta
 
 from lookahead.flows import Flow, Txn, flow_types
 from lookahead.recurring import CADENCES, Series, detect, expected_dates
-from lookahead.rent import RentRule, assign_cycles, next_window_day, rent_cents
+from lookahead.rent import RENT_FLOOR_CENTS, RentRule, assign_cycles, next_window_day, rent_cents
 from lookahead.resolve import UserDecisions, load_user_decisions
 from lookahead.series_identity import Habit, assign_ids, folds, head_of, is_id, successors
 from lookahead.taxonomy import CATEGORIES
@@ -46,8 +46,9 @@ from lookahead.taxonomy import CATEGORIES
 LOGIC_VERSION = 3
 # Bump when how decisions are replayed changes what a saved series or Time Machine step holds
 # (not the backtest records: with no decisions the series are unchanged). 4: stable ids;
-# 5: a series with a rent rule is active unless I ended it.
-REPLAY_VERSION = 5
+# 5: a series with a rent rule is active unless I ended it; 6: a rent rule's amounts under $100 are
+# not used to find e-Transfers (and the next window is always found).
+REPLAY_VERSION = 6
 ACTIONS = ("confirm", "reject", "end", "edit", "add", "category", "continue", "rent", "rename")
 STATUSES = ("detected", "confirmed", "user-added", "rejected")
 
@@ -527,10 +528,13 @@ def _with_rent_rule(
     only places the next payment). Each payment is given its own rent cycle."""
     posted = {fingerprint[t.row_id]: t.posted_date for t in txns}
     paid = {fp: posted[fp] for fp in s.evidence if fp in posted}
+    # An allowed amount under the rent floor is kept in the rule (and on the page) but is not used
+    # to find e-Transfers: a common small amount would match dozens of unrelated payments.
+    findable = {a for a in rule.amounts_cents if a >= RENT_FLOOR_CENTS}
     for t in txns:
         if (
             t.posted_date <= as_of
-            and -t.amount_cents in rule.amounts_cents
+            and -t.amount_cents in findable
             and flows[t.row_id].reason == "outgoing e-Transfer"
             and not flows[t.row_id].netted
         ):  # fmt: skip
