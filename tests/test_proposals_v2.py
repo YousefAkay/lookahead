@@ -368,3 +368,11 @@ def test_the_variant_command_adds_a_change_to_the_ledger(
     assert pv.main(["variant", "--label", "rent cluster"]) == 0
     assert "variants on the ledger: 1" in capsys.readouterr().out
     assert json.loads((tmp_path / "variants.json").read_text("utf-8"))[0]["kind"] == "change"
+
+
+def test_the_variant_command_takes_the_kind_of_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(pv, "PLANTED", tmp_path)
+    assert pv.main(["variant", "--label", "a fix", "--kind", "bug fix"]) == 0
+    assert json.loads((tmp_path / "variants.json").read_text("utf-8"))[0]["kind"] == "bug fix"

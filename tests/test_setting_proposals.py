@@ -614,3 +614,46 @@ def test_rent_that_rose_ten_percent_stays_one_cluster_among_noise() -> None:
     txns = mixed_group(rent, small_transfers(50))
     (p,), _ = proposals_for(txns)
     assert p.rent is not None and p.rent.amounts_cents == (100000, 110000)
+
+
+# --- the latest amount is used going forward, even right after a small rise ---
+
+
+def monthly_rent_dates(count: int) -> list[date]:
+    days = [2, 3, 1, 4, 2, 3, 3, 2, 4, 1]
+    return [
+        date(2025 + (m - 1) // 12, (m - 1) % 12 + 1, days[m % len(days)])
+        for m in range(1, count + 1)
+    ]
+
+
+def rent_then_rise(old_count: int, new_count: int, old: int, new: int) -> list[tuple[date, int]]:
+    dates = monthly_rent_dates(old_count + new_count)
+    return [(d, old if i < old_count else new) for i, d in enumerate(dates)]
+
+
+@pytest.mark.parametrize("new", [122000, 120300])
+def test_a_small_rise_after_a_long_run_at_the_old_amount_is_used_going_forward(new: int) -> None:
+    """Eleven payments at the old amount, then three at a slightly higher one, among many small
+    unnamed e-Transfers: the proposal must allow the new amount and the larger allowed amount (the
+    one the forecast uses) must be the new one. 122000 is within 3 percent of 120000 and 120300 is
+    within $5 of it: both fall in the old amount's size group."""
+    rent = rent_then_rise(11, 3, 120000, new)
+    txns = mixed_group(rent, small_transfers(130))
+    (p,), _ = proposals_for(txns)
+    assert p.rent is not None
+    assert new in p.rent.amounts_cents and max(p.rent.amounts_cents) == new
+    assert 120000 in p.rent.amounts_cents  # the older amount stays allowed: it was rent too
+    assert len(p.evidence) == 14
+
+
+def test_a_rise_that_is_a_size_of_its_own_is_kept_even_with_few_payments() -> None:
+    rent = rent_then_rise(11, 2, 120000, 130000)  # more than 3 percent: its own size
+    (p,), _ = proposals_for(mixed_group(rent, small_transfers(120)))
+    assert p.rent is not None and p.rent.amounts_cents == (120000, 130000)
+
+
+def test_one_amount_all_along_stays_one_allowed_amount() -> None:
+    rent = rent_then_rise(14, 0, 120000, 120000)
+    (p,), _ = proposals_for(mixed_group(rent, small_transfers(130)))
+    assert p.rent is not None and p.rent.amounts_cents == (120000,)

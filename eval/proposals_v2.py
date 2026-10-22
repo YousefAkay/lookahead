@@ -426,6 +426,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=["quick", "score", "variant"])
     parser.add_argument("--label", default="spec as written")
     parser.add_argument("--set", choices=["12", "long", "both"], default="both")
+    parser.add_argument(
+        "--kind", default="change", help="variant: what kind of entry (change, bug fix)"
+    )
     parser.add_argument("--arms", action="store_true", help="also the forecast arms (heavy)")
     parser.add_argument("--work", type=Path, default=Path("data/backtest/planted-work"))
     args = parser.parse_args(argv)
@@ -433,7 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     start = time.time()
     if args.command == "variant":  # a change of a proposer or of the planter: counted, not scored
         ledger = PLANTED / "variants.json"
-        print(f"variants on the ledger: {record_variant(ledger, args.label, [], False, 'change')}")
+        print(f"variants on the ledger: {record_variant(ledger, args.label, [], False, args.kind)}")
         return 0
     if args.command == "quick":
         text = run_score(

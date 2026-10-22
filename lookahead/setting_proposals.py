@@ -150,13 +150,18 @@ def _size_clusters(amounts: Sequence[int]) -> list[list[int]]:
 
 def _sizes_going_forward(payments: Sequence[tuple[date, int]]) -> list[int]:
     """The sizes of the latest payments: a size that no longer appears among the last
-    RECENT_PAYMENTS is dropped (the latest amount is the one used going forward)."""
-    clusters = _size_clusters([a for _, a in payments])
-    recent = sorted(payments)[-RECENT_PAYMENTS:]
-    sizes = []
-    for cluster in clusters:
-        if any(lo <= a <= hi for _, a in recent for lo, hi in [(min(cluster), max(cluster))]):
-            sizes.append(int(median(cluster)))
+    RECENT_PAYMENTS is dropped (the latest amount is the one used going forward). A size is
+    one group of amounts within 3 percent (or $5) of one another; it is allowed at its median (what
+    the history was paid at) **and at its latest amount**, so a small rise inside the group, right
+    after the rise, when the new amount has few payments, is not lost."""
+    ordered = sorted(payments)
+    recent = ordered[-RECENT_PAYMENTS:]
+    sizes: set[int] = set()
+    for cluster in _size_clusters([a for _, a in payments]):
+        low, high = min(cluster), max(cluster)
+        if any(low <= a <= high for _, a in recent):
+            sizes.add(int(median(cluster)))
+            sizes.add([a for _, a in ordered if low <= a <= high][-1])  # the latest amount
     return sorted(sizes)
 
 

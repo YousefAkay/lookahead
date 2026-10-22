@@ -1918,6 +1918,9 @@ After the three changes of 2026-10-21 my veto rerun said rent **no, amounts_not_
 Missing or extra older allowed amounts, and a wider or narrower window, are **reported but do not veto**. `--explain` prints counts only for rent: forward amount same (yes or no), allowed amounts missing and extra, payment days covered (N of M).
 This is prompted by my real account and the veto stays a veto: a "no" for a kind still stops that kind. The proposers are not changed, so this is not a proposer variant; it changes what the veto asks, and a veto rerun under the new definition is still not an independent check (the definition was chosen after the old one failed on my account).
 
+### 2026-10-22: Bug fix (rent proposer), prompted by my real-account veto: the newest amount was lost after a small rise
+The spec (47cae94: "the latest sizes are the ones used going forward") was broken: amounts within 3 percent (or $5) of one another are one size, and a size was allowed only at its **median**, so after a small rise the proposal could stay on the old amount and miss the new one. A size is now allowed at its median **and at its latest amount**; the window rule (built from every payment of the rent cluster, 80 percent coverage, at most 14 days), the veto definition and everything else are unchanged. Tests on made-up data (a rise within 3 percent, a rise within $5, a rise that is a size of its own, a constant amount). Logged on the variant ledger as a bug fix.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
