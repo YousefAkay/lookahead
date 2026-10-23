@@ -227,11 +227,12 @@ CREATE TABLE IF NOT EXISTS alert_events (
 -- Recurring alerts (week 5, item 3). The same shape as the shortfall alert, in its own tables:
 -- an episode is one alert about one series (by stable id) and one kind; every look that changes
 -- its numbers adds an event, `notified` says whether it was worth telling me. An event is never
--- edited; an episode only to close or dismiss it. `recurring_alert_state` holds only the data end
--- date of the last look (the earlier series are recomputed as of that date).
+-- edited; an episode only to close or dismiss it. `recurring_alert_state` holds what the last
+-- look saw: its data end date and a JSON map of each series' stable id to whether it was active.
 CREATE TABLE IF NOT EXISTS recurring_alert_state (
     account   TEXT PRIMARY KEY,
-    last_look TEXT NOT NULL
+    last_look TEXT NOT NULL,
+    series    TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS recurring_alert_episodes (
     episode_id   INTEGER PRIMARY KEY,

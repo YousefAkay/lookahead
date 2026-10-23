@@ -19,8 +19,9 @@ told. "New" and "stopped" never speak again after a dismissal: confirming, rejec
 payment resolves them. The constants are provisional, picked to be noticeable and not measured.
 
 Rule zero: a look at data date D uses rows posted on or before D and decisions as the series
-passed in were built. The previous look is not stored beyond its data end date: the earlier series
-are recomputed with `series_as_of` at that date and compared by stable id.
+passed in were built. What the previous look saw is stored as its data end date and a small map
+from each series' stable id to whether it was active (the first plan recomputed the earlier series
+with `series_as_of` instead, but that took 4.5 s on a 24-month made-up account: DECISIONS).
 """
 
 import json
@@ -30,7 +31,7 @@ from datetime import date
 from typing import Any
 
 from lookahead.recurring import LOOSE_TOLERANCE, TOLERANCE, business_days_apart, expected_dates
-from lookahead.recurring_store import Decision, Stored, load_decisions, series_as_of
+from lookahead.recurring_store import Decision, Stored, load_decisions
 from lookahead.rent import RentRule, assign_cycles, window
 
 PROVISIONAL = "provisional, not yet validated"
@@ -110,11 +111,12 @@ def rent_cycles_overdue(rule: RentRule, paid: list[date], data_date: date) -> li
 
 def conditions(
     conn: sqlite3.Connection, account: str, series: list[Stored], data_date: date,
-    before: dict[str, Stored] | None = None, before_date: date | None = None,
+    before: dict[str, bool] | None = None, before_date: date | None = None,
 ) -> list[Condition]:  # fmt: skip
-    """Every alert condition true for these series on `data_date`. `before` is the series at the
-    last look (by stable id), `before_date` its data date: stopped and new need a change since
-    then, so with no earlier look they cannot start (the first look sets the baseline)."""
+    """Every alert condition true for these series on `data_date`. `before` says which series
+    (by stable id) the last look saw and whether each was active, `before_date` is its data date.
+    Stopped and new need a change since then, so with no earlier look they cannot start (the first
+    look sets the baseline)."""
     decisions = load_decisions(conn, account)
     out: list[Condition] = []
     for s in series:
@@ -132,7 +134,7 @@ def conditions(
                 if changed is not None:
                     out.append(Condition(sid, "amount", 1, changed["latest_cents"], True, changed))
             if not s.active and not rent:
-                was_active = before is not None and (b := before.get(sid)) is not None and b.active
+                was_active = before is not None and before.get(sid) is True
                 last = pays[-1][0].isoformat() if pays else None
                 out.append(Condition(sid, "stopped", 1, None, was_active, _base(s, last_paid=last)))
         elif s.status == "detected" and s.active:
@@ -229,11 +231,11 @@ def _amount(s: Stored, pays: list[tuple[date, int, str]]) -> dict[str, Any] | No
 # --- The stored episodes ---
 
 
-def record_look(
-    conn: sqlite3.Connection, account: str, series: list[Stored], key: bytes | None = None
-) -> list[LookResult]:
+def record_look(conn: sqlite3.Connection, account: str, series: list[Stored]) -> list[LookResult]:
     """Look at these series (as of the account's last posting date) and keep the episode record
-    up to date. Looking again at numbers already recorded adds nothing. Returns what changed."""
+    up to date. Looking again at numbers already recorded adds nothing. Returns what changed.
+    The stored baseline (which series the last look saw, and whether each was active) only moves
+    forward when the data date does."""
     row = conn.execute(
         "SELECT MAX(posted_date) FROM transactions WHERE account = ?", (account,)
     ).fetchone()
@@ -241,21 +243,22 @@ def record_look(
         return []
     data_date = date.fromisoformat(row[0])
     saved = conn.execute(
-        "SELECT last_look FROM recurring_alert_state WHERE account = ?", (account,)
+        "SELECT last_look, series FROM recurring_alert_state WHERE account = ?", (account,)
     ).fetchone()
-    before: dict[str, Stored] | None = None
+    before: dict[str, bool] | None = None
     before_date: date | None = None
-    if saved is not None and date.fromisoformat(saved[0]) < data_date:
-        before_date = date.fromisoformat(saved[0])
-        earlier, _ = series_as_of(conn, account, before_date, key)
-        before = {s.id or s.key: s for s in earlier}
+    if saved is not None:
+        before_date, before = date.fromisoformat(saved[0]), json.loads(saved[1])
     found = conditions(conn, account, series, data_date, before, before_date)
     results = _reconcile(conn, account, found, data_date)
-    with conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO recurring_alert_state (account, last_look) VALUES (?, ?)",
-            (account, data_date.isoformat()),
-        )
+    if saved is None or before_date != data_date:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO recurring_alert_state (account, last_look, series)"
+                " VALUES (?, ?, ?)",
+                (account, data_date.isoformat(),
+                 json.dumps({s.id or s.key: s.active for s in series})),
+            )  # fmt: skip
     return results
 
 
