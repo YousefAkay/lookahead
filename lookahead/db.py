@@ -224,6 +224,36 @@ CREATE TABLE IF NOT EXISTS alert_events (
     reason              TEXT    NOT NULL,
     evidence            TEXT    NOT NULL  -- JSON
 );
+-- Recurring alerts (week 5, item 3). The same shape as the shortfall alert, in its own tables:
+-- an episode is one alert about one series (by stable id) and one kind; every look that changes
+-- its numbers adds an event, `notified` says whether it was worth telling me. An event is never
+-- edited; an episode only to close or dismiss it. `recurring_alert_state` holds only the data end
+-- date of the last look (the earlier series are recomputed as of that date).
+CREATE TABLE IF NOT EXISTS recurring_alert_state (
+    account   TEXT PRIMARY KEY,
+    last_look TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS recurring_alert_episodes (
+    episode_id   INTEGER PRIMARY KEY,
+    account      TEXT    NOT NULL,
+    series_id    TEXT    NOT NULL,
+    kind         TEXT    NOT NULL CHECK (kind IN ('not_seen', 'amount', 'stopped', 'new')),
+    opened_on    TEXT    NOT NULL,  -- the data date of the first look
+    last_seen_on TEXT    NOT NULL,
+    closed_on    TEXT,
+    dismissed_on TEXT
+);
+CREATE TABLE IF NOT EXISTS recurring_alert_events (
+    event_id     INTEGER PRIMARY KEY,
+    episode_id   INTEGER NOT NULL,
+    account      TEXT    NOT NULL,
+    data_date    TEXT    NOT NULL,
+    level        INTEGER NOT NULL,  -- not seen: due dates passed unpaid; otherwise 1
+    amount_cents INTEGER,           -- amount: the latest payment's size (positive)
+    notified     INTEGER NOT NULL,
+    reason       TEXT    NOT NULL,
+    evidence     TEXT    NOT NULL   -- JSON
+);
 CREATE TABLE IF NOT EXISTS categorizer_runs (
     run_id        INTEGER PRIMARY KEY,
     account       TEXT    NOT NULL,
