@@ -446,6 +446,34 @@ def message(ep: AlertEpisode, label: str) -> str:
     )
 
 
+def evidence_lines(ep: AlertEpisode) -> list[str]:
+    """What stands behind an alert, as plain lines: dates and amounts from the episode's latest
+    look. No names (the label is the page's business)."""
+    ev = ep.evidence
+    last = f"Last payment seen: {_day(ev['last_paid'])}." if ev.get("last_paid") else ""
+    lines = [f"Data ends {ep.last_seen_on:%b} {ep.last_seen_on.day}."]
+    if ep.kind == "not_seen":
+        due = ", ".join(_day(d) for d in ev.get("due", []))
+        lines += [
+            last,
+            f"Expected by: {due}." if ev.get("rent") is False else f"Windows ended: {due}.",
+            f"A payment counts as late after {GRACE_DAYS} business days past its date.",
+        ]
+    elif ep.kind == "amount":
+        low, high = sorted(abs(int(c)) for c in ev.get("range_cents", [0, 0]))
+        lines += [
+            f"Latest payment: {_money(ep.amount_cents or 0)} on {_day(ev['latest_day'])}.",
+            f"The series expects about {_money(abs(int(ev.get('expected_cents', 0))))}"
+            f" (usually {_money(low)} to {_money(high)}); before it was {_money(ev['was_cents'])}.",
+            f"Shown when it differs by at least {MATERIAL_SHARE:.0%} and {_money(MATERIAL_CENTS)}.",
+        ]
+    elif ep.kind == "stopped":
+        lines += [last, "Two expected payments in a row have not been seen."]
+    else:
+        lines += [last, "Found by the detector; you have not decided about it yet."]
+    return [line for line in lines if line]
+
+
 def _money(cents: int) -> str:
     return f"${cents // 100:,}" if cents % 100 == 0 else f"${cents / 100:,.2f}"
 
@@ -457,6 +485,7 @@ def _day(iso: str) -> str:
 
 __all__ = [
     "GRACE_DAYS", "KINDS", "MATERIAL_CENTS", "MATERIAL_SHARE", "PROVISIONAL", "AlertEpisode",
-    "Condition", "LookResult", "conditions", "dismiss", "episodes", "material", "message",
+    "Condition", "LookResult", "conditions", "dismiss", "episodes", "evidence_lines", "material",
+    "message",
     "open_alerts", "record_look", "rent_cycles_overdue", "restore",
 ]  # fmt: skip

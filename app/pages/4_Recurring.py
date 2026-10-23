@@ -37,6 +37,15 @@ from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring import CADENCES  # noqa: E402
+from lookahead.recurring_alerts import (  # noqa: E402
+    PROVISIONAL,
+    dismiss,
+    episodes,
+    evidence_lines,
+    message,
+    record_look,
+    restore,
+)
 from lookahead.recurring_store import (  # noqa: E402
     add_series,
     confirm,
@@ -105,6 +114,7 @@ if st.sidebar.button("Detect again", help="Run the detection on the stored trans
     refresh(conn, account, stored_key)
     st.rerun()
 series = ensure_current(conn, account, stored_key)  # rebuilt first if older code or data
+record_look(conn, account, series)  # the alerts follow the data date: looking again adds nothing
 show_rejected = st.sidebar.toggle("Show the ones I rejected", value=False)
 
 rows = transactions(conn, account)
@@ -153,6 +163,39 @@ if last_date is not None and any(last_date < s.next_expected < date.today() for 
         "payment due since then that has not been seen yet; it may already have posted.</p>",
         unsafe_allow_html=True,
     )
+
+# --- Needs a look: expected payment not seen yet, amount looks different, may have stopped ---
+by_id = {(s.id or s.key): s for s in series}
+mine = [e for e in episodes(conn, account) if e.closed_on is None and e.series_id in by_id]
+shown, quiet = [e for e in mine if e.dismissed_on is None], [e for e in mine if e.dismissed_on]
+if shown or quiet:
+    with st.container(border=True, key="card-needs-a-look"):
+        st.markdown(
+            f'<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">'
+            f"<h2>Needs a look</h2>{tag_html(PROVISIONAL, 'neutral')}</div>"
+            '<p class="la-note">These are possibilities from past payments, not findings. '
+            "Dismissing one keeps it quiet unless it gets worse.</p>",
+            unsafe_allow_html=True,
+        )
+        for e in shown:
+            who = by_id[e.series_id]
+            sentence = message(e, series_label(who, who.key in hidden))
+            st.markdown(f'<p style="margin: 0">{html.escape(sentence)}</p>', unsafe_allow_html=True)
+            with st.expander("Evidence"):
+                for line in evidence_lines(e):
+                    st.caption(line)
+            if st.button("Dismiss", key=f"dismiss_alert|{e.episode_id}"):
+                dismiss(conn, account, e.episode_id)
+                st.rerun()
+        if quiet:
+            with st.expander(f"Dismissed ({len(quiet)})"):
+                for e in quiet:
+                    who = by_id[e.series_id]
+                    sentence = message(e, series_label(who, who.key in hidden))
+                    st.markdown(html.escape(sentence))
+                    if st.button("Bring back", key=f"restore_alert|{e.episode_id}"):
+                        restore(conn, account, e.episode_id)
+                        st.rerun()
 
 # --- The cards ---
 by_key = {s.key: s for s in listed}

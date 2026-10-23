@@ -21,6 +21,7 @@ from lookahead.recurring_alerts import (
     conditions,
     dismiss,
     episodes,
+    evidence_lines,
     message,
     open_alerts,
     record_look,
@@ -435,3 +436,21 @@ def test_the_module_imports_neither_the_forecaster_nor_the_proposers() -> None:
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                          cwd=Path(__file__).resolve().parents[1], check=True)  # fmt: skip
     assert out.stdout.strip() == ""
+
+
+def test_evidence_lines_are_plain_and_name_nobody(conn: sqlite3.Connection) -> None:
+    confirm_both(conn)
+    look(conn)
+    two_streaming_payments(conn)
+    bill(conn, "Streaming Co", 20, range(7, 8), -1299)
+    bill(conn, "Gym Club", 5, range(7, 9), -5500)
+    buy(conn, date(2026, 8, 22))
+    look(conn)
+    seen = {e.kind: evidence_lines(e) for e in episodes(conn, ACCOUNT)}
+    assert {"stopped", "new", "amount"} <= set(seen)
+    for lines in seen.values():
+        assert lines and lines[0].startswith("Data ends")
+        text = " ".join(lines)
+        assert "Phone" not in text and "Gym" not in text and "Streaming" not in text
+        assert not any(w in text.lower() for w in ("missed", "fraud", "guarantee"))
+    assert any("Latest payment: $55" in line for line in seen["amount"])
