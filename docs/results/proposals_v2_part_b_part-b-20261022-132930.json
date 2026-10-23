@@ -1,0 +1,79 @@
+{
+ "run_id": "part-b-20261022-132930",
+ "planter_version": 3,
+ "seed": 2026,
+ "code": "0b3a225",
+ "origins": 40,
+ "seconds": 2340.1356580257416,
+ "peak_memory_percent": 92,
+ "memory_limit_percent": 95,
+ "label": "spec as written",
+ "sets": [
+  "12",
+  "long"
+ ],
+ "personas": {
+  "12": 20,
+  "long": 20
+ },
+ "kinds": {
+  "rent": {
+   "shown": 25,
+   "matched": 11,
+   "events": 30,
+   "observable": 30,
+   "recovered": 13
+  },
+  "link": {
+   "shown": 24,
+   "matched": 24,
+   "events": 24,
+   "observable": 24,
+   "recovered": 24
+  },
+  "possible": {
+   "shown": 188,
+   "matched": 56,
+   "events": 56,
+   "observable": 56,
+   "recovered": 56
+  }
+ },
+ "groups": {
+  "link: rename": {
+   "shown": 0,
+   "matched": 24,
+   "events": 24,
+   "observable": 24,
+   "recovered": 24
+  },
+  "possible: plain pairs": {
+   "shown": 0,
+   "matched": 53,
+   "events": 35,
+   "observable": 35,
+   "recovered": 35
+  },
+  "possible: currency pairs": {
+   "shown": 0,
+   "matched": 3,
+   "events": 21,
+   "observable": 21,
+   "recovered": 21
+  },
+  "rent: increase below 15%": {
+   "shown": 0,
+   "matched": 9,
+   "events": 13,
+   "observable": 13,
+   "recovered": 7
+  },
+  "rent: late payments": {
+   "shown": 0,
+   "matched": 2,
+   "events": 17,
+   "observable": 17,
+   "recovered": 6
+  }
+ }
+}

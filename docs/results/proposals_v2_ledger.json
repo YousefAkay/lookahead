@@ -48,5 +48,19 @@
   "seed": 2026,
   "sets": [],
   "arms": false
+ },
+ {
+  "label": "part (b), first scored run: paused at zero personas by the 92 percent memory line, then run to completion with --memory-limit 95; planter version 3, proposers as committed at e1a4726, run executed on code 0b3a225 (the --memory-limit change only)",
+  "kind": "scored run",
+  "when": "2026-10-22T13:29:30",
+  "code": "e1a4726",
+  "planter_version": 3,
+  "seed": 2026,
+  "sets": [
+   "12",
+   "long"
+  ],
+  "arms": false,
+  "run_id": "part-b-20261022-132930"
  }
 ]
