@@ -1940,6 +1940,12 @@ Scoring the "Looks right" proposals has two parts, as the adopt rule of 2026-10-
 ### 2026-10-23: Memory stop line for part (b) raised from 92 to 95 percent (an operating setting)
 I raised the memory stop line from 92% to 95% because this 8 GB laptop sits at 91 to 93% with only VS Code and one browser tab open, and the first resume stopped at 93% before scoring a persona. It is an operating setting only: it changes nothing about the proposers, the planter, the rule or what is scored, and each persona is saved as it finishes, so a stop at the new line still loses nothing.
 
+### 2026-10-23: Part (b) result: fails as written for rent and possible; link is pending the leakage check; nothing is adopted
+Part (b) ran on the 40 planted development personas (run part-b-20261022-132930, planter version 3, proposers as at e1a4726, both sets together, report and run record in `docs/results/`). **Rent fails** (precision 44 percent, recall 43 percent) and **possible subscription fails** (precision 30 percent; recall 100 percent). **Link** has 24 of 24 on both precision and recall, which is above the 95 percent flag, so **it stays pending the leakage check of rule (e)**. **Rent is also vetoed by my account** (the entry of 2026-10-22), whatever (b) shows.
+- **The scorer has two limits that I have now seen in the results.** (1) A real recurring series that the planter did not plant counts as wrong: all 132 unmatched possible proposals are such series (with three or more payments in the full history), most of them caught in the first weeks of the 12-month set. (2) Each rent proposal is scored only on the first version it had, because its key stays the same while its rule changes, and it is judged against the event's final state. These limits explain a large part of the gaps between the two sets (possible precision 18 versus 71 percent; rent recall 67 versus 20 percent). They are not a finding that the proposers are fine.
+- **I am not rescoring now.** Any corrected scorer would be **a new counted variant, defined and committed before it runs**, on the ledger like the others. Nothing here changes the proposers, the planter, the rule or the scorer.
+- **Nothing is adopted.** Part (c) has not been run, and adoption needs (b) and (c) both.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
