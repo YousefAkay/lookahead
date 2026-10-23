@@ -540,6 +540,40 @@ def test_the_command_exits_3_with_the_run_id_when_memory_is_too_high(
     assert code == 3 and "STOPPED for memory" in out and "--resume part-b-" in out
 
 
+def test_a_reading_of_93_stops_at_the_default_limit_but_not_at_95_and_the_message_names_the_limit(
+    planted_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pv, "memory_load", lambda: 93)
+    for name in "abc":
+        (tmp_path / name).mkdir()
+    with pytest.raises(pv.MemoryStop) as stop:
+        part_b(planted_root, tmp_path / "a")
+    assert pv.MEMORY_LIMIT == 92 and "93% is above 92%" in str(stop.value)
+    with pytest.raises(pv.MemoryStop) as raised:
+        part_b(planted_root, tmp_path / "b", memory_limit=90)
+    assert "93% is above 90%" in str(raised.value)  # the message reports the limit used
+    part_b(planted_root, tmp_path / "c", memory_limit=95, save_dir=tmp_path / "docs")  # no stop
+    md = next((tmp_path / "docs").glob("proposals_v2_part_b_*.md"))
+    record = json.loads(md.with_suffix(".json").read_text("utf-8"))
+    assert record["memory_limit_percent"] == 95 and record["peak_memory_percent"] == 93
+
+
+def test_the_command_passes_its_memory_limit_to_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake(*args: object, **kwargs: object) -> str:
+        seen.update(kwargs)
+        return "report"
+
+    monkeypatch.setattr(pv, "run_part_b", fake)
+    assert pv.main(["part-b", "--memory-limit", "95", "--work", str(tmp_path)]) == 0
+    assert seen["memory_limit"] == 95
+    pv.main(["part-b", "--work", str(tmp_path)])
+    assert seen["memory_limit"] == 92  # the default
+
+
 def test_the_run_is_saved_as_a_report_and_a_run_record_without_data(
     planted_root: Path, tmp_path: Path
 ) -> None:

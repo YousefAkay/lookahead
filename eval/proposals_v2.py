@@ -514,8 +514,8 @@ VETO = (
 class MemoryStop(Exception):
     """Memory use went above the stop line: the run saved what it had and stopped."""
 
-    def __init__(self, run_id: str, load: int) -> None:
-        super().__init__(f"memory {load}% is above {MEMORY_LIMIT}%: rerun with --resume {run_id}")
+    def __init__(self, run_id: str, load: int, limit: int = MEMORY_LIMIT) -> None:
+        super().__init__(f"memory {load}% is above {limit}%: rerun with --resume {run_id}")
         self.run_id = run_id
 
 
@@ -672,7 +672,7 @@ def run_part_b(
             load = memory_load()
             peak = max(peak, load)
             if load > memory_limit:
-                raise MemoryStop(run_id, load)
+                raise MemoryStop(run_id, load, memory_limit)
             with planted_db(pid, Path(name), work_dir, planted_root) as db:
                 result = score_planted(db, days)
             saved.parent.mkdir(parents=True, exist_ok=True)
@@ -681,7 +681,8 @@ def run_part_b(
     entries = json.loads(path.read_text("utf-8"))
     info = {"run_id": run_id, "planter_version": PLANTER_VERSION, "seed": SEED,
             "code": code_version(), "origins": len(days), "seconds": time.time() - started,
-            "peak_memory_percent": peak, "label": label, "sets": list(sets),
+            "peak_memory_percent": peak, "memory_limit_percent": memory_limit,
+            "label": label, "sets": list(sets),
             "personas": {n: per_set[n].personas for n in per_set}}  # fmt: skip
     text = part_b_text(per_set, entries, info)
     if save_dir is not None:
@@ -701,6 +702,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resume", default=None, help="part-b: the run id of a stopped run")
     parser.add_argument("--save-dir", type=Path, default=Path("docs/results"))
     parser.add_argument("--label", default="spec as written")
+    parser.add_argument(
+        "--memory-limit", type=int, default=MEMORY_LIMIT,
+        help="part-b: stop before a persona when memory use (percent) is above this",
+    )  # fmt: skip
     parser.add_argument("--set", choices=["12", "long", "both"], default="both")
     parser.add_argument(
         "--kind", default="change", help="variant: what kind of entry (change, bug fix)"
@@ -716,7 +721,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "part-b":
         try:
             text = run_part_b(sets, args.label, args.work, run_id=args.resume,
-                              save_dir=args.save_dir)  # fmt: skip
+                              memory_limit=args.memory_limit, save_dir=args.save_dir)  # fmt: skip
         except MemoryStop as stop:
             print(f"STOPPED for memory: {stop}")
             return 3
