@@ -1868,6 +1868,8 @@ After my October import some merchant names showed a "?" where an accented lette
 - **A counts-only check** (`python -m lookahead.ingest.textcheck`) counts, per export and per import day of the stored rows, the rows with accented letters, with a "?" touching a letter, and with the Unicode replacement character. It prints counts only and changes nothing; it is how I confirm where the "?" come from.
 - **No stored row is changed.** A repair would need an export of the same days that still has the letters, matched on date, amount, balance and description; it changes fingerprints, which other tables use as keys, so it would be its own step with a backup, a dry run with counts, and tests.
 
+### 2026-11-02: The one-time money rule moves out of the forecaster, unchanged (so the scenario calculator can use it)
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
