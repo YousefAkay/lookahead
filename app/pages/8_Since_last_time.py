@@ -130,8 +130,15 @@ st.markdown(
     f"{fmt_date(summary.marker.data_date)} then, to {fmt_date(summary.data_date)} now.</p>",
     unsafe_allow_html=True,
 )
-if summary.data_date <= summary.marker.data_date:
+if summary.new_rows == 0:
     st.info("No new data since then. Import a newer export to see what changed.")
+if summary.marker.last_row_id is None:
+    st.markdown(
+        '<p class="la-note">Counted by posted date this time: rows that arrived later with an '
+        'older date are not counted. After you click "Got it" again, every row added since is '
+        "counted.</p>",
+        unsafe_allow_html=True,
+    )
 
 # --- 1. Balance ---
 with st.container(border=True, key="card-balance"):

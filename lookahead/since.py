@@ -7,8 +7,10 @@ It is separate from the recurring alerts' last look (lookahead/recurring_alerts.
 whenever the data date does.
 
 Five things are counted here, in code; the page only shows them:
-- the balance at the marker and now, and how many rows are new;
-- new merchants: first seen after the marker (a merchant seen on or before it is not new);
+- the balance shown at the marker and now, and how many rows are new: the rows added after
+  "Got it", whatever their posted date (an export made during a day misses that day's later
+  postings, and the next export brings them with the old date);
+- new merchants: seen only in new rows;
 - recurring changes: the recurring alerts opened after the marker;
 - category changes: money out by category since the marker against the same length of time just
   before it; a change counts only if it is at least CHANGE_CENTS and at least CHANGE_SHARE
@@ -36,6 +38,8 @@ PROVISIONAL = "provisional, not yet validated"
 class Marker:
     data_date: date  # the data date I acknowledged
     set_on: date  # the day I clicked "Got it"
+    last_row_id: int | None = None  # the newest stored row then (None: a marker from before)
+    balance_cents: int | None = None  # the balance shown then
 
 
 @dataclass(frozen=True)
@@ -90,27 +94,39 @@ def first_date(conn: sqlite3.Connection, account: str) -> date | None:
 
 
 def marker(conn: sqlite3.Connection, account: str) -> Marker | None:
-    """The marker, or None. A database opened read-only before this table existed has none."""
+    """The marker, or None. A database opened read-only before this table existed has none, and
+    one from before the newest-row column reads as a marker without it."""
     try:
-        row = conn.execute(
-            "SELECT data_date, set_on FROM since_marker WHERE account = ?", (account,)
-        ).fetchone()
+        cursor = conn.execute("SELECT * FROM since_marker WHERE account = ?", (account,))
     except sqlite3.OperationalError:
         return None
-    return Marker(date.fromisoformat(row[0]), date.fromisoformat(row[1])) if row else None
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    got = dict(zip([c[0] for c in cursor.description], row, strict=True))
+    return Marker(
+        date.fromisoformat(got["data_date"]), date.fromisoformat(got["set_on"]),
+        got.get("last_row_id"), got.get("balance_cents"),
+    )  # fmt: skip
 
 
 def acknowledge(conn: sqlite3.Connection, account: str, when: date | None = None) -> Marker:
-    """ "Got it": the marker moves to the account's data date. The only function that moves it."""
+    """ "Got it": the marker moves to the account's data date, and remembers the newest stored
+    row and the balance shown. The only function that moves it."""
     last = data_date(conn, account)
     if last is None:
         raise ValueError("this account has no transactions yet")
-    m = Marker(last, when or date.today())
+    newest = conn.execute(
+        "SELECT MAX(id) FROM transactions WHERE account = ?", (account,)
+    ).fetchone()[0]
+    m = Marker(last, when or date.today(), int(newest), balance_at(conn, account, last))
     with conn:
         conn.execute(
-            "INSERT OR REPLACE INTO since_marker (account, data_date, set_on) VALUES (?, ?, ?)",
-            (account, m.data_date.isoformat(), m.set_on.isoformat()),
-        )
+            "INSERT OR REPLACE INTO since_marker (account, data_date, set_on, last_row_id,"
+            " balance_cents) VALUES (?, ?, ?, ?, ?)",
+            (account, m.data_date.isoformat(), m.set_on.isoformat(), m.last_row_id,
+             m.balance_cents),
+        )  # fmt: skip
     return m
 
 
@@ -129,18 +145,24 @@ def balance_at(conn: sqlite3.Connection, account: str, day: date) -> int | None:
 
 
 def new_merchants(
-    rows: pd.DataFrame, since: date, hidden: pd.Series | None = None
+    rows: pd.DataFrame, since: date, hidden: pd.Series | None = None,
+    new_fingerprints: set[str] | None = None,
 ) -> list[NewMerchant]:  # fmt: skip
-    """Merchants whose first row is after `since`. `rows` come from views.transactions (newest
+    """Merchants seen only in new rows: the rows in `new_fingerprints` (added after "Got it"), or
+    without them the rows posted after `since`. `rows` come from views.transactions (newest
     first); `hidden` marks the rows whose text pseudonymizing changed (same index)."""
     if rows.empty:
         return []
     known = rows[rows["merchant"].notna()]
+    if new_fingerprints is None:
+        is_new = known["date"].dt.date > since
+    else:
+        is_new = known["fingerprint"].isin(new_fingerprints)
     out = []
     for name, group in known.groupby("merchant", sort=False):
-        first = group["date"].min().date()
-        if first <= since:
+        if not is_new.loc[group.index].all():
             continue
+        first = group["date"].min().date()
         newest = group.iloc[0]  # rows are newest first
         out.append(NewMerchant(
             merchant=str(name), first_date=first, rows=len(group),
@@ -203,15 +225,26 @@ def summarize(
     last = data_date(conn, account)
     if m is None or last is None:
         return None
-    new_rows = conn.execute(
-        "SELECT COUNT(*) FROM transactions WHERE account = ? AND posted_date > ?",
-        (account, m.data_date.isoformat()),
-    ).fetchone()[0]
+    new_fps: set[str] | None = None
+    if m.last_row_id is not None:  # rows added after "Got it", whatever their posted date
+        new_fps = {r[0] for r in conn.execute(
+            "SELECT fingerprint FROM transactions WHERE account = ? AND id > ?",
+            (account, m.last_row_id),
+        )}  # fmt: skip
+        new_rows = len(new_fps)
+    else:  # a marker from before: rows posted after its data date
+        new_rows = conn.execute(
+            "SELECT COUNT(*) FROM transactions WHERE account = ? AND posted_date > ?",
+            (account, m.data_date.isoformat()),
+        ).fetchone()[0]
+    then = m.balance_cents
+    if then is None:
+        then = balance_at(conn, account, m.data_date)
     return Summary(
         marker=m, data_date=last, new_rows=int(new_rows),
-        balance_then=balance_at(conn, account, m.data_date),
+        balance_then=then,
         balance_now=balance_at(conn, account, last),
-        merchants=new_merchants(rows, m.data_date, hidden),
+        merchants=new_merchants(rows, m.data_date, hidden, new_fps),
         categories=category_changes(rows, m.data_date, last, first_date(conn, account)),
         recurring=[e for e in recurring_episodes(conn, account) if e.opened_on > m.data_date],
         shortfall=[e for e in shortfall_episodes(conn, account) if e.opened_on > m.data_date],

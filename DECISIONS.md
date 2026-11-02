@@ -1857,6 +1857,7 @@ A plain product feature (branch `since-last-time`, from main): ordinary tests on
 - **The marker** is per account: the data date I last acknowledged. **It moves only when I click "Got it".** On a database with no marker the page says there is nothing to compare yet and sets nothing until I click.
 - **It is separate from the recurring alerts' last look.** Opening the page records a recurring-alerts look (the same function the Recurring page calls), which closes the gap I found: the import command records no look. Recording a look never moves the marker.
 - **Category changes** compare money out by category since the marker with the same length of time just before it (transfers and netted pairs left out). A change counts only if it is **at least $25 and at least 20 percent**. Both thresholds are provisional, picked to be noticeable and not measured. If the earlier period starts before the data does, the comparison is not shown.
+- **Changed after my real-data check (2026-11-02): new rows are the rows added after "Got it", whatever their posted date.** My October import stored more rows than the page counted: an export made during a day misses that day's later postings, and the next export brings them with the old date, so counting rows posted after the marker's date left them out (and any new merchant among them). "Got it" now also remembers the newest stored row and the balance shown; a marker set before this change counts by date until I click again.
 
 ## Known issues
 

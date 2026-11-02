@@ -49,7 +49,7 @@ def test_a_database_with_no_marker_has_nothing_to_compare(conn: sqlite3.Connecti
 
 def test_got_it_sets_the_marker_to_the_data_date(conn: sqlite3.Connection) -> None:
     m = since.acknowledge(conn, ACCOUNT, when=date(2026, 7, 2))
-    assert m == since.Marker(data_date=date(2026, 6, 30), set_on=date(2026, 7, 2))
+    assert (m.data_date, m.set_on) == (date(2026, 6, 30), date(2026, 7, 2))
     assert since.marker(conn, ACCOUNT) == m
 
 
@@ -257,3 +257,60 @@ def test_the_counts_on_the_card() -> None:
     assert since.card_counts(s) == [("New transactions", "3"), ("New merchants", "0"),
                                     ("Recurring changes", "0"), ("Category changes", "-"),
                                     ("New alerts", "0")]  # fmt: skip
+
+
+# --- New rows are the rows added after "Got it", whatever their posted date ---
+
+
+def test_a_late_row_dated_on_the_marker_day_is_new(conn: sqlite3.Connection) -> None:
+    """An export made during a day misses that day's later postings; the next export brings them
+    with the old date. They are new to me, and so is a merchant first seen in them."""
+    since.acknowledge(conn, ACCOUNT, when=date(2026, 7, 1))
+    insert(conn, date(2026, 6, 30), -700, 47_300, "Opos Late Shop")  # dated on the marker day
+    insert(conn, date(2026, 7, 4), -300, 47_000, "Opos Shop A")
+    rows = frame([
+        (date(2026, 7, 4), -300, "Shop A", "Shopping", "everyday", "model", False),
+        (date(2026, 6, 30), -700, "Late Shop", "Shopping", "everyday", "model", False),
+        (date(2026, 6, 30), -2000, "Shop B", "Shopping", "everyday", "model", False),
+        (date(2026, 6, 1), -1000, "Shop A", "Shopping", "everyday", "model", False),
+    ])  # fmt: skip
+    rows["fingerprint"] = ["fp0004", "fp0003", "fp0002", "fp0001"]
+    s = since.summarize(conn, ACCOUNT, rows)
+    assert s is not None
+    assert s.new_rows == 2
+    assert [m.merchant for m in s.merchants] == ["Late Shop"]  # Shop A was seen before
+    assert s.balance_then == 48_000  # the balance I saw when I clicked, not the corrected one
+
+
+def test_got_it_remembers_the_newest_row_and_the_balance(conn: sqlite3.Connection) -> None:
+    m = since.acknowledge(conn, ACCOUNT, when=date(2026, 7, 1))
+    assert (m.last_row_id, m.balance_cents) == (2, 48_000)
+    assert since.marker(conn, ACCOUNT) == m
+
+
+def test_a_marker_from_before_row_ids_counts_by_date(conn: sqlite3.Connection) -> None:
+    with conn:
+        conn.execute("INSERT INTO since_marker (account, data_date, set_on) VALUES (?, ?, ?)",
+                     (ACCOUNT, "2026-06-30", "2026-07-01"))  # fmt: skip
+    insert(conn, date(2026, 6, 30), -700, 47_300, "Opos Late Shop")
+    insert(conn, date(2026, 7, 4), -300, 47_000, "Opos Shop C")
+    s = since.summarize(conn, ACCOUNT, pd.DataFrame(columns=COLUMNS))
+    assert s is not None and s.marker.last_row_id is None
+    assert s.new_rows == 1  # by date: the late row is not counted until Got it is clicked again
+    assert s.balance_then == since.balance_at(conn, ACCOUNT, date(2026, 6, 30))  # computed
+
+
+def test_an_old_marker_table_gets_the_new_columns_and_keeps_its_row(tmp_path: Path) -> None:
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE since_marker (account TEXT PRIMARY KEY, data_date TEXT NOT NULL,"
+                " set_on TEXT NOT NULL)")  # fmt: skip
+    old.execute("INSERT INTO since_marker VALUES ('test', '2026-06-30', '2026-07-01')")
+    old.commit()
+    assert since.marker(old, ACCOUNT) == since.Marker(date(2026, 6, 30), date(2026, 7, 1))
+    old.close()
+    c = connect(path)
+    columns = {r[1] for r in c.execute("PRAGMA table_info(since_marker)")}
+    assert {"last_row_id", "balance_cents"} <= columns
+    assert since.marker(c, ACCOUNT) == since.Marker(date(2026, 6, 30), date(2026, 7, 1))
+    c.close()
