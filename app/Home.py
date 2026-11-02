@@ -21,6 +21,7 @@ from app.theme import (  # noqa: E402
     fmt_date,
     footer,
     link_button_html,
+    money,
     status_card_html,
     top_bar,
 )
@@ -28,8 +29,9 @@ from lookahead.db import connect_readonly  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.recurring_store import load_series  # noqa: E402
+from lookahead.since import card_counts, summarize  # noqa: E402
 from lookahead.ui import DISCLAIMER, demo_db_path, private_db_path, synthetic_dir  # noqa: E402
-from lookahead.views import accounts, import_status  # noqa: E402
+from lookahead.views import accounts, import_status, transactions  # noqa: E402
 
 apply("Home")
 bar = st.container(key="topbar")  # the green bar: drawn into once the data date is known
@@ -51,6 +53,8 @@ st.markdown(
 )
 
 facts: list[tuple[str, str]] = []
+since_facts: list[tuple[str, str]] | None = None  # None: no marker yet
+since_note = ""
 last_day = None
 if not db_path.exists():
     top_bar(bar, "Home", None, source)
@@ -77,6 +81,12 @@ else:
             ("Confirmed recurring", f"{confirmed} of {len(found)}" if found else "None found yet"),
         ]
         top_bar(bar, "Home", last_day, source)
+        summary = summarize(conn, account, transactions(conn, account))
+        if summary is not None:
+            since_facts = card_counts(summary)
+            if summary.balance_then is not None and summary.balance_now is not None:
+                change = money(summary.balance_now - summary.balance_then, signed=True)
+                since_note = f"Balance change since then: {change}."
     conn.close()
 
 if facts:
@@ -91,6 +101,21 @@ if facts:
             )
 
 query = choice_query()
+if facts:
+    with st.container(border=True, key="card-since"):
+        st.markdown("<h2>Since last time</h2>", unsafe_allow_html=True)
+        if since_facts is None:
+            st.markdown(
+                '<p class="la-note">Nothing to compare yet. Open the page and click "Got it" to '
+                "mark where things stand now.</p>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(status_card_html(since_facts), unsafe_allow_html=True)
+            if since_note:
+                st.markdown(f'<p class="la-note">{since_note}</p>', unsafe_allow_html=True)
+        st.markdown(link_button_html("What changed", "/Since_last_time", query),
+                    unsafe_allow_html=True)  # fmt: skip
 st.markdown(
     '<div style="display: flex; flex-wrap: wrap; gap: 12px">'
     + link_button_html("See the forecast", "/Forecast", query, primary=True)

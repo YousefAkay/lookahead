@@ -255,6 +255,16 @@ CREATE TABLE IF NOT EXISTS recurring_alert_events (
     reason       TEXT    NOT NULL,
     evidence     TEXT    NOT NULL   -- JSON
 );
+-- "What changed since last time" (week 5, item 4): the data date I last acknowledged with "Got
+-- it", per account. Only lookahead.since.acknowledge writes it; it is separate from the
+-- recurring alerts' last look.
+CREATE TABLE IF NOT EXISTS since_marker (
+    account       TEXT PRIMARY KEY,
+    data_date     TEXT NOT NULL,
+    set_on        TEXT NOT NULL,
+    last_row_id   INTEGER,  -- the newest stored row then: later rows are new (NULL: older marker)
+    balance_cents INTEGER   -- the balance shown then
+);
 CREATE TABLE IF NOT EXISTS categorizer_runs (
     run_id        INTEGER PRIMARY KEY,
     account       TEXT    NOT NULL,
@@ -279,8 +289,19 @@ def connect(path: Path, today: date | None = None) -> sqlite3.Connection:
     _migrate_label_status(conn)
     _migrate_recurring_actions(conn)
     conn.executescript(SCHEMA)
+    _migrate_since_marker(conn)
     migrate_decisions(conn, today or date.today())
     return conn
+
+
+def _migrate_since_marker(conn: sqlite3.Connection) -> None:
+    """since_marker made before it remembered the newest row and the balance: add both columns
+    (empty, so such a marker counts new rows by date until "Got it" is clicked again)."""
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(since_marker)")}
+    with conn:
+        for name in ("last_row_id", "balance_cents"):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE since_marker ADD COLUMN {name} INTEGER")
 
 
 def _migrate_label_status(conn: sqlite3.Connection) -> None:
