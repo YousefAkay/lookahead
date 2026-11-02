@@ -1862,6 +1862,12 @@ A plain product feature (branch `since-last-time`, from main): ordinary tests on
 ### 2026-11-02: "What changed since last time" merged into main
 I merged `since-last-time` into main (a fast-forward) after my own check on my real database with an October import, and after the full suite passed on it (2,265 tests). One change came after my check and is in what was merged: new rows are now the rows added after "Got it" rather than the rows posted after its date (my check found the page counting fewer rows than the import stored). My current marker predates that change, so it counts by date until I click "Got it" again.
 
+### 2026-11-02: Exports in Windows-1252 are read too; a "?" already in the file stays (branch `import-encoding`)
+After my October import some merchant names showed a "?" where an accented letter belongs. The importer read every export as strict UTF-8 and refused anything else (a test said so), and my October file imported without a format error. So it was valid UTF-8: **the "?" was already in the file the bank gave me**, and no reading setting can bring that letter back.
+- **What changes anyway:** an export that is not valid UTF-8 is now read as Windows-1252 (the other encoding French text comes in), strictly, so a byte that belongs to neither is still refused and nothing is ever replaced by "?". The import prints which encoding each file was read in. The same rows in either encoding give the same fingerprints, so nothing is stored twice. Lost: refusing every non-UTF-8 file (simpler, but a Windows-1252 export would not import at all).
+- **A counts-only check** (`python -m lookahead.ingest.textcheck`) counts, per export and per import day of the stored rows, the rows with accented letters, with a "?" touching a letter, and with the Unicode replacement character. It prints counts only and changes nothing; it is how I confirm where the "?" come from.
+- **No stored row is changed.** A repair would need an export of the same days that still has the letters, matched on date, amount, balance and description; it changes fingerprints, which other tables use as keys, so it would be its own step with a backup, a dry run with counts, and tests.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
