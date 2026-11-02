@@ -1,6 +1,7 @@
 """Experiment 4, the combination itself (eval/combination.py), on made-up futures."""
 
 import json
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -117,7 +118,8 @@ def write_records(folder: Path, pid: str, origins: list[str], held_out: bool = F
              "days": [o] * 30, "start_balance_cents": START, "buffer_cents": BUFFER,
              "point": [START] * 30, "realized": [START] * 30, "realized_lowest_cents": START,
              "realized_first_below_buffer": None, "in_shortfall_at_origin": False,
-             "crps_stays": [0.0] * 30} for o in origins]  # fmt: skip
+             "crps_stays": [0.0] * 30, "everyday": 1,
+             "history_days": 200} for o in origins]  # fmt: skip
     (folder / f"{pid}.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", "utf-8")
 
 
@@ -150,4 +152,151 @@ def test_a_record_marked_held_out_is_refused(tmp_path: Path) -> None:
 def test_a_held_out_berka_account_is_refused_before_any_file_is_opened(tmp_path: Path) -> None:
     account = int(load_split()["primary_held_out"][0])  # type: ignore[index]
     with pytest.raises(ValueError, match="held-out"):
-        cb.load_account(account, tmp_path / "nowhere")
+        cb.load_account(account, tmp_path / "nowhere", tmp_path / "nowhere")
+
+
+# --- Learning the weights: only from origins whose 30 days are over ---
+
+FIRST = date(2025, 10, 6)
+
+
+def made_up_rows(
+    accounts: dict[str, str], n: int = 40, seed: int = 3, futures: int = 60
+) -> list[cb.Record]:
+    """Weekly origins for each account (name -> archetype), with made-up futures and outcomes."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for name, archetype in accounts.items():
+        # One daily balance series per account, so overlapping windows agree on every day.
+        series = made_up_paths(seed=int(rng.integers(1e6)), futures=1, days=7 * n + 31, drift=0)[0]
+        for k in range(n):
+            origin = FIRST + timedelta(days=7 * k)
+            paths = made_up_paths(seed=int(rng.integers(1e6)), futures=futures,
+                                  drift=int(rng.integers(-1500, 1500)))  # fmt: skip
+            real = series[7 * k + 1 : 7 * k + 31]
+            days = [(origin + timedelta(days=h)).isoformat() for h in range(1, 31)]
+            below = next((d for d, b in zip(days, real, strict=True) if b < BUFFER), None)
+            rows.append({
+                "persona": name, "account": name, "archetype": archetype,
+                "origin": origin.isoformat(), "days": days, "start_balance_cents": START,
+                "buffer_cents": BUFFER, "point": [START] * 30, "realized": real.tolist(),
+                "realized_lowest_cents": int(real.min()), "realized_first_below_buffer": below,
+                "in_shortfall_at_origin": False,
+                "crps_stays": np.abs(START - real.astype(float)).tolist(), "everyday": 1,
+                "history_days": 200,
+                "paths": paths,
+            })  # fmt: skip
+    return rows
+
+
+def test_an_account_gets_its_own_weight_at_28_of_40_weekly_origins() -> None:
+    rows = made_up_rows({"a": "X"})
+    ok = cb.eligibility(rows, "archetype")["iii"]
+    assert sum(ok) == 28 and ok.index(True) == 12  # 8 resolved: origins 0..7, each <= t - 35
+
+
+def test_an_origin_exactly_35_days_back_counts_and_34_does_not() -> None:
+    rows = made_up_rows({"a": "X"}, n=2)
+    rows[1]["origin"] = (FIRST + timedelta(days=35)).isoformat()
+    d = cb._dates(rows)
+    assert d[0] <= d[1] - np.timedelta64(cb.LAG.days, "D")
+    rows[1]["origin"] = (FIRST + timedelta(days=34)).isoformat()
+    d = cb._dates(rows)
+    assert not d[0] <= d[1] - np.timedelta64(cb.LAG.days, "D")
+
+
+def set_losses(rows: list[cb.Record], value: np.ndarray) -> None:
+    for r in rows:
+        r["loss"] = value.copy()
+        r["median"] = fs.nearest_rank(r["paths"], 0.5)
+
+
+def test_a_weight_never_learns_from_origins_whose_30_days_are_not_over() -> None:
+    rows = made_up_rows({f"p{i}": f"A{i}" for i in range(7)})
+    favour_0 = np.array([1.0, *[2.0] * 10])  # every resolved origin says w = 0
+    set_losses(rows, favour_0)
+    t = 20  # origin index of account p0
+    before = cb.weights(rows, "archetype")
+    # What is not yet resolved at t (less than 35 days back, t itself, later) now says w = 1.
+    cutoff = date.fromisoformat(rows[t]["origin"]) - timedelta(days=35)
+    for r in rows:
+        if date.fromisoformat(r["origin"]) > cutoff:
+            r["loss"] = np.array([*[2.0] * 10, 1.0])
+    after = cb.weights(rows, "archetype")
+    for k in ("ii", "iii"):
+        assert before[k][t] == after[k][t] == 0.0
+
+
+def test_the_global_weight_leaves_out_the_whole_archetype() -> None:
+    accounts = {"same1": "S", "same2": "S", **{f"o{i}": f"O{i}" for i in range(5)}}
+    rows = made_up_rows(accounts)
+    set_losses(rows, np.array([1.0, *[2.0] * 10]))  # the other archetypes say w = 0
+    for r in rows:
+        if r["archetype"] == "S":
+            r["loss"] = np.array([*[2.0] * 10, 1.0])  # its own archetype (many origins) says w = 1
+    ok = cb.eligibility(rows, "archetype")["ii"]
+    w = cb.weights(rows, "archetype")["ii"]
+    mine = [(x, e) for x, e, r in zip(w, ok, rows, strict=True) if r["account"] == "same1"]
+    assert sum(e for _, e in mine) > 0
+    assert all(x == (0.0 if e else 1.0) for x, e in mine)
+
+
+def test_the_global_weight_needs_5_other_accounts() -> None:
+    rows = made_up_rows({f"o{i}": f"O{i}" for i in range(5)})  # 4 others for each
+    assert not any(cb.eligibility(rows, "archetype")["ii"])
+    rows = made_up_rows({f"o{i}": f"O{i}" for i in range(6)})  # 5 others
+    ok = cb.eligibility(rows, "archetype")["ii"]
+    # 5 others x 8 resolved origins = 40 >= 30 first at the 13th origin (index 12); 30 needs 6
+    # resolved each (index 10).
+    assert ok.index(True) == 10
+
+
+def test_an_origin_with_a_perfect_default_stops_the_run() -> None:
+    rows = made_up_rows({f"o{i}": f"O{i}" for i in range(6)}, n=2)
+    set_losses(rows, np.zeros(11))
+    with pytest.raises(ValueError, match="undefined"):
+        cb.weights(rows, "archetype")
+
+
+def test_dips_caught_with_no_threshold_counts_0(monkeypatch: pytest.MonkeyPatch) -> None:
+    picks = {"default": {"threshold": 0.3}, "variant": None}
+    calls = iter(["default", "variant"])
+    monkeypatch.setattr(cb, "curve", lambda rows, th: next(calls))
+    monkeypatch.setattr(cb, "choose", lambda name: picks[name])
+    monkeypatch.setattr(cb, "alert_metrics", lambda rows, t, median_rule: {
+        "caught_on": 4, "shortfall_episodes": 9})  # fmt: skip
+    out = cb.dips_caught([], [])
+    assert out["variant"]["caught_on"] == 0 and out["pass"] is False
+    picks["default"] = None
+    calls = iter(["default", "variant"])
+    out = cb.dips_caught([], [])
+    assert out["pass"] is True and "neither" in out["note"]
+
+
+def test_a_whole_set_scores_and_reports_end_to_end() -> None:
+    accounts = {f"p{i}": f"A{i % 4}" for i in range(8)}
+    rows = made_up_rows(accounts)
+    cb.prepare(rows)
+    w = cb.weights(rows, "archetype")
+    v = cb.views(rows, w)
+    res = {
+        "rows": rows,
+        "eligible": cb.eligible_counts(rows, "archetype"),
+        "learned": {
+            k: {
+                a: [x for x, r in zip(w[k], rows, strict=True) if r["archetype"] == a]
+                for a in sorted({r["archetype"] for r in rows})
+            }
+            for k in cb.LEARNED
+        },
+    }
+    verdicts = {
+        "12": {k: cb.synthetic_conditions(v, k, (len(rows), len(rows))) for k in cb.VARIANTS}
+    }
+    assert set(verdicts["12"]["i"]) == set(cb.SYNTHETIC_CONDITIONS)
+    assert verdicts["12"]["i"]["1"]["n"] == 0  # (i) never uses w = 1
+    assert (
+        verdicts["12"]["iii"]["1"]["n"] >= 12 * 8 and verdicts["12"]["iii"]["1"]["differing"] == 0
+    )
+    text = cb.report({"12": res}, verdicts)
+    assert "Variants counted: 3" in text and "| 11 synthetic and Berka agree |" in text
