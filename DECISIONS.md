@@ -1855,6 +1855,11 @@ A plain product feature (branch `scenario`, from main): ordinary tests on made-u
 - **Three readings I chose:** income counts only income rows that are not already in a confirmed or hand-added series, so a payroll series is not counted twice; the median is over every day of the window, days with no spending included; with less than 30 days of history the daily spend is not estimated.
 - **The page** compares "as things are now" (the prefilled values) with "my scenario", with the buffer line and the first day below it, the headline "You'd have $X on <date>", and under the chart: "This assumes exactly what you entered. It's not a forecast."
 - **Lost: reusing the forecast's what-if** (`lookahead/forecast/scenario.py`). It reruns the random futures and answers a different question; this one has to be simple and exact.
+- **Changed after my real-data check (2026-11-02): rent was right, income and the daily spend were not.**
+  - **Income timing:** by default spread evenly through the month (each calendar month adds up to the monthly amount exactly, in whole cents), or on a set day I can change. The choice applies to both lines, since it describes how money arrives rather than a what-if.
+  - **Top-ups from savings per month:** a separate field, zero by default, counted as money in and arriving like income.
+  - **The daily spend is the average day, not the median day:** the total of the money out that counts, divided by the days of the window, days with no spending included. The median of a month with a few big shopping days is close to zero, which understates spending. Same exclusions as before.
+  - **Each estimate shows its basis** under its field (how many deposits or payments over how many days, and what was left out).
 
 ### 2026-11-02: Recurring alerts merged into main
 I merged `recurring-alerts` into main (a fast-forward) after the full suite passed on it (2,234 tests) and after my own check on my real database: the Recurring page loads, my series are all there, the alert state was recorded, and rent does not show "may have stopped". Dismissing an alert and bringing it back are still untested on my real data: no alert was open on this first look, so that waits until new data arrives.
