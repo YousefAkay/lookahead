@@ -1859,6 +1859,9 @@ A plain product feature (branch `since-last-time`, from main): ordinary tests on
 - **Category changes** compare money out by category since the marker with the same length of time just before it (transfers and netted pairs left out). A change counts only if it is **at least $25 and at least 20 percent**. Both thresholds are provisional, picked to be noticeable and not measured. If the earlier period starts before the data does, the comparison is not shown.
 - **Changed after my real-data check (2026-11-02): new rows are the rows added after "Got it", whatever their posted date.** My October import stored more rows than the page counted: an export made during a day misses that day's later postings, and the next export brings them with the old date, so counting rows posted after the marker's date left them out (and any new merchant among them). "Got it" now also remembers the newest stored row and the balance shown; a marker set before this change counts by date until I click again.
 
+### 2026-11-02: "What changed since last time" merged into main
+I merged `since-last-time` into main (a fast-forward) after my own check on my real database with an October import, and after the full suite passed on it (2,265 tests). One change came after my check and is in what was merged: new rows are now the rows added after "Got it" rather than the rows posted after its date (my check found the page counting fewer rows than the import stored). My current marker predates that change, so it counts by date until I click "Got it" again.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
