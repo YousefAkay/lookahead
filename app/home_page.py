@@ -1,7 +1,6 @@
-"""Lookahead app entry point. Run from the project root: streamlit run app/Home.py
-
-A short landing page: what the app is, where the data stands, and buttons to the main pages.
-The look lives in app/theme.py.
+"""Home (opened by the router, app/Home.py): what the app is, where the data stands, what changed
+since last time, what needs a look, and buttons to the main pages. The look lives in
+app/theme.py.
 """
 
 import sys
@@ -28,6 +27,7 @@ from app.theme import (  # noqa: E402
 from lookahead.db import connect_readonly  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
+from lookahead.needs_a_look import NeedsALook, needs_a_look  # noqa: E402
 from lookahead.recurring_store import load_series  # noqa: E402
 from lookahead.since import card_counts, summarize  # noqa: E402
 from lookahead.ui import DISCLAIMER, demo_db_path, private_db_path, synthetic_dir  # noqa: E402
@@ -55,6 +55,7 @@ st.markdown(
 facts: list[tuple[str, str]] = []
 since_facts: list[tuple[str, str]] | None = None  # None: no marker yet
 since_note = ""
+look: NeedsALook | None = None
 last_day = None
 if not db_path.exists():
     top_bar(bar, "Home", None, source)
@@ -87,6 +88,7 @@ else:
             if summary.balance_then is not None and summary.balance_now is not None:
                 change = money(summary.balance_now - summary.balance_then, signed=True)
                 since_note = f"Balance change since then: {change}."
+        look = needs_a_look(conn, account)
     conn.close()
 
 if facts:
@@ -96,7 +98,7 @@ if facts:
         if st.session_state.get("data_source") == "Synthetic demo":
             st.markdown(
                 '<p class="la-note">This is made-up data from the generator, for trying the app. '
-                "Choose My data in Settings for your own.</p>",
+                "Choose My data under the gear (settings) for your own.</p>",
                 unsafe_allow_html=True,
             )
 
@@ -116,6 +118,28 @@ if facts:
                 st.markdown(f'<p class="la-note">{since_note}</p>', unsafe_allow_html=True)
         st.markdown(link_button_html("What changed", "/Since_last_time", query),
                     unsafe_allow_html=True)  # fmt: skip
+if look is not None:
+    with st.container(border=True, key="card-look"):
+        st.markdown("<h2>Needs a look</h2>", unsafe_allow_html=True)
+        if not look.anything:
+            st.markdown("Nothing needs a look: no alert is open.")
+        links = []
+        if look.recurring:
+            word = "alert" if look.recurring == 1 else "alerts"
+            st.markdown(f"{look.recurring} recurring {word} open: a payment you repeat may have "
+                        "changed, stopped or not been seen yet.")  # fmt: skip
+            links.append(link_button_html("Recurring payments", "/Recurring", query))
+        if look.shortfall is not None:
+            e = look.shortfall
+            st.markdown(
+                f"Possible shortfall: {e.probability:.0%} of simulated futures dip below your "
+                f"{money(e.buffer_cents, markdown=True)} buffer, lowest around "
+                f"{fmt_date(e.low_day)} (an estimate)."
+            )
+            links.append(link_button_html("See the forecast", "/Forecast", query))
+        if links:
+            st.markdown('<div style="display: flex; flex-wrap: wrap; gap: 12px">' + "".join(links)
+                        + "</div>", unsafe_allow_html=True)  # fmt: skip
 st.markdown(
     '<div style="display: flex; flex-wrap: wrap; gap: 12px">'
     + link_button_html("See the forecast", "/Forecast", query, primary=True)

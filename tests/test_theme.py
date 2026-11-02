@@ -201,8 +201,9 @@ def test_the_top_bar_has_the_wordmark_links_the_data_date_and_the_source() -> No
     for label, path in PAGES:
         assert f">{label}<" in html and f'href="{path}"' in html
     assert "Data to Oct 1, 2026" in html and "Synthetic demo" in html
-    assert html.count('aria-current="page"') == 1
-    marked = html[html.index('aria-current="page"') :]
+    main = html[html.index('class="la-nav"') : html.index("</nav>")]
+    assert main.count('aria-current="page"') == 1  # one section marked in the main links
+    marked = main[main.index('aria-current="page"') :]
     assert marked.index("Forecast") < marked.index("</a>")  # the current page is the marked one
 
 

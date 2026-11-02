@@ -28,6 +28,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
 
+from app.navigation import section_links, section_of, tabs_of
 from lookahead.recurring_store import Stored
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -169,17 +170,7 @@ _MARK = (
     f'stroke-linecap="round" stroke-linejoin="round"></path></svg>'
 )
 
-PAGES = [
-    ("Home", "/"),
-    ("Transactions", "/Transactions"),
-    ("Label review", "/Label_review"),
-    ("To check", "/To_check"),
-    ("Recurring", "/Recurring"),
-    ("Forecast", "/Forecast"),
-    ("Scenario", "/Scenario"),
-    ("Time machine", "/Time_machine"),
-    ("Model report", "/Model_report"),
-]
+PAGES = section_links()  # the five top-bar links (app/navigation.py)
 
 
 def top_bar_html(
@@ -191,9 +182,10 @@ def top_bar_html(
     to every link: a link opens a new browser session, and the address is what carries the
     data and account choice over."""
     suffix = f"?{query}" if query else ""
+    section = section_of(active)
     links = []
     for label, path in pages:
-        current = ' aria-current="page"' if label == active else ""
+        current = ' aria-current="page"' if label == section else ""
         href = html.escape(path + suffix)
         links.append(f'<a href="{href}" target="_self"{current}>{html.escape(label)}</a>')
     if until is None:  # a page that is not about one account's data says so in `until`
@@ -204,8 +196,25 @@ def top_bar_html(
         f"{_MARK}Lookahead</a>"
         f'<nav aria-label="Main" class="la-nav">{"".join(links)}</nav>'
         f'<div class="la-bar-right"><span class="la-until">{html.escape(until)}</span>'
-        f'<span class="la-source">{html.escape(source)}</span></div></div></header>'
+        f'<span class="la-source">{html.escape(source)}</span></div></div>'
+        f"{section_tabs_html(active, query)}</header>"
     )
+
+
+def section_tabs_html(active: str, query: str = "") -> str:
+    """The row of tab links under the bar for a section with more than one page (Transactions,
+    Forecast, How it works), the current page marked; "" for the others."""
+    tabs = tabs_of(active)
+    if not tabs:
+        return ""
+    suffix = f"?{query}" if query else ""
+    links = []
+    for label, path, current in tabs:
+        mark = ' aria-current="page"' if current else ""
+        href = html.escape(path + suffix)
+        links.append(f'<a href="{href}" target="_self"{mark}>{html.escape(label)}</a>')
+    section = html.escape(section_of(active))
+    return f'<nav aria-label="{section}" class="la-tabs">{"".join(links)}</nav>'
 
 
 # --- Recurring: series cards, the payments table, monthly totals ---
@@ -494,22 +503,32 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
 .la-nav a[aria-current="page"] {{ color: {COLORS.white} !important;
   background: rgba(255, 255, 255, 0.14); font-weight: 700; }}
 .la-bar-right {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding-right: 104px; }}
+  padding-right: 60px; }}
+/* the tab row of a section with several pages (Transactions, Forecast, How it works) */
+.la-tabs {{ display: flex; gap: 4px; padding: 0 0 10px; overflow-x: auto; scrollbar-width: none; }}
+.la-tabs a {{ color: {COLORS.topbar_text} !important; text-decoration: none !important;
+  font-weight: 600; font-size: 14px; padding: 6px 14px; border-radius: 999px;
+  white-space: nowrap; }}
+.la-tabs a:hover {{ background: rgba(255, 255, 255, 0.10); }}
+.la-tabs a[aria-current="page"] {{ background: {COLORS.white}; color: {COLORS.topbar} !important;
+  font-weight: 700; }}
 .la-until {{ font-size: 13px; color: {COLORS.topbar_text}; }}
 .la-source {{ font-size: 12px; font-weight: 700; background: {COLORS.white};
   color: {COLORS.topbar}; padding: 4px 10px; border-radius: 999px; }}
 
-/* the header holds only the settings button: it sits at the right end of the green bar */
+/* the header holds only the settings button, drawn as a gear: it sits at the right end of the
+   green bar. The gear is a text character (U+2699, text style): no image, nothing fetched. */
 [data-testid="stHeader"] {{ position: fixed; top: 0; z-index: 101;
   right: max(24px, calc((100vw - 1200px) / 2 + 24px));
   left: auto; width: auto; height: 64px; background: transparent; display: flex;
   align-items: center; }}
 [data-testid="stToolbar"] {{ position: static; padding: 0; }}
-[data-testid="stExpandSidebarButton"] {{ width: auto; height: auto; padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.14); border-radius: 8px; }}
+[data-testid="stExpandSidebarButton"] {{ width: 44px; height: 44px; padding: 0;
+  background: rgba(255, 255, 255, 0.14); border-radius: 10px; display: flex;
+  align-items: center; justify-content: center; }}
 [data-testid="stExpandSidebarButton"] span {{ display: none; }}
-[data-testid="stExpandSidebarButton"]::after {{ content: "Settings"; color: {COLORS.white};
-  font-weight: 700; font-size: 14px; }}
+[data-testid="stExpandSidebarButton"]::after {{ content: "\\2699\\FE0E"; color: {COLORS.white};
+  font-size: 22px; line-height: 1; }}
 
 /* Streamlit's markdown block pulls the next block up by 1rem; an HTML block needs no such pull */
 [data-testid="stMarkdownContainer"] {{ margin-bottom: 0 !important; }}
@@ -585,11 +604,21 @@ button[data-variant="pills"][aria-pressed="true"] {{ border: 1.5px solid {COLORS
 
 @media (max-width: 760px) {{
   [data-testid="stMainBlockContainer"] {{ padding: 0 16px 48px; }}
-  .la-bar-right {{ padding-right: 0; }}
+  /* the five links stay on one row of their own and scroll sideways; the gear stays top right */
+  .la-nav {{ flex: 1 1 100%; order: 3; flex-wrap: nowrap; overflow-x: auto;
+    scrollbar-width: none; }}
+  .la-nav a {{ white-space: nowrap; }}
+  .la-bar-right {{ padding-right: 56px; }}
   .la-bar-inner {{ padding: 12px 0; gap: 8px 16px; }}
-  [data-testid="stHeader"] {{ top: 8px; right: 16px; height: auto; }}
+  [data-testid="stHeader"] {{ top: 10px; right: 16px; height: auto; }}
   [data-testid="stMetric"] {{ min-height: 0; padding: 16px; }}
   h1 {{ font-size: 28px !important; }}
+}}
+@media (max-width: 480px) {{
+  /* the wordmark row is as tall as the gear beside it, so the gear never covers a link; the data
+     date and source move under the links */
+  .la-brand {{ min-height: 56px; }}
+  .la-bar-right {{ flex: 1 1 100%; order: 4; padding-right: 0; }}
 }}
 """
 
