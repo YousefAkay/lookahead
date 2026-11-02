@@ -1,0 +1,717 @@
+{
+ "plan": "2026-10-17 experiment 4 (e510b1b), readings of 2026-11-02",
+ "verdicts": {
+  "12": {
+   "i": {
+    "1": {
+     "pass": true,
+     "n": 0,
+     "differing": 0,
+     "store_checked": 800,
+     "store_equal": 800
+    },
+    "2": {
+     "pass": false,
+     "archetypes_worse": [
+      "DHOME",
+      "DRENT",
+      "IFAM",
+      "ITIGHT",
+      "SAL",
+      "SEM",
+      "TIGHT"
+     ],
+     "personas_worse": [
+      "v2-DHOME-01",
+      "v2-DHOME-02",
+      "v2-DHOME-03",
+      "v2-DRENT-01",
+      "v2-DRENT-02",
+      "v2-DRENT-03",
+      "v2-IFAM-01",
+      "v2-IFAM-02",
+      "v2-IFAM-03",
+      "v2-SAL-01",
+      "v2-SAL-02",
+      "v2-SAL-03",
+      "v2-SEM-01",
+      "v2-TIGHT-01",
+      "v2-TIGHT-02",
+      "v2-TIGHT-03"
+     ],
+     "n_archetypes": 8,
+     "n_personas": 20
+    },
+    "3": {
+     "pass": false,
+     "net_better": [
+      "FREE"
+     ],
+     "mean_rel_err30": 0.11400097722026503,
+     "mean_rel_abs_bias": 2.522578086878548,
+     "share_w_below_1": {
+      "DHOME": 1.0,
+      "DRENT": 1.0,
+      "FREE": 1.0,
+      "IFAM": 1.0,
+      "ITIGHT": 1.0,
+      "SAL": 1.0,
+      "SEM": 1.0,
+      "TIGHT": 1.0
+     },
+     "rel_err30": {
+      "DHOME": -0.019735629851344735,
+      "DRENT": -0.09687130054194705,
+      "FREE": -0.14773601235921552,
+      "IFAM": 0.0009321500316979297,
+      "ITIGHT": -0.004213502422627129,
+      "SAL": 1.3271578064424758,
+      "SEM": -0.18584141920810265,
+      "TIGHT": 0.0383157256711835
+     },
+     "rel_abs_bias": {
+      "DHOME": 0.6660381465824221,
+      "DRENT": 2.754994693552666,
+      "FREE": -0.9032599568040204,
+      "IFAM": 0.5013303032642986,
+      "ITIGHT": 0.0352632136113931,
+      "SAL": 4.5324262129772075,
+      "SEM": 4.4676914308473,
+      "TIGHT": 8.126140650997119
+     }
+    },
+    "4": {
+     "pass": false,
+     "coverage_worse": [
+      "DHOME",
+      "DRENT",
+      "IFAM",
+      "ITIGHT",
+      "SAL",
+      "SEM",
+      "TIGHT"
+     ],
+     "wider": []
+    },
+    "5": {
+     "pass": false,
+     "default": 0.41909484475260084,
+     "variant": 0.32495444838202736
+    },
+    "6": {
+     "default": {
+      "threshold": 0.35,
+      "caught_on": 47
+     },
+     "variant": {
+      "threshold": 0.2,
+      "caught_on": 43
+     },
+     "episodes": 52,
+     "note": "",
+     "pass": false
+    },
+    "7": {
+     "pass": false,
+     "default": 0.6298304075610222,
+     "variant": 0.42522337724065595,
+     "archetypes": [
+      "DRENT",
+      "ITIGHT",
+      "TIGHT"
+     ],
+     "dips": 125
+    },
+    "11": {
+     "pass": false,
+     "default": 900.8906451736111,
+     "variant": 990.2110785416667
+    }
+   },
+   "ii": {
+    "1": {
+     "pass": true,
+     "n": 680,
+     "differing": 0,
+     "store_checked": 800,
+     "store_equal": 800
+    },
+    "2": {
+     "pass": false,
+     "archetypes_worse": [
+      "DHOME",
+      "DRENT",
+      "SAL",
+      "SEM",
+      "TIGHT"
+     ],
+     "personas_worse": [
+      "v2-DRENT-01",
+      "v2-DRENT-03",
+      "v2-SAL-01",
+      "v2-SAL-02",
+      "v2-SAL-03",
+      "v2-SEM-01",
+      "v2-TIGHT-01",
+      "v2-TIGHT-02",
+      "v2-TIGHT-03"
+     ],
+     "n_archetypes": 8,
+     "n_personas": 20
+    },
+    "3": {
+     "pass": false,
+     "net_better": [],
+     "mean_rel_err30": 0.006608332577203892,
+     "mean_rel_abs_bias": 0.10996052288674997,
+     "share_w_below_1": {
+      "DHOME": 0.15,
+      "DRENT": 0.17647058823529413,
+      "FREE": 0.15,
+      "IFAM": 0.125,
+      "ITIGHT": 0.10465116279069768,
+      "SAL": 0.15,
+      "SEM": 0.15,
+      "TIGHT": 0.17346938775510204
+     },
+     "rel_err30": {
+      "DHOME": -0.0016553473708973809,
+      "DRENT": 0.001598296544114798,
+      "FREE": -0.011576113887749165,
+      "IFAM": -0.0008124777263493272,
+      "ITIGHT": 0.00020002591347270516,
+      "SAL": 0.044033573801623246,
+      "SEM": 0.007613416317768469,
+      "TIGHT": 0.013465287025647787
+     },
+     "rel_abs_bias": {
+      "DHOME": 0.01754409539601871,
+      "DRENT": 0.10230830459007702,
+      "FREE": -0.06278774175208368,
+      "IFAM": 0.00854673425088391,
+      "ITIGHT": 0.0008922370370634947,
+      "SAL": 0.20386032501195836,
+      "SEM": 0.11986788164282733,
+      "TIGHT": 0.4894523469172546
+     }
+    },
+    "4": {
+     "pass": false,
+     "coverage_worse": [
+      "SAL"
+     ],
+     "wider": []
+    },
+    "5": {
+     "pass": false,
+     "default": 0.41909484475260084,
+     "variant": 0.41774485773705916
+    },
+    "6": {
+     "default": {
+      "threshold": 0.35,
+      "caught_on": 47
+     },
+     "variant": {
+      "threshold": 0.35,
+      "caught_on": 46
+     },
+     "episodes": 52,
+     "note": "",
+     "pass": false
+    },
+    "7": {
+     "pass": false,
+     "default": 0.6298304075610222,
+     "variant": 0.6113953901125095,
+     "archetypes": [
+      "DRENT",
+      "ITIGHT",
+      "TIGHT"
+     ],
+     "dips": 125
+    },
+    "11": {
+     "pass": false,
+     "default": 900.8906451736111,
+     "variant": 902.1780150347222
+    }
+   },
+   "iii": {
+    "1": {
+     "pass": true,
+     "n": 412,
+     "differing": 0,
+     "store_checked": 800,
+     "store_equal": 800
+    },
+    "2": {
+     "pass": false,
+     "archetypes_worse": [
+      "DHOME",
+      "DRENT",
+      "IFAM",
+      "ITIGHT",
+      "SAL",
+      "SEM",
+      "TIGHT"
+     ],
+     "personas_worse": [
+      "v2-DHOME-02",
+      "v2-DHOME-03",
+      "v2-DRENT-02",
+      "v2-DRENT-03",
+      "v2-IFAM-02",
+      "v2-IFAM-03",
+      "v2-SAL-01",
+      "v2-SAL-02",
+      "v2-SAL-03",
+      "v2-SEM-01",
+      "v2-TIGHT-01",
+      "v2-TIGHT-02",
+      "v2-TIGHT-03"
+     ],
+     "n_archetypes": 8,
+     "n_personas": 20
+    },
+    "3": {
+     "pass": false,
+     "net_better": [
+      "FREE"
+     ],
+     "mean_rel_err30": -0.009353578679375783,
+     "mean_rel_abs_bias": 0.3481575553580326,
+     "share_w_below_1": {
+      "DHOME": 0.6,
+      "DRENT": 0.4019607843137255,
+      "FREE": 0.7,
+      "IFAM": 0.4666666666666667,
+      "ITIGHT": 0.6976744186046512,
+      "SAL": 0.30833333333333335,
+      "SEM": 0.15,
+      "TIGHT": 0.46938775510204084
+     },
+     "rel_err30": {
+      "DHOME": -0.033565808675106064,
+      "DRENT": -0.04362680559686035,
+      "FREE": -0.0793492502330059,
+      "IFAM": 0.00036931791484641816,
+      "ITIGHT": -0.001857117187630249,
+      "SAL": 0.08943430607793325,
+      "SEM": 0.0007593887033606647,
+      "TIGHT": -0.00699266043854401
+     },
+     "rel_abs_bias": {
+      "DHOME": 0.3960832162024881,
+      "DRENT": 0.9346747905848461,
+      "FREE": -0.21415664914212507,
+      "IFAM": 0.08932770950577182,
+      "ITIGHT": 0.027420632041054355,
+      "SAL": 0.3413944228258197,
+      "SEM": 0.3171973603795999,
+      "TIGHT": 0.8933189604668059
+     }
+    },
+    "4": {
+     "pass": false,
+     "coverage_worse": [
+      "DRENT",
+      "IFAM",
+      "ITIGHT",
+      "SAL",
+      "SEM"
+     ],
+     "wider": []
+    },
+    "5": {
+     "pass": true,
+     "default": 0.41909484475260084,
+     "variant": 0.4193613056740765
+    },
+    "6": {
+     "default": {
+      "threshold": 0.35,
+      "caught_on": 47
+     },
+     "variant": {
+      "threshold": 0.2,
+      "caught_on": 48
+     },
+     "episodes": 52,
+     "note": "",
+     "pass": true
+    },
+    "7": {
+     "pass": false,
+     "default": 0.6298304075610222,
+     "variant": 0.6092818106407323,
+     "archetypes": [
+      "DRENT",
+      "ITIGHT",
+      "TIGHT"
+     ],
+     "dips": 125
+    },
+    "11": {
+     "pass": false,
+     "default": 900.8906451736111,
+     "variant": 902.6906796180556
+    }
+   }
+  },
+  "long": {
+   "i": {
+    "1": {
+     "pass": true,
+     "n": 0,
+     "differing": 0,
+     "store_checked": 800,
+     "store_equal": 800
+    },
+    "2": {
+     "pass": false,
+     "archetypes_worse": [
+      "DHOME",
+      "DRENT",
+      "FREE",
+      "IFAM",
+      "ITIGHT",
+      "SAL",
+      "SEM",
+      "TIGHT"
+     ],
+     "personas_worse": [
+      "v2L-DHOME-01",
+      "v2L-DHOME-02",
+      "v2L-DHOME-03",
+      "v2L-DRENT-01",
+      "v2L-DRENT-02",
+      "v2L-DRENT-03",
+      "v2L-FREE-01",
+      "v2L-IFAM-01",
+      "v2L-IFAM-03",
+      "v2L-SAL-01",
+      "v2L-SAL-02",
+      "v2L-SAL-03",
+      "v2L-SEM-01",
+      "v2L-TIGHT-01",
+      "v2L-TIGHT-02",
+      "v2L-TIGHT-03"
+     ],
+     "n_archetypes": 8,
+     "n_personas": 20
+    },
+    "3": {
+     "pass": false,
+     "net_better": [],
+     "mean_rel_err30": 0.35495765413708413,
+     "mean_rel_abs_bias": 8.63036472869019,
+     "share_w_below_1": {
+      "DHOME": 1.0,
+      "DRENT": 1.0,
+      "FREE": 1.0,
+      "IFAM": 1.0,
+      "ITIGHT": 1.0,
+      "SAL": 1.0,
+      "SEM": 1.0,
+      "TIGHT": 1.0
+     },
+     "rel_err30": {
+      "DHOME": -0.002361750901100153,
+      "DRENT": -0.05207253761500689,
+      "FREE": -0.1570837847949877,
+      "IFAM": -0.00370436785989754,
+      "ITIGHT": -0.0037599283324389918,
+      "SAL": 2.8004342536513693,
+      "SEM": 0.04836741214057511,
+      "TIGHT": 0.20984193680816016
+     },
+     "rel_abs_bias": {
+      "DHOME": 0.7183735299722549,
+      "DRENT": 2.2940617077701324,
+      "FREE": 1.409461488950869,
+      "IFAM": 0.29947252088435566,
+      "ITIGHT": 0.037651307029634824,
+      "SAL": 47.865577030638235,
+      "SEM": 10.481354534443213,
+      "TIGHT": 5.936965709832821
+     }
+    },
+    "4": {
+     "pass": false,
+     "coverage_worse": [
+      "DHOME",
+      "DRENT",
+      "FREE",
+      "IFAM",
+      "ITIGHT",
+      "SAL",
+      "SEM",
+      "TIGHT"
+     ],
+     "wider": []
+    },
+    "5": {
+     "pass": false,
+     "default": 0.4809951832104446,
+     "variant": 0.35335590829209496
+    },
+    "6": {
+     "default": {
+      "threshold": 0.4,
+      "caught_on": 45
+     },
+     "variant": {
+      "threshold": 0.15,
+      "caught_on": 44
+     },
+     "episodes": 51,
+     "note": "",
+     "pass": false
+    },
+    "7": {
+     "pass": false,
+     "default": 0.6290228531841653,
+     "variant": 0.46455085834767634,
+     "archetypes": [
+      "DRENT",
+      "FREE",
+      "ITIGHT",
+      "TIGHT"
+     ],
+     "dips": 123
+    },
+    "11": {
+     "pass": false,
+     "default": 816.3233902430554,
+     "variant": 935.5350752083332
+    }
+   },
+   "ii": {
+    "1": {
+     "pass": true,
+     "n": 800,
+     "differing": 0,
+     "store_checked": 800,
+     "store_equal": 800
+    },
+    "2": {
+     "pass": true,
+     "archetypes_worse": [],
+     "personas_worse": [],
+     "n_archetypes": 8,
+     "n_personas": 20
+    },
+    "3": {
+     "pass": false,
+     "net_better": [],
+     "mean_rel_err30": 0.0,
+     "mean_rel_abs_bias": 0.0,
+     "share_w_below_1": {
+      "DHOME": 0.0,
+      "DRENT": 0.0,
+      "FREE": 0.0,
+      "IFAM": 0.0,
+      "ITIGHT": 0.0,
+      "SAL": 0.0,
+      "SEM": 0.0,
+      "TIGHT": 0.0
+     },
+     "rel_err30": {
+      "DHOME": 0.0,
+      "DRENT": 0.0,
+      "FREE": 0.0,
+      "IFAM": 0.0,
+      "ITIGHT": 0.0,
+      "SAL": 0.0,
+      "SEM": 0.0,
+      "TIGHT": 0.0
+     },
+     "rel_abs_bias": {
+      "DHOME": 0.0,
+      "DRENT": 0.0,
+      "FREE": 0.0,
+      "IFAM": 0.0,
+      "ITIGHT": 0.0,
+      "SAL": 0.0,
+      "SEM": 0.0,
+      "TIGHT": 0.0
+     }
+    },
+    "4": {
+     "pass": true,
+     "coverage_worse": [],
+     "wider": []
+    },
+    "5": {
+     "pass": true,
+     "default": 0.4809951832104446,
+     "variant": 0.4809951832104446
+    },
+    "6": {
+     "default": {
+      "threshold": 0.4,
+      "caught_on": 45
+     },
+     "variant": {
+      "threshold": 0.4,
+      "caught_on": 45
+     },
+     "episodes": 51,
+     "note": "",
+     "pass": true
+    },
+    "7": {
+     "pass": true,
+     "default": 0.6290228531841653,
+     "variant": 0.6290228531841653,
+     "archetypes": [
+      "DRENT",
+      "FREE",
+      "ITIGHT",
+      "TIGHT"
+     ],
+     "dips": 123
+    },
+    "11": {
+     "pass": false,
+     "default": 816.3233902430554,
+     "variant": 816.3233902430554
+    }
+   },
+   "iii": {
+    "1": {
+     "pass": true,
+     "n": 523,
+     "differing": 0,
+     "store_checked": 800,
+     "store_equal": 800
+    },
+    "2": {
+     "pass": false,
+     "archetypes_worse": [
+      "DHOME",
+      "DRENT",
+      "ITIGHT",
+      "SAL"
+     ],
+     "personas_worse": [
+      "v2L-DHOME-01",
+      "v2L-DHOME-03",
+      "v2L-DRENT-02",
+      "v2L-DRENT-03",
+      "v2L-SAL-03"
+     ],
+     "n_archetypes": 8,
+     "n_personas": 20
+    },
+    "3": {
+     "pass": false,
+     "net_better": [
+      "FREE"
+     ],
+     "mean_rel_err30": -0.017630367897078763,
+     "mean_rel_abs_bias": 0.19650896190175593,
+     "share_w_below_1": {
+      "DHOME": 0.4583333333333333,
+      "DRENT": 0.45,
+      "FREE": 0.6,
+      "IFAM": 0.23333333333333334,
+      "ITIGHT": 0.7283950617283951,
+      "SAL": 0.13333333333333333,
+      "SEM": 0.0,
+      "TIGHT": 0.09302325581395349
+     },
+     "rel_err30": {
+      "DHOME": -0.048826998089810635,
+      "DRENT": -0.03569706610971832,
+      "FREE": -0.05683875195453146,
+      "IFAM": -0.004149601585247001,
+      "ITIGHT": -2.265285617341268e-05,
+      "SAL": 0.005268139857340809,
+      "SEM": 0.0,
+      "TIGHT": -0.0007760124384900815
+     },
+     "rel_abs_bias": {
+      "DHOME": 0.3541832604981217,
+      "DRENT": 0.7042754613674158,
+      "FREE": -0.7107126322564621,
+      "IFAM": -0.03853864732253094,
+      "ITIGHT": 0.0192736652905726,
+      "SAL": 1.3933627493629976,
+      "SEM": 0.0,
+      "TIGHT": -0.14977216172606694
+     }
+    },
+    "4": {
+     "pass": false,
+     "coverage_worse": [
+      "ITIGHT"
+     ],
+     "wider": []
+    },
+    "5": {
+     "pass": true,
+     "default": 0.4809951832104446,
+     "variant": 0.48195438564344906
+    },
+    "6": {
+     "default": {
+      "threshold": 0.4,
+      "caught_on": 45
+     },
+     "variant": {
+      "threshold": 0.35,
+      "caught_on": 45
+     },
+     "episodes": 51,
+     "note": "",
+     "pass": true
+    },
+    "7": {
+     "pass": true,
+     "default": 0.6290228531841653,
+     "variant": 0.6304099131239242,
+     "archetypes": [
+      "DRENT",
+      "FREE",
+      "ITIGHT",
+      "TIGHT"
+     ],
+     "dips": 123
+    },
+    "11": {
+     "pass": false,
+     "default": 816.3233902430554,
+     "variant": 816.5556696527777
+    }
+   }
+  }
+ },
+ "eligible": {
+  "12": {
+   "ii": {
+    "eligible": 680,
+    "origins": 800,
+    "accounts": 20
+   },
+   "iii": {
+    "eligible": 560,
+    "origins": 800,
+    "accounts": 20
+   }
+  },
+  "long": {
+   "ii": {
+    "eligible": 680,
+    "origins": 800,
+    "accounts": 20
+   },
+   "iii": {
+    "eligible": 560,
+    "origins": 800,
+    "accounts": 20
+   }
+  }
+ }
+}
