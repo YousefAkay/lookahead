@@ -1851,6 +1851,13 @@ A plain product feature: ordinary tests on made-up data, no pre-registered rule,
 ### 2026-11-02: Recurring alerts merged into main
 I merged `recurring-alerts` into main (a fast-forward) after the full suite passed on it (2,234 tests) and after my own check on my real database: the Recurring page loads, my series are all there, the alert state was recorded, and rent does not show "may have stopped". Dismissing an alert and bringing it back are still untested on my real data: no alert was open on this first look, so that waits until new data arrives.
 
+### 2026-11-02: "What changed since last time" (week 5, item 4): what it shows and when it moves on (before any code)
+A plain product feature (branch `since-last-time`, from main): ordinary tests on made-up data, no adopt rule, no scoring. Everything is counted in code; nothing is written by an LLM.
+- **What it shows.** A "Since last time" card on Home with the counts, linking to its own page with five sections: the balance change and how many rows are new; new merchants (first seen after the marker; one flagged for checking links to To check); recurring changes (the recurring alerts opened since the marker: new, may have stopped, amount looks different, not seen yet); category spending changes; and the alerts opened since the marker (shortfall and recurring), linking to their pages. Names are pseudonymized as on the other pages, and the words are "possible" and "estimate".
+- **The marker** is per account: the data date I last acknowledged. **It moves only when I click "Got it".** On a database with no marker the page says there is nothing to compare yet and sets nothing until I click.
+- **It is separate from the recurring alerts' last look.** Opening the page records a recurring-alerts look (the same function the Recurring page calls), which closes the gap I found: the import command records no look. Recording a look never moves the marker.
+- **Category changes** compare money out by category since the marker with the same length of time just before it (transfers and netted pairs left out). A change counts only if it is **at least $25 and at least 20 percent**. Both thresholds are provisional, picked to be noticeable and not measured. If the earlier period starts before the data does, the comparison is not shown.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
