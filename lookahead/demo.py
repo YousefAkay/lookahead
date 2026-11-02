@@ -2,6 +2,7 @@
 
 import sqlite3
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 
 from lookahead.categorize import Settings, categorize, train
@@ -42,15 +43,23 @@ def build_demo_db(db_path: Path, synthetic_dir: Path) -> None:
     conn.close()
 
 
+def is_in_data_private(path: Path) -> bool:
+    """True for a path inside a data/private folder (where real bank data lives), at any depth.
+    Only "data" directly followed by "private" counts: macOS keeps its temporary folders under
+    /private/var, and those must pass. Compared without case, as macOS file names are."""
+    parts = [part.lower() for part in path.parts]
+    return any(a == "data" and b == "private" for a, b in pairwise(parts))
+
+
 def reset_demo_db(db_path: Path, synthetic_dir: Path) -> None:
     """Throw the synthetic demo database away and build it again from the persona files: no
     alerts, planned items, decisions, corrections or changed buffer, every recurring series
     waiting to be reviewed, and the label-review splits frozen so that page opens on a merchant.
 
-    It refuses a path inside a folder called "private" and anything that is not a .db file, so it
+    It refuses a path inside a data/private folder and anything that is not a .db file, so it
     can never be pointed at real data by accident."""
     resolved = db_path.resolve()
-    if "private" in resolved.parts:
+    if is_in_data_private(resolved):
         raise ValueError(f"refusing to reset a database in a private folder: {resolved.name}")
     if resolved.suffix != ".db":
         raise ValueError("a demo database is a .db file")

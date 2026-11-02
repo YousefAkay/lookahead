@@ -7,7 +7,7 @@ import pytest
 
 from lookahead.alerts import episodes
 from lookahead.db import connect
-from lookahead.demo import DEMO_ACCOUNTS, build_demo_db, reset_demo_db
+from lookahead.demo import DEMO_ACCOUNTS, build_demo_db, is_in_data_private, reset_demo_db
 from lookahead.generator.personas import PERSONAS
 from lookahead.generator.writer import write_persona
 from lookahead.planned import add_planned
@@ -99,6 +99,32 @@ def test_a_reset_refuses_a_path_in_a_private_folder(tmp_path: Path, synthetic: P
     with pytest.raises(ValueError, match="private"):
         reset_demo_db(db, synthetic)
     assert db.read_bytes() == b"real bank data would be here"  # untouched
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/Users/someone/lookahead/data/private/db/lookahead.db",
+        "/Users/someone/lookahead/data/private/lookahead.db",
+        "/Users/someone/lookahead/Data/Private/db/lookahead.db",  # macOS ignores case
+        "/private/var/folders/ab/T/pytest-0/data/private/db/lookahead.db",
+    ],
+)
+def test_a_path_under_a_data_private_folder_is_refused(path: str) -> None:
+    assert is_in_data_private(Path(path))
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/private/var/folders/ab/T/pytest-0/demo.db",  # macOS temporary folder
+        "/private/tmp/demo.db",
+        "/Users/someone/lookahead/data/demo/demo.db",
+        "/Users/someone/private/data/demo.db",  # "private" then "data", not data/private
+    ],
+)
+def test_a_path_under_a_system_private_folder_is_allowed(path: str) -> None:
+    assert not is_in_data_private(Path(path))
 
 
 def test_a_reset_only_deletes_a_database_it_made(tmp_path: Path, synthetic: Path) -> None:
