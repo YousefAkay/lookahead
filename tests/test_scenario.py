@@ -117,3 +117,42 @@ def test_the_calculator_and_its_adapter_import_nothing_from_the_forecaster_or_pr
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "[]"
+
+
+# --- Income spread through the month, and top-ups ---
+
+QUARTER_END = date(2026, 6, 30)  # April, May and June: three whole months
+
+
+def test_a_spread_month_adds_up_to_the_monthly_amount_exactly() -> None:
+    from lookahead.scenario import day_share
+
+    for month_ in (date(2026, 2, 1), date(2026, 4, 1), date(2028, 2, 1), date(2026, 12, 1)):
+        days = [month_.replace(day=d) for d in range(1, 32) if _valid(month_, d)]
+        for cents in (300_000, 100_001, -45_678, 0):
+            assert sum(day_share(cents, d) for d in days) == cents
+
+
+def _valid(month_: date, day: int) -> bool:
+    try:
+        month_.replace(day=day)
+    except ValueError:
+        return False
+    return True
+
+
+def test_spread_and_set_day_income_end_the_same_but_take_different_paths() -> None:
+    on_day = Flow("Income", 300_000, "monthly", date(2024, 1, 15))
+    spread = Flow("Income", 300_000, "monthly", date(2024, 1, 15), spread=True)
+    a = run(Inputs(100_000, START, QUARTER_END, (on_day,), daily_spend_cents=2_000))
+    b = run(Inputs(100_000, START, QUARTER_END, (spread,), daily_spend_cents=2_000))
+    assert a.end_balance == b.end_balance == 100_000 + 3 * 300_000 - 91 * 2_000
+    assert a.balances != b.balances
+    assert b.balances[0] == 100_000 + 10_000 - 2_000  # $3,000 over April's 30 days: $100 a day
+
+
+def test_top_ups_from_savings_add_to_money_in() -> None:
+    top_up = Flow("Top-ups from savings", 50_000, "monthly", date(2024, 1, 1), spread=True)
+    base = Inputs(100_000, START, QUARTER_END, daily_spend_cents=2_000)
+    with_top_ups = Inputs(100_000, START, QUARTER_END, (top_up,), daily_spend_cents=2_000)
+    assert run(with_top_ups).end_balance == run(base).end_balance + 3 * 50_000

@@ -11,6 +11,7 @@ forecaster or the proposers (a test checks it); prefilling from the database is
 `lookahead.scenario_prefill`.
 """
 
+from calendar import monthrange
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -31,6 +32,7 @@ class Flow:
     card: bool = False  # an e-Transfer or card payment: posts Monday to Saturday
     on: bool = True
     key: str = ""  # the stored series it came from, if any
+    spread: bool = False  # monthly only: a little each day instead of on one day (`day_share`)
 
     @property
     def direction(self) -> str:
@@ -68,6 +70,16 @@ def default_end(today: date) -> date:
     return date(today.year, 12, 31)
 
 
+def day_share(monthly_cents: int, day: date) -> int:
+    """A monthly amount spread over the days of its calendar month, in whole cents: every day gets
+    the same share and the cents left over go one each to the first days, so a whole month adds up
+    to the monthly amount exactly."""
+    days = monthrange(day.year, day.month)[1]
+    base, extra = divmod(abs(monthly_cents), days)
+    share = base + (1 if day.day <= extra else 0)
+    return share if monthly_cents >= 0 else -share
+
+
 def flow_dates(flow: Flow, first: date, last: date) -> list[date]:
     """The posting dates of a flow in [first, last], weekend and holiday shifts included."""
     dates = expected_dates(
@@ -84,7 +96,14 @@ def run(inputs: Inputs) -> Result:
     first = inputs.start + timedelta(days=1)
     change: defaultdict[date, int] = defaultdict(int)
     for flow in inputs.flows:
-        if flow.on:
+        if not flow.on:
+            continue
+        if flow.spread:
+            day = first
+            while day <= inputs.end:
+                change[day] += day_share(flow.cents, day)
+                day += timedelta(days=1)
+        else:
             for day in flow_dates(flow, first, inputs.end):
                 change[day] += flow.cents
     for item in inputs.one_offs:

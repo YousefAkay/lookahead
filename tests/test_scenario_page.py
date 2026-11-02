@@ -103,3 +103,23 @@ def test_the_one_off_day_starts_the_day_after_the_data(isolated: Path) -> None:
     ).fetchone()[0]
     conn.close()
     assert at.date_input(key="sc_extra_day").value == date.fromisoformat(last) + timedelta(days=1)
+
+
+def test_top_ups_raise_the_headline_and_the_timing_choice_shows_a_day() -> None:
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    assert at.number_input(key="sc_top_ups").value == 0.0
+    assert at.radio(key="sc_timing").value == "Spread evenly through the month"
+    assert not [n for n in at.number_input if n.key == "sc_pay_day"]
+    before = headline(at)
+    at.number_input(key="sc_top_ups").set_value(300.0).run()
+    assert not at.exception, at.exception
+    assert headline(at) != before
+    at.radio(key="sc_timing").set_value("On a set day").run()
+    assert not at.exception, at.exception
+    assert at.number_input(key="sc_pay_day").value >= 1
+
+
+def test_the_estimates_say_what_they_are_based_on() -> None:
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    captions = "\n".join(str(c.value) for c in at.caption)
+    assert "The average day over" in captions

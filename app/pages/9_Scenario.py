@@ -46,6 +46,8 @@ from lookahead.views import accounts, transactions  # noqa: E402
 
 TITLE = "Scenario"
 NOT_A_FORECAST = "This assumes exactly what you entered. It's not a forecast."
+SPREAD = "Spread evenly through the month"
+SET_DAY = "On a set day"
 RENT_DAY_NOTE = "No rent rule found: rent entered here is placed on the 1st of each month."
 
 
@@ -126,16 +128,32 @@ with st.container(border=True, key="card-inputs"):
     with left:
         spend = st.number_input("Daily spend ($)", min_value=0.0, step=1.0, key="sc_spend",
                                 value=base.daily_spend_cents / 100)  # fmt: skip
+        if base.spend_basis:
+            st.caption(base.spend_basis)
         income_in = st.number_input(
             "Income per month ($)", min_value=0.0, step=10.0, key="sc_income",
             value=(base.income.cents / 100) if base.income else 0.0,
-            help="Income not already in a confirmed series, on its usual day.",
+        )  # fmt: skip
+        if base.income_basis:
+            st.caption(base.income_basis)
+        top_ups_in = st.number_input(
+            "Top-ups from savings per month ($)", min_value=0.0, step=10.0, key="sc_top_ups",
+            value=0.0, help="Money you move from savings into this account: counted as money in.",
         )  # fmt: skip
     with middle:
         rent_in = st.number_input("Rent per month ($)", min_value=0.0, step=10.0, key="sc_rent",
                                   value=-base.rent.cents / 100 if base.rent else 0.0)  # fmt: skip
         if base.rent is None:
             st.caption(RENT_DAY_NOTE)
+        timing = st.radio("Income and top-ups arrive", [SPREAD, SET_DAY], key="sc_timing")
+        usual = base.income.anchor.day if base.income else 1
+        pay_day = (
+            st.number_input(
+                "Day of the month", min_value=1, max_value=31, step=1, value=usual, key="sc_pay_day"
+            )  # fmt: skip
+            if timing == SET_DAY
+            else usual
+        )
     with right:
         end = st.date_input("End date", value=default_end(date.today()), key="sc_end")
         buffer_in = st.number_input("Buffer ($)", min_value=0.0, step=10.0, key="sc_buffer",
@@ -186,8 +204,12 @@ with st.container(border=True, key="card-inputs"):
                 st.rerun()
 
 # --- The two lines ---
+# The timing choice applies to both lines: it is how money arrives, not part of the what-if.
 rent_flow = base.rent or Flow("Rent", 0, "monthly", date(ANCHOR_YEAR, 1, 1), card=True)
-income_flow = base.income or Flow("Income", 0, "monthly", date(ANCHOR_YEAR, 1, 1))
+arrives = {"anchor": date(ANCHOR_YEAR, 1, int(pay_day)), "spread": timing == SPREAD}
+income_flow = replace(base.income or Flow("Income", 0, "monthly", date(ANCHOR_YEAR, 1, 1)),
+                      **arrives)  # fmt: skip
+top_ups = Flow("Top-ups from savings", cents(top_ups_in), "monthly", **arrives)  # type: ignore[arg-type]
 now = Inputs(
     balance_cents=base.balance_cents, start=start, end=end,
     flows=(*base.flows, rent_flow, income_flow), daily_spend_cents=base.daily_spend_cents,
@@ -196,7 +218,7 @@ now = Inputs(
 mine = Inputs(
     balance_cents=base.balance_cents, start=start, end=end,
     flows=(*switches, replace(rent_flow, cents=-cents(rent_in)),
-           replace(income_flow, cents=cents(income_in))),
+           replace(income_flow, cents=cents(income_in)), top_ups),
     daily_spend_cents=cents(spend), buffer_cents=cents(buffer_in),
     one_offs=tuple(OneOff(i["day"], int(i["cents"]), str(i["name"])) for i in extras),  # type: ignore[arg-type, call-overload]
 )  # fmt: skip

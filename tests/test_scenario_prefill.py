@@ -157,3 +157,68 @@ def test_the_usual_day_is_the_most_common_one_and_a_tie_goes_to_the_earlier() ->
     assert usual_day([date(2026, 1, 2), date(2026, 2, 2), date(2026, 3, 3)]) == 2
     assert usual_day([date(2026, 1, 5), date(2026, 2, 3)]) == 3
     assert usual_day([]) is None
+
+
+# --- What is income and what is spending (changed after my real-data check) ---
+
+
+def window(c: sqlite3.Connection) -> None:
+    """90 days of history: a $1 purchase 89 days before the last day, and one on the last day."""
+    insert(c, days_back(89), -100, "Opos First", flow="everyday")
+    insert(c, LAST, -100, "Opos Last", flow="everyday")
+
+
+def test_transfers_between_my_own_accounts_are_neither_income_nor_spending(
+    tmp_path: Path,
+) -> None:
+    c = connect(tmp_path / "s.db")
+    window(c)
+    insert(c, days_back(10), 500_000, "Customer Transfer Cr. Savings", kind="customer transfer cr.",
+           flow="transfer")  # fmt: skip
+    insert(c, days_back(9), -400_000, "Customer Transfer Dr. Savings", kind="customer transfer dr.",
+           flow="transfer")  # fmt: skip
+    insert(c, days_back(8), 90_000, "Payroll Dep ", kind="deposit", flow="income")
+    insert(c, days_back(7), 5_000, "Refund Opos Shop", flow="refund")
+    p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
+    assert p.income is not None
+    assert p.income.cents == round(90_000 * (365.25 / 12) / 90)  # the pay only
+    assert p.daily_spend_cents == round(200 / 90)  # the transfer out is not spending
+    assert "1 deposit over 90 days" in p.income_basis
+    assert "own accounts" in p.income_basis and "own accounts" in p.spend_basis
+    c.close()
+
+
+def test_other_money_in_counts_as_income(tmp_path: Path) -> None:
+    c = connect(tmp_path / "s.db")
+    window(c)
+    insert(c, days_back(20), 30_000, "Interac E-Transfer From A Friend", kind="deposit",
+           flow="everyday")  # fmt: skip
+    p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
+    assert p.income is not None and p.income.cents == round(30_000 * (365.25 / 12) / 90)
+    c.close()
+
+
+@pytest.mark.xfail(strict=True, reason="pending my decision: the one-time money rule lives only "
+                   "inside lookahead/forecast/, which the scenario may not import")  # fmt: skip
+def test_a_big_one_off_deposit_is_not_income(tmp_path: Path) -> None:
+    c = connect(tmp_path / "s.db")
+    window(c)
+    for k in (80, 50, 20):
+        insert(c, days_back(k), 150_000, "Payroll Dep ", kind="deposit", flow="income")
+    insert(c, days_back(30), 2_000_000, "Deposit Branch", kind="deposit", flow="income")
+    p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
+    assert p.income is not None
+    assert p.income.cents == round(450_000 * (365.25 / 12) / 90)
+    c.close()
+
+
+def test_the_daily_spend_is_the_average_day_not_the_median(tmp_path: Path) -> None:
+    """A skewed made-up 90 days: nothing on 80 days, $90 on 10 days. The median day is $0;
+    the average day is $10."""
+    c = connect(tmp_path / "s.db")
+    for k, back in enumerate((0, 10, 20, 30, 40, 50, 60, 70, 80, 89)):
+        insert(c, days_back(back), -9_000, f"Opos Shop{k}", flow="everyday")
+    p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
+    assert p.daily_spend_cents == 1_000
+    assert "average day over 90 days" in p.spend_basis and "10 payments" in p.spend_basis
+    c.close()

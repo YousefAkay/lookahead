@@ -4,16 +4,20 @@
 - Recurring flows: my confirmed and hand-added series. A series with a rent rule is rent: its
   latest allowed amount (my latest rent payment's amount if it is allowed, otherwise the larger
   one) on its usual day.
-- Income: income rows of the last WINDOW_DAYS that are not already in a confirmed or hand-added
-  series, as an average per month, arriving on their usual day.
-- The daily spend: the median day of the last WINDOW_DAYS (days with no spending count) of money
-  out that is not in a recurring series, not rent, not a transfer and not a netted pair.
+- Income: the money in of the last WINDOW_DAYS, scaled to a month, less what is not income:
+  transfers between my own accounts (the flow typing's "transfer", both directions), refunds,
+  netted pairs, and money already in a confirmed or hand-added series. Its usual day is kept for
+  the "arrives on a set day" choice. Big one-off deposits are NOT left out yet: the rule for them
+  lives only inside the forecaster (DECISIONS, 2026-11-02).
+- The daily spend: the average day of the last WINDOW_DAYS (total over the days, days with no
+  spending included) of money out that is not in a recurring series, not rent, not a transfer
+  between my own accounts and not a netted pair.
+Each estimate comes with a plain-words basis for the page.
 What cannot be estimated is left at zero and named in `missing`, so the page can say so. Like the
 calculator, nothing here comes from the forecaster or the proposers.
 """
 
 import sqlite3
-import statistics
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -30,6 +34,7 @@ MIN_HISTORY_DAYS = 30  # less than this: the daily spend and income are not esti
 MONTH_DAYS = 365.25 / 12
 ANCHOR_YEAR = 2024  # a monthly flow's anchor: only its day of the month is used
 _DECIDED = ("confirmed", "user-added")
+NOT_INCOME = ("transfer", "refund")  # flow types of money in that is not income
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,8 @@ class Prefill:
     daily_spend_cents: int
     buffer_cents: int
     missing: tuple[str, ...]  # what could not be estimated (left at zero)
+    income_basis: str = ""
+    spend_basis: str = ""
 
 
 def usual_day(days: Sequence[date]) -> int | None:
@@ -119,8 +126,10 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     in_any = {fp for s in series if s.status != "rejected" for fp in s.evidence}
 
     income = None
-    pay = recent[(recent["flow_type"] == "income") & (recent["amount_cents"] > 0)
-                 & ~recent["fingerprint"].isin(in_decided)]  # fmt: skip
+    income_basis = ""
+    pay = recent[(recent["amount_cents"] > 0) & ~recent["fingerprint"].isin(in_decided)
+                 & ~recent["flow_type"].isin(NOT_INCOME)
+                 & (recent["source"] != "netted")]  # fmt: skip
     has_income_series = any(s.direction == "in" for s in decided)
     if span < MIN_HISTORY_DAYS:
         missing.append("income")
@@ -128,10 +137,18 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         monthly = round(int(pay["amount_cents"].sum()) * MONTH_DAYS / span)
         day = usual_day(list(pay["date"].dt.date)) or 1
         income = Flow("Income", monthly, "monthly", date(ANCHOR_YEAR, 1, day))
+        income_basis = (
+            f"From {_count(len(pay), 'deposit')} over {span} days, scaled to a month; transfers "
+            "between your own accounts, refunds and money already in a confirmed series left "
+            "out. One-off deposits are not left out yet."
+        )
     elif not has_income_series:
         missing.append("income")
+    else:
+        income_basis = "Your income is in a confirmed recurring series, listed below."
 
     spend = 0
+    spend_basis = ""
     if span < MIN_HISTORY_DAYS:
         missing.append("daily spend")
     else:
@@ -139,7 +156,15 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
                      & (recent["flow_type"] != "transfer")
                      & (recent["flow_type"] != "recurring_outflow")
                      & (recent["source"] != "netted")]  # fmt: skip
-        by_day = (-out.groupby(out["date"].dt.date)["amount_cents"].sum()).to_dict()
-        every_day = [by_day.get(since + timedelta(days=k), 0) for k in range(span)]
-        spend = round(statistics.median(every_day))
-    return Prefill(last, balance, tuple(flows), rent, income, int(spend), buffer, tuple(missing))
+        spend = round(-int(out["amount_cents"].sum()) / span)
+        spend_basis = (
+            f"The average day over {span} days (days with no spending count): "
+            f"{_count(len(out), 'payment')}; recurring payments, rent, transfers between your own "
+            "accounts and refunded pairs left out."
+        )
+    return Prefill(last, balance, tuple(flows), rent, income, int(spend), buffer,
+                   tuple(missing), income_basis, spend_basis)  # fmt: skip
+
+
+def _count(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
