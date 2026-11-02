@@ -1848,6 +1848,9 @@ A plain product feature: ordinary tests on made-up data, no pre-registered rule,
 - **Known limit.** A detected series counts only payments within its own tolerance of a due date. A payment much later than that (say 11 days after a monthly bill) is not part of the series, so "not seen yet" stays until the detector sees a pattern again. A series I added by hand matches its payments by name on any day, and a series with a rent rule counts any day, so for those a late payment closes the alert.
 - **When it runs:** when the Recurring page opens and after an import, through the same function. Recurring page only (no Home count). Alerts are not replayed in the Time Machine.
 
+### 2026-11-02: Recurring alerts merged into main
+I merged `recurring-alerts` into main (a fast-forward) after the full suite passed on it (2,234 tests) and after my own check on my real database: the Recurring page loads, my series are all there, the alert state was recorded, and rent does not show "may have stopped". Dismissing an alert and bringing it back are still untested on my real data: no alert was open on this first look, so that waits until new data arrives.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
