@@ -176,6 +176,7 @@ PAGES = [
     ("To check", "/To_check"),
     ("Recurring", "/Recurring"),
     ("Forecast", "/Forecast"),
+    ("Scenario", "/Scenario"),
     ("Time machine", "/Time_machine"),
     ("Model report", "/Model_report"),
 ]
