@@ -1,6 +1,7 @@
 """Parser for the Scotiabank chequing CSV export.
 
-Format (see DECISIONS.md): UTF-8 with a BOM, CRLF line endings, no newline after
+Format (see DECISIONS.md): UTF-8 with a BOM (a file that is not valid UTF-8 is read as
+Windows-1252, the other encoding French text comes in), CRLF line endings, no newline after
 the last row, every field quoted, rows newest first, `Filter` text on the first data
 row only, signed CAD amounts, a running `Balance` after each row. The export holds
 posted transactions only, so nothing is filtered here.
@@ -9,6 +10,7 @@ Parsing never guesses: any malformed row raises ExportFormatError with its line 
 """
 
 import csv
+import io
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -102,25 +104,43 @@ def _parse_row(record: list[str], position: int, line_no: int) -> ParsedRow:
     )
 
 
+# Tried in this order; the first that decodes the whole file wins. Both are strict: a byte that
+# does not belong to the encoding fails it, so nothing is replaced by "?" or dropped.
+# utf-8-sig strips the BOM (and works without one).
+ENCODINGS = (("utf-8-sig", "UTF-8"), ("cp1252", "Windows-1252"))
+
+
+def read_export_text(path: Path) -> tuple[str, str]:
+    """The file's text and the name of the encoding it was read in."""
+    data = path.read_bytes()
+    for codec, name in ENCODINGS:
+        try:
+            return data.decode(codec), name
+        except UnicodeDecodeError:
+            continue
+    raise ExportFormatError(f"{path.name}: neither UTF-8 nor Windows-1252 text", "encoding")
+
+
+def export_encoding(path: Path) -> str:
+    """The encoding an export is read in: "UTF-8" or "Windows-1252"."""
+    return read_export_text(path)[1]
+
+
 def parse_export(path: Path) -> list[ParsedRow]:
     """All rows of one export, in file order (newest first)."""
-    try:
-        # utf-8-sig strips the BOM (and works without one); newline="" lets csv
-        # handle CRLF, LF, quoted fields and a missing final newline.
-        with path.open(encoding="utf-8-sig", newline="") as f:
-            reader = csv.reader(f)
-            header = next(reader, None)
-            if header is None:
-                raise ExportFormatError(f"{path.name}: empty file", "empty file")
-            if header != EXPECTED_HEADER:
-                raise ExportFormatError(f"line 1: unexpected header {header}", "header", 1)
-            rows: list[ParsedRow] = []
-            for record in reader:
-                if not record:
-                    continue  # tolerate a blank line
-                rows.append(_parse_row(record, len(rows) + 1, reader.line_num))
-    except UnicodeDecodeError as e:
-        raise ExportFormatError(f"{path.name}: not UTF-8 text ({e.reason})", "encoding") from e
+    text, _ = read_export_text(path)
+    # newline="" lets csv handle CRLF, LF, quoted fields and a missing final newline.
+    reader = csv.reader(io.StringIO(text, newline=""))
+    header = next(reader, None)
+    if header is None:
+        raise ExportFormatError(f"{path.name}: empty file", "empty file")
+    if header != EXPECTED_HEADER:
+        raise ExportFormatError(f"line 1: unexpected header {header}", "header", 1)
+    rows: list[ParsedRow] = []
+    for record in reader:
+        if not record:
+            continue  # tolerate a blank line
+        rows.append(_parse_row(record, len(rows) + 1, reader.line_num))
     return rows
 
 

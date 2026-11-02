@@ -22,6 +22,7 @@ generator v1 personas (week 5).
 import argparse
 from datetime import date, timedelta
 
+from lookahead import one_time  # the cutoff constants live here (2026-11-02)
 from lookahead.flows import Txn, flow_types
 from lookahead.forecast import spending
 from lookahead.generator.personas import PERSONAS
@@ -78,7 +79,7 @@ def sweep(seeds: int) -> None:
     )
     for floor in FLOORS:
         for times in TIMES:
-            spending.LARGE_MIN_CENTS, spending.LARGE_TIMES_MEDIAN = floor, times
+            one_time.LARGE_MIN_CENTS, one_time.LARGE_TIMES_MEDIAN = floor, times
             tally = {m: [0, 0, 0, 0] for m in MODES}  # caught, large, flagged, ordinary
             for seed_rows in samples:
                 for _pid, _gen, txns, flows, series, family, _ in seed_rows:
@@ -104,7 +105,7 @@ def sweep(seeds: int) -> None:
                 for t in tally.values()
             ]
             print(f"{floor / 100:>8.0f} {times:>5} | " + " | ".join(f"{c:>26}" for c in cells))
-    spending.LARGE_MIN_CENTS, spending.LARGE_TIMES_MEDIAN = 50000, 5
+    one_time.LARGE_MIN_CENTS, one_time.LARGE_TIMES_MEDIAN = 50000, 5
 
 
 def pass_through_band(seeds: int) -> None:
