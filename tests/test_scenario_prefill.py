@@ -1,0 +1,159 @@
+"""Prefilling the scenario calculator from the database (lookahead/scenario_prefill.py). Made-up
+rows in a temporary database."""
+
+import sqlite3
+from datetime import date, timedelta
+from pathlib import Path
+
+import pytest
+
+from lookahead.calendar_rules import monthly_date, shift_to_business_day
+from lookahead.db import connect
+from lookahead.recurring_store import add_series, confirm, refresh, set_rent_rule
+from lookahead.rent import RentRule
+from lookahead.scenario_prefill import prefill, usual_day
+from lookahead.settings import set_safety_buffer_cents
+
+ACCOUNT = "test"
+LAST = date(2026, 6, 30)
+LONG_AGO = date(2026, 1, 1)
+
+
+def insert(conn: sqlite3.Connection, day: date, cents: int, text: str, kind: str = "pos purchase",
+           balance: int = 0, flow: str | None = None, source: str = "model") -> None:  # fmt: skip
+    n = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] + 1
+    fp = f"fp{n:04d}"
+    with conn:
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 'f', '2026-10-01')",
+            (ACCOUNT, day.isoformat(), cents, kind, text, balance, fp),
+        )
+        if flow is not None:
+            conn.execute(
+                "INSERT INTO category_predictions (fingerprint, account, merchant, flow_type,"
+                " category, source, detail, flagged, confidence, model_version, predicted_at)"
+                " VALUES (?, ?, ?, ?, 'Shopping', ?, '', 0, 0.9, 'test', '2026-10-01')",
+                (fp, ACCOUNT, text, flow, source),
+            )
+
+
+def days_back(n: int) -> date:
+    return LAST - timedelta(days=n)
+
+
+@pytest.fixture
+def conn(tmp_path: Path) -> sqlite3.Connection:
+    """January to June: a phone bill on the 15th, rent by e-Transfer around the 1st, pay on the
+    25th (not in a series), spending on some days; the newest row holds the balance."""
+    c = connect(tmp_path / "t.db")
+    for m in range(1, 7):
+        insert(c, shift_to_business_day(monthly_date(2026, m, 15), "later"), -6_500, "Phone Co ",
+               kind="bill payment", flow="everyday")  # fmt: skip
+        rent_day = 2 if m != 6 else 3  # usually the 2nd
+        insert(c, date(2026, m, rent_day), -90_000 if m < 6 else -95_000,
+               "Free Interac E-Transfer ", kind="withdrawal", flow="transfer")  # fmt: skip
+        insert(c, date(2026, m, 25), 150_000, "Payroll Dep ", kind="deposit", flow="income")
+    insert(c, LAST, -1_000, "Opos Shop", flow="everyday", balance=321_000)
+    return c
+
+
+def stored(c: sqlite3.Connection) -> list:  # type: ignore[type-arg]
+    return refresh(c, ACCOUNT)
+
+
+def test_the_latest_balance_and_the_data_date(conn: sqlite3.Connection) -> None:
+    p = prefill(conn, ACCOUNT, stored(conn))
+    assert (p.balance_cents, p.data_date) == (321_000, LAST)
+
+
+def test_only_confirmed_and_hand_added_series_are_used(conn: sqlite3.Connection) -> None:
+    series = stored(conn)
+    assert prefill(conn, ACCOUNT, series).flows == ()  # detected only: not used
+    phone = next(s for s in series if s.name == "Phone Co")
+    confirm(conn, ACCOUNT, phone, LONG_AGO)
+    add_series(conn, ACCOUNT, "Gym", "out", "monthly", date(2026, 1, 5), 4_000, LONG_AGO)
+    p = prefill(conn, ACCOUNT, stored(conn))
+    assert sorted((f.name, f.cents, f.cadence) for f in p.flows) == [
+        ("Gym", -4_000, "monthly"), ("Phone Co", -6_500, "monthly")
+    ]  # fmt: skip
+
+
+def test_rent_uses_its_latest_allowed_amount_on_its_usual_day(conn: sqlite3.Connection) -> None:
+    rent = next(s for s in stored(conn) if s.kind == "e-transfer" and s.direction == "out")
+    set_rent_rule(conn, ACCOUNT, rent, RentRule((90_000, 95_000), 1, 5), LONG_AGO)
+    confirm(conn, ACCOUNT, next(s for s in stored(conn) if s.key == rent.key), LONG_AGO)
+    p = prefill(conn, ACCOUNT, stored(conn))
+    assert p.rent is not None
+    assert (p.rent.cents, p.rent.anchor.day, p.rent.card) == (-95_000, 2, True)
+
+
+def test_rent_whose_latest_payment_is_not_allowed_uses_the_larger_amount() -> None:
+    from lookahead.scenario_prefill import rent_amount
+
+    rule = RentRule((90_000, 95_000), 1, 5)
+    assert rent_amount(rule, [(date(2026, 5, 2), 90_000), (date(2026, 6, 2), 91_000)]) == 95_000
+    assert rent_amount(rule, [(date(2026, 5, 2), 95_000), (date(2026, 6, 2), 90_000)]) == 90_000
+    assert rent_amount(rule, []) == 95_000
+
+
+def test_income_is_the_average_per_month_over_90_days_on_its_usual_day(
+    conn: sqlite3.Connection,
+) -> None:
+    p = prefill(conn, ACCOUNT, stored(conn))
+    assert p.income is not None
+    # Pay on April 25, May 25 and June 25 (inside the 90 days ending June 30): $4,500 in 90 days.
+    assert p.income.cents == round(450_000 * (365.25 / 12) / 90)
+    assert (p.income.anchor.day, p.income.cadence, p.income.cents > 0) == (25, "monthly", True)
+
+
+def test_income_already_in_a_confirmed_series_is_not_counted_twice(
+    conn: sqlite3.Connection,
+) -> None:
+    pay = next(s for s in stored(conn) if s.direction == "in")
+    confirm(conn, ACCOUNT, pay, LONG_AGO)
+    p = prefill(conn, ACCOUNT, stored(conn))
+    assert p.income is None and "income" not in p.missing
+    assert any(f.cents > 0 for f in p.flows)
+
+
+def test_the_daily_spend_is_the_median_day_without_series_rent_transfers_or_netted(
+    tmp_path: Path,
+) -> None:
+    c = connect(tmp_path / "s.db")
+    # 90 days: on 50 of them $10 of everyday spending, 40 with none. Median day: $10.
+    for k in range(90):
+        if k < 50:
+            insert(c, days_back(k), -1_000, f"Opos Shop{k}", flow="everyday")
+    # Not spending: a transfer, a netted pair, and money in.
+    insert(c, days_back(3), -500_000, "Transfer To", kind="transfer", flow="transfer")
+    insert(c, days_back(4), -400_000, "Opos Big", flow="everyday", source="netted")
+    insert(c, days_back(5), 300_000, "Payroll Dep ", kind="deposit", flow="income")
+    p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
+    assert p.daily_spend_cents == 1_000
+    c.close()
+
+
+def test_with_little_history_the_spend_and_income_stay_at_zero_and_say_so(tmp_path: Path) -> None:
+    c = connect(tmp_path / "s.db")
+    insert(c, LAST, -1_000, "Opos Shop", flow="everyday", balance=5_000)
+    p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
+    assert (p.daily_spend_cents, p.income) == (0, None)
+    assert {"daily spend", "income"} <= set(p.missing)
+    c.close()
+
+
+def test_an_empty_account_prefills_nothing(tmp_path: Path) -> None:
+    c = connect(tmp_path / "e.db")
+    set_safety_buffer_cents(c, 25_000)
+    p = prefill(c, ACCOUNT, [])
+    assert (p.data_date, p.balance_cents, p.flows, p.rent, p.income) == (None, 0, (), None, None)
+    assert p.buffer_cents == 25_000 and "balance" in p.missing
+    c.close()
+
+
+def test_the_usual_day_is_the_most_common_one_and_a_tie_goes_to_the_earlier() -> None:
+    assert usual_day([date(2026, 1, 2), date(2026, 2, 2), date(2026, 3, 3)]) == 2
+    assert usual_day([date(2026, 1, 5), date(2026, 2, 3)]) == 3
+    assert usual_day([]) is None

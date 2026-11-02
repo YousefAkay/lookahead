@@ -1,0 +1,119 @@
+"""The scenario calculator (lookahead/scenario.py): exact sums of what is entered, no randomness."""
+
+import subprocess
+import sys
+from datetime import date, timedelta
+
+import pytest
+
+from lookahead.scenario import Flow, Inputs, OneOff, default_end, flow_dates, run
+
+START = date(2026, 3, 31)  # the balance is at the end of this day
+END = date(2026, 4, 30)  # 30 days: April 1 to 30
+
+RENT = Flow("Rent", -80_000, "monthly", date(2024, 1, 1), card=True)  # an e-Transfer
+PAY = Flow("Pay", 120_000, "biweekly", date(2026, 4, 3))  # Fridays
+PHONE = Flow("Phone", -6_500, "monthly", date(2024, 1, 15))
+
+
+def month(**more: object) -> Inputs:
+    base: dict[str, object] = {
+        "balance_cents": 100_000, "start": START, "end": END, "flows": (RENT, PAY, PHONE),
+        "daily_spend_cents": 1_234, "one_offs": (OneOff(END, -5_000, "Concert"),),
+    }  # fmt: skip
+    return Inputs(**{**base, **more})  # type: ignore[arg-type]
+
+
+def test_a_30_day_case_computed_by_hand_matches_to_the_cent() -> None:
+    # Rent $800 on Wed Apr 1. Pay $1,200 due Fri Apr 3 (Good Friday, a holiday: income moves to
+    # the business day before, Thu Apr 2) and Fri Apr 17. Phone $65 on Wed Apr 15. $12.34 a day
+    # for 30 days. A $50 concert on the last day.
+    # 1,000.00 - 370.20 - 800.00 + 2 x 1,200.00 - 65.00 - 50.00 = 2,114.80
+    r = run(month())
+    assert r.end_balance == 211_480
+    assert len(r.days) == len(r.balances) == 30
+    assert (r.days[0], r.days[-1]) == (date(2026, 4, 1), END)
+    by_day = dict(zip(r.days, r.balances, strict=True))
+    assert by_day[date(2026, 4, 1)] == 100_000 - 1_234 - 80_000
+    assert by_day[date(2026, 4, 2)] == 100_000 - 2 * 1_234 - 80_000 + 120_000
+    assert by_day[date(2026, 4, 3)] == 100_000 - 3 * 1_234 - 80_000 + 120_000
+    assert r.first_below is None
+
+
+def test_the_first_day_below_the_buffer() -> None:
+    assert run(month(buffer_cents=20_000)).first_below == date(2026, 4, 1)  # 187.66 after rent
+    assert run(month(buffer_cents=18_766)).first_below is None  # exactly at the line: not below
+
+
+@pytest.mark.parametrize("more", [0, 1, 99, 5_000])
+def test_spending_more_a_day_never_raises_the_end_balance(more: int) -> None:
+    assert run(month(daily_spend_cents=1_234 + more)).end_balance <= run(month()).end_balance
+
+
+@pytest.mark.parametrize("off", [RENT, PHONE])
+def test_switching_off_an_expense_never_lowers_the_end_balance(off: Flow) -> None:
+    flows = tuple(Flow(f.name, f.cents, f.cadence, f.anchor, f.card, on=f is not off)
+                  for f in (RENT, PAY, PHONE))  # fmt: skip
+    switched = run(month(flows=flows))
+    assert switched.end_balance >= run(month()).end_balance
+    assert all(a >= b for a, b in zip(switched.balances, run(month()).balances, strict=True))
+
+
+def test_rent_on_the_31st_is_paid_on_the_last_day_of_shorter_months() -> None:
+    rent31 = Flow("Rent", -80_000, "monthly", date(2024, 1, 31), card=True)
+    got = flow_dates(rent31, date(2026, 2, 1), date(2026, 4, 30))
+    # Feb 28 2026 is a Saturday: an e-Transfer posts on Saturdays. Mar 31, Apr 30.
+    assert got == [date(2026, 2, 28), date(2026, 3, 31), date(2026, 4, 30)]
+
+
+def test_february_in_a_leap_year_and_a_bill_that_moves_off_a_weekend() -> None:
+    rent30 = Flow("Rent", -80_000, "monthly", date(2024, 1, 30), card=True)
+    assert flow_dates(rent30, date(2028, 2, 1), date(2028, 2, 29)) == [date(2028, 2, 29)]
+    bill31 = Flow("Bill", -5_000, "monthly", date(2024, 1, 31))  # a bill payment
+    # Jan 31 and Feb 28 2026 are Saturdays: a bill posts on the next business day. The January
+    # one (due before the start) posts Monday Feb 2; the February one Monday March 2.
+    assert flow_dates(bill31, date(2026, 2, 1), date(2026, 2, 28)) == [date(2026, 2, 2)]
+    assert flow_dates(bill31, date(2026, 2, 1), date(2026, 3, 3)) == [
+        date(2026, 2, 2), date(2026, 3, 2)
+    ]  # fmt: skip
+
+
+def test_a_one_off_on_the_last_day_counts_and_one_after_it_does_not() -> None:
+    plain = month(one_offs=())
+    assert run(month(one_offs=(OneOff(END, -5_000),))).end_balance == run(plain).end_balance - 5_000
+    after = OneOff(END + timedelta(days=1), -5_000)
+    before = OneOff(START, -5_000)  # the start day is already in the balance
+    assert run(month(one_offs=(after, before))).end_balance == run(plain).end_balance
+
+
+def test_an_end_date_on_or_before_the_start_gives_no_days() -> None:
+    for end in (START, START - timedelta(days=10)):
+        r = run(month(end=end))
+        assert r.days == () and r.balances == ()
+        assert r.end_balance == 100_000 and r.first_below is None
+
+
+def test_with_no_series_only_the_daily_spend_moves_the_balance() -> None:
+    r = run(month(flows=(), one_offs=()))
+    assert r.end_balance == 100_000 - 30 * 1_234
+    assert r.balances == tuple(100_000 - k * 1_234 for k in range(1, 31))
+
+
+def test_money_in_with_no_spending_and_no_flows_stays_flat() -> None:
+    r = run(Inputs(balance_cents=5_000, start=START, end=END))
+    assert set(r.balances) == {5_000} and r.end_balance == 5_000
+
+
+def test_the_default_end_is_december_31_of_this_year() -> None:
+    assert default_end(date(2026, 11, 2)) == date(2026, 12, 31)
+    assert default_end(date(2026, 12, 31)) == date(2026, 12, 31)
+
+
+def test_the_calculator_and_its_adapter_import_nothing_from_the_forecaster_or_proposers() -> None:
+    code = (
+        "import sys, lookahead.scenario, lookahead.scenario_prefill; "
+        "print([m for m in sys.modules if m.startswith(('lookahead.forecast', "
+        "'lookahead.proposals', 'lookahead.alerts'))])"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]"
