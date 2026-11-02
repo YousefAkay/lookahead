@@ -6,9 +6,9 @@
   one) on its usual day.
 - Income: the money in of the last WINDOW_DAYS, scaled to a month, less what is not income:
   transfers between my own accounts (the flow typing's "transfer", both directions), refunds,
-  netted pairs, and money already in a confirmed or hand-added series. Its usual day is kept for
-  the "arrives on a set day" choice. Big one-off deposits are NOT left out yet: the rule for them
-  lives only inside the forecaster (DECISIONS, 2026-11-02).
+  netted pairs, money already in a confirmed or hand-added series, and big one-off deposits (the
+  shared one-time money rule, `lookahead.one_time`: the deposits the forecaster sets aside). Its
+  usual day is kept for the "arrives on a set day" choice.
 - The daily spend: the average day of the last WINDOW_DAYS (total over the days, days with no
   spending included) of money out that is not in a recurring series, not rent, not a transfer
   between my own accounts and not a netted pair.
@@ -23,8 +23,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from lookahead.flows import Txn, flow_types
+from lookahead.one_time import big_deposits
 from lookahead.recurring_store import Stored, rent_rule_of
 from lookahead.rent import RentRule
+from lookahead.resolve import load_user_decisions
 from lookahead.scenario import Flow
 from lookahead.settings import safety_buffer_cents
 from lookahead.views import transactions
@@ -127,9 +130,12 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
 
     income = None
     income_basis = ""
-    pay = recent[(recent["amount_cents"] > 0) & ~recent["fingerprint"].isin(in_decided)
-                 & ~recent["flow_type"].isin(NOT_INCOME)
-                 & (recent["source"] != "netted")]  # fmt: skip
+    money_in = recent[(recent["amount_cents"] > 0) & ~recent["fingerprint"].isin(in_decided)
+                      & ~recent["flow_type"].isin(NOT_INCOME)
+                      & (recent["source"] != "netted")]  # fmt: skip
+    one_off = money_in["fingerprint"].isin(_one_off_deposits(conn, account, series, last))
+    pay = money_in[~one_off]
+    left_out = int(one_off.sum())
     has_income_series = any(s.direction == "in" for s in decided)
     if span < MIN_HISTORY_DAYS:
         missing.append("income")
@@ -138,12 +144,14 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         day = usual_day(list(pay["date"].dt.date)) or 1
         income = Flow("Income", monthly, "monthly", date(ANCHOR_YEAR, 1, day))
         income_basis = (
-            f"From {_count(len(pay), 'deposit')} over {span} days, scaled to a month; transfers "
-            "between your own accounts, refunds and money already in a confirmed series left "
-            "out. One-off deposits are not left out yet."
+            f"{_count(len(pay), 'deposit')} counted over {span} days, scaled to a month; "
+            f"transfers between your own accounts, refunds, money already in a confirmed series "
+            f"and {_count(left_out, 'one-off deposit')} left out."
         )
     elif not has_income_series:
         missing.append("income")
+        if left_out:
+            income_basis = f"Only one-off deposits in the last {span} days ({left_out}), left out."
     else:
         income_basis = "Your income is in a confirmed recurring series, listed below."
 
@@ -164,6 +172,24 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         )
     return Prefill(last, balance, tuple(flows), rent, income, int(spend), buffer,
                    tuple(missing), income_basis, spend_basis)  # fmt: skip
+
+
+def _one_off_deposits(
+    conn: sqlite3.Connection, account: str, series: Sequence[Stored], as_of: date
+) -> set[str]:  # fmt: skip
+    """Fingerprints of the big one-time deposits at `as_of`, by the shared rule."""
+    rows = conn.execute(
+        "SELECT id, posted_date, amount_cents, description, sub_description, fingerprint"
+        " FROM transactions WHERE account = ? AND posted_date <= ?",
+        (account, as_of.isoformat()),
+    ).fetchall()
+    txns = [Txn(r[0], date.fromisoformat(r[1]), r[2], r[3], r[4]) for r in rows]
+    fingerprint = {r[0]: r[5] for r in rows}
+    row_of = {r[5]: r[0] for r in rows}
+    in_series = {row_of[fp] for s in series if s.status != "rejected" for fp in s.evidence
+                 if fp in row_of}  # fmt: skip
+    flows = flow_types(txns, load_user_decisions(conn))
+    return {fingerprint[r[0].row_id] for r in big_deposits(txns, flows, in_series, as_of)}
 
 
 def _count(n: int, word: str) -> str:

@@ -183,7 +183,7 @@ def test_transfers_between_my_own_accounts_are_neither_income_nor_spending(
     assert p.income is not None
     assert p.income.cents == round(90_000 * (365.25 / 12) / 90)  # the pay only
     assert p.daily_spend_cents == round(200 / 90)  # the transfer out is not spending
-    assert "1 deposit over 90 days" in p.income_basis
+    assert "1 deposit counted over 90 days" in p.income_basis
     assert "own accounts" in p.income_basis and "own accounts" in p.spend_basis
     c.close()
 
@@ -198,8 +198,6 @@ def test_other_money_in_counts_as_income(tmp_path: Path) -> None:
     c.close()
 
 
-@pytest.mark.xfail(strict=True, reason="pending my decision: the one-time money rule lives only "
-                   "inside lookahead/forecast/, which the scenario may not import")  # fmt: skip
 def test_a_big_one_off_deposit_is_not_income(tmp_path: Path) -> None:
     c = connect(tmp_path / "s.db")
     window(c)
@@ -209,6 +207,8 @@ def test_a_big_one_off_deposit_is_not_income(tmp_path: Path) -> None:
     p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
     assert p.income is not None
     assert p.income.cents == round(450_000 * (365.25 / 12) / 90)
+    assert "3 deposits counted over 90 days" in p.income_basis
+    assert "1 one-off deposit left out" in p.income_basis
     c.close()
 
 

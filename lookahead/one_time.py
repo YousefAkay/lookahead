@@ -146,3 +146,15 @@ def _pass_through(
             used.update(r[0].row_id for r in best[1])
             pairs.append((dep, best[1]))
     return pairs
+
+
+def big_deposits(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> list[Row]:
+    """The big one-time deposits of the last 13 weeks at `as_of`, pass-throughs included: the
+    deposits the forecaster sets aside (its `_streams` picks them the same way)."""
+    out_rows = _counted(txns, flows, series_rows, as_of)
+    in_rows = _money_in(txns, flows, series_rows, as_of)
+    first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
+    everything = [r[2] for r in out_rows + in_rows if r[2] > 0 and r[0].posted_date >= first]
+    return _split_large(in_rows, as_of, everything)[1]
