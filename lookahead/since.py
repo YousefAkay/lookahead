@@ -90,9 +90,13 @@ def first_date(conn: sqlite3.Connection, account: str) -> date | None:
 
 
 def marker(conn: sqlite3.Connection, account: str) -> Marker | None:
-    row = conn.execute(
-        "SELECT data_date, set_on FROM since_marker WHERE account = ?", (account,)
-    ).fetchone()
+    """The marker, or None. A database opened read-only before this table existed has none."""
+    try:
+        row = conn.execute(
+            "SELECT data_date, set_on FROM since_marker WHERE account = ?", (account,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
     return Marker(date.fromisoformat(row[0]), date.fromisoformat(row[1])) if row else None
 
 
@@ -214,15 +218,7 @@ def summarize(
     )  # fmt: skip
 
 
-# --- Words and numbers for the page (no Streamlit here) ---
-
-
-def money(cents: int, sign: bool = False) -> str:
-    """Dollars for display: -$1,234.56; with `sign`, a plus for money in."""
-    text = f"${abs(cents) / 100:,.2f}"
-    if cents < 0:
-        return f"-{text}"
-    return f"+{text}" if sign and cents > 0 else text
+# --- For the page (no Streamlit here) ---
 
 
 def card_counts(s: Summary) -> list[tuple[str, str]]:

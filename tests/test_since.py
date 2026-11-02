@@ -72,6 +72,12 @@ def test_the_marker_is_per_account(conn: sqlite3.Connection) -> None:
     assert since.marker(conn, "other") is None
 
 
+def test_a_database_from_before_this_feature_has_no_marker(tmp_path: Path) -> None:
+    old = sqlite3.connect(tmp_path / "old.db")  # no since_marker table, opened as Home does
+    assert since.marker(old, ACCOUNT) is None
+    old.close()
+
+
 # --- The balance ---
 
 
@@ -241,12 +247,6 @@ def test_alerts_opened_on_or_before_the_marker_are_not_new(tmp_path: Path) -> No
     s = since.summarize(c, ACCOUNT, pd.DataFrame(columns=COLUMNS))
     assert s is not None and s.recurring == [] and s.new_rows == 0
     c.close()
-
-
-def test_money_is_shown_with_a_sign_and_two_decimals() -> None:
-    assert since.money(-123456) == "-$1,234.56"
-    assert since.money(2500) == "$25.00"
-    assert since.money(2500, sign=True) == "+$25.00"
 
 
 def test_the_counts_on_the_card() -> None:
