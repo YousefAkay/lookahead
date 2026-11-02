@@ -21,6 +21,7 @@ from lookahead.ingest.scotiabank import (
     ExportFormatError,
     ParsedRow,
     balance_chain_breaks,
+    export_encoding,
     parse_export,
 )
 from lookahead.ingest.store import store_exports
@@ -44,9 +45,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # Parse everything first: a format error stops the run before anything is stored.
     parsed: list[tuple[str, list[ParsedRow]]] = []
+    encodings: dict[str, str] = {}
     for i, path in enumerate(paths, start=1):
         try:
             parsed.append((f"file {i}", parse_export(path)))
+            encodings[f"file {i}"] = export_encoding(path)
         except ExportFormatError as e:
             where = f" at line {e.line}" if e.line else ""
             print(f"file {i}: format error ({e.kind}){where}")
@@ -57,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     for label, rows in parsed:
         breaks = balance_chain_breaks(rows)
         chain = "PASS" if not breaks else "FAIL at rows " + ", ".join(map(str, breaks))
-        print(f"{label}: {len(rows)} rows read, balance chain {chain}")
+        print(f"{label}: {len(rows)} rows read ({encodings[label]}), balance chain {chain}")
         all_ok &= not breaks
 
     # Store oldest exports first, so "duplicates skipped" is counted on the newer files.

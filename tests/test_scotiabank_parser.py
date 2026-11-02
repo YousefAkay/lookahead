@@ -12,6 +12,7 @@ from lookahead.generator.writer import write_persona
 from lookahead.ingest.scotiabank import (
     ExportFormatError,
     balance_chain_breaks,
+    export_encoding,
     parse_amount_cents,
     parse_export,
 )
@@ -143,11 +144,84 @@ def test_bad_rows_are_rejected_with_line_number(tmp_path: Path, row: str, reason
         parse_export(handmade(tmp_path, [ROW_NEW, row]))
 
 
-def test_non_utf8_file_is_rejected(tmp_path: Path) -> None:
-    path = tmp_path / "latin1.csv"
-    path.write_bytes((HEADER + "\r\n" + ROW_NEW.replace("Cafe", "Caf\xe9")).encode("latin-1"))
-    with pytest.raises(ExportFormatError, match="UTF-8"):
+# --- Encodings: UTF-8 (with or without a BOM) or Windows-1252, never a guess beyond that ---
+
+ACCENTED = (
+    f'"{FILTER}","2026-09-28","pos purchase",'
+    '"Apos Caf\u00e9 D\u00e9panneur  Montr\u00e9al ","Debit","-6.48","1100.97"'
+)
+OLDER = (
+    '"","2026-09-27","pos purchase","Apos Boulangerie \u00c9toile   Qu\u00e9bec ","Debit",'
+    '"-4.25","1107.45"'
+)
+
+
+def encoded(tmp_path: Path, name: str, encoding: str, bom: bool = False) -> Path:
+    """The same made-up export, in the given encoding."""
+    text = "\r\n".join([HEADER, ACCENTED, OLDER])
+    path = tmp_path / name
+    path.write_bytes((b"\xef\xbb\xbf" if bom else b"") + text.encode(encoding))
+    return path
+
+
+@pytest.mark.parametrize(("encoding", "bom", "name"), [
+    ("utf-8", True, "UTF-8"), ("utf-8", False, "UTF-8"), ("cp1252", False, "Windows-1252"),
+])  # fmt: skip
+def test_accented_letters_survive_in_either_encoding(
+    tmp_path: Path, encoding: str, bom: bool, name: str
+) -> None:
+    path = encoded(tmp_path, "export.csv", encoding, bom)
+    rows = parse_export(path)
+    assert [r.sub_description for r in rows] == [
+        "Apos Caf\u00e9 D\u00e9panneur  Montr\u00e9al ",
+        "Apos Boulangerie \u00c9toile   Qu\u00e9bec ",
+    ]
+    assert export_encoding(path) == name
+
+
+def test_the_same_rows_in_either_encoding_are_the_same_rows(tmp_path: Path) -> None:
+    from datetime import datetime
+
+    from lookahead.db import connect
+    from lookahead.ingest.dedupe import fingerprint_export
+    from lookahead.ingest.store import store_exports
+
+    utf8 = parse_export(encoded(tmp_path, "a.csv", "utf-8", bom=True))
+    cp1252 = parse_export(encoded(tmp_path, "b.csv", "cp1252"))
+    assert fingerprint_export(utf8, "acct") == fingerprint_export(cp1252, "acct")
+    conn = connect(tmp_path / "t.db")
+    first = store_exports(conn, "acct", [("a", utf8)], datetime(2026, 10, 1))
+    second = store_exports(conn, "acct", [("b", cp1252)], datetime(2026, 10, 2))
+    assert (first.inserted, second.inserted) == (2, 0)  # nothing stored twice
+    conn.close()
+
+
+def test_a_file_in_neither_encoding_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "other.csv"
+    # 0x81 is not a Windows-1252 character, and on its own it is not UTF-8 either.
+    path.write_bytes((HEADER + "\r\n" + ROW_NEW).encode("ascii").replace(b"Cafe", b"Caf\x81"))
+    with pytest.raises(ExportFormatError, match="neither UTF-8 nor Windows-1252"):
         parse_export(path)
+
+
+def test_a_question_mark_in_the_file_stays_a_question_mark(tmp_path: Path) -> None:
+    """If the bank already wrote "?" for a letter, the letter is gone: nothing invents it back."""
+    path = handmade(tmp_path, [ROW_NEW.replace("Montr ", "Montr?al ")])
+    assert parse_export(path)[0].sub_description == "Apos Example Cafe #12   Montr?al "
+
+
+def test_the_import_says_which_encoding_it_read(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from lookahead.ingest.__main__ import main
+
+    folder = tmp_path / "raw"
+    folder.mkdir()
+    encoded(folder, "export.csv", "cp1252")
+    main([str(folder), "--db", str(tmp_path / "t.db")])
+    out = capsys.readouterr().out
+    assert "2 rows read (Windows-1252)" in out
+    assert "Montr" not in out  # counts only, never the text
 
 
 # --- Balance chain ---
