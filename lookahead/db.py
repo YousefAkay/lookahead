@@ -255,6 +255,14 @@ CREATE TABLE IF NOT EXISTS recurring_alert_events (
     reason       TEXT    NOT NULL,
     evidence     TEXT    NOT NULL   -- JSON
 );
+-- "What changed since last time" (week 5, item 4): the data date I last acknowledged with "Got
+-- it", per account. Only lookahead.since.acknowledge writes it; it is separate from the
+-- recurring alerts' last look.
+CREATE TABLE IF NOT EXISTS since_marker (
+    account   TEXT PRIMARY KEY,
+    data_date TEXT NOT NULL,
+    set_on    TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS categorizer_runs (
     run_id        INTEGER PRIMARY KEY,
     account       TEXT    NOT NULL,
