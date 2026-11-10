@@ -1997,6 +1997,8 @@ Run `b11915e` on the 20 development personas of each synthetic set (800 origins 
 - **This is what I predicted** on 2026-10-17: the 50/50 fails no harm, the global weight lands near 1 and is close to a no-op, the per-account weights give small CRPS gains in FREE and ITIGHT and then miss the gain condition. Nothing looks too good, so there was no leakage check to make.
 - **By the rule nothing is adopted, Berka is not scored for experiment 4, and the forecaster default stays as it is.** Variants counted: 3. Any other combination (scaling the futures, replacing a share, another weighting) would be a new counted variant with its own rule.
 
+### 2026-11-10: Part (b): the possible-subscription recall (56 of 56) is not credible; why link stays pending
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
