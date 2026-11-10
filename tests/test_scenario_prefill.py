@@ -11,8 +11,13 @@ from lookahead.calendar_rules import monthly_date, shift_to_business_day
 from lookahead.db import connect
 from lookahead.recurring_store import add_series, confirm, refresh, set_rent_rule
 from lookahead.rent import RentRule
-from lookahead.scenario_prefill import prefill, usual_day
-from lookahead.settings import set_safety_buffer_cents
+from lookahead.scenario import Inputs, run
+from lookahead.scenario_prefill import Prefill, prefill, starting_point, usual_day
+from lookahead.settings import (
+    savings_balance,
+    set_safety_buffer_cents,
+    set_savings_balance,
+)
 
 ACCOUNT = "test"
 LAST = date(2026, 6, 30)
@@ -221,4 +226,134 @@ def test_the_daily_spend_is_the_average_day_not_the_median(tmp_path: Path) -> No
     p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
     assert p.daily_spend_cents == 1_000
     assert "average day over 90 days" in p.spend_basis and "10 payments" in p.spend_basis
+    c.close()
+
+
+# --- Scenario v2 (spec docs/specs/2026-11-10-scenario-v2.md) ---
+
+
+def history(c: sqlite3.Connection, with_transfers: bool) -> None:
+    """January to June: pay on the 25th and a $20 purchase every 10th day; with transfers, $500
+    comes in from savings on the 10th and $300 goes back on the 20th of each month."""
+    for m in range(1, 7):
+        insert(c, date(2026, m, 25), 150_000, "Payroll Dep ", kind="deposit", flow="income")
+        for d in (5, 15, 28):
+            insert(c, date(2026, m, d), -2_000, f"Opos Shop{d}", flow="everyday")
+        if with_transfers:
+            insert(c, date(2026, m, 10), 50_000, "Customer Transfer Cr. MB-Transfer From 1234",
+                   kind="customer transfer cr.", flow="transfer")  # fmt: skip
+            insert(c, date(2026, m, 20), -30_000, "Customer Transfer Dr. MB-Transfer To 1234",
+                   kind="customer transfer dr.", flow="transfer")  # fmt: skip
+    insert(c, LAST, -1_000, "Opos Last", flow="everyday", balance=321_000)
+
+
+def confirm_all(c: sqlite3.Connection) -> None:
+    for s in stored(c):
+        confirm(c, ACCOUNT, s, LONG_AGO)
+
+
+def test_transfers_between_my_accounts_change_neither_income_nor_spending(
+    tmp_path: Path,
+) -> None:
+    """Definition of done 2: the same history with and without transfers to and from savings
+    gives the same income and daily spend."""
+    plain, moved = connect(tmp_path / "a.db"), connect(tmp_path / "b.db")
+    history(plain, with_transfers=False)
+    history(moved, with_transfers=True)
+    a, b = prefill(plain, ACCOUNT, stored(plain)), prefill(moved, ACCOUNT, stored(moved))
+    assert a.income is not None and b.income is not None
+    assert (b.income.cents, b.daily_spend_cents) == (a.income.cents, a.daily_spend_cents)
+    plain.close()
+    moved.close()
+
+
+def test_a_confirmed_series_of_own_account_transfers_cancels_out_in_the_combined_view(
+    tmp_path: Path,
+) -> None:
+    """The monthly top-up from savings, once confirmed, is kept apart: counted in the
+    chequing-only view, left out when chequing and savings are shown together."""
+    c = connect(tmp_path / "s.db")
+    history(c, with_transfers=True)
+    confirm_all(c)
+    p = prefill(c, ACCOUNT, stored(c))
+    assert sorted(f.cents for f in p.own_account_flows) == [-30_000, 50_000]
+    assert all(f.cents not in (-30_000, 50_000) for f in p.flows)
+    chequing, both = starting_point(p, None), starting_point(p, 1_000_000)
+    assert not chequing.combined and set(p.own_account_flows) <= set(chequing.flows)
+    assert both.combined and not set(p.own_account_flows) & set(both.flows)
+    assert both.balance_cents == 321_000 + 1_000_000 and chequing.balance_cents == 321_000
+    c.close()
+
+
+def test_a_savings_balance_of_zero_is_still_the_combined_view() -> None:
+    p = Prefill(LAST, 321_000, (), None, None, 0, 20_000, ())
+    assert starting_point(p, 0).combined and not starting_point(p, None).combined
+
+
+def test_the_buffer_marker_follows_the_balance_the_chart_shows() -> None:
+    """Definition of done 9: chequing alone drops below the $200 buffer on day 3; with $500 of
+    savings the combined total does so only on day 8."""
+    p = Prefill(LAST, 40_000, (), None, None, 10_000, 20_000, ())
+    end = LAST + timedelta(days=30)
+
+    def first_below(savings: int | None) -> date | None:
+        view = starting_point(p, savings)
+        return run(Inputs(view.balance_cents, LAST, end, view.flows, 10_000,
+                          buffer_cents=p.buffer_cents)).first_below  # fmt: skip
+
+    assert first_below(None) == LAST + timedelta(days=3)  # 400 - 3 x 100 = 100 < 200
+    assert first_below(50_000) == LAST + timedelta(days=8)  # 900 - 8 x 100 = 100 < 200
+
+
+def test_regular_family_transfers_count_and_a_big_lump_sum_is_left_out(tmp_path: Path) -> None:
+    """Definition of done 6: incoming e-Transfers from family are income; a big one-off by the
+    shared one-time money rule is not averaged in, and the note says so."""
+    c = connect(tmp_path / "s.db")
+    window(c)
+    for k in (80, 50, 20):
+        insert(c, days_back(k), 40_000, "Interac E-Transfer From Family", kind="deposit",
+               flow="income")  # fmt: skip
+    insert(c, days_back(35), 600_000, "Interac E-Transfer From Family", kind="deposit",
+           flow="income")  # fmt: skip
+    p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
+    assert p.income is not None
+    assert p.income.cents == round(120_000 * (365.25 / 12) / 90)
+    assert "3 deposits counted over 90 days" in p.income_basis
+    assert "1 one-off deposit left out" in p.income_basis
+    c.close()
+
+
+def test_the_notes_are_never_blank(tmp_path: Path) -> None:
+    """Definition of done 7: with no income at all, and with too little history, both notes still
+    say what happened."""
+    c = connect(tmp_path / "none.db")
+    window(c)  # 90 days, spending only
+    p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
+    assert p.income is None and "No deposits counted as income" in p.income_basis
+    assert p.spend_basis
+    short = connect(tmp_path / "short.db")
+    insert(short, LAST, -1_000, "Opos Shop", flow="everyday", balance=5_000)
+    q = prefill(short, ACCOUNT, refresh(short, ACCOUNT))
+    assert "not estimated" in q.income_basis and "not estimated" in q.spend_basis
+    c.close()
+    short.close()
+
+
+def test_the_savings_balance_is_remembered_with_its_day_and_can_be_cleared(
+    tmp_path: Path,
+) -> None:
+    """Definition of done 4, the storage side (the page side is in test_scenario_page.py)."""
+    c = connect(tmp_path / "s.db")
+    assert savings_balance(c) is None
+    set_savings_balance(c, 1_234_500, date(2026, 11, 10))
+    c.close()
+    c = connect(tmp_path / "s.db")  # a new connection: it is stored, not kept in memory
+    assert savings_balance(c) == (1_234_500, date(2026, 11, 10))
+    set_savings_balance(c, None, date(2026, 11, 11))
+    assert savings_balance(c) is None
+    with c:
+        c.execute("INSERT INTO app_settings (key, value) VALUES ('scenario_savings', 'garbled')")
+    assert savings_balance(c) is None  # a damaged row means "not entered"
+    with pytest.raises(ValueError):
+        set_savings_balance(c, -1, date(2026, 11, 11))
     c.close()

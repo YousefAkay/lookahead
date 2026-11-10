@@ -19,6 +19,7 @@ from datetime import date, timedelta
 from lookahead.recurring import expected_dates
 
 SHIFT_DAYS = 7  # a due date this many days before the start can still post after it
+DEFAULT_DAYS = 90  # the default end date: this many days after the last day of data
 
 
 @dataclass(frozen=True)
@@ -65,9 +66,9 @@ class Result:
     first_below: date | None  # the first day below the buffer, if a buffer was given
 
 
-def default_end(today: date) -> date:
-    """December 31 of the current year."""
-    return date(today.year, 12, 31)
+def default_end(data_date: date) -> date:
+    """DEFAULT_DAYS after the last day of data (scenario v2; it was December 31)."""
+    return data_date + timedelta(days=DEFAULT_DAYS)
 
 
 def day_share(monthly_cents: int, day: date) -> int:

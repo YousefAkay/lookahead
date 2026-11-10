@@ -104,9 +104,19 @@ def test_money_in_with_no_spending_and_no_flows_stays_flat() -> None:
     assert set(r.balances) == {5_000} and r.end_balance == 5_000
 
 
-def test_the_default_end_is_december_31_of_this_year() -> None:
-    assert default_end(date(2026, 11, 2)) == date(2026, 12, 31)
-    assert default_end(date(2026, 12, 31)) == date(2026, 12, 31)
+def test_the_default_end_is_90_days_after_the_last_day_of_data() -> None:
+    """Scenario v2, definition of done 8 (it was December 31 of this year)."""
+    assert default_end(date(2026, 10, 1)) == date(2026, 12, 30)
+    assert default_end(date(2026, 12, 15)) == date(2027, 3, 15)  # crosses the year
+
+
+def test_a_future_lump_sum_raises_my_scenario_by_exactly_its_amount_from_its_day() -> None:
+    """Scenario v2, definition of done 5: an expected family transfer entered as a dated one-off
+    "money in" changes nothing before its day and adds exactly its amount from that day on."""
+    gift = OneOff(date(2026, 4, 20), 250_000, "family transfer")
+    without, with_gift = run(month()), run(month(one_offs=(*month().one_offs, gift)))
+    for day, a, b in zip(without.days, without.balances, with_gift.balances, strict=True):
+        assert b - a == (250_000 if day >= gift.day else 0), day
 
 
 def test_the_calculator_and_its_adapter_import_nothing_from_the_forecaster_or_proposers() -> None:

@@ -12,7 +12,12 @@
 - The daily spend: the average day of the last WINDOW_DAYS (total over the days, days with no
   spending included) of money out that is not in a recurring series, not rent, not a transfer
   between my own accounts and not a netted pair.
-Each estimate comes with a plain-words basis for the page.
+- Own-account series: a confirmed or hand-added series whose payments are mostly transfers between
+  my own accounts (the flow typing's own-account reasons, unless I typed the row as something
+  else) is kept apart, so the combined chequing-and-savings view can leave it out: there such
+  transfers cancel out (scenario v2, `starting_point`).
+Each estimate comes with a plain-words basis for the page, never blank: when nothing could be
+estimated it says why.
 What cannot be estimated is left at zero and named in `missing`, so the page can say so. Like the
 calculator, nothing here comes from the forecaster or the proposers.
 """
@@ -23,7 +28,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from lookahead.flows import Txn, flow_types
+import pandas as pd
+
+from lookahead.flows import OWN_ACCOUNT, Txn, flow_types
+from lookahead.flows import Flow as Typed
 from lookahead.one_time import big_deposits
 from lookahead.recurring_store import Stored, rent_rule_of
 from lookahead.rent import RentRule
@@ -38,6 +46,7 @@ MONTH_DAYS = 365.25 / 12
 ANCHOR_YEAR = 2024  # a monthly flow's anchor: only its day of the month is used
 _DECIDED = ("confirmed", "user-added")
 NOT_INCOME = ("transfer", "refund")  # flow types of money in that is not income
+OWN_REASONS = ("own-account transfer", OWN_ACCOUNT)  # flow-typing reasons: my own accounts
 
 
 @dataclass(frozen=True)
@@ -52,6 +61,24 @@ class Prefill:
     missing: tuple[str, ...]  # what could not be estimated (left at zero)
     income_basis: str = ""
     spend_basis: str = ""
+    own_account_flows: tuple[Flow, ...] = ()  # confirmed series of transfers between my accounts
+
+
+@dataclass(frozen=True)
+class StartingPoint:
+    """What the calculator starts from in one view."""
+
+    balance_cents: int
+    flows: tuple[Flow, ...]  # the recurring flows counted in this view, rent aside
+    combined: bool  # chequing and savings together
+
+
+def starting_point(base: Prefill, savings_cents: int | None) -> StartingPoint:
+    """Chequing and savings together when a savings balance is given (transfers between my own
+    accounts cancel out, so own-account series are left out), else chequing only."""
+    if savings_cents is None:
+        return StartingPoint(base.balance_cents, base.flows + base.own_account_flows, False)
+    return StartingPoint(base.balance_cents + savings_cents, base.flows, True)
 
 
 def usual_day(days: Sequence[date]) -> int | None:
@@ -104,7 +131,11 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     missing: list[str] = []
 
     decided = [s for s in series if s.status in _DECIDED and (s.active or rent_rule_of(s))]
+    rows = transactions(conn, account)
+    typed = _typed(conn, account, last)
+    own = _own_account(typed, rows)
     flows: list[Flow] = []
+    own_flows: list[Flow] = []
     rents: list[tuple[date, Flow]] = []
     for s in decided:
         rule = rent_rule_of(s)
@@ -112,18 +143,22 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
             paid = _payments(conn, account, s.evidence)
             rents.append((paid[-1][0] if paid else date.min, _rent_flow(conn, account, s, rule)))
         else:
-            flows.append(Flow(s.name or s.kind, s.expected_cents, s.cadence, s.anchor,
-                              card=s.kind == "e-transfer", key=s.key))  # fmt: skip
+            flow = Flow(s.name or s.kind, s.expected_cents, s.cadence, s.anchor,
+                        card=s.kind == "e-transfer", key=s.key)  # fmt: skip
+            mine = sum(fp in own for fp in s.evidence)
+            (own_flows if s.evidence and 2 * mine > len(s.evidence) else flows).append(flow)
     rent = None
     if rents:  # the rent paid most recently is the one the page edits; any other is a flow
         rents.sort(key=lambda r: r[0])
         rent = rents[-1][1]
         flows += [f for _, f in rents[:-1]]
 
-    rows = transactions(conn, account)
     first = rows["date"].min().date()
     since = max(first, last - timedelta(days=WINDOW_DAYS - 1))
     span = (last - since).days + 1
+    too_short = (
+        f"Only {_count(span, 'day')} of history (fewer than {MIN_HISTORY_DAYS}): not estimated."
+    )
     recent = rows[rows["date"].dt.date >= since]
     in_decided = {fp for s in decided for fp in s.evidence}
     in_any = {fp for s in series if s.status != "rejected" for fp in s.evidence}
@@ -133,12 +168,13 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     money_in = recent[(recent["amount_cents"] > 0) & ~recent["fingerprint"].isin(in_decided)
                       & ~recent["flow_type"].isin(NOT_INCOME)
                       & (recent["source"] != "netted")]  # fmt: skip
-    one_off = money_in["fingerprint"].isin(_one_off_deposits(conn, account, series, last))
+    one_off = money_in["fingerprint"].isin(_one_off_deposits(typed, series, last))
     pay = money_in[~one_off]
     left_out = int(one_off.sum())
     has_income_series = any(s.direction == "in" for s in decided)
     if span < MIN_HISTORY_DAYS:
         missing.append("income")
+        income_basis = too_short
     elif not pay.empty:
         monthly = round(int(pay["amount_cents"].sum()) * MONTH_DAYS / span)
         day = usual_day(list(pay["date"].dt.date)) or 1
@@ -150,8 +186,11 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         )
     elif not has_income_series:
         missing.append("income")
-        if left_out:
-            income_basis = f"Only one-off deposits in the last {span} days ({left_out}), left out."
+        income_basis = (
+            f"No deposits counted as income in the last {span} days: transfers between your own "
+            f"accounts, refunds, money already in a confirmed series and "
+            f"{_count(left_out, 'one-off deposit')} left out."
+        )
     else:
         income_basis = "Your income is in a confirmed recurring series, listed below."
 
@@ -159,6 +198,7 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     spend_basis = ""
     if span < MIN_HISTORY_DAYS:
         missing.append("daily spend")
+        spend_basis = too_short
     else:
         out = recent[(recent["amount_cents"] < 0) & ~recent["fingerprint"].isin(in_any)
                      & (recent["flow_type"] != "transfer")
@@ -171,25 +211,44 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
             "accounts and refunded pairs left out."
         )
     return Prefill(last, balance, tuple(flows), rent, income, int(spend), buffer,
-                   tuple(missing), income_basis, spend_basis)  # fmt: skip
+                   tuple(missing), income_basis, spend_basis, tuple(own_flows))  # fmt: skip
 
 
-def _one_off_deposits(
-    conn: sqlite3.Connection, account: str, series: Sequence[Stored], as_of: date
-) -> set[str]:  # fmt: skip
-    """Fingerprints of the big one-time deposits at `as_of`, by the shared rule."""
+@dataclass(frozen=True)
+class _Typed:
+    """An account's rows posted on or before a day, with their flow typing and reasons."""
+
+    txns: list[Txn]
+    flows: dict[int, Typed]  # row id -> flow type and reason
+    fingerprint: dict[int, str]  # row id -> fingerprint
+
+
+def _typed(conn: sqlite3.Connection, account: str, as_of: date) -> _Typed:
     rows = conn.execute(
         "SELECT id, posted_date, amount_cents, description, sub_description, fingerprint"
         " FROM transactions WHERE account = ? AND posted_date <= ?",
         (account, as_of.isoformat()),
     ).fetchall()
     txns = [Txn(r[0], date.fromisoformat(r[1]), r[2], r[3], r[4]) for r in rows]
-    fingerprint = {r[0]: r[5] for r in rows}
-    row_of = {r[5]: r[0] for r in rows}
+    return _Typed(txns, flow_types(txns, load_user_decisions(conn)), {r[0]: r[5] for r in rows})
+
+
+def _own_account(typed: _Typed, rows: pd.DataFrame) -> set[str]:
+    """Fingerprints of transfers between my own accounts: an own-account reason in the flow
+    typing, unless the stored flow type (a correction of mine, or the model's) says otherwise."""
+    other = set(rows.loc[rows["flow_type"].notna() & (rows["flow_type"] != "transfer"),
+                         "fingerprint"])  # fmt: skip
+    return {typed.fingerprint[i] for i, f in typed.flows.items()
+            if f.reason in OWN_REASONS} - other  # fmt: skip
+
+
+def _one_off_deposits(typed: _Typed, series: Sequence[Stored], as_of: date) -> set[str]:
+    """Fingerprints of the big one-time deposits at `as_of`, by the shared rule."""
+    row_of = {fp: i for i, fp in typed.fingerprint.items()}
     in_series = {row_of[fp] for s in series if s.status != "rejected" for fp in s.evidence
                  if fp in row_of}  # fmt: skip
-    flows = flow_types(txns, load_user_decisions(conn))
-    return {fingerprint[r[0].row_id] for r in big_deposits(txns, flows, in_series, as_of)}
+    found = big_deposits(typed.txns, typed.flows, in_series, as_of)
+    return {typed.fingerprint[r[0].row_id] for r in found}
 
 
 def _count(n: int, word: str) -> str:

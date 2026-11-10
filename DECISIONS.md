@@ -1862,6 +1862,16 @@ A plain product feature (branch `scenario`, from main): ordinary tests on made-u
   - **The daily spend is the average day, not the median day:** the total of the money out that counts, divided by the days of the window, days with no spending included. The median of a month with a few big shopping days is close to zero, which understates spending. Same exclusions as before.
   - **Each estimate shows its basis** under its field (how many deposits or payments over how many days, and what was left out).
 
+### 2026-11-10: Scenario calculator v2: chequing and savings together (after my second real-data check)
+My second check on my real data failed: the year-end balance looked wrong, and I could not see the basis notes. The spec is `docs/specs/2026-11-10-scenario-v2.md`; what I chose:
+- **Chequing and savings together by default.** The starting balance is my latest chequing balance plus a savings balance I type in (savings is not imported). Transfers between my own accounts cancel out: they were already neither income nor spending, and a confirmed recurring series of them is now left out of the combined view (it stays in the chequing-only view). Without a savings balance the page says it shows chequing only, and only then shows "Top-ups from savings".
+- **The savings balance is remembered** in the app settings of my local database with the day I entered it, and a Clear button forgets it.
+- **Income:** transfers from other people count, as incoming e-Transfers already did; a big one-off deposit is left out of the average by the shared one-time money rule; an expected one is a dated one-off "money in".
+- **The notes are never blank:** when nothing could be estimated they say why. On the old version the notes didn't show on my data; v2 always shows them.
+- **The buffer and its marker apply to the balance the chart shows** (the combined total, or chequing alone).
+- **The default end date is 90 days after my last data date** (it was December 31, which grows less useful through the year).
+- **Lost:** leaving the calculator chequing-only and asking me to type a monthly top-up (it depends on a number I don't know in advance, and a wrong one moves the whole line); importing savings (not in v1).
+
 ### 2026-11-02: Recurring alerts merged into main
 I merged `recurring-alerts` into main (a fast-forward) after the full suite passed on it (2,234 tests) and after my own check on my real database: the Recurring page loads, my series are all there, the alert state was recorded, and rent does not show "may have stopped". Dismissing an alert and bringing it back are still untested on my real data: no alert was open on this first look, so that waits until new data arrives.
 

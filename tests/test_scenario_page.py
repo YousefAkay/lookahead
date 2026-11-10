@@ -123,3 +123,60 @@ def test_the_estimates_say_what_they_are_based_on() -> None:
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
     captions = "\n".join(str(c.value) for c in at.caption)
     assert "The average day over" in captions
+
+
+# --- Scenario v2 (spec docs/specs/2026-11-10-scenario-v2.md) ---
+
+
+def notes(at: AppTest) -> str:
+    return "\n".join(str(m.value) for m in at.markdown) + "\n".join(
+        str(c.value) for c in at.caption
+    )
+
+
+def test_a_savings_balance_shows_both_together_hides_top_ups_and_is_remembered() -> None:
+    """Definition of done 1, 3 and 4."""
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    assert "Chequing only: no savings balance entered" in notes(at)
+    assert [n for n in at.number_input if n.key == "sc_top_ups"]
+    chequing_only = headline(at)
+    assert "in chequing on" in chequing_only
+
+    at.number_input(key="sc_savings").set_value(5_000.0).run()
+    assert not at.exception, at.exception
+    assert "Chequing and savings together" in notes(at)
+    assert not [n for n in at.number_input if n.key == "sc_top_ups"]
+    assert "in chequing and savings on" in headline(at) and headline(at) != chequing_only
+    assert "Entered " in notes(at)
+
+    again = AppTest.from_file(str(PAGE), default_timeout=90).run()  # a fresh visit
+    assert again.number_input(key="sc_savings").value == 5_000.0
+    assert "Entered " in notes(again) and "Chequing and savings together" in notes(again)
+
+    again.button(key="sc_savings_clear").click().run()
+    assert not again.exception, again.exception
+    assert "Chequing only: no savings balance entered" in notes(again)
+    assert [n for n in again.number_input if n.key == "sc_top_ups"]
+    assert again.number_input(key="sc_savings").value is None and not again.warning
+    third = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    assert third.number_input(key="sc_savings").value is None
+
+
+def test_both_basis_notes_are_shown() -> None:
+    """Definition of done 7, on the page."""
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    captions = [str(c.value) for c in at.caption]
+    assert any("The average day over" in c for c in captions)
+    assert any("deposit" in c for c in captions)  # the income note, whatever it found
+
+
+def test_the_end_date_defaults_to_90_days_after_the_data(isolated: Path) -> None:
+    """Definition of done 8."""
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    conn = connect(isolated / "demo.db")
+    account = at.sidebar.selectbox[0].value
+    last = conn.execute(
+        "SELECT MAX(posted_date) FROM transactions WHERE account = ?", (account,)
+    ).fetchone()[0]
+    conn.close()
+    assert at.date_input(key="sc_end").value == date.fromisoformat(last) + timedelta(days=90)

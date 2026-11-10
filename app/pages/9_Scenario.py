@@ -3,6 +3,10 @@
 The inputs start from what the database says (lookahead/scenario_prefill.py); the sums are exact
 (lookahead/scenario.py). Two lines: "as things are now" (the prefilled values) and "my scenario".
 No uncertainty band: this assumes exactly what was entered.
+
+Scenario v2 (spec docs/specs/2026-11-10-scenario-v2.md): chequing and savings together by default,
+from a savings balance typed here and remembered with the day it was entered; without one, chequing
+only, with the top-ups field. The buffer applies to the balance the chart shows.
 """
 
 import html
@@ -32,7 +36,8 @@ from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import ensure_current  # noqa: E402
 from lookahead.scenario import Flow, Inputs, OneOff, default_end, run  # noqa: E402
-from lookahead.scenario_prefill import ANCHOR_YEAR, prefill  # noqa: E402
+from lookahead.scenario_prefill import ANCHOR_YEAR, prefill, starting_point  # noqa: E402
+from lookahead.settings import savings_balance, set_savings_balance  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
     calculator_chart,
@@ -49,6 +54,14 @@ NOT_A_FORECAST = "This assumes exactly what you entered. It's not a forecast."
 SPREAD = "Spread evenly through the month"
 SET_DAY = "On a set day"
 RENT_DAY_NOTE = "No rent rule found: rent entered here is placed on the 1st of each month."
+COMBINED_NOTE = (
+    "Chequing and savings together: money you move between them cancels out, so it is neither "
+    "income nor spending."
+)
+CHEQUING_ONLY_NOTE = (
+    "Chequing only: no savings balance entered. Money you move in from savings counts only through "
+    '"Top-ups from savings". Enter your savings balance to see both together.'
+)
 
 
 def cents(dollars: float) -> int:
@@ -91,6 +104,7 @@ base = prefill(conn, account, series)
 rows = transactions(conn, account)
 hidden = hidden_series(rows, series, display_key)
 by_key = {s.key: s for s in series}
+stored_savings = savings_balance(conn)
 conn.close()
 
 top_bar(bar, TITLE, base.data_date, source)
@@ -104,8 +118,7 @@ assert base.data_date is not None  # an account has at least one row
 start = base.data_date
 if start < date.today():
     st.markdown(
-        f'<p class="la-note">Starting from your balance on {fmt_date(start)}, the latest day in '
-        f"your data: {money(base.balance_cents)}.</p>",
+        f'<p class="la-note">Starting from {fmt_date(start)}, the latest day in your data.</p>',
         unsafe_allow_html=True,
     )
 if base.missing:
@@ -116,6 +129,15 @@ if base.missing:
     )
 
 
+def forget_savings() -> None:
+    """The Clear button: forget the stored savings balance and empty the field (a callback runs
+    before the page, so the field is drawn empty and nothing is written back)."""
+    write = connect(db_path)
+    set_savings_balance(write, None, date.today())
+    write.close()
+    st.session_state["sc_savings"] = None
+
+
 def label(flow: Flow) -> str:
     s = by_key.get(flow.key)
     return series_label(s, hide=s.key in hidden) if s is not None else flow.name
@@ -124,22 +146,61 @@ def label(flow: Flow) -> str:
 # --- Inputs ---
 with st.container(border=True, key="card-inputs"):
     st.markdown("<h2>Your scenario</h2>", unsafe_allow_html=True)
+
+    # --- Starting point: chequing from the data, savings typed here (remembered) ---
+    first_col, savings_col, total_col = st.columns(3)
+    with first_col:
+        st.markdown(
+            f'<p class="la-note">Chequing on {fmt_date(start)} (from your data)<br>'
+            f"<strong>{html.escape(money(base.balance_cents))}</strong></p>",
+            unsafe_allow_html=True,
+        )
+    with savings_col:
+        savings_in = st.number_input(
+            "Savings balance ($)", min_value=0.0, step=10.0, key="sc_savings",
+            value=stored_savings[0] / 100 if stored_savings else None, placeholder="not entered",
+        )  # fmt: skip
+        savings_cents = None if savings_in is None else cents(savings_in)
+        if savings_cents != (stored_savings[0] if stored_savings else None):
+            write = connect(db_path)
+            set_savings_balance(write, savings_cents, date.today())
+            write.close()
+            stored_savings = None if savings_cents is None else (savings_cents, date.today())
+        if stored_savings:
+            st.caption(f"Entered {fmt_date(stored_savings[1])}.")
+            st.button("Clear (chequing only)", key="sc_savings_clear", on_click=forget_savings)
+        else:
+            st.caption("Not entered: the calculator shows chequing only.")
+    view = starting_point(base, savings_cents)
+    with total_col:
+        st.markdown(
+            f'<p class="la-note">{"Together" if view.combined else "Chequing only"}<br>'
+            f"<strong>{html.escape(money(view.balance_cents))}</strong></p>",
+            unsafe_allow_html=True,
+        )
+    st.markdown(
+        f'<p class="la-note">{html.escape(COMBINED_NOTE if view.combined else CHEQUING_ONLY_NOTE)}'
+        "</p>",
+        unsafe_allow_html=True,
+    )
+
     left, middle, right = st.columns(3)
     with left:
         spend = st.number_input("Daily spend ($)", min_value=0.0, step=1.0, key="sc_spend",
                                 value=base.daily_spend_cents / 100)  # fmt: skip
-        if base.spend_basis:
-            st.caption(base.spend_basis)
+        st.caption(base.spend_basis)
         income_in = st.number_input(
             "Income per month ($)", min_value=0.0, step=10.0, key="sc_income",
             value=(base.income.cents / 100) if base.income else 0.0,
         )  # fmt: skip
-        if base.income_basis:
-            st.caption(base.income_basis)
-        top_ups_in = st.number_input(
-            "Top-ups from savings per month ($)", min_value=0.0, step=10.0, key="sc_top_ups",
-            value=0.0, help="Money you move from savings into this account: counted as money in.",
-        )  # fmt: skip
+        st.caption(base.income_basis)
+        top_ups_in = 0.0  # in the combined view a top-up only moves money between my accounts
+        if not view.combined:
+            top_ups_in = st.number_input(
+                "Top-ups from savings per month ($)", min_value=0.0, step=10.0, key="sc_top_ups",
+                value=0.0,
+                help="Money you move from savings into this account: counted as money in.",
+            )  # fmt: skip
     with middle:
         rent_in = st.number_input("Rent per month ($)", min_value=0.0, step=10.0, key="sc_rent",
                                   value=-base.rent.cents / 100 if base.rent else 0.0)  # fmt: skip
@@ -155,19 +216,19 @@ with st.container(border=True, key="card-inputs"):
             else usual
         )
     with right:
-        end = st.date_input("End date", value=default_end(date.today()), key="sc_end")
+        end = st.date_input("End date", value=default_end(start), key="sc_end")
         buffer_in = st.number_input("Buffer ($)", min_value=0.0, step=10.0, key="sc_buffer",
                                     value=base.buffer_cents / 100)  # fmt: skip
 
     switches: list[Flow] = []
-    if base.flows:
+    if view.flows:
         st.markdown(
             '<p class="la-note"><strong>Recurring payments</strong> (confirmed or added by you): '
             "switch one off to see the difference.</p>",
             unsafe_allow_html=True,
         )
         columns = st.columns(2)
-        for i, flow in enumerate(base.flows):
+        for i, flow in enumerate(view.flows):
             with columns[i % 2]:
                 on = st.toggle(f"{label(flow)} ({money(flow.cents, signed=True)} {flow.cadence})",
                                value=True, key=f"sc_flow|{flow.key or i}")  # fmt: skip
@@ -211,12 +272,12 @@ income_flow = replace(base.income or Flow("Income", 0, "monthly", date(ANCHOR_YE
                       **arrives)  # fmt: skip
 top_ups = Flow("Top-ups from savings", cents(top_ups_in), "monthly", **arrives)  # type: ignore[arg-type]
 now = Inputs(
-    balance_cents=base.balance_cents, start=start, end=end,
-    flows=(*base.flows, rent_flow, income_flow), daily_spend_cents=base.daily_spend_cents,
+    balance_cents=view.balance_cents, start=start, end=end,
+    flows=(*view.flows, rent_flow, income_flow), daily_spend_cents=base.daily_spend_cents,
     buffer_cents=base.buffer_cents,
 )  # fmt: skip
 mine = Inputs(
-    balance_cents=base.balance_cents, start=start, end=end,
+    balance_cents=view.balance_cents, start=start, end=end,
     flows=(*switches, replace(rent_flow, cents=-cents(rent_in)),
            replace(income_flow, cents=cents(income_in)), top_ups),
     daily_spend_cents=cents(spend), buffer_cents=cents(buffer_in),
@@ -229,7 +290,8 @@ if end <= start:
     st.stop()
 
 now_result, mine_result = run(now), run(mine)
-headline = f"You'd have {money(mine_result.end_balance, markdown=True)} on {fmt_date(end)}"
+where = "in chequing and savings" if view.combined else "in chequing"
+headline = f"You'd have {money(mine_result.end_balance, markdown=True)} {where} on {fmt_date(end)}"
 if mine_result.first_below is not None:
     headline += f", and you'd drop below your buffer on {fmt_date(mine_result.first_below)}"
 st.markdown(f"### {headline}.")
@@ -238,7 +300,12 @@ st.markdown(
     f"{fmt_date(end)}.</p>",
     unsafe_allow_html=True,
 )
-chart = calculator_chart(start, base.balance_cents, now_result, mine_result, cents(buffer_in))
+# The buffer and its marker are measured on the balance the chart shows (run() does this).
+title = (
+    "End-of-day balance, chequing and savings" if view.combined else "End-of-day balance, chequing"
+)
+chart = calculator_chart(start, view.balance_cents, now_result, mine_result, cents(buffer_in),
+                         title=title)  # fmt: skip
 st.plotly_chart(chart, width="stretch", theme=None, config={"displayModeBar": False})
 st.markdown(
     f'<p class="la-note">{html.escape(NOT_A_FORECAST, quote=False)}</p>', unsafe_allow_html=True
