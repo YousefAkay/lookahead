@@ -1999,6 +1999,8 @@ Run `b11915e` on the 20 development personas of each synthetic set (800 origins 
 
 ### 2026-11-10: Part (b): the possible-subscription recall (56 of 56) is not credible; why link stays pending
 
+### 2026-11-10: Records of proposals part (b) and experiment 4 merged into main, without their code
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
