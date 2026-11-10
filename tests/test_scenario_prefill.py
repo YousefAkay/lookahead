@@ -11,6 +11,7 @@ from lookahead.calendar_rules import monthly_date, shift_to_business_day
 from lookahead.db import connect
 from lookahead.recurring_store import add_series, confirm, refresh, set_rent_rule
 from lookahead.rent import RentRule
+from lookahead.resolve import mark_own_account
 from lookahead.scenario import Inputs, run
 from lookahead.scenario_prefill import Prefill, prefill, starting_point, usual_day
 from lookahead.settings import (
@@ -356,4 +357,56 @@ def test_the_savings_balance_is_remembered_with_its_day_and_can_be_cleared(
     assert savings_balance(c) is None  # a damaged row means "not entered"
     with pytest.raises(ValueError):
         set_savings_balance(c, -1, date(2026, 11, 11))
+    c.close()
+
+
+def monthly(c: sqlite3.Connection, day: int, cents: int, text: str, kind: str, flow: str) -> None:
+    for m in range(1, 7):
+        insert(c, date(2026, m, day), cents, text, kind=kind, flow=flow)
+
+
+def kept_apart(c: sqlite3.Connection) -> tuple[list[int], list[int]]:
+    """(cents of the series counted in the combined view, cents of those left out of it)."""
+    insert(c, LAST, -1_000, "Opos Last", flow="everyday", balance=321_000)
+    confirm_all(c)
+    p = prefill(c, ACCOUNT, stored(c))
+    return sorted(f.cents for f in p.flows), sorted(f.cents for f in p.own_account_flows)
+
+
+def test_an_e_transfer_series_to_someone_else_is_not_own_account(tmp_path: Path) -> None:
+    c = connect(tmp_path / "s.db")
+    monthly(c, 12, -40_000, "Free Interac E-Transfer ", "withdrawal", "transfer")
+    assert kept_apart(c) == ([-40_000], [])
+    c.close()
+
+
+def test_a_payment_to_my_own_card_does_not_cancel_out(tmp_path: Path) -> None:
+    """A bill payment to a payee I marked as my own card leaves chequing and savings for good:
+    it stays counted in the combined view (the reviewer's case, 2026-11-10)."""
+    c = connect(tmp_path / "s.db")
+    monthly(c, 18, -25_000, "Visa Card Payment", "bill payment", "transfer")
+    mark_own_account(c, "Visa Card", when=LONG_AGO)  # the merchant name of the payee
+    assert kept_apart(c) == ([-25_000], [])
+    c.close()
+
+
+def test_a_row_i_typed_as_something_else_is_not_own_account(tmp_path: Path) -> None:
+    c = connect(tmp_path / "s.db")
+    monthly(c, 10, 50_000, "Customer Transfer Cr. MB-Transfer From 1234", "customer transfer cr.",
+            "income")  # fmt: skip
+    assert kept_apart(c) == ([50_000], [])
+    c.close()
+
+
+def test_a_confirmed_top_up_from_savings_is_not_an_income_series(tmp_path: Path) -> None:
+    """With no other deposits, the income note says nothing was counted instead of pointing at a
+    series the combined view leaves out."""
+    c = connect(tmp_path / "s.db")
+    window(c)
+    monthly(c, 10, 50_000, "Customer Transfer Cr. MB-Transfer From 1234", "customer transfer cr.",
+            "transfer")  # fmt: skip
+    confirm_all(c)
+    p = prefill(c, ACCOUNT, stored(c))
+    assert p.income is None and "income" in p.missing
+    assert "No deposits counted as income" in p.income_basis
     c.close()

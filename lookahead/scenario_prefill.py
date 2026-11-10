@@ -13,9 +13,10 @@
   spending included) of money out that is not in a recurring series, not rent, not a transfer
   between my own accounts and not a netted pair.
 - Own-account series: a confirmed or hand-added series whose payments are mostly transfers between
-  my own accounts (the flow typing's own-account reasons, unless I typed the row as something
-  else) is kept apart, so the combined chequing-and-savings view can leave it out: there such
-  transfers cancel out (scenario v2, `starting_point`).
+  my own accounts at the bank (the flow typing's "own-account transfer", unless I typed the row as
+  something else; a payment to my own card or credit line is not one) is kept apart, so the
+  combined chequing-and-savings view can leave it out: there such transfers cancel out (scenario
+  v2, `starting_point`).
 Each estimate comes with a plain-words basis for the page, never blank: when nothing could be
 estimated it says why.
 What cannot be estimated is left at zero and named in `missing`, so the page can say so. Like the
@@ -30,8 +31,8 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from lookahead.flows import OWN_ACCOUNT, Txn, flow_types
 from lookahead.flows import Flow as Typed
+from lookahead.flows import Txn, flow_types
 from lookahead.one_time import big_deposits
 from lookahead.recurring_store import Stored, rent_rule_of
 from lookahead.rent import RentRule
@@ -46,7 +47,10 @@ MONTH_DAYS = 365.25 / 12
 ANCHOR_YEAR = 2024  # a monthly flow's anchor: only its day of the month is used
 _DECIDED = ("confirmed", "user-added")
 NOT_INCOME = ("transfer", "refund")  # flow types of money in that is not income
-OWN_REASONS = ("own-account transfer", OWN_ACCOUNT)  # flow-typing reasons: my own accounts
+# The flow-typing reason of a transfer between my own accounts at the bank (chequing and savings).
+# Not "payment to my own account": that is a bill payment to my own card or credit line, money that
+# leaves chequing and savings for good, so it must not cancel out in the combined view.
+OWN_REASONS = ("own-account transfer",)
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,7 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     own = _own_account(typed, rows)
     flows: list[Flow] = []
     own_flows: list[Flow] = []
+    own_keys: set[str] = set()
     rents: list[tuple[date, Flow]] = []
     for s in decided:
         rule = rent_rule_of(s)
@@ -146,7 +151,11 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
             flow = Flow(s.name or s.kind, s.expected_cents, s.cadence, s.anchor,
                         card=s.kind == "e-transfer", key=s.key)  # fmt: skip
             mine = sum(fp in own for fp in s.evidence)
-            (own_flows if s.evidence and 2 * mine > len(s.evidence) else flows).append(flow)
+            if s.evidence and 2 * mine > len(s.evidence):
+                own_flows.append(flow)
+                own_keys.add(s.key)
+            else:
+                flows.append(flow)
     rent = None
     if rents:  # the rent paid most recently is the one the page edits; any other is a flow
         rents.sort(key=lambda r: r[0])
@@ -171,7 +180,8 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     one_off = money_in["fingerprint"].isin(_one_off_deposits(typed, series, last))
     pay = money_in[~one_off]
     left_out = int(one_off.sum())
-    has_income_series = any(s.direction == "in" for s in decided)
+    # a confirmed top-up from savings is not an income series
+    has_income_series = any(s.direction == "in" and s.key not in own_keys for s in decided)
     if span < MIN_HISTORY_DAYS:
         missing.append("income")
         income_basis = too_short
