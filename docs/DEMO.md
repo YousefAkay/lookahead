@@ -13,7 +13,8 @@ It rebuilds the synthetic demo database from the persona files: no alerts, plann
 decisions or corrections, every recurring series waiting to be reviewed. It works while the app is
 running. Then press F5 in the browser tab. (It refuses any path in a folder called "private".)
 
-Start the app with `streamlit run app/Home.py` (http://localhost:8501).
+Start the app with `streamlit run app/Home.py --server.address localhost` (http://localhost:8501).
+For the public demo (synthetic data only, no keys): `docs/DEPLOY.md`.
 
 ## Click path
 

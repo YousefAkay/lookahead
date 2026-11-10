@@ -112,11 +112,32 @@ def test_my_data_without_a_database_explains_how_to_import() -> None:
 
 
 def test_app_is_only_reachable_from_this_computer() -> None:
+    """With real data the pages run only when served on this computer (enforced in code, so the
+    public demo can share the config file; DECISIONS.md 2026-10-11)."""
     import tomllib
 
+    from streamlit import config as st_config
+
     config = tomllib.loads((APP.parent / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
-    assert config["server"]["address"] == "localhost"  # not every network interface
+    assert "address" not in config["server"]  # Community Cloud reads this same file
     assert config["browser"]["gatherUsageStats"] is False
+    for address in ("0.0.0.0", None, "192.168.1.20"):
+        st_config.set_option("server.address", address)
+        at = AppTest.from_file(str(HOME), default_timeout=60).run()
+        assert any("runs on this computer only" in str(e.value) for e in at.error), address
+        assert "Where things stand" not in page_text(at)  # stopped before any data
+    st_config.set_option("server.address", "localhost")
+    at = run(HOME)
+    assert not at.error and "A local-first cashflow planner" in page_text(at)
+
+
+def test_demo_mode_may_be_served_on_any_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    from streamlit import config as st_config
+
+    monkeypatch.setenv("LOOKAHEAD_DEMO", "1")
+    st_config.set_option("server.address", None)
+    at = run(HOME)
+    assert not at.error and "Synthetic demo data" in page_text(at)
 
 
 def test_deploy_button_is_hidden() -> None:
@@ -1059,8 +1080,10 @@ def test_forecast_page_shows_safe_to_spend_beside_the_usual_spending(isolated: P
     assert "Safe to spend" in text and "estimate" in text
     afford = metric(at, "Everyday spending you can afford")
     usual = metric(at, "Your usual everyday spending")
-    words = ("No safe amount", "Plenty of room")
-    assert re.fullmatch(r"\$[\d,]+\+?/day", afford) or afford in words
+    assert re.fullmatch(r"\$[\d,]+\+?/day", afford) or afford in (
+        "No safe amount",
+        "Plenty of room",
+    )
     assert re.fullmatch(r"\$[\d,]+/day", usual)
     assert "80% confidence" in text or "No safe amount" in text
     if afford == "Plenty of room":  # far above the usual: the exact figure only in small print

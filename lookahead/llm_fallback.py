@@ -15,6 +15,7 @@ from pathlib import Path
 
 import lookahead.llm_categorizer as llm
 from lookahead.config import load_env
+from lookahead.demo_mode import is_demo
 
 SETTING = "llm_fallback"
 DETAIL = "Claude, from the merchant name only"
@@ -39,6 +40,8 @@ def set_on(conn: sqlite3.Connection, on: bool) -> None:
 
 
 def has_api_key(env_path: Path = Path(".env")) -> bool:
+    if is_demo():
+        return False  # the public demo never sends anything anywhere
     return bool(os.environ.get(llm.KEY_NAME) or load_env(env_path).get(llm.KEY_NAME))
 
 
@@ -75,6 +78,8 @@ def apply(
 ) -> Applied:  # fmt: skip
     """Show the LLM's category on the candidate rows. `send=False` uses saved answers only
     (nothing leaves the machine); `send=True` first asks for the names not asked yet."""
+    if send and is_demo():
+        raise RuntimeError("the LLM fallback is off in demo mode")
     if not is_on(conn):
         raise RuntimeError("the LLM fallback is off")
     rows = candidates(conn, account, key)

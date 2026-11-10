@@ -28,6 +28,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
 
+from lookahead.demo_mode import BANNER, enable_if_demo, is_demo
 from lookahead.recurring_store import Stored
 from lookahead.safe_to_spend import SafeToSpend, exact_figure, safe_to_spend, sentence
 
@@ -603,6 +604,33 @@ def apply(title: str) -> None:
     )  # fmt: skip
     st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
     pio.templates.default = "lookahead"
+    if not enable_if_demo() and not served_locally():
+        st.error(
+            "Lookahead with your own data runs on this computer only. Start it with "
+            "`streamlit run app/Home.py --server.address localhost`, or put "
+            '`address = "localhost"` under `[server]` in `~/.streamlit/config.toml`.'
+        )
+        st.stop()  # nothing is read before this point
+
+
+LOOPBACK = ("localhost", "127.0.0.1", "::1")
+
+
+def served_locally() -> bool:
+    """True when the server listens on this computer only (DECISIONS.md, 2026-10-11): outside
+    demo mode the pages refuse to run otherwise, whatever the config file or a flag says."""
+    return st.get_option("server.address") in LOOPBACK
+
+
+def demo_banner_html() -> str:
+    """The banner of demo mode, at the top of every page."""
+    return (
+        f'<div class="la-demo-banner" role="note" style="background: {COLORS.amber_bg}; border: '
+        f"1px solid {COLORS.amber_border}; color: {COLORS.amber_dark}; border-radius: 10px; "
+        f'padding: 8px 14px; margin-top: 10px; font-size: 15px"><strong>{BANNER}</strong> · '
+        "made up by a generator, not anyone's account. Importing bank files, your own data and "
+        "the LLM fallback are switched off in this demo.</div>"
+    )
 
 
 def top_bar(slot: "st.delta_generator.DeltaGenerator", active: str, data_to: date | None,
@@ -613,6 +641,8 @@ def top_bar(slot: "st.delta_generator.DeltaGenerator", active: str, data_to: dat
             top_bar_html(active, PAGES, data_to, source, choice_query(), until),
             unsafe_allow_html=True,
         )
+        if is_demo():  # every page draws the bar, so every page says it is the demo
+            st.markdown(demo_banner_html(), unsafe_allow_html=True)
 
 
 # --- The data and account choice survives a click on the top bar ---
@@ -662,12 +692,18 @@ def save_choices() -> None:
 SOURCES = ["Synthetic demo", "My data"]
 
 
+def data_sources() -> list[str]:
+    """The data choices: synthetic only in demo mode."""
+    return SOURCES[:1] if is_demo() else list(SOURCES)
+
+
 def data_settings() -> tuple[str, bool]:
     """The settings panel's first two choices, the same on every page: which data (Synthetic demo
     or My data) and whether text is pseudonymized. Returns (source, pseudonymize)."""
     side_label("Data")
-    seed_choice("data_source", SOURCES)
-    source = st.sidebar.radio("Data", SOURCES, label_visibility="collapsed", key="data_source")
+    sources = data_sources()
+    seed_choice("data_source", sources)
+    source = st.sidebar.radio("Data", sources, label_visibility="collapsed", key="data_source")
     seed_choice("pseudonymize")
     pseudonymize = st.sidebar.toggle(
         "Pseudonymize text", key="pseudonymize",

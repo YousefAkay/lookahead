@@ -6,9 +6,12 @@ from pathlib import Path
 def load_env(path: Path = Path(".env")) -> dict[str, str]:
     """KEY=VALUE lines from `path`; blank lines and `#` comments are skipped.
 
-    Values may be wrapped in single or double quotes. A missing file gives {}.
+    Values may be wrapped in single or double quotes. A missing file gives {}. In demo mode the
+    file is never opened: the public demo needs no settings or keys.
     """
-    if not path.exists():
+    from lookahead.demo_mode import is_demo
+
+    if is_demo() or not path.exists():
         return {}
     values: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():

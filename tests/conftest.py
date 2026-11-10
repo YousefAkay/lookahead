@@ -1,6 +1,7 @@
 """Fixtures shared by several test files."""
 
 import csv
+from collections.abc import Iterator
 from datetime import date, datetime
 from pathlib import Path
 
@@ -72,3 +73,14 @@ def close_database_connections(monkeypatch: pytest.MonkeyPatch):  # type: ignore
         except sqlite3.Error:
             pass
     opened.clear()
+
+
+@pytest.fixture(autouse=True)
+def _served_on_localhost() -> Iterator[None]:
+    """Pages run as if served on localhost (as the app must be with real data; the config file no
+    longer says so, see DECISIONS.md 2026-10-11). A test may change it; it is put back after."""
+    from streamlit import config as st_config
+
+    st_config.set_option("server.address", "localhost")
+    yield
+    st_config.set_option("server.address", "localhost")

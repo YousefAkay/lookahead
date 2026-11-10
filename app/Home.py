@@ -30,6 +30,7 @@ from app.theme import (  # noqa: E402
 from lookahead.db import connect_readonly  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
+from lookahead.demo_mode import is_demo  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import load_series  # noqa: E402
 from lookahead.settings import safety_buffer_cents  # noqa: E402
@@ -110,8 +111,9 @@ if facts:
         st.markdown(status_card_html(facts), unsafe_allow_html=True)
         if st.session_state.get("data_source") == "Synthetic demo":
             st.markdown(
-                '<p class="la-note">This is made-up data from the generator, for trying the app. '
-                "Choose My data in Settings for your own.</p>",
+                '<p class="la-note">This is made-up data from the generator, for trying the app.'
+                + ("" if is_demo() else " Choose My data in Settings for your own.")
+                + "</p>",
                 unsafe_allow_html=True,
             )
 
@@ -150,8 +152,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.markdown(
-    '<p class="la-note">Everything runs on this computer. The forecast is an estimate from your '
-    "own past weeks, never a promise.</p>",
+    '<p class="la-note">'
+    + (
+        "This public demo shows made-up personas only. "
+        if is_demo()
+        else "Everything runs on this computer. "
+    )
+    + "The forecast is an estimate from past weeks, never a promise.</p>",
     unsafe_allow_html=True,
 )
 footer(DISCLAIMER)

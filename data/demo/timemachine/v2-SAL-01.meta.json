@@ -1,0 +1,1 @@
+{"futures": 500, "method": "weekday", "format": 2, "logic": 4, "forecaster": {"keeps": {"own_account": true}, "recurring_fix": {"possibly_ended": true, "weekly_card": true}, "lump_arrivals": false, "outflow_placements": false, "outflow_rule": "earliest"}}

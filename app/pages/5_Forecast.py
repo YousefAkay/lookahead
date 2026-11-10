@@ -25,6 +25,7 @@ from app.theme import (  # noqa: E402
     callout_html,
     chart_legend_html,
     coming_up_html,
+    data_sources,
     fit_y_range,
     fmt_date,
     fmt_day,
@@ -92,7 +93,7 @@ bar = st.container(key="topbar")  # the green bar: drawn into once the data date
 
 # --- Settings (the sidebar): data, account, forecast settings ---
 side_label("Data")
-SOURCES = ["Synthetic demo", "My data"]
+SOURCES = data_sources()  # synthetic only in demo mode
 seed_choice("data_source", SOURCES)
 source = st.sidebar.radio("Data", SOURCES, label_visibility="collapsed", key="data_source")
 if source == "Synthetic demo":

@@ -112,7 +112,12 @@ def save_cache(path: Path, answers: dict[str, Answer]) -> None:
 
 
 def make_client(env_path: Path = Path(".env")) -> object:
-    """The Anthropic client, with the key from the environment or the .env file."""
+    """The Anthropic client, with the key from the environment or the .env file. Never in demo
+    mode."""
+    from lookahead.demo_mode import is_demo
+
+    if is_demo():
+        raise RuntimeError("the LLM is off in demo mode")
     api_key = os.environ.get(KEY_NAME) or load_env(env_path).get(KEY_NAME, "")
     if not api_key:
         raise RuntimeError(f"{KEY_NAME} is not set: add it to .env")

@@ -41,3 +41,6 @@ data/public/
 
 # --- Real-account results: local only, never committed ---
 DECISIONS-private.md
+
+# The public demo's Time Machine (synthetic personas only), committed so the server never builds it
+!data/demo/timemachine/*.db

@@ -27,7 +27,7 @@ Privacy
 - Reports on real data: aggregate metrics over many forecasts may be printed in my terminal and shared in prompts; never rows, dates, names or individual transaction amounts, and never written into the repository (rule of 2026-10-12, replacing "counts only").
 - Anything leaving `data/private/` is pseudonymized first.
 - The LLM fallback is off by default, opt-in, and is sent the merchant name of a card purchase only: no amounts, dates or people's names. Claude Haiku 4.5 pinned, temperature 0, cached.
-- The app listens on localhost only and opens databases read-only.
+- The app opens databases read-only, and with real data it runs only when served on localhost (the pages check the address; the config file is shared with the public demo). Demo mode (`LOOKAHEAD_DEMO=1`) is synthetic data only and can never open anything under `data/private`.
 
 Evaluation
 - Test sets are frozen before labelling. Every choice is made on development rows. The holdout is scored once.

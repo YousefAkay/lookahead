@@ -36,6 +36,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--account", default=DEFAULT_ACCOUNT)
     parser.add_argument("--glob", default="*.csv", help='which files to import (default "*.csv")')
     args = parser.parse_args(argv)
+    from lookahead.demo_mode import is_demo
+
+    if is_demo():
+        print("CSV import is disabled in demo mode (synthetic demo data only).")
+        return 2
 
     paths = sorted(args.folder.glob(args.glob))
     print(f"Lookahead import: {len(paths)} file(s), account {args.account}")

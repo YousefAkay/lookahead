@@ -32,6 +32,10 @@ def demo_db_path() -> Path:
 
 
 def private_db_path() -> Path:
+    from lookahead.demo_mode import is_demo
+
+    if is_demo():
+        raise PermissionError("demo mode has no private data")
     return Path(os.environ.get("LOOKAHEAD_PRIVATE_DB", "data/private/db/lookahead.db"))
 
 

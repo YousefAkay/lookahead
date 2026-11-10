@@ -93,7 +93,12 @@ def pseudonymize_sub_description(
 
 
 def pseudonym_key(env_path: Path = Path(".env"), environ: Mapping[str, str] | None = None) -> bytes:
-    """The secret key: from the environment variable if set, else from the .env file."""
+    """The secret key: from the environment variable if set, else from the .env file. In demo mode
+    a fixed made-up key (the demo personas are synthetic); nothing is read."""
+    from lookahead.demo_mode import DEMO_KEY, is_demo
+
+    if is_demo():
+        return DEMO_KEY
     environ = os.environ if environ is None else environ
     text = environ.get(KEY_NAME) or load_env(env_path).get(KEY_NAME, "")
     if not text:

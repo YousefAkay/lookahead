@@ -110,7 +110,11 @@ def real_dir() -> Path:
 
 def real_summary(path: Path | None = None) -> dict[str, Any] | None:
     """The real backtest, summarized at runtime, or None when there is none. At the account's own
-    buffer and at $0. Never written anywhere."""
+    buffer and at $0. Never written anywhere. Nothing in demo mode (no private data at all)."""
+    from lookahead.demo_mode import is_demo
+
+    if is_demo():
+        return None
     folder = real_results_dir(path or real_dir())
     if not folder.is_dir() or not any(folder.glob("*.jsonl")):
         return None

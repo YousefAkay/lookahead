@@ -1,13 +1,15 @@
-# Lookahead is local-first: the app must only be reachable from this computer.
+# Lookahead is local-first: with real data the app must only be reachable from this computer.
+# That is enforced in code (app/theme.py, `apply`), not here: Streamlit Community Cloud reads this
+# same file for the public demo, which must not be bound to localhost (DECISIONS.md 2026-10-11).
+# Locally: streamlit run app/Home.py --server.address localhost
 [server]
-address = "localhost"
 enableStaticServing = true  # serves app/static (the bundled font), nothing else
 
 [browser]
 gatherUsageStats = false
 
 [client]
-toolbarMode = "minimal"  # hides the Deploy button and developer items: this app is never deployed
+toolbarMode = "minimal"  # hides the Deploy button and developer items
 showSidebarNavigation = false  # the pages are linked from the green top bar (app/theme.py)
 
 # --- Look: light, a green top bar, white cards. The target is in docs/design/target; every colour

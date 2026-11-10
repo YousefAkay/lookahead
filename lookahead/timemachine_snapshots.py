@@ -51,8 +51,17 @@ MIX_PERSONAS = ("v2-TIGHT-03", "v2-ITIGHT-01", "v2-FREE-01", "v2-SAL-01")  # dev
 HISTORY_SHOWN_DAYS = 60  # days of actual balance drawn before the date
 
 
+DEMO_SNAPSHOTS = Path(__file__).resolve().parents[1] / "data" / "demo" / "timemachine"
+
+
 def snapshot_dir() -> Path:
-    return Path(os.environ.get("LOOKAHEAD_TIMEMACHINE_DIR", "data/timemachine"))
+    """Where the saved steps are: the committed demo snapshots in demo mode, else data/timemachine
+    (made locally, not committed). LOOKAHEAD_TIMEMACHINE_DIR overrides both."""
+    from lookahead.demo_mode import is_demo
+
+    if "LOOKAHEAD_TIMEMACHINE_DIR" in os.environ:
+        return Path(os.environ["LOOKAHEAD_TIMEMACHINE_DIR"])
+    return DEMO_SNAPSHOTS if is_demo() else Path("data/timemachine")
 
 
 def persona_label(pid: str) -> str:
