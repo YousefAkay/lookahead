@@ -2002,6 +2002,7 @@ The part (b) result (2026-10-23, above) gives rent a precision of 44 percent (11
 - **Link: the leakage check of rule (e) was done.** Checked read-only on 2026-10-23: nothing in the link proposer exists only because of the planter; the proposer (f90e35a) predates the planter (371165d), and the later refactor (f8d0338) did not change its behaviour. Re-checked in the code on 2026-11-10: reads rows posted after the origin: no; reads the answer key: no. **Link stays pending for another reason:** the planted renames all have the same easy shape (same amount and cadence, the old series stops one period before the new one starts, one rename per persona), so 24 of 24 only shows that it works on clean renames.
 
 ### 2026-11-10: Records of proposals part (b) and experiment 4 merged into main, without their code
+I merged `records-from-main` into main (a fast-forward) after the full suite passed on it (2,278 tests). It carries only the DECISIONS entries of the two rejected experiments, their reports and the proposals ledger. Their code stays unmerged on `proposals-v2` and `exp4-combination`; the tags `proposals-v2-final` (c386f53) and `exp4-final` (a874897) keep the commits these records cite reachable. The same day I merged a correction to the entry above (a fast-forward, the full suite passed again, 2,278 tests): its evidence is now the scorer's match rule itself, and it records the link leakage check and its re-check.
 
 ## Known issues
 
