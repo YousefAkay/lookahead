@@ -180,3 +180,31 @@ def test_the_end_date_defaults_to_90_days_after_the_data(isolated: Path) -> None
     ).fetchone()[0]
     conn.close()
     assert at.date_input(key="sc_end").value == date.fromisoformat(last) + timedelta(days=90)
+
+
+def test_a_listed_top_up_and_the_top_ups_field_show_a_warning(isolated: Path) -> None:
+    """Chequing-only view with a confirmed top-up from savings: typing a top-up as well warns that
+    the same money may be counted twice (my decision of 2026-11-10)."""
+    from tests.test_scenario_prefill import ACCOUNT, confirm, insert, refresh
+
+    db = isolated / "private" / "lookahead.db"
+    db.parent.mkdir()
+    conn = connect(db)
+    today = date.today()
+    for back in range(6, 0, -1):  # the 10th of each of the last six months: recent, so active
+        y, m = divmod(today.year * 12 + today.month - 1 - back, 12)
+        insert(conn, date(y, m + 1, 10), 50_000, "Customer Transfer Cr. MB-Transfer From 1234",
+               kind="customer transfer cr.", flow="transfer")  # fmt: skip
+    insert(conn, today - timedelta(days=1), -1_000, "Opos Shop", flow="everyday", balance=99_000)
+    for s in refresh(conn, ACCOUNT):
+        confirm(conn, ACCOUNT, s, today - timedelta(days=1))
+    refresh(conn, ACCOUNT)  # as the Recurring page does after a decision
+    conn.close()
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    at.sidebar.radio[0].set_value("My data").run()
+    assert not at.exception, at.exception
+    assert not at.warning
+    at.number_input(key="sc_top_ups").set_value(300.0).run()
+    assert any("count the same money twice" in str(w.value) for w in at.warning)
+    at.number_input(key="sc_top_ups").set_value(0.0).run()
+    assert not at.warning

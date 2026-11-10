@@ -36,7 +36,12 @@ from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import ensure_current  # noqa: E402
 from lookahead.scenario import Flow, Inputs, OneOff, default_end, run  # noqa: E402
-from lookahead.scenario_prefill import ANCHOR_YEAR, prefill, starting_point  # noqa: E402
+from lookahead.scenario_prefill import (  # noqa: E402
+    ANCHOR_YEAR,
+    counts_top_up_twice,
+    prefill,
+    starting_point,
+)
 from lookahead.settings import savings_balance, set_savings_balance  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
@@ -54,6 +59,10 @@ NOT_A_FORECAST = "This assumes exactly what you entered. It's not a forecast."
 SPREAD = "Spread evenly through the month"
 SET_DAY = "On a set day"
 RENT_DAY_NOTE = "No rent rule found: rent entered here is placed on the 1st of each month."
+TWICE_WARNING = (
+    "A confirmed top-up from savings is already in your recurring payments below, so this field "
+    "may count the same money twice."
+)
 COMBINED_NOTE = (
     "Chequing and savings together: money you move between them cancels out, so it is neither "
     "income nor spending."
@@ -201,6 +210,8 @@ with st.container(border=True, key="card-inputs"):
                 value=0.0,
                 help="Money you move from savings into this account: counted as money in.",
             )  # fmt: skip
+            if counts_top_up_twice(base, cents(top_ups_in)):
+                st.warning(TWICE_WARNING)
     with middle:
         rent_in = st.number_input("Rent per month ($)", min_value=0.0, step=10.0, key="sc_rent",
                                   value=-base.rent.cents / 100 if base.rent else 0.0)  # fmt: skip

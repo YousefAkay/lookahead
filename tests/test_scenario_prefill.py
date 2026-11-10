@@ -12,8 +12,14 @@ from lookahead.db import connect
 from lookahead.recurring_store import add_series, confirm, refresh, set_rent_rule
 from lookahead.rent import RentRule
 from lookahead.resolve import mark_own_account
-from lookahead.scenario import Inputs, run
-from lookahead.scenario_prefill import Prefill, prefill, starting_point, usual_day
+from lookahead.scenario import Flow, Inputs, run
+from lookahead.scenario_prefill import (
+    Prefill,
+    counts_top_up_twice,
+    prefill,
+    starting_point,
+    usual_day,
+)
 from lookahead.settings import (
     savings_balance,
     set_safety_buffer_cents,
@@ -124,7 +130,7 @@ def test_income_already_in_a_confirmed_series_is_not_counted_twice(
     assert any(f.cents > 0 for f in p.flows)
 
 
-def test_the_daily_spend_is_the_median_day_without_series_rent_transfers_or_netted(
+def test_the_daily_spend_leaves_out_own_account_transfers_netted_pairs_and_money_in(
     tmp_path: Path,
 ) -> None:
     c = connect(tmp_path / "s.db")
@@ -132,8 +138,9 @@ def test_the_daily_spend_is_the_median_day_without_series_rent_transfers_or_nett
     for k in range(90):
         if k < 50:
             insert(c, days_back(k), -1_000, f"Opos Shop{k}", flow="everyday")
-    # Not spending: a transfer, a netted pair, and money in.
-    insert(c, days_back(3), -500_000, "Transfer To", kind="transfer", flow="transfer")
+    # Not spending: a transfer to my own account, a netted pair, and money in.
+    insert(c, days_back(3), -500_000, "Customer Transfer Dr. MB-Transfer To 1234",
+           kind="customer transfer dr.", flow="transfer")  # fmt: skip
     insert(c, days_back(4), -400_000, "Opos Big", flow="everyday", source="netted")
     insert(c, days_back(5), 300_000, "Payroll Dep ", kind="deposit", flow="income")
     p = prefill(c, ACCOUNT, refresh(c, ACCOUNT))
@@ -410,3 +417,43 @@ def test_a_confirmed_top_up_from_savings_is_not_an_income_series(tmp_path: Path)
     assert p.income is None and "income" in p.missing
     assert "No deposits counted as income" in p.income_basis
     c.close()
+
+
+def test_the_daily_spend_counts_what_is_not_counted_elsewhere(tmp_path: Path) -> None:
+    """My decision of 2026-11-10: card payments outside a series, e-Transfers to other people,
+    withdrawals and the payments of a series that is only detected are spending; rent (a series
+    with a rent rule), a confirmed series and transfers between my own accounts are not."""
+    c = connect(tmp_path / "s.db")
+    window(c)  # $1 on the first and on the last day of 90
+    insert(c, days_back(60), -60_000, "Visa Card Payment", kind="bill payment", flow="transfer")
+    mark_own_account(c, "Visa Card", when=LONG_AGO)  # my card, but not a series: spending
+    insert(c, days_back(40), -9_000, "Free Interac E-Transfer ", kind="withdrawal", flow="transfer")
+    insert(c, days_back(30), -20_000, "Withdrawal", kind="withdrawal", flow="transfer")
+    insert(c, days_back(20), -300_000, "Customer Transfer Dr. MB-Transfer To 1234",
+           kind="customer transfer dr.", flow="transfer")  # fmt: skip
+    for m in range(1, 7):  # rent with a rule; a gym series that stays only detected
+        insert(c, date(2026, m, 2), -90_000, "Free Interac E-Transfer ", kind="withdrawal",
+               flow="transfer")  # fmt: skip
+        insert(c, date(2026, m, 12), -4_000, "Opos Gym Club", flow="everyday")
+    insert(c, LAST, -100, "Opos End", flow="everyday", balance=100_000)
+    rent = next(s for s in stored(c) if s.kind == "e-transfer" and s.direction == "out")
+    set_rent_rule(c, ACCOUNT, rent, RentRule((90_000,), 1, 5), LONG_AGO)
+    confirm(c, ACCOUNT, next(s for s in stored(c) if s.key == rent.key), LONG_AGO)
+    series = stored(c)
+    assert any(s.name == "Gym Club" and s.status == "detected" for s in series), series
+    p = prefill(c, ACCOUNT, series)
+    assert p.rent is not None
+    gym = sum(4_000 for m in range(4, 7))  # the gym payments inside the 90 days (Apr to Jun)
+    counted = 100 + 100 + 100 + 60_000 + 9_000 + 20_000 + gym
+    assert p.daily_spend_cents == round(counted / 90)
+    assert "card payments, e-Transfers to other people and withdrawals included" in p.spend_basis
+    c.close()
+
+
+def test_a_listed_top_up_and_the_top_ups_field_warn_of_counting_twice() -> None:
+    top_up = Flow("Customer Transfer", 50_000, "monthly", date(2024, 1, 10))
+    with_series = Prefill(LAST, 0, (), None, None, 0, 20_000, (), own_account_flows=(top_up,))
+    without = Prefill(LAST, 0, (), None, None, 0, 20_000, ())
+    assert counts_top_up_twice(with_series, 30_000)
+    assert not counts_top_up_twice(with_series, 0)
+    assert not counts_top_up_twice(without, 30_000)

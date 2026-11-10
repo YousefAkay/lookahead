@@ -10,8 +10,9 @@
   shared one-time money rule, `lookahead.one_time`: the deposits the forecaster sets aside). Its
   usual day is kept for the "arrives on a set day" choice.
 - The daily spend: the average day of the last WINDOW_DAYS (total over the days, days with no
-  spending included) of money out that is not in a recurring series, not rent, not a transfer
-  between my own accounts and not a netted pair.
+  spending included) of all money out except what is counted elsewhere: rent (a series with a
+  rent rule), confirmed or hand-added series, transfers between my own accounts, and netted pairs.
+  Card payments, e-Transfers to other people and withdrawals count (2026-11-10).
 - Own-account series: a confirmed or hand-added series whose payments are mostly transfers between
   my own accounts at the bank (the flow typing's "own-account transfer", unless I typed the row as
   something else; a payment to my own card or credit line is not one) is kept apart, so the
@@ -75,6 +76,12 @@ class StartingPoint:
     balance_cents: int
     flows: tuple[Flow, ...]  # the recurring flows counted in this view, rent aside
     combined: bool  # chequing and savings together
+
+
+def counts_top_up_twice(base: Prefill, top_ups_cents: int) -> bool:
+    """Chequing-only view: a confirmed top-up from savings is already listed and the top-ups field
+    adds more, so the same money may be counted twice (the page warns)."""
+    return top_ups_cents > 0 and any(f.cents > 0 for f in base.own_account_flows)
 
 
 def starting_point(base: Prefill, savings_cents: int | None) -> StartingPoint:
@@ -170,7 +177,10 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     )
     recent = rows[rows["date"].dt.date >= since]
     in_decided = {fp for s in decided for fp in s.evidence}
-    in_any = {fp for s in series if s.status != "rejected" for fp in s.evidence}
+    # rent paid by a series with a rent rule, confirmed or not: the page has its own rent field
+    in_rent = {
+        fp for s in series if s.status != "rejected" and rent_rule_of(s) for fp in s.evidence
+    }
 
     income = None
     income_basis = ""
@@ -210,15 +220,19 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         missing.append("daily spend")
         spend_basis = too_short
     else:
-        out = recent[(recent["amount_cents"] < 0) & ~recent["fingerprint"].isin(in_any)
-                     & (recent["flow_type"] != "transfer")
-                     & (recent["flow_type"] != "recurring_outflow")
+        # Left out only what is counted elsewhere (2026-11-10, my decision): rent, confirmed
+        # recurring series and transfers between my own accounts; refunded pairs net to zero.
+        # Card payments, e-Transfers to other people and withdrawals are spending.
+        counted_elsewhere = in_decided | in_rent | own
+        out = recent[(recent["amount_cents"] < 0)
+                     & ~recent["fingerprint"].isin(counted_elsewhere)
                      & (recent["source"] != "netted")]  # fmt: skip
         spend = round(-int(out["amount_cents"].sum()) / span)
         spend_basis = (
             f"The average day over {span} days (days with no spending count): "
-            f"{_count(len(out), 'payment')}; recurring payments, rent, transfers between your own "
-            "accounts and refunded pairs left out."
+            f"{_count(len(out), 'payment')} counted, card payments, e-Transfers to other "
+            "people and withdrawals included; rent, confirmed recurring payments, transfers "
+            "between your own accounts and refunded pairs left out."
         )
     return Prefill(last, balance, tuple(flows), rent, income, int(spend), buffer,
                    tuple(missing), income_basis, spend_basis, tuple(own_flows))  # fmt: skip
