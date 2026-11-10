@@ -142,6 +142,11 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     missing: list[str] = []
 
     decided = [s for s in series if s.status in _DECIDED and (s.active or rent_rule_of(s))]
+    # Rent comes from any series with a rent rule that I have not rejected, confirmed or not: its
+    # payments are left out of the daily spend, so the rent field must carry them.
+    rent_series = [s for s in series if s.status != "rejected" and s.direction == "out"
+                   and rent_rule_of(s) is not None]  # fmt: skip
+    rent_keys = {s.key for s in rent_series}
     rows = transactions(conn, account)
     typed = _typed(conn, account, last)
     own = _own_account(typed, rows)
@@ -149,12 +154,13 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     own_flows: list[Flow] = []
     own_keys: set[str] = set()
     rents: list[tuple[date, Flow]] = []
-    for s in decided:
+    for s in rent_series:
         rule = rent_rule_of(s)
-        if rule is not None and s.direction == "out":
-            paid = _payments(conn, account, s.evidence)
-            rents.append((paid[-1][0] if paid else date.min, _rent_flow(conn, account, s, rule)))
-        else:
+        assert rule is not None  # rent_series keeps only series with a rule
+        paid = _payments(conn, account, s.evidence)
+        rents.append((paid[-1][0] if paid else date.min, _rent_flow(conn, account, s, rule)))
+    for s in decided:
+        if s.key not in rent_keys:
             flow = Flow(s.name or s.kind, s.expected_cents, s.cadence, s.anchor,
                         card=s.kind == "e-transfer", key=s.key)  # fmt: skip
             mine = sum(fp in own for fp in s.evidence)
@@ -223,7 +229,9 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         # Left out only what is counted elsewhere (2026-11-10, my decision): rent, confirmed
         # recurring series and transfers between my own accounts; refunded pairs net to zero.
         # Card payments, e-Transfers to other people and withdrawals are spending.
-        counted_elsewhere = in_decided | in_rent | own
+        # every confirmed or hand-added series, ended ones too: an ended one is not carried on
+        in_confirmed = {fp for s in series if s.status in _DECIDED for fp in s.evidence}
+        counted_elsewhere = in_confirmed | in_rent | own
         out = recent[(recent["amount_cents"] < 0)
                      & ~recent["fingerprint"].isin(counted_elsewhere)
                      & (recent["source"] != "netted")]  # fmt: skip

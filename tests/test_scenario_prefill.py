@@ -457,3 +457,42 @@ def test_a_listed_top_up_and_the_top_ups_field_warn_of_counting_twice() -> None:
     assert counts_top_up_twice(with_series, 30_000)
     assert not counts_top_up_twice(with_series, 0)
     assert not counts_top_up_twice(without, 30_000)
+
+
+def test_rent_with_a_rule_on_a_series_not_yet_confirmed_is_in_the_rent_field(
+    tmp_path: Path,
+) -> None:
+    """Rent left out of the daily spend must be carried by the rent field, confirmed or not."""
+    c = connect(tmp_path / "s.db")
+    window(c)
+    for m in range(1, 7):
+        insert(c, date(2026, m, 2), -90_000, "Free Interac E-Transfer ", kind="withdrawal",
+               flow="transfer")  # fmt: skip
+    rent = next(s for s in stored(c) if s.kind == "e-transfer" and s.direction == "out")
+    set_rent_rule(c, ACCOUNT, rent, RentRule((90_000,), 1, 5), LONG_AGO)
+    series = stored(c)
+    assert next(s for s in series if s.key == rent.key).status == "detected"
+    p = prefill(c, ACCOUNT, series)
+    assert p.rent is not None and p.rent.cents == -90_000
+    assert p.daily_spend_cents == round(200 / 90)  # the two $1 purchases only
+    c.close()
+
+
+def test_confirmed_series_are_left_out_of_the_daily_spend_even_once_ended(tmp_path: Path) -> None:
+    """A confirmed gym (still going) and a confirmed streaming plan that ended in April: neither
+    counts as daily spend; the ended one is not listed either, so it is not carried on."""
+    c = connect(tmp_path / "s.db")
+    window(c)
+    for m in range(1, 7):
+        insert(c, date(2026, m, 12), -4_000, "Opos Gym Club", flow="everyday")
+    for m in range(1, 5):
+        insert(c, date(2026, m, 8), -1_500, "Opos Stream Plus", flow="everyday")
+    for s in stored(c):
+        confirm(c, ACCOUNT, s, LONG_AGO)
+    series = stored(c)
+    stream = next(s for s in series if s.name == "Stream Plus")
+    assert stream.status == "confirmed" and not stream.active
+    p = prefill(c, ACCOUNT, series)
+    assert [f.cents for f in p.flows] == [-4_000]  # the gym is listed, the ended plan is not
+    assert p.daily_spend_cents == round(200 / 90)  # neither series is daily spend
+    c.close()
