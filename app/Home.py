@@ -16,22 +16,36 @@ import streamlit as st  # noqa: E402
 from app.theme import (  # noqa: E402
     account_setting,
     apply,
+    cached_safe_to_spend,
     choice_query,
     data_settings,
     fmt_date,
     footer,
     link_button_html,
     money,
+    safe_to_spend_card,
     status_card_html,
     top_bar,
 )
 from lookahead.db import connect_readonly  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
+from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import load_series  # noqa: E402
+from lookahead.settings import safety_buffer_cents  # noqa: E402
 from lookahead.since import card_counts, summarize  # noqa: E402
 from lookahead.ui import DISCLAIMER, demo_db_path, private_db_path, synthetic_dir  # noqa: E402
 from lookahead.views import accounts, import_status, transactions  # noqa: E402
+
+
+def safety_buffer_now(path: Path) -> int:
+    """The saved buffer (read-only), so a changed buffer gives a new safe-to-spend."""
+    c = connect_readonly(path)
+    try:
+        return safety_buffer_cents(c)
+    finally:
+        c.close()
+
 
 apply("Home")
 bar = st.container(key="topbar")  # the green bar: drawn into once the data date is known
@@ -56,6 +70,7 @@ facts: list[tuple[str, str]] = []
 since_facts: list[tuple[str, str]] | None = None  # None: no marker yet
 since_note = ""
 last_day = None
+account = None
 if not db_path.exists():
     top_bar(bar, "Home", None, source)
     st.info(
@@ -99,6 +114,14 @@ if facts:
                 "Choose My data in Settings for your own.</p>",
                 unsafe_allow_html=True,
             )
+
+if facts and account is not None and last_day is not None:
+    try:
+        stored_key: bytes | None = pseudonym_key()
+    except PseudonymKeyError:
+        stored_key = None
+    version = (db_path.stat().st_mtime, safety_buffer_now(db_path))
+    safe_to_spend_card(cached_safe_to_spend(str(db_path), version, account, stored_key))
 
 query = choice_query()
 if facts:

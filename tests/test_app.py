@@ -1046,3 +1046,39 @@ def test_review_page_warns_about_screenshots_only_for_my_data(isolated: Path) ->
     freeze_demo(isolated)
     at = run(REVIEW)
     assert "do not screenshot" not in page_text(at)  # synthetic text is safe to show
+
+
+# --- Safe to spend (DECISIONS.md, 2026-10-11) ---
+
+
+def test_forecast_page_shows_safe_to_spend_beside_the_usual_spending(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    text = page_text(at)
+    assert "Safe to spend" in text and "estimate" in text
+    afford = metric(at, "Everyday spending you can afford")
+    usual = metric(at, "Your usual everyday spending")
+    words = ("No safe amount", "Plenty of room")
+    assert re.fullmatch(r"\$[\d,]+\+?/day", afford) or afford in words
+    assert re.fullmatch(r"\$[\d,]+/day", usual)
+    assert "80% confidence" in text or "No safe amount" in text
+    if afford == "Plenty of room":  # far above the usual: the exact figure only in small print
+        assert "Plenty of room: you could spend well above your usual" in text
+        assert re.search(r"Exact figure: about \$[\d,]+/day", text)
+
+
+def test_safe_to_spend_says_no_safe_amount_plainly_when_already_below(isolated: Path) -> None:
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-A").run()  # starts below its buffer
+    assert not at.exception, at.exception
+    assert metric(at, "Everyday spending you can afford") == "No safe amount"
+    assert "No safe amount" in page_text(at) and "$-" not in page_text(at)
+
+
+def test_home_page_shows_safe_to_spend(isolated: Path) -> None:
+    at = run(HOME)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    assert "Safe to spend" in page_text(at)
+    assert metric(at, "Your usual everyday spending").endswith("/day")

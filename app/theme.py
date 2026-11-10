@@ -29,6 +29,7 @@ import plotly.io as pio
 import streamlit as st
 
 from lookahead.recurring_store import Stored
+from lookahead.safe_to_spend import SafeToSpend, exact_figure, safe_to_spend, sentence
 
 STATIC = Path(__file__).resolve().parent / "static"
 FAVICON = STATIC / "favicon.png"
@@ -997,3 +998,62 @@ def fit_y_range(figure: go.Figure, dollars: list[float], pad: float = 0.1) -> go
     margin = max((high - low) * pad, 50.0)  # at least $50 of room, so a flat line is visible
     figure.update_yaxes(range=[low - margin, high + margin])
     return figure
+
+
+# --- Safe to spend (Forecast page and Home) ---
+
+
+@st.cache_data(show_spinner="Working out a safe amount to spend...", max_entries=32)
+def cached_safe_to_spend(db_path: str, version: object, account: str, key: bytes | None
+                         ) -> SafeToSpend | None:  # fmt: skip
+    """Safe-to-spend for the account as the data stands. The search runs a few dozen what-ifs, so
+    the answer is kept until `version` changes (what the forecast rests on: the page passes the
+    data date, the buffer and the placed payments)."""
+    from lookahead.db import connect_readonly
+
+    conn = connect_readonly(Path(db_path))
+    try:
+        return safe_to_spend(conn, account, "weekday", None, key)
+    finally:
+        conn.close()
+
+
+def safe_to_spend_card(s: SafeToSpend | None) -> None:
+    """The safe-to-spend card: the amount a day (or "No safe amount"), the usual everyday spending
+    beside it, and the sentence. Always labelled an estimate."""
+    if s is None:
+        return
+    with st.container(border=True, key="card-safe"):
+        st.markdown(
+            '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
+            f"<h2>Safe to spend</h2>{tag_html('estimate', 'neutral')}</div>",
+            unsafe_allow_html=True,
+        )
+        left, right = st.columns(2)
+        window = (f"until {fmt_day(s.income_day)}, the next expected income"
+                  if s.income_day is not None else f"for the next {s.days} days")  # fmt: skip
+        with left:
+            if s.cents_per_day is None:
+                st.metric("Everyday spending you can afford", "No safe amount", window,
+                          delta_color="off", delta_arrow="off")  # fmt: skip
+            elif s.plenty:
+                st.metric("Everyday spending you can afford", "Plenty of room",
+                          f"well above your usual, {window}", delta_color="off",
+                          delta_arrow="off")  # fmt: skip
+            else:
+                more = "+" if s.capped else ""
+                st.metric("Everyday spending you can afford",
+                          f"${s.dollars_per_day:,}{more}/day", f"{window}, 80% confidence",
+                          delta_color="off", delta_arrow="off")  # fmt: skip
+        with right:
+            st.metric("Your usual everyday spending", f"${s.usual_cents_per_day / 100:,.0f}/day",
+                      "the forecast's estimate, same days", delta_color="off",
+                      delta_arrow="off")  # fmt: skip
+        small = f'<p class="la-note">{html.escape(exact_figure(s))}</p>' if s.plenty else ""
+        st.markdown(
+            f'<p style="margin: 0">{html.escape(sentence(s)).replace("$", "&#36;")}</p>{small}'
+            '<p class="la-note">At least 80 of every 100 simulated futures stay at or above your '
+            "buffer on every day of that period at this level, with recurring payments and fees as "
+            "forecast. It is worked out from your own past weeks: an estimate, not a promise.</p>",
+            unsafe_allow_html=True,
+        )

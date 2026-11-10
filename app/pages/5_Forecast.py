@@ -21,6 +21,7 @@ from app.theme import (  # noqa: E402
     COLORS,
     alert_episodes_html,
     apply,
+    cached_safe_to_spend,
     callout_html,
     chart_legend_html,
     coming_up_html,
@@ -32,6 +33,7 @@ from app.theme import (  # noqa: E402
     money,
     money_short,
     result_panel_html,
+    safe_to_spend_card,
     save_choices,
     scenario_legend_html,
     seed_choice,
@@ -248,6 +250,12 @@ if sim is not None:
         st.metric("Chance below $0", f"{sim.below_zero_probability:.0%}",
                   f"{below_zero} of {sim.futures} simulated futures", delta_color="off",
                   delta_arrow="off")  # fmt: skip
+
+# --- Safe to spend: the everyday spending a day that keeps 80% of futures above the buffer ---
+if sim is not None:
+    version = (start, forecast.buffer_cents,
+               tuple((i.day, i.cents, i.series_key) for i in forecast.items))  # fmt: skip
+    safe_to_spend_card(cached_safe_to_spend(str(db_path), version, account, stored_key))
 
 # --- Shortfall alerts: the current one with its evidence, then the earlier ones ---
 
