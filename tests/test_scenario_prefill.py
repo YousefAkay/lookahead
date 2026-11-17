@@ -572,3 +572,25 @@ def test_an_ended_confirmed_pay_series_is_left_out_of_income(tmp_path: Path) -> 
     assert "No deposits counted as income" in p.income_basis
     assert all(f.cents < 0 for f in p.flows)
     c.close()
+
+
+def test_the_notes_count_each_bucket_of_the_window(tmp_path: Path) -> None:
+    """The counts shown under Daily spend and Income (my real-data check of 2026-11-17)."""
+    c = connect(tmp_path / "s.db")
+    window(c)  # two $1 purchases
+    insert(c, days_back(60), -9_000, "Free Interac E-Transfer ", kind="withdrawal", flow="transfer")
+    insert(c, days_back(20), -300_000, "Customer Transfer Dr. MB-Transfer To 1234",
+           kind="customer transfer dr.", flow="transfer")  # fmt: skip
+    insert(c, days_back(19), 50_000, "Customer Transfer Cr. MB-Transfer From 1234",
+           kind="customer transfer cr.", flow="transfer")  # fmt: skip
+    insert(c, days_back(10), 20_000, "Free Interac E-Transfer ", kind="deposit", flow="income")
+    p = prefill(c, ACCOUNT, stored(c))
+    spend = dict(p.spend_counts)
+    assert p.window_days == 90
+    assert spend["payments counted"] == 3  # the two $1 purchases and the e-Transfer
+    assert spend["transfers between your own accounts"] == 1
+    assert spend["rent"] == spend["refunded pairs"] == spend["confirmed recurring payments"] == 0
+    income = dict(p.income_counts)
+    assert income["deposits counted"] == 1
+    assert income["transfers between your own accounts"] == 1
+    c.close()

@@ -28,7 +28,7 @@ calculator, nothing here comes from the forecaster or the proposers.
 
 import sqlite3
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -55,6 +55,23 @@ NOT_INCOME = ("transfer", "refund")  # flow types of money in that is not income
 # leaves chequing and savings for good, so it must not cancel out in the combined view.
 OWN_REASONS = ("own-account transfer",)
 
+# What the rules do with each row of the window (shown in the notes and by the counts-only check,
+# lookahead/scenario_check.py). The first matching bucket wins, in this order.
+COUNTED = "counted"
+SPEND_LEFT_OUT = (
+    "refunded pairs",
+    "rent",
+    "confirmed recurring payments",
+    "transfers between your own accounts",
+)
+INCOME_LEFT_OUT = (
+    "money already in a confirmed series",
+    "transfers between your own accounts",
+    "refunds",
+    "refunded pairs",
+    "one-off deposits (big lump sums)",
+)
+
 
 @dataclass(frozen=True)
 class Prefill:
@@ -69,6 +86,10 @@ class Prefill:
     income_basis: str = ""
     spend_basis: str = ""
     own_account_flows: tuple[Flow, ...] = ()  # confirmed series of transfers between my accounts
+    # The counts behind the two estimates, for the page: (label, rows), in a fixed order
+    window_days: int = 0
+    income_counts: tuple[tuple[str, int], ...] = ()
+    spend_counts: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -151,7 +172,8 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     rent_keys = {s.key for s in rent_series}
     rows = transactions(conn, account)
     typed = _typed(conn, account, last)
-    own = _own_account(typed, rows)
+    w = window(rows, typed, series, last)
+    own = w.own
     flows: list[Flow] = []
     own_flows: list[Flow] = []
     own_keys: set[str] = set()
@@ -181,29 +203,16 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         rent = rents[-1][1]
         flows += [f for _, f in rents[:-1]]
 
-    first = rows["date"].min().date()
-    since = max(first, last - timedelta(days=WINDOW_DAYS - 1))
-    span = (last - since).days + 1
+    span = w.days
     too_short = (
         f"Only {_count(span, 'day')} of history (fewer than {MIN_HISTORY_DAYS}): not estimated."
     )
-    recent = rows[rows["date"].dt.date >= since]
-    # every confirmed or hand-added series, ended ones too: an ended one is not carried on, and
-    # its money is neither income nor daily spend (2026-11-17, my decision, same as spending)
-    in_confirmed = {fp for s in series if s.status in _DECIDED for fp in s.evidence}
-    # rent paid by a series with a rent rule, confirmed or not: the page has its own rent field
-    in_rent = {
-        fp for s in series if s.status != "rejected" and rent_rule_of(s) for fp in s.evidence
-    }
 
     income = None
     income_basis = ""
-    money_in = recent[(recent["amount_cents"] > 0) & ~recent["fingerprint"].isin(in_confirmed)
-                      & ~recent["flow_type"].isin(NOT_INCOME)
-                      & (recent["source"] != "netted")]  # fmt: skip
-    one_off = money_in["fingerprint"].isin(_one_off_deposits(typed, series, last))
-    pay = money_in[~one_off]
-    left_out = int(one_off.sum())
+    in_bucket = income_buckets(w)
+    pay = w.money_in[in_bucket == COUNTED]
+    left_out = int((in_bucket == INCOME_LEFT_OUT[-1]).sum())
     # a confirmed top-up from savings is not an income series
     has_income_series = any(s.direction == "in" and s.key not in own_keys for s in decided)
     if span < MIN_HISTORY_DAYS:
@@ -230,6 +239,7 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
 
     spend = 0
     spend_basis = ""
+    out_bucket = spend_buckets(w)
     if span < MIN_HISTORY_DAYS:
         missing.append("daily spend")
         spend_basis = too_short
@@ -237,10 +247,7 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         # Left out only what is counted elsewhere (2026-11-10, my decision): rent, confirmed
         # recurring series and transfers between my own accounts; refunded pairs net to zero.
         # Card payments, e-Transfers to other people and withdrawals are spending.
-        counted_elsewhere = in_confirmed | in_rent | own
-        out = recent[(recent["amount_cents"] < 0)
-                     & ~recent["fingerprint"].isin(counted_elsewhere)
-                     & (recent["source"] != "netted")]  # fmt: skip
+        out = w.money_out[out_bucket == COUNTED]
         spend = round(-int(out["amount_cents"].sum()) / span)
         spend_basis = (
             f"The average day over {span} days (days with no spending count): "
@@ -248,8 +255,84 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
             "people and withdrawals included; rent, confirmed recurring payments, transfers "
             "between your own accounts and refunded pairs left out."
         )
+    income_counts = _tally(in_bucket, ("deposits counted", *INCOME_LEFT_OUT))
+    spend_counts = _tally(out_bucket, ("payments counted", *SPEND_LEFT_OUT))
     return Prefill(last, balance, tuple(flows), rent, income, int(spend), buffer,
-                   tuple(missing), income_basis, spend_basis, tuple(own_flows))  # fmt: skip
+                   tuple(missing), income_basis, spend_basis, tuple(own_flows), span,
+                   income_counts, spend_counts)  # fmt: skip
+
+
+@dataclass(frozen=True)
+class Window:
+    """The last WINDOW_DAYS of an account (fewer if the data is shorter) and what is needed to
+    sort its rows: the sets of fingerprints counted elsewhere."""
+
+    days: int
+    money_out: pd.DataFrame  # rows of the window with money out
+    money_in: pd.DataFrame  # rows of the window with money in
+    in_rent: set[str]  # paid by a series with a rent rule I have not rejected, confirmed or not
+    in_confirmed: set[str]  # in a confirmed or hand-added series, ended ones too
+    own: set[str]  # transfers between my own accounts
+    one_off: set[str]  # big one-time deposits, by the shared rule
+
+
+def window(rows: pd.DataFrame, typed: "_Typed", series: Sequence[Stored], last: date) -> Window:
+    """The window ending on `last` and the sets the two estimates leave out."""
+    first = rows["date"].min().date()
+    since = max(first, last - timedelta(days=WINDOW_DAYS - 1))
+    recent = rows[rows["date"].dt.date >= since]
+    return Window(
+        days=(last - since).days + 1,
+        money_out=recent[recent["amount_cents"] < 0],
+        money_in=recent[recent["amount_cents"] > 0],
+        in_rent={
+            fp for s in series if s.status != "rejected" and rent_rule_of(s) for fp in s.evidence
+        },  # fmt: skip
+        # ended ones too: an ended one is not carried on, and its money is neither income nor
+        # daily spend (2026-11-17, my decision, same as spending)
+        in_confirmed={fp for s in series if s.status in _DECIDED for fp in s.evidence},
+        own=_own_account(typed, rows),
+        one_off=_one_off_deposits(typed, series, last),
+    )
+
+
+def spend_buckets(w: Window) -> pd.Series:
+    """For each money-out row of the window: COUNTED, or the first SPEND_LEFT_OUT reason."""
+    fp = w.money_out["fingerprint"]
+    reasons = [
+        w.money_out["source"] == "netted",
+        fp.isin(w.in_rent),
+        fp.isin(w.in_confirmed),
+        fp.isin(w.own),
+    ]
+    return _first(w.money_out.index, zip(SPEND_LEFT_OUT, reasons, strict=True))
+
+
+def income_buckets(w: Window) -> pd.Series:
+    """For each money-in row of the window: COUNTED, or the first INCOME_LEFT_OUT reason."""
+    fp = w.money_in["fingerprint"]
+    reasons = [
+        fp.isin(w.in_confirmed),
+        w.money_in["flow_type"] == "transfer",
+        w.money_in["flow_type"] == "refund",
+        w.money_in["source"] == "netted",
+        fp.isin(w.one_off),
+    ]
+    return _first(w.money_in.index, zip(INCOME_LEFT_OUT, reasons, strict=True))
+
+
+def _first(index: pd.Index, reasons: "Iterable[tuple[str, pd.Series]]") -> pd.Series:
+    bucket = pd.Series(COUNTED, index=index, dtype=object)
+    for name, hit in reversed(list(reasons)):  # the first reason in the list wins
+        bucket[hit.fillna(False).astype(bool)] = name
+    return bucket
+
+
+def _tally(bucket: pd.Series, labels: tuple[str, ...]) -> tuple[tuple[str, int], ...]:
+    """(label, rows) for each bucket in order; the first label is the COUNTED bucket."""
+    counts = bucket.value_counts()
+    keys = (COUNTED, *labels[1:])
+    return tuple((label, int(counts.get(k, 0))) for label, k in zip(labels, keys, strict=True))
 
 
 @dataclass(frozen=True)
@@ -280,7 +363,7 @@ def _own_account(typed: _Typed, rows: pd.DataFrame) -> set[str]:
             if f.reason in OWN_REASONS} - other  # fmt: skip
 
 
-def _one_off_deposits(typed: _Typed, series: Sequence[Stored], as_of: date) -> set[str]:
+def _one_off_deposits(typed: "_Typed", series: Sequence[Stored], as_of: date) -> set[str]:
     """Fingerprints of the big one-time deposits at `as_of`, by the shared rule."""
     row_of = {fp: i for i, fp in typed.fingerprint.items()}
     in_series = {row_of[fp] for s in series if s.status != "rejected" for fp in s.evidence

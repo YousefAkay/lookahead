@@ -121,8 +121,7 @@ def test_top_ups_raise_the_headline_and_the_timing_choice_shows_a_day() -> None:
 
 def test_the_estimates_say_what_they_are_based_on() -> None:
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
-    captions = "\n".join(str(c.value) for c in at.caption)
-    assert "The average day over" in captions
+    assert "The average day over" in text_of(at)
 
 
 # --- Scenario v2 (spec docs/specs/2026-11-10-scenario-v2.md) ---
@@ -165,9 +164,53 @@ def test_a_savings_balance_shows_both_together_hides_top_ups_and_is_remembered()
 def test_both_basis_notes_are_shown() -> None:
     """Definition of done 7, on the page."""
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
-    captions = [str(c.value) for c in at.caption]
-    assert any("The average day over" in c for c in captions)
-    assert any("deposit" in c for c in captions)  # the income note, whatever it found
+    text = text_of(at)
+    assert "The average day over" in text
+    assert "deposit" in text  # the income note, whatever it found
+
+
+def test_both_notes_show_their_counts_one_per_labelled_line() -> None:
+    """After my real-data check of 2026-11-17: I could not find the counts in the notes."""
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    text = text_of(at)
+    for line in ("How the daily spend was estimated", "How the income was estimated",
+                 "Days in the window: ", "Payments counted: ", "Deposits counted: ",
+                 "Left out, transfers between your own accounts: ",
+                 "Left out, one-off deposits (big lump sums): "):  # fmt: skip
+        assert line in text, line
+
+
+def add_one_off(at: AppTest, day: date, dollars: float) -> AppTest:
+    at.text_input(key="sc_extra_name").set_value("Family")
+    at.date_input(key="sc_extra_day").set_value(day)
+    at.number_input(key="sc_extra_amount").set_value(dollars)
+    at.radio(key="sc_extra_dir").set_value("Money in")
+    return at.button(key="sc_extra_add").click().run()
+
+
+def test_a_one_off_after_the_end_date_says_it_is_not_counted() -> None:
+    """My real-data check of 2026-11-17: a January money in made no visible change, because it
+    fell after the end date (90 days after the data) and was skipped without a word."""
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    end = at.date_input(key="sc_end").value
+    before = headline(at)
+    add_one_off(at, end + timedelta(days=10), 2000.0)
+    assert not at.exception, at.exception
+    assert headline(at) == before  # still not counted ...
+    assert "after the end date: not counted" in text_of(at)  # ... but it says so
+    assert any("not counted" in str(w.value) for w in at.warning)
+    at.date_input(key="sc_end").set_value(end + timedelta(days=10)).run()
+    assert "after the end date" not in text_of(at)  # inside the window now: counted
+    assert not any("not counted" in str(w.value) for w in at.warning)
+
+
+def test_a_one_off_inside_the_window_raises_my_scenario_with_no_warning() -> None:
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    end = at.date_input(key="sc_end").value
+    before = headline(at)
+    add_one_off(at, end - timedelta(days=5), 2000.0)
+    assert headline(at) != before
+    assert not any("not counted" in str(w.value) for w in at.warning)
 
 
 def test_the_end_date_defaults_to_90_days_after_the_data(isolated: Path) -> None:

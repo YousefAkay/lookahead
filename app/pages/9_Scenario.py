@@ -147,6 +147,28 @@ def forget_savings() -> None:
     st.session_state["sc_savings"] = None
 
 
+def basis_note(title: str, sentence: str, days: int, counts: tuple[tuple[str, int], ...]) -> str:
+    """An estimate's basis as a labelled block: one count per line, then the rule in words."""
+    lines = [f"<strong>{html.escape(title)}</strong>"]
+    if counts:
+        lines.append(f"Days in the window: {days}")
+        (counted, n), *left_out = counts
+        lines.append(f"{html.escape(counted[:1].upper() + counted[1:])}: {n}")
+        lines += [f"Left out, {html.escape(name)}: {k}" for name, k in left_out]
+    lines.append(html.escape(sentence))
+    return f'<p class="la-note">{"<br>".join(lines)}</p>'
+
+
+def outside(day: date) -> str:
+    """Why a one-off item is not counted, or "" when it is (it must fall after the data's last
+    day and on or before the end date)."""
+    if day <= start:
+        return f"on or before {fmt_date(start)}, the last day of your data: not counted"
+    if day > end:
+        return f"after the end date: not counted. Move the end date to {fmt_date(day)} or later"
+    return ""
+
+
 def label(flow: Flow) -> str:
     s = by_key.get(flow.key)
     return series_label(s, hide=s.key in hidden) if s is not None else flow.name
@@ -197,12 +219,20 @@ with st.container(border=True, key="card-inputs"):
     with left:
         spend = st.number_input("Daily spend ($)", min_value=0.0, step=1.0, key="sc_spend",
                                 value=base.daily_spend_cents / 100)  # fmt: skip
-        st.caption(base.spend_basis)
+        st.markdown(
+            basis_note("How the daily spend was estimated", base.spend_basis, base.window_days,
+                       base.spend_counts),
+            unsafe_allow_html=True,
+        )  # fmt: skip
         income_in = st.number_input(
             "Income per month ($)", min_value=0.0, step=10.0, key="sc_income",
             value=(base.income.cents / 100) if base.income else 0.0,
         )  # fmt: skip
-        st.caption(base.income_basis)
+        st.markdown(
+            basis_note("How the income was estimated", base.income_basis, base.window_days,
+                       base.income_counts),
+            unsafe_allow_html=True,
+        )  # fmt: skip
         top_ups_in = 0.0  # in the combined view a top-up only moves money between my accounts
         if not view.combined:
             top_ups_in = st.number_input(
@@ -265,15 +295,25 @@ with st.container(border=True, key="card-inputs"):
             sign = 1 if direction == "Money in" else -1
             extras.append({"name": what, "day": when, "cents": sign * cents(size)})
             st.rerun()
+    skipped = 0
     for i, item in enumerate(list(extras)):
         text_col, remove_col = st.columns([4, 1], vertical_alignment="center")
+        why = outside(item["day"])  # type: ignore[arg-type]
+        skipped += bool(why)
         with text_col:
             st.markdown(f"{fmt_date(item['day'])}: {html.escape(str(item['name']) or 'one-off')} "  # type: ignore[arg-type]
-                        f"{money(int(item['cents']), signed=True, markdown=True)}")  # type: ignore[call-overload]  # fmt: skip
+                        f"{money(int(item['cents']), signed=True, markdown=True)}"  # type: ignore[call-overload]
+                        + (f" *({html.escape(why)})*" if why else ""))  # fmt: skip
         with remove_col:
             if st.button("Remove", key=f"sc_extra_remove|{i}"):
                 extras.pop(i)
                 st.rerun()
+    if skipped:
+        st.warning(
+            f"{skipped} one-off {'item is' if skipped == 1 else 'items are'} outside "
+            f"{fmt_date(start + timedelta(days=1))} to {fmt_date(end)} and not counted: "
+            "see the note beside each."
+        )
 
 # --- The two lines ---
 # The timing choice applies to both lines: it is how money arrives, not part of the what-if.
