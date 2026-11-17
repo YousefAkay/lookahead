@@ -89,18 +89,20 @@ def test_the_metrics_refuse_to_pool_the_two_sets(tmp_path: Path) -> None:
 
 # Taken before the long option was written (commit 328bd10): the sha256 of each development
 # persona's export followed by its answer key, seed 42, START to END.
+# Retaken 2026-11-17 after five local brand names were renamed (DECISIONS): the exports differ
+# from the old ones by those names only (all 20 exports and keys checked with the name mapping).
 CRLF, LF = bytes([13, 10]), bytes([10])  # Windows writes the answer key with CRLF
 BEFORE = {
-    "v2-IFAM-01": "6957834ef1e9d986", "v2-IFAM-02": "f725244ac8f2c508",
-    "v2-IFAM-03": "e8e5bf28079fbc5d", "v2-ITIGHT-01": "0752ac189e2bc700",
-    "v2-ITIGHT-02": "72e311eb1178d9ab", "v2-ITIGHT-03": "3dc1f6b4fc04e382",
-    "v2-DHOME-01": "a2d031a7c7b13fe1", "v2-DHOME-02": "69707b6f287be3e3",
-    "v2-DHOME-03": "1a9109b884c83be8", "v2-DRENT-01": "2eeae9cfc4d27968",
-    "v2-DRENT-02": "bd85d7eddc91694f", "v2-DRENT-03": "4c576611eb093ac4",
-    "v2-SAL-01": "4ac20a3787d871d7", "v2-SAL-02": "df072637a2b010d8",
-    "v2-SAL-03": "b91ab7c7be39fcc3", "v2-SEM-01": "a1a370006361e8ff",
-    "v2-TIGHT-01": "8c0afd4ce30ad4ed", "v2-TIGHT-02": "ba2929daf0cc49e2",
-    "v2-TIGHT-03": "13f5cb27cddfd2be", "v2-FREE-01": "613650fed49f8714",
+    "v2-IFAM-01": "221d7b6cd52931fb", "v2-IFAM-02": "07724f286b86947b",
+    "v2-IFAM-03": "68fea3489de5beb3", "v2-ITIGHT-01": "5debd662507c426a",
+    "v2-ITIGHT-02": "36666f594ce87e80", "v2-ITIGHT-03": "7e8435d38a61a1f2",
+    "v2-DHOME-01": "7f20a3062b9944ef", "v2-DHOME-02": "eb5e856aa420de71",
+    "v2-DHOME-03": "50b5527ff854a512", "v2-DRENT-01": "ace9fc4acbbac5c6",
+    "v2-DRENT-02": "b55b9033d471e3eb", "v2-DRENT-03": "ad1d4807f709aba9",
+    "v2-SAL-01": "acfa9ca8fbab6244", "v2-SAL-02": "eed41d711f4192a3",
+    "v2-SAL-03": "f4692b7811df513e", "v2-SEM-01": "418456664234707d",
+    "v2-TIGHT-01": "c5a572ce63f7544f", "v2-TIGHT-02": "c404830b4acf0aa1",
+    "v2-TIGHT-03": "127e6c446c58412c", "v2-FREE-01": "dba50d4068b005d4",
 }  # fmt: skip
 
 

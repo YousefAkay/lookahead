@@ -236,7 +236,9 @@ BEFORE = {
     ("v2-IFAM-02", date(2026, 1, 5)): "da1639a9d6e55d68",
     ("v2-IFAM-02", date(2026, 5, 4)): "9f7bee2d69e6c51f",
     ("v2-IFAM-02", date(2026, 8, 31)): "26c18d0048b73eb9",
-    ("v2-SAL-01", date(2026, 1, 5)): "46fd35bcbe429f7e",
+    # retaken 2026-11-17 after the brand renames (DECISIONS): with the recurring fix off, a weekly
+    # card series at a renamed brand is placed, and its draws are keyed by the name; 8 of 9 unchanged
+    ("v2-SAL-01", date(2026, 1, 5)): "b1b4171a5712cf0b",
     ("v2-SAL-01", date(2026, 5, 4)): "190a187cddee71e6",
     ("v2-SAL-01", date(2026, 8, 31)): "9f00739a1ae48028",
 }
