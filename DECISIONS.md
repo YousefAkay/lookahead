@@ -2112,6 +2112,14 @@ I merged `records-from-main` into main (a fast-forward) after the full suite pas
 - **Savings in demo mode.** The Scenario page (from main) saves a typed savings balance in the database. The public demo shares one database among its visitors, so a balance one visitor types (possibly their own) would be shown to the next. Chosen: in demo mode the balance is kept in the visitor's own session only and never written. Lost: listing it as one more known limit beside shared confirmations, because a confirmation is a click on made-up data, while a typed balance can be a visitor's own number. Outside demo mode nothing changes.
 - **Demo test.** The every-page demo test counted pages by a fixed number (8, then 9). It now expects exactly the router plus every page listed in `app/navigation.py`, so a page added later cannot skip the demo checks, and it also checks that Home shows safe-to-spend.
 
+## Going public
+
+### 2026-11-17: I go public before the forecaster's held-out test
+- **Decision.** I make the repository public before running the forecaster's held-out final test. The forecaster is not final yet (experiments 5 and 6 are not started).
+- **What the README says because of this.** Every forecaster number is on development data only: the synthetic development personas and the development accounts of the public Berka bank dataset. The held-out test has not been run. The README leads with the categorizer and the evaluation method, not the forecaster.
+- **The held-out data stays unopened.** The held-out personas and Berka held-out accounts are not opened by going public; the test runs once, later, when the forecaster is final, and nothing is tuned after it. Going public changes nothing about that rule.
+- **No deployment for now.** Demo mode stays in the code, but I am not putting the app on Streamlit Community Cloud yet.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
