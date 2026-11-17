@@ -644,3 +644,25 @@ def test_with_10_or_fewer_payments_there_is_no_line_without_the_biggest(tmp_path
     window(c)  # two $1 purchases only
     assert prefill(c, ACCOUNT, stored(c)).spend_without_largest_cents is None
     c.close()
+
+
+def test_top_ups_from_savings_do_not_hide_a_lump_sum_from_the_one_off_rule(tmp_path: Path) -> None:
+    """My nav-rework check of 2026-11-17: income per month about 3.3k where about 130 was right.
+    Irregular top-ups from savings (never income) raised the typical deposit of the shared rule,
+    so a family lump sum was no longer 5 times it and was counted as income."""
+    c = connect(tmp_path / "s.db")
+    window(c)
+    for k in (80, 50, 20):  # small family e-Transfers
+        insert(c, days_back(k), 15_000, "Free Interac E-Transfer Mom", kind="deposit",
+               flow="income")  # fmt: skip
+    insert(c, days_back(30), 800_000, "Free Interac E-Transfer Mom", kind="deposit", flow="income")
+    gaps = (2, 9, 13, 24, 31, 33, 45, 52, 61, 66, 74, 85)  # irregular: no series is detected
+    sizes = (180_000, 250_000, 120_000, 300_000, 90_000, 220_000, 160_000, 275_000, 140_000,
+             210_000, 190_000, 230_000)  # fmt: skip
+    for k, cents in zip(gaps, sizes, strict=True):
+        insert(c, days_back(k), cents, "Customer Transfer Cr. MB-Transfer From 1234",
+               kind="customer transfer cr.", flow="transfer")  # fmt: skip
+    p = prefill(c, ACCOUNT, stored(c))
+    assert dict(p.income_counts)["one-off deposits (big lump sums)"] == 1
+    assert p.income is not None and p.income.cents == round(3 * 15_000 * (365.25 / 12) / 90)
+    c.close()

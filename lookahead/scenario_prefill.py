@@ -291,6 +291,7 @@ def window(rows: pd.DataFrame, typed: "_Typed", series: Sequence[Stored], last: 
     first = rows["date"].min().date()
     since = max(first, last - timedelta(days=WINDOW_DAYS - 1))
     recent = rows[rows["date"].dt.date >= since]
+    own = _own_account(typed, rows)
     return Window(
         days=(last - since).days + 1,
         money_out=recent[recent["amount_cents"] < 0],
@@ -301,8 +302,8 @@ def window(rows: pd.DataFrame, typed: "_Typed", series: Sequence[Stored], last: 
         # ended ones too: an ended one is not carried on, and its money is neither income nor
         # daily spend (2026-11-17, my decision, same as spending)
         in_confirmed={fp for s in series if s.status in _DECIDED for fp in s.evidence},
-        own=_own_account(typed, rows),
-        one_off=_one_off_deposits(typed, series, last),
+        own=own,
+        one_off=_one_off_deposits(typed, series, last, own),
         one_off_out=_one_off_payments(typed, series, last),
     )
 
@@ -375,11 +376,19 @@ def _own_account(typed: _Typed, rows: pd.DataFrame) -> set[str]:
             if f.reason in OWN_REASONS} - other  # fmt: skip
 
 
-def _one_off_deposits(typed: "_Typed", series: Sequence[Stored], as_of: date) -> set[str]:
-    """Fingerprints of the big one-time deposits at `as_of`, by the shared rule."""
+def _one_off_deposits(
+    typed: "_Typed", series: Sequence[Stored], as_of: date, own: set[str] = frozenset()
+) -> set[str]:
+    """Fingerprints of the big one-time deposits at `as_of`, by the shared rule. Transfers in from
+    my own accounts are not given to the rule (2026-11-17): they are never income, and irregular
+    top-ups from savings raised its typical deposit until a family lump sum no longer stood out.
+    Transfers out stay in its reference for money in and out, as before.
+    The rule itself and the forecaster's use of it are unchanged."""
     row_of = {fp: i for i, fp in typed.fingerprint.items()}
     in_series = {row_of[fp] for s in series if s.status != "rejected" for fp in s.evidence
                  if fp in row_of}  # fmt: skip
+    amount = {t.row_id: t.amount_cents for t in typed.txns}
+    in_series |= {row_of[fp] for fp in own if fp in row_of and amount[row_of[fp]] > 0}
     found = big_deposits(typed.txns, typed.flows, in_series, as_of)
     return {typed.fingerprint[r[0].row_id] for r in found}
 
