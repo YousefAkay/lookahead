@@ -2047,6 +2047,9 @@ The top bar had grown to nine links and the Settings button covered one of them.
 - **The gear is a text character**, so the stylesheet still fetches nothing and has no image (a test checks that). On a narrow screen the five links stay on one row that scrolls sideways, the gear stays top right, and below about 480 pixels the data date moves under the links; I checked the header in a browser at 1280, 760 and 375 pixels for overlaps and sideways page scrolling.
 - `docs/DEMO.md` follows the new path.
 
+### 2026-11-17: Navigation rework merged into main
+I merged `nav-rework` into main (a fast-forward) after my real-data check of the navigation (top bar, every page and tab, old addresses, Needs a look; 0 on my data, which is right) and after the full suite passed on it (2,411 tests), with the reviewer's PASS. It also carries the scenario income fix of today (transfers in from my own accounts are not given to the one-off deposit rule): rechecked on my data after my November import, income per month looks right on my data. Left open: two definitions of an own transfer, and Home's shortfall line can show an old low day after an import until the Forecast page is opened.
+
 ### 2026-11-02: Experiment 4: how I read the rule, fixed before any scoring
 Written while the scoring code was being built and before any experiment 4 number was computed. The rule of 2026-10-17 (e510b1b) is not changed; these are my readings of its words where they were ambiguous.
 - **The lag.** The written inequality is the rule: at origin *t* only origins *t'* with *t' <= t - 35 days* count. Origins are weekly, so with the minimum of 8 an account gets its own weight at **28 of 40** origins. "27 of 40" in the rule was a miscount.
