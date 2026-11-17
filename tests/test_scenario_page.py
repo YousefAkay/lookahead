@@ -251,3 +251,31 @@ def test_a_listed_top_up_and_the_top_ups_field_show_a_warning(isolated: Path) ->
     assert any("count the same money twice" in str(w.value) for w in at.warning)
     at.number_input(key="sc_top_ups").set_value(0.0).run()
     assert not at.warning
+
+
+def test_a_one_off_well_inside_the_window_moves_the_end_of_my_scenario_by_its_amount() -> None:
+    """My real-data check of 2026-11-17 (a money in dated inside the window made no visible
+    change): the chart's last point and the headline move by exactly the amount, and the page
+    says the item is counted."""
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    start = at.date_input(key="sc_extra_day").value - timedelta(days=1)
+    end = at.date_input(key="sc_end").value
+    before = mine_end(at)
+    add_one_off(at, start + (end - start) / 2, 2000.0)
+    assert not at.exception, at.exception
+    assert round(mine_end(at) - before, 2) == 2000.0
+    assert "My scenario counts 1 of 1 one-off item: +$2,000.00 in all." in text_of(at)
+
+
+def test_adding_a_one_off_with_no_amount_says_so() -> None:
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    at.button(key="sc_extra_add").click().run()
+    assert any("Enter an amount above $0" in str(w.value) for w in at.warning)
+
+
+def mine_end(at: AppTest) -> float:
+    """The last point of the "my scenario" line on the chart, in dollars."""
+    import json
+
+    spec = json.loads(at.get("plotly_chart")[0].proto.spec)
+    return float(next(d for d in spec["data"] if d.get("meta") == "mine")["y"][-1])

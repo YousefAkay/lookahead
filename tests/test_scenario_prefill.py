@@ -425,8 +425,9 @@ def test_the_daily_spend_counts_what_is_not_counted_elsewhere(tmp_path: Path) ->
     with a rent rule), a confirmed series and transfers between my own accounts are not."""
     c = connect(tmp_path / "s.db")
     window(c)  # $1 on the first and on the last day of 90
-    insert(c, days_back(60), -60_000, "Visa Card Payment", kind="bill payment", flow="transfer")
-    mark_own_account(c, "Visa Card", when=LONG_AGO)  # my card, but not a series: spending
+    # my card, but not a series: spending ($400: below the $500 floor of a big one-off payment)
+    insert(c, days_back(60), -40_000, "Visa Card Payment", kind="bill payment", flow="transfer")
+    mark_own_account(c, "Visa Card", when=LONG_AGO)
     insert(c, days_back(40), -9_000, "Free Interac E-Transfer ", kind="withdrawal", flow="transfer")
     insert(c, days_back(30), -20_000, "Withdrawal", kind="withdrawal", flow="transfer")
     insert(c, days_back(20), -300_000, "Customer Transfer Dr. MB-Transfer To 1234",
@@ -444,7 +445,7 @@ def test_the_daily_spend_counts_what_is_not_counted_elsewhere(tmp_path: Path) ->
     p = prefill(c, ACCOUNT, series)
     assert p.rent is not None
     gym = sum(4_000 for m in range(4, 7))  # the gym payments inside the 90 days (Apr to Jun)
-    counted = 100 + 100 + 100 + 60_000 + 9_000 + 20_000 + gym
+    counted = 100 + 100 + 100 + 40_000 + 9_000 + 20_000 + gym
     assert p.daily_spend_cents == round(counted / 90)
     assert "card payments, e-Transfers to other people and withdrawals included" in p.spend_basis
     c.close()
@@ -594,3 +595,30 @@ def test_the_notes_count_each_bucket_of_the_window(tmp_path: Path) -> None:
     assert income["deposits counted"] == 1
     assert income["transfers between your own accounts"] == 1
     c.close()
+
+
+def test_a_big_one_off_payment_is_left_out_of_the_daily_spend_and_counted_in_the_note(
+    tmp_path: Path,
+) -> None:
+    """My real-data check of 2026-11-17: one bill payment typed recurring outflow, in no series,
+    was 72% of the counted daily spend. By the shared one-time money rule it is left out, and
+    the note counts it."""
+    c = connect(tmp_path / "s.db")
+    window(c)
+    for k in range(2, 80, 3):  # small purchases every third day
+        insert(c, days_back(k), -2_500, "Opos Grocer", flow="everyday")
+    insert(c, days_back(45), -480_000, "Tax Office", kind="bill payment",
+           flow="recurring_outflow")  # fmt: skip
+    p = prefill(c, ACCOUNT, stored(c))
+    small = 2 * 100 + len(range(2, 80, 3)) * 2_500
+    assert p.daily_spend_cents == round(small / 90)
+    assert dict(p.spend_counts)["big one-off payments"] == 1
+    assert "big one-off payment" in p.spend_basis
+    c.close()
+
+
+def test_a_monthly_bill_is_not_a_one_off_payment(conn: sqlite3.Connection) -> None:
+    """A payment in a detected series (here rent by e-Transfer and the phone bill, neither
+    confirmed) is not set aside: it stays counted as before."""
+    p = prefill(conn, ACCOUNT, stored(conn))
+    assert dict(p.spend_counts)["big one-off payments"] == 0

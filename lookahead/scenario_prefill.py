@@ -36,7 +36,7 @@ import pandas as pd
 
 from lookahead.flows import Flow as Typed
 from lookahead.flows import Txn, flow_types
-from lookahead.one_time import big_deposits
+from lookahead.one_time import big_deposits, big_payments
 from lookahead.recurring_store import Stored, rent_rule_of
 from lookahead.rent import RentRule
 from lookahead.resolve import load_user_decisions
@@ -63,6 +63,7 @@ SPEND_LEFT_OUT = (
     "rent",
     "confirmed recurring payments",
     "transfers between your own accounts",
+    "big one-off payments",
 )
 INCOME_LEFT_OUT = (
     "money already in a confirmed series",
@@ -249,11 +250,13 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         # Card payments, e-Transfers to other people and withdrawals are spending.
         out = w.money_out[out_bucket == COUNTED]
         spend = round(-int(out["amount_cents"].sum()) / span)
+        big = int((out_bucket == "big one-off payments").sum())
         spend_basis = (
             f"The average day over {span} days (days with no spending count): "
             f"{_count(len(out), 'payment')} counted, card payments, e-Transfers to other "
             "people and withdrawals included; rent, confirmed recurring payments, transfers "
-            "between your own accounts and refunded pairs left out."
+            f"between your own accounts, refunded pairs and {_count(big, 'big one-off payment')}"
+            " left out. Add a big payment back as a dated one-off money out."
         )
     income_counts = _tally(in_bucket, ("deposits counted", *INCOME_LEFT_OUT))
     spend_counts = _tally(out_bucket, ("payments counted", *SPEND_LEFT_OUT))
@@ -274,6 +277,7 @@ class Window:
     in_confirmed: set[str]  # in a confirmed or hand-added series, ended ones too
     own: set[str]  # transfers between my own accounts
     one_off: set[str]  # big one-time deposits, by the shared rule
+    one_off_out: set[str]  # big one-off payments, by the same rule
 
 
 def window(rows: pd.DataFrame, typed: "_Typed", series: Sequence[Stored], last: date) -> Window:
@@ -293,6 +297,7 @@ def window(rows: pd.DataFrame, typed: "_Typed", series: Sequence[Stored], last: 
         in_confirmed={fp for s in series if s.status in _DECIDED for fp in s.evidence},
         own=_own_account(typed, rows),
         one_off=_one_off_deposits(typed, series, last),
+        one_off_out=_one_off_payments(typed, series, last),
     )
 
 
@@ -304,6 +309,7 @@ def spend_buckets(w: Window) -> pd.Series:
         fp.isin(w.in_rent),
         fp.isin(w.in_confirmed),
         fp.isin(w.own),
+        fp.isin(w.one_off_out),
     ]
     return _first(w.money_out.index, zip(SPEND_LEFT_OUT, reasons, strict=True))
 
@@ -369,6 +375,16 @@ def _one_off_deposits(typed: "_Typed", series: Sequence[Stored], as_of: date) ->
     in_series = {row_of[fp] for s in series if s.status != "rejected" for fp in s.evidence
                  if fp in row_of}  # fmt: skip
     found = big_deposits(typed.txns, typed.flows, in_series, as_of)
+    return {typed.fingerprint[r[0].row_id] for r in found}
+
+
+def _one_off_payments(typed: "_Typed", series: Sequence[Stored], as_of: date) -> set[str]:
+    """Fingerprints of the big one-off payments at `as_of`, by the shared rule (2026-11-17): the
+    money out the forecaster sets aside. A payment of a series I have not rejected is not one."""
+    row_of = {fp: i for i, fp in typed.fingerprint.items()}
+    in_series = {row_of[fp] for s in series if s.status != "rejected" for fp in s.evidence
+                 if fp in row_of}  # fmt: skip
+    found = big_payments(typed.txns, typed.flows, in_series, as_of)
     return {typed.fingerprint[r[0].row_id] for r in found}
 
 

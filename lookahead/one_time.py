@@ -158,3 +158,27 @@ def big_deposits(
     first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
     everything = [r[2] for r in out_rows + in_rows if r[2] > 0 and r[0].posted_date >= first]
     return _split_large(in_rows, as_of, everything)[1]
+
+
+def big_payments(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> list[Row]:
+    """The money out of the last 13 weeks at `as_of` that the forecaster sets aside: big
+    payments (the same cutoff as big deposits, for money out) and the outflows that paid a big
+    deposit straight back out (pass-throughs). Picked the way the forecaster's `_streams` picks
+    them (a test checks they agree); added 2026-11-17 for the scenario's daily spend."""
+    out_rows = _counted(txns, flows, series_rows, as_of)
+    in_rows = _money_in(txns, flows, series_rows, as_of)
+    first = as_of - timedelta(days=LARGE_WINDOW_DAYS - 1)
+    everything = [r[2] for r in out_rows + in_rows if r[2] > 0 and r[0].posted_date >= first]
+    big_out = _split_large(out_rows, as_of, everything)[1]
+    big_in = _split_large(in_rows, as_of, everything)[1]
+    big_ids = {r[0].row_id for r in big_out}
+    candidates = [
+        r for r in out_rows if r[2] > 0 and (
+            r[0].row_id in big_ids or r[1].flow_type == "transfer" or r[1].reason == "bill payment"
+        )
+    ]  # fmt: skip
+    paid_out = [r for _, combo in _pass_through(big_in, candidates) for r in combo]
+    seen = {r[0].row_id for r in paid_out}
+    return paid_out + [r for r in big_out if r[0].row_id not in seen]

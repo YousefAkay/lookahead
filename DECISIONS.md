@@ -1889,6 +1889,12 @@ What passed: the chequing-only note and the top-ups field show; one rent line, t
 - **I could not find the counts in the notes:** they were mid-sentence in small grey captions. Each note is now a labelled block, "How the daily spend was estimated" and "How the income was estimated", with one line per count (days in the window, payments or deposits counted, and each thing left out), then the rule in words.
 Tests on made-up data for each; the page and the check share one function per estimate.
 
+### 2026-11-17: Scenario daily spend leaves out big one-off payments (after my diagnostic)
+My counts-only check found the cause: big one-off payments were counted in the daily spend. What I chose:
+- **No single row may dominate the counted daily spend:** the check now warns when the largest counted row is more than 25% of the counted total, and tests hold the page to that line on the big-bill case and on the synthetic personas A, B and C (the demo personas, not held out).
+- **The one-off money in:** I could not reproduce "no change" with an item well inside the window: on synthetic data in the chequing-only view, with a savings balance and with set-day timing, the item is listed and the end of "my scenario" moves by exactly its amount. The likely cause on my data is that the date I used was after the end date (90 days after the last day of data); the page now says so beside the item. To rule out a lost click, the one-off fields are now a form sent together with Add, an Add with no amount says so, and a line under the headline says how many one-offs are counted and their total.
+Lost: leaving big bills in the average (one big bill can dominate the daily spend); a lower floor than the shared rule's $500 (two rules for the same idea).
+
 ### 2026-11-02: Recurring alerts merged into main
 I merged `recurring-alerts` into main (a fast-forward) after the full suite passed on it (2,234 tests) and after my own check on my real database: the Recurring page loads, my series are all there, the alert state was recorded, and rent does not show "may have stopped". Dismissing an alert and bringing it back are still untested on my real data: no alert was open on this first look, so that waits until new data arrives.
 

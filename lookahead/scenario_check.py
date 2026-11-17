@@ -45,6 +45,27 @@ REASONS = tuple(
 OTHER = "other"
 NONE = "(none stored)"
 TOP = (1, 5, 10)  # how concentrated the counted total is: the share of the largest rows
+# One row above this share of the counted total is not daily spending (my real-data check of
+# 2026-11-17: one big bill was 72%); the check warns, and the tests hold the page to it.
+DOMINANT_SHARE = 0.25
+
+
+def largest_shares(cents: Sequence[int], top: Sequence[int] = TOP) -> dict[int, float]:
+    """The share (0 to 1) of the total held by the largest 1, 5, 10 rows; 0 for no rows."""
+    ordered = sorted((abs(int(c)) for c in cents), reverse=True)
+    total = sum(ordered)
+    return {n: (sum(ordered[:n]) / total if total else 0.0) for n in top}
+
+
+def counted_spend(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) -> list[int]:
+    """The cents of each money-out row the daily spend counts (positive), as the page sorts them."""
+    base = prefill(conn, account, series)
+    if base.data_date is None:
+        return []
+    rows = transactions(conn, account)
+    w = window(rows, _typed(conn, account, base.data_date), series, base.data_date)
+    counted = w.money_out[spend_buckets(w) == COUNTED]
+    return [-int(c) for c in counted["amount_cents"]]
 
 
 def known(value: object, allowed: Sequence[str]) -> str:
@@ -107,9 +128,14 @@ def report(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) -> 
         ),  # fmt: skip
     ]
     total = int(counted_money.sum())
-    largest = sorted(counted_money.astype(int), reverse=True)
-    shares = ", ".join(f"largest {n}: {pct(sum(largest[:n]), total).strip()}" for n in TOP)
-    lines += ["", f"How concentrated the counted total is ({len(largest)} rows): {shares}."]
+    top = largest_shares(list(counted_money))
+    shares = ", ".join(f"largest {n}: {100 * s:.1f}%" for n, s in top.items())
+    lines += ["", f"How concentrated the counted total is ({len(counted)} rows): {shares}."]
+    if top[1] > DOMINANT_SHARE:
+        lines.append(
+            f"WARNING: one counted row is more than {DOMINANT_SHARE:.0%} of the counted total:"
+            " it is probably not daily spending."
+        )
     detected = {
         fp for s in series if s.status == "detected" for fp in s.evidence
     }  # shown on the Recurring page, not on Scenario

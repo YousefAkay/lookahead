@@ -280,21 +280,27 @@ with st.container(border=True, key="card-inputs"):
 
     st.markdown('<p class="la-note"><strong>One-off items</strong></p>', unsafe_allow_html=True)
     extras: list[dict[str, object]] = st.session_state.setdefault("sc_extras", [])
-    a, b, c, d = st.columns([1.2, 1, 1, 0.8], vertical_alignment="bottom")
-    with a:
-        what = st.text_input("What", key="sc_extra_name", placeholder="e.g. concert")
-    with b:
-        when = st.date_input("Day", value=start + timedelta(days=1), key="sc_extra_day")
-    with c:
-        size = st.number_input("Amount ($)", min_value=0.0, step=10.0, key="sc_extra_amount")
-        direction = st.radio("Direction", ["Money out", "Money in"], horizontal=True,
-                             key="sc_extra_dir",
-                             label_visibility="collapsed")  # fmt: skip
-    with d:
-        if st.button("Add", key="sc_extra_add") and size > 0:
+    # A form: what, day, amount and direction are sent together with the Add click, so a value
+    # still being typed cannot be lost (my real-data check of 2026-11-17).
+    with st.form("sc_extra_form", border=False, enter_to_submit=False):
+        a, b, c, d = st.columns([1.2, 1, 1, 0.8], vertical_alignment="bottom")
+        with a:
+            what = st.text_input("What", key="sc_extra_name", placeholder="e.g. concert")
+        with b:
+            when = st.date_input("Day", value=start + timedelta(days=1), key="sc_extra_day")
+        with c:
+            size = st.number_input("Amount ($)", min_value=0.0, step=10.0, key="sc_extra_amount")
+            direction = st.radio("Direction", ["Money out", "Money in"], horizontal=True,
+                                 key="sc_extra_dir",
+                                 label_visibility="collapsed")  # fmt: skip
+        with d:
+            added = st.form_submit_button("Add", key="sc_extra_add")
+    if added:
+        if size > 0:
             sign = 1 if direction == "Money in" else -1
             extras.append({"name": what, "day": when, "cents": sign * cents(size)})
             st.rerun()
+        st.warning("Enter an amount above $0, then Add.")
     skipped = 0
     for i, item in enumerate(list(extras)):
         text_col, remove_col = st.columns([4, 1], vertical_alignment="center")
@@ -346,6 +352,15 @@ headline = f"You'd have {money(mine_result.end_balance, markdown=True)} {where} 
 if mine_result.first_below is not None:
     headline += f", and you'd drop below your buffer on {fmt_date(mine_result.first_below)}"
 st.markdown(f"### {headline}.")
+counted_items = [i for i in extras if not outside(i["day"])]  # type: ignore[arg-type]
+if extras:
+    net = sum(int(i["cents"]) for i in counted_items)  # type: ignore[call-overload]
+    st.markdown(
+        f'<p class="la-note">My scenario counts {len(counted_items)} of {len(extras)} one-off '
+        f"{'item' if len(extras) == 1 else 'items'}: {html.escape(money(net, signed=True))} "
+        "in all.</p>",
+        unsafe_allow_html=True,
+    )
 st.markdown(
     f'<p class="la-note">As things are now: {html.escape(money(now_result.end_balance))} on '
     f"{fmt_date(end)}.</p>",
