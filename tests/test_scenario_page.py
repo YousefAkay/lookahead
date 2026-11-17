@@ -399,15 +399,20 @@ def test_how_we_got_here_counts_a_spread_flow_in_months_not_daily_shares() -> No
     assert "(90 times)" not in line
 
 
-def test_how_we_got_here_leaves_out_parts_of_0_but_always_shows_rent_and_income() -> None:
+def test_how_we_got_here_leaves_out_every_part_of_0_rent_and_income_too() -> None:
+    """A part of $0 is left out: no "rent +$0.00 (2 times)" line. Rent and income show only when
+    they are not $0, like every other part."""
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
     at.number_input(key="sc_top_ups").set_value(0.0)
     at.number_input(key="sc_rent").set_value(0.0)
     at.number_input(key="sc_income").set_value(0.0).run()
     assert not at.exception, at.exception
     line = got_here_line(at)
-    assert "top-ups from savings" not in line  # $0: left out
-    assert "; rent " in line  # rent and income are always shown, even at $0
-    assert "; income " in line
-    at.number_input(key="sc_top_ups").set_value(50.0).run()
-    assert "top-ups from savings" in got_here_line(at)  # not $0: shown
+    assert "top-ups from savings" not in line and "; rent " not in line
+    assert "; income " not in line and "$0.00 (" not in line
+    assert "daily spend" in line  # the line still adds up from the start
+    at.number_input(key="sc_top_ups").set_value(50.0)
+    at.number_input(key="sc_rent").set_value(900.0)
+    at.number_input(key="sc_income").set_value(1_000.0).run()
+    line = got_here_line(at)
+    assert "top-ups from savings" in line and "; rent " in line and "; income " in line

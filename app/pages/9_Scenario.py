@@ -246,7 +246,7 @@ def got_here(name: str, inputs: Inputs, result: Result, kinds: list[str]) -> str
     for kind in ("rent", "recurring payments", "transfers between your accounts", "income",
                  "top-ups from savings"):  # fmt: skip
         n, c = groups.get(kind, (0, 0))
-        if c or kind in ("rent", "income"):
+        if c:  # a part of $0 is left out, rent and income too
             parts.append(f"{kind} {money(c, signed=True)} ({n} {'time' if n == 1 else 'times'})")
         if kind == "rent":
             parts.append(f"daily spend {money(-result.spend_total, signed=True)} "
