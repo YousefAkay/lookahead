@@ -53,6 +53,8 @@ BRANDS = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(b) for b in _TEMPLATES) +
 AMOUNT_TOKEN = re.compile(r"(?<![\w.])(\$\s?)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d{2})?(?![\d])")
 BINARY_SUFFIXES = (
     ".db",
+    ".sqlite",
+    ".sqlite3",
     ".png",
     ".jpg",
     ".jpeg",
@@ -123,6 +125,8 @@ def never_read(path: str) -> str | None:
     parts = [p.casefold() for p in path.split("/")]
     if any(a == "data" and b == "private" for a, b in zip(parts, parts[1:], strict=False)):
         return "a path under data/private"
+    if ".env" in parts[:-1]:
+        return "a .env file"  # inside a folder named .env
     name = parts[-1]
     if name != ".env.example" and (
         name in (".env", ".envrc") or name.startswith(".env.") or name.endswith(".env")
@@ -140,7 +144,7 @@ def must_leave(path: str) -> str | None:
         return why
     if path == OLD_REPORT:
         return "the old scrub report (it quotes amounts)"
-    if path.casefold().endswith(".db") and not path.startswith(DEMO_DBS):
+    if path.casefold().endswith((".db", ".sqlite", ".sqlite3")) and not path.startswith(DEMO_DBS):
         return "a database outside data/demo/timemachine"
     return None
 
@@ -273,12 +277,13 @@ def line_rules(line: str, patterns: Patterns | None) -> set[str]:
                 if (m.group(1) or m.group(3)) and to_cents(m.group(0)) in patterns.amounts:
                     hits.add("mine: amount")
                     break
-                # the project's own convention: an amount written as whole cents (-123456)
-                if not (m.group(1) or m.group(3)) and int(m.group(2).replace(",", "")) in (
-                    patterns.amounts
-                ):
-                    hits.add("mine: amount")
-                    break
+                # a bare number: whole cents (the project's convention, -123456) or whole
+                # dollars ("rent 1450"); both are tried, over-flagging is the safe side
+                if not (m.group(1) or m.group(3)):
+                    whole = int(m.group(2).replace(",", ""))
+                    if whole in patterns.amounts or whole * 100 in patterns.amounts:
+                        hits.add("mine: amount")
+                        break
     return hits
 
 

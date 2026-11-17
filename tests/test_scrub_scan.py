@@ -99,7 +99,7 @@ def test_the_report_never_quotes_an_amount_a_pattern_a_name_or_an_email(
     repo: dict[str, str],
 ) -> None:
     text = run(repo)
-    for leaked in ("1,234", "1234", "77.10", "99.99", "5,555", *MADE_UP, *SECRETS,
+    for leaked in ("1,234", "1234", "77.10", "7710", "99.99", "5,555", *MADE_UP, *SECRETS,
                    "test.person", "Test Person"):  # fmt: skip
         assert leaked not in text, leaked
     assert "t***@example.org" in text
@@ -188,7 +188,7 @@ def test_my_patterns_are_also_matched_in_commit_messages_and_amounts_in_whole_ce
     personal = run(repo).split("## 7.")[1].split("## 8.")[0]
     messages = next(x for x in personal.splitlines() if x.startswith("| commit messages |"))
     assert repo["side"][:10] in messages and "name" in messages
-    amounts = personal.split("### amount")[1]
+    amounts = personal.split("### amount")[1].split("### ")[0]
     assert "`side.md`" in amounts and "`story.md`" in amounts
 
 
@@ -196,3 +196,16 @@ def test_my_patterns_are_also_matched_in_commit_messages_and_amounts_in_whole_ce
 def test_never_read_covers_every_private_kind_of_path(path: str) -> None:
     assert scrub_scan.never_read(path) is not None
     assert scrub_scan.never_read(".env.example") is None
+
+
+def test_a_bare_number_matches_an_amount_as_whole_cents_or_whole_dollars() -> None:
+    pats = scrub_scan.Patterns({}, frozenset({145_000}))  # a made-up $1,450.00
+    for line in ("rent 1450", "amount_cents = -145000", "paid $1,450.00", "1,450"):
+        assert "mine: amount" in scrub_scan.line_rules(line, pats), line
+    assert "mine: amount" not in scrub_scan.line_rules("1451 and 14.50", pats)
+
+
+def test_more_private_and_database_paths() -> None:
+    assert scrub_scan.never_read(".env/secrets") == "a .env file"
+    assert scrub_scan.must_leave("data/cache/app.sqlite") is not None
+    assert scrub_scan.must_leave("data/demo/timemachine/synthetic-A.db") is None

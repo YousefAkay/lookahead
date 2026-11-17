@@ -64,15 +64,21 @@ message it names which words of the script's own public AI-tool list matched.
 
 ## Sections of the report
 
-1. Commit messages that mention an AI tool: commit ids, and which refs contain each.
+1. Commit messages that mention an AI tool: commit ids, the matched words of the public list,
+   how each commit is reached, and which refs contain it.
 2. Author and committer identities: commits per masked identity.
-3. Lines that look like a personal dollar amount: per path, how many lines, in how many commits,
-   and whether the path still has them at the tip of `prepublic-prep` or only in history.
-4. Lines that name a real merchant or brand, outside generated data: per path, the same counts.
-5. The same for the synthetic persona files, separately.
-6. Files that must leave the history whole: the old scrub report; anything under
-   `data/private`, any `.env` (not `.env.example`), `DECISIONS-private.md`, or a database outside
-   `data/demo/timemachine` (names counted only; contents never read).
+3. Lines that look like a personal dollar amount: per path, how many distinct lines, in how many
+   commits, and whether the path still has them at the tip of `prepublic-prep` or only in history.
+4. Lines that speak of my own account (my account, my income, my pay and the like): the same
+   counts.
+5. Brand names outside the synthetic persona files: the same counts.
+6. Brand names in the synthetic persona files, separately.
+7. My personal patterns (only with `--patterns`): counts per category, per path, and the commit
+   messages that match (commit ids and categories only).
+8. Files that must leave the history whole: the old scrub report; anything under
+   `data/private`, any `.env`-style file or folder (not `.env.example`), `DECISIONS-private.md`,
+   or a database outside `data/demo/timemachine` (private names counted only; contents never
+   read).
 
 ## What it never does
 
