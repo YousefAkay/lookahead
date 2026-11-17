@@ -62,6 +62,29 @@ message it names which words of the script's own public AI-tool list matched.
     kind each finding is in. GitHub may still serve old pushed commits by their id after the
     force-push; the scrub plan includes asking GitHub to purge them.
 
+## Added 2026-11-17, second round (Yousef)
+
+- **Patterns built from my bank files.** I can't hand-list every e-Transfer name, so
+  `tools/scrub_patterns.py`, run by me, builds the patterns from my exports and my database:
+  every e-Transfer counterpart name (the known businesses of my allowlist left out), every
+  transaction amount over $100, every run of 7 or more digits in the exports and their file names
+  plus every mobile-banking reference, and my card merchants. It adds the few lines I type myself
+  (`--extra`: name spellings, address, building; categories `name`, `address`, `phrase`), runs
+  the scan, writes the report where I say, and prints only how many patterns it built per
+  category, the section headings and the section 7 counts. Every path is given on its command
+  line; there is no default. Tests use made-up bank files.
+- **Text patterns match whole words**, without case; a bare number (no `$`, no cents) that equals
+  one of my amounts, as whole cents or whole dollars, is counted apart from formatted amounts.
+- **Email.** My gmail address stays (it is public). `--public-email` shows it as it is; any other
+  address is masked and marked "to rewrite". No noreply address.
+- **Brand names** outside the synthetic persona files are split into those that are also one of
+  my own card merchants and the rest (only with my patterns).
+- **Section 9:** file lines that name an AI tool or assistant (many are the app's optional LLM
+  fallback, which stays).
+- **The scrub plan** is in DECISIONS (2026-11-17): rewrite on a fresh clone, push to a new empty
+  repository (only after I approve creating it), rename the old one `lookahead-archive` and keep
+  it private.
+
 ## Sections of the report
 
 1. Commit messages that mention an AI tool: commit ids, the matched words of the public list,
@@ -79,6 +102,7 @@ message it names which words of the script's own public AI-tool list matched.
    `data/private`, any `.env`-style file or folder (not `.env.example`), `DECISIONS-private.md`,
    or a database outside `data/demo/timemachine` (private names counted only; contents never
    read).
+9. File lines that name an AI tool or assistant: the same counts as 3.
 
 ## What it never does
 
