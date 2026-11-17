@@ -1,6 +1,7 @@
 """The Scenario page ("what if I spend X a day"): it loads on the synthetic demo and on an empty
 database, and says it is not a forecast. Made-up data only."""
 
+import re
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from lookahead.generator.writer import write_persona
 pytestmark = pytest.mark.slow  # an app page: run with the full suite
 
 PAGE = Path(__file__).resolve().parents[1] / "app" / "pages" / "9_Scenario.py"
+SPREAD = "Spread evenly through the month"  # the page's own label for spread timing
 
 
 @pytest.fixture(autouse=True)
@@ -376,3 +378,36 @@ def test_how_we_got_here_shows_for_both_lines_with_90_days_of_spend() -> None:
     assert "How we got here (my scenario): start $" in text
     assert "How we got here (as things are now): start $" in text
     assert text.count("daily spend \u2212$") >= 2 and text.count("(90 days)") >= 2
+
+
+def got_here_line(at: AppTest, name: str = "my scenario") -> str:
+    return next(str(m.value) for m in at.markdown
+                if f"How we got here ({name})" in str(m.value))  # fmt: skip
+
+
+def test_how_we_got_here_counts_a_spread_flow_in_months_not_daily_shares() -> None:
+    """Income spread through the month over the default 90 days is paid in 90 daily shares; the
+    line counts it as 3 months."""
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    at.radio(key="sc_timing").set_value(SPREAD)
+    at.number_input(key="sc_income").set_value(1_000.0)
+    at.number_input(key="sc_top_ups").set_value(100.0).run()
+    assert not at.exception, at.exception
+    line = got_here_line(at)
+    assert re.search(r"; income \S+ \(3 times\)", line), line
+    assert re.search(r"; top-ups from savings \S+ \(3 times\)", line), line
+    assert "(90 times)" not in line
+
+
+def test_how_we_got_here_leaves_out_parts_of_0_but_always_shows_rent_and_income() -> None:
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    at.number_input(key="sc_top_ups").set_value(0.0)
+    at.number_input(key="sc_rent").set_value(0.0)
+    at.number_input(key="sc_income").set_value(0.0).run()
+    assert not at.exception, at.exception
+    line = got_here_line(at)
+    assert "top-ups from savings" not in line  # $0: left out
+    assert "; rent " in line  # rent and income are always shown, even at $0
+    assert "; income " in line
+    at.number_input(key="sc_top_ups").set_value(50.0).run()
+    assert "top-ups from savings" in got_here_line(at)  # not $0: shown
