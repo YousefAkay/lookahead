@@ -188,7 +188,7 @@ def test_my_patterns_are_also_matched_in_commit_messages_and_amounts_in_whole_ce
     personal = run(repo).split("## 7.")[1].split("## 8.")[0]
     messages = next(x for x in personal.splitlines() if x.startswith("| commit messages |"))
     assert repo["side"][:10] in messages and "name" in messages
-    formatted = personal.split("### amount\n")[1].split("### ")[0]
+    formatted = personal.split("### amount (with cents)")[1].split("### ")[0]
     bare = personal.split("### amount (bare number)")[1].split("### ")[0]
     assert "`story.md`" in formatted and "`side.md`" in bare
 
@@ -259,3 +259,10 @@ def test_my_whole_file_removals_are_on_the_must_leave_list() -> None:
                  "docs/results/history_scan.md"):  # fmt: skip
         assert scrub_scan.must_leave(path) is not None, path
     assert scrub_scan.must_leave("docs/results/other.md") is None
+
+
+def test_formatted_amounts_with_cents_are_counted_apart_from_round_ones() -> None:
+    pats = scrub_scan.Patterns({}, frozenset({123_456, 50_000}))  # made-up $1,234.56 and $500
+    assert "mine: amount (with cents)" in scrub_scan.line_rules("paid $1,234.56", pats)
+    assert "mine: amount" in scrub_scan.line_rules("a floor of $500", pats)
+    assert "mine: amount (with cents)" not in scrub_scan.line_rules("a floor of $500.00", pats)

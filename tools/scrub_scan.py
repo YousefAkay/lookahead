@@ -41,7 +41,7 @@ DEMO_DBS = "data/demo/timemachine/"
 SYNTHETIC = "data/synthetic/persona_"
 CATEGORIES = ("name", "address", "etransfer", "merchant", "account", "amount", "phrase")
 # How section 7 counts them: a bare number (no $, no cents) is counted apart, it is noisier.
-REPORTED = (*CATEGORIES, "amount (bare number)")
+REPORTED = (*CATEGORIES, "amount (with cents)", "amount (bare number)")
 
 AI_WORDS = re.compile(
     r"\b(claude|anthropic|chatgpt|gpt-?\d+|openai|copilot|cursor|gemini|codex|llm|haiku|ai|"
@@ -303,8 +303,10 @@ def line_rules(line: str, patterns: Patterns | None) -> set[str]:
         if patterns.amounts:
             for m in AMOUNT_TOKEN.finditer(line):
                 if (m.group(1) or m.group(3)) and to_cents(m.group(0)) in patterns.amounts:
-                    hits.add("mine: amount")
-                    break
+                    # with cents (1,234.56): almost surely mine; round ($500): often a threshold
+                    with_cents = to_cents(m.group(0)) % 100 != 0
+                    hits.add("mine: amount (with cents)" if with_cents else "mine: amount")
+                    continue
                 # a bare number: whole cents (the project's convention, -123456) or whole
                 # dollars ("rent 1450"); both are tried, over-flagging is the safe side
                 if not (m.group(1) or m.group(3)):
