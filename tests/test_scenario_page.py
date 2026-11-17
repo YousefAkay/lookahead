@@ -282,11 +282,12 @@ def mine_end(at: AppTest) -> float:
 
 
 def test_switching_to_my_data_refills_every_prefilled_field(isolated: Path) -> None:
-    """My fourth real-data check of 2026-11-17: end date 60 days out, rent $0 and a
-    solid income that the counts did not explain. The page had opened on the synthetic demo
-    first; keyed fields kept the demo's values after switching to my data."""
+    """My fourth and fifth real-data checks of 2026-11-17: after opening the demo first, then my
+    data, the fields kept the demo's values (end date, then rent and income). Every prefilled
+    field must refill: the demo's and my data's values differ here, so a kept value fails."""
     from lookahead.demo import build_demo_db
-    from lookahead.recurring_store import refresh
+    from lookahead.recurring_store import add_series, refresh, set_rent_rule
+    from lookahead.rent import RentRule
     from lookahead.scenario import default_end
     from lookahead.scenario_prefill import prefill
 
@@ -298,21 +299,45 @@ def test_switching_to_my_data_refills_every_prefilled_field(isolated: Path) -> N
     build_demo_db(private, mine_csv)
     conn = connect(private)
     account = conn.execute("SELECT MIN(account) FROM transactions").fetchone()[0]
+    add_series(conn, account, "Rent", "out", "monthly", date(2026, 3, 1), 120_000,
+               date(2026, 1, 1))  # fmt: skip
+    rent = next(s for s in refresh(conn, account) if s.name == "Rent")
+    set_rent_rule(conn, account, rent, RentRule((120_000,), 1, 5), date(2026, 1, 1))
     base = prefill(conn, account, refresh(conn, account))
     conn.close()
+    assert base.rent is not None and base.income is not None and base.data_date is not None
+    expected = {
+        "sc_end": default_end(base.data_date),
+        "sc_spend": base.daily_spend_cents / 100,
+        "sc_income": base.income.cents / 100,
+        "sc_rent": -base.rent.cents / 100,
+        "sc_top_ups": 0.0,
+    }
 
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()  # the demo first
+    at.number_input(key="sc_top_ups").set_value(250.0).run()  # something I typed on the demo
+    demo = {k: (at.date_input(key=k) if k == "sc_end" else at.number_input(key=k)).value
+            for k in expected}  # fmt: skip
+    assert all(demo[k] != v for k, v in expected.items()), (demo, expected)
     at.sidebar.radio(key="data_source").set_value("My data").run()
     assert not at.exception, at.exception
-    assert base.data_date is not None
-    assert at.date_input(key="sc_end").value == default_end(base.data_date)
-    assert at.number_input(key="sc_spend").value == base.daily_spend_cents / 100
-    income = base.income.cents / 100 if base.income else 0.0
-    assert at.number_input(key="sc_income").value == income
-    rent = -base.rent.cents / 100 if base.rent else 0.0
-    assert at.number_input(key="sc_rent").value == rent
+    after = {k: (at.date_input(key=k) if k == "sc_end" else at.number_input(key=k)).value
+             for k in expected}  # fmt: skip
+    assert after == expected
+    at.run()  # and they stay so on the next rerun
+    again = {k: (at.date_input(key=k) if k == "sc_end" else at.number_input(key=k)).value
+             for k in expected}  # fmt: skip
+    assert again == expected
 
 
 def test_the_spend_note_shows_the_average_without_the_10_biggest() -> None:
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
     assert "Without the 10 biggest payments counted: $" in text_of(at)
+
+
+def test_how_we_got_here_shows_for_both_lines_with_90_days_of_spend() -> None:
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    text = text_of(at)
+    assert "How we got here (my scenario): start $" in text
+    assert "How we got here (as things are now): start $" in text
+    assert text.count("daily spend \u2212$") >= 2 and text.count("(90 days)") >= 2

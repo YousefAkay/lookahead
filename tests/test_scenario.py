@@ -166,3 +166,23 @@ def test_top_ups_from_savings_add_to_money_in() -> None:
     base = Inputs(100_000, START, QUARTER_END, daily_spend_cents=2_000)
     with_top_ups = Inputs(100_000, START, QUARTER_END, (top_up,), daily_spend_cents=2_000)
     assert run(with_top_ups).end_balance == run(base).end_balance + 3 * 50_000
+
+
+def test_the_end_balance_is_exactly_the_sum_of_its_parts_over_3_rent_days() -> None:
+    """My check of 2026-11-17 (chequing today - rent x 3 - daily spend x 90 + income x 3): the
+    page's "How we got here" adds up to the end balance exactly, and the daily spend is taken off
+    every one of the 90 days."""
+    rent = Flow("Rent", -120_000, "monthly", date(2024, 1, 1), card=True)
+    income = Flow("Income", 250_000, "monthly", date(2024, 1, 25))
+    phone = Flow("Phone", -6_500, "monthly", date(2024, 1, 15))
+    start = date(2026, 10, 31)
+    inputs = Inputs(balance_cents=300_000, start=start, end=start + timedelta(days=90),
+                    flows=(rent, income, phone), daily_spend_cents=4_000,
+                    one_offs=(OneOff(date(2026, 12, 20), 50_000, "gift"),))  # fmt: skip
+    r = run(inputs)
+    assert r.spend_days == 90 and r.spend_total == 90 * 4_000
+    assert [n for n, _ in r.flow_totals] == [3, 3, 3]  # Nov 1 (Mon), Dec 1, Jan 2 (Jan 1: holiday)
+    assert r.one_off_total == 50_000
+    parts = 300_000 + sum(c for _, c in r.flow_totals) - r.spend_total + r.one_off_total
+    assert r.end_balance == parts
+    assert r.end_balance == 300_000 - 3 * 120_000 - 90 * 4_000 + 3 * 250_000 - 3 * 6_500 + 50_000

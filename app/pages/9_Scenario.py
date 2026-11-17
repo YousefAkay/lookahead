@@ -35,7 +35,7 @@ from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import ensure_current  # noqa: E402
-from lookahead.scenario import Flow, Inputs, OneOff, default_end, run  # noqa: E402
+from lookahead.scenario import Flow, Inputs, OneOff, Result, default_end, run  # noqa: E402
 from lookahead.scenario_prefill import (  # noqa: E402
     ANCHOR_YEAR,
     TOP_LEFT,
@@ -112,9 +112,22 @@ account = account_setting(names)
 series = ensure_current(conn, account, stored_key)
 base = prefill(conn, account, series)
 # Keyed fields keep their values across reruns, so after switching from the demo to my data they
-# showed the demo's end date, rent and income (my real-data check of 2026-11-17). When the data
-# changes (source, account or last day), every scenario field is forgotten and refilled; the
-# one-off items I typed are kept when only the last day changes (a new import).
+# showed the demo's end date, rent and income (my real-data checks of 2026-11-17). Deleting a
+# value is not enough: the browser keeps its own copy of a number field (Streamlit identifies it
+# by its key alone) and sends it back. Setting the value in Session State is what reaches the
+# browser, so the prefilled fields get their values only from here, never from `value=`. When the
+# data changes (source, account or last day), every scenario field is forgotten and set again;
+# the one-off items I typed are kept when only the last day changes (a new import).
+assert base.data_date is not None or not names  # an account has at least one row
+prefilled: dict[str, object] = {
+    "sc_spend": base.daily_spend_cents / 100,
+    "sc_income": base.income.cents / 100 if base.income else 0.0,
+    "sc_rent": -base.rent.cents / 100 if base.rent else 0.0,
+    "sc_top_ups": 0.0,
+    "sc_pay_day": base.income.anchor.day if base.income else 1,
+    "sc_end": default_end(base.data_date) if base.data_date else None,
+    "sc_buffer": base.buffer_cents / 100,
+}
 basis = (source, account, base.data_date)
 old = st.session_state.get("sc_basis")
 if old != basis:
@@ -122,7 +135,11 @@ if old != basis:
     for name in [k for k in st.session_state if str(k).startswith("sc_")]:
         if not (same_data and name == "sc_extras"):
             del st.session_state[name]
+    st.session_state.update(prefilled)
     st.session_state["sc_basis"] = basis
+else:  # a field not drawn last time (top-ups, the pay day) was dropped by Streamlit
+    for name, value in prefilled.items():
+        st.session_state.setdefault(name, value)
 rows = transactions(conn, account)
 hidden = hidden_series(rows, series, display_key)
 by_key = {s.key: s for s in series}
@@ -191,6 +208,28 @@ def outside(day: date) -> str:
     return ""
 
 
+def got_here(name: str, inputs: Inputs, result: Result, kinds: list[str]) -> str:
+    """ "How we got here": the starting balance plus each part equals the end balance (the parts
+    come from `run`, so they add up exactly)."""
+    groups: dict[str, tuple[int, int]] = {}
+    for kind, (times, cents_) in zip(kinds, result.flow_totals, strict=True):
+        n, c = groups.get(kind, (0, 0))
+        groups[kind] = (n + times, c + cents_)
+    parts = [f"start {money(inputs.balance_cents)}"]
+    for kind in ("rent", "recurring payments", "transfers between your accounts", "income",
+                 "top-ups from savings"):  # fmt: skip
+        n, c = groups.get(kind, (0, 0))
+        if n or kind in ("rent", "income"):
+            parts.append(f"{kind} {money(c, signed=True)} ({n} {'time' if n == 1 else 'times'})")
+        if kind == "rent":
+            parts.append(f"daily spend {money(-result.spend_total, signed=True)} "
+                         f"({result.spend_days} days)")  # fmt: skip
+    if result.one_off_total:
+        parts.append(f"one-offs {money(result.one_off_total, signed=True)}")
+    text = f"How we got here ({name}): " + "; ".join(parts) + f" = {money(result.end_balance)}."
+    return f'<p class="la-note">{html.escape(text)}</p>'
+
+
 def label(flow: Flow) -> str:
     s = by_key.get(flow.key)
     return series_label(s, hide=s.key in hidden) if s is not None else flow.name
@@ -239,8 +278,7 @@ with st.container(border=True, key="card-inputs"):
 
     left, middle, right = st.columns(3)
     with left:
-        spend = st.number_input("Daily spend ($)", min_value=0.0, step=1.0, key="sc_spend",
-                                value=base.daily_spend_cents / 100)  # fmt: skip
+        spend = st.number_input("Daily spend ($)", min_value=0.0, step=1.0, key="sc_spend")
         st.markdown(
             basis_note("How the daily spend was estimated", base.spend_basis, base.window_days,
                        base.spend_counts, base.spend_without_largest_cents),
@@ -248,7 +286,6 @@ with st.container(border=True, key="card-inputs"):
         )  # fmt: skip
         income_in = st.number_input(
             "Income per month ($)", min_value=0.0, step=10.0, key="sc_income",
-            value=(base.income.cents / 100) if base.income else 0.0,
         )  # fmt: skip
         st.markdown(
             basis_note("How the income was estimated", base.income_basis, base.window_days,
@@ -259,29 +296,26 @@ with st.container(border=True, key="card-inputs"):
         if not view.combined:
             top_ups_in = st.number_input(
                 "Top-ups from savings per month ($)", min_value=0.0, step=10.0, key="sc_top_ups",
-                value=0.0,
                 help="Money you move from savings into this account: counted as money in.",
             )  # fmt: skip
             if counts_top_up_twice(base, cents(top_ups_in)):
                 st.warning(TWICE_WARNING)
     with middle:
-        rent_in = st.number_input("Rent per month ($)", min_value=0.0, step=10.0, key="sc_rent",
-                                  value=-base.rent.cents / 100 if base.rent else 0.0)  # fmt: skip
+        rent_in = st.number_input("Rent per month ($)", min_value=0.0, step=10.0, key="sc_rent")
         if base.rent is None:
             st.caption(RENT_DAY_NOTE)
         timing = st.radio("Income and top-ups arrive", [SPREAD, SET_DAY], key="sc_timing")
         usual = base.income.anchor.day if base.income else 1
         pay_day = (
             st.number_input(
-                "Day of the month", min_value=1, max_value=31, step=1, value=usual, key="sc_pay_day"
+                "Day of the month", min_value=1, max_value=31, step=1, key="sc_pay_day"
             )  # fmt: skip
             if timing == SET_DAY
             else usual
         )
     with right:
-        end = st.date_input("End date", value=default_end(start), key="sc_end")
-        buffer_in = st.number_input("Buffer ($)", min_value=0.0, step=10.0, key="sc_buffer",
-                                    value=base.buffer_cents / 100)  # fmt: skip
+        end = st.date_input("End date", key="sc_end")
+        buffer_in = st.number_input("Buffer ($)", min_value=0.0, step=10.0, key="sc_buffer")
 
     switches: list[Flow] = []
     if view.flows:
@@ -369,6 +403,9 @@ if end <= start:
     st.stop()
 
 now_result, mine_result = run(now), run(mine)
+own_keys = {f.key for f in base.own_account_flows}
+listed = ["transfers between your accounts" if f.key in own_keys else "recurring payments"
+          for f in view.flows]  # fmt: skip
 where = "in chequing and savings" if view.combined else "in chequing"
 headline = f"You'd have {money(mine_result.end_balance, markdown=True)} {where} on {fmt_date(end)}"
 if mine_result.first_below is not None:
@@ -388,6 +425,11 @@ st.markdown(
     f"{fmt_date(end)}.</p>",
     unsafe_allow_html=True,
 )
+st.markdown(got_here("my scenario", mine, mine_result, [*listed, "rent", "income",
+                                                        "top-ups from savings"]),
+            unsafe_allow_html=True)  # fmt: skip
+st.markdown(got_here("as things are now", now, now_result, [*listed, "rent", "income"]),
+            unsafe_allow_html=True)  # fmt: skip
 # The buffer and its marker are measured on the balance the chart shows (run() does this).
 title = (
     "End-of-day balance, chequing and savings" if view.combined else "End-of-day balance, chequing"

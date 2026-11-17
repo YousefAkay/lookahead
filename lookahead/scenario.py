@@ -64,6 +64,12 @@ class Result:
     balances: tuple[int, ...]  # at the end of each day
     end_balance: int
     first_below: date | None  # the first day below the buffer, if a buffer was given
+    # How the end balance was reached ("How we got here", 2026-11-17): it is exactly
+    # the starting balance + the flow totals - spend_total + one_off_total.
+    flow_totals: tuple[tuple[int, int], ...] = ()  # (times, cents) per flow, in `flows` order
+    spend_total: int = 0  # the daily spend times spend_days
+    spend_days: int = 0
+    one_off_total: int = 0  # the one-offs inside the window
 
 
 def default_end(data_date: date) -> date:
@@ -96,20 +102,28 @@ def run(inputs: Inputs) -> Result:
         return Result((), (), inputs.balance_cents, None)
     first = inputs.start + timedelta(days=1)
     change: defaultdict[date, int] = defaultdict(int)
+    totals: list[tuple[int, int]] = []
     for flow in inputs.flows:
+        times = cents = 0
         if not flow.on:
-            continue
-        if flow.spread:
+            pass
+        elif flow.spread:
             day = first
             while day <= inputs.end:
-                change[day] += day_share(flow.cents, day)
+                share = day_share(flow.cents, day)
+                change[day] += share
+                times, cents = times + 1, cents + share
                 day += timedelta(days=1)
         else:
             for day in flow_dates(flow, first, inputs.end):
                 change[day] += flow.cents
+                times, cents = times + 1, cents + flow.cents
+        totals.append((times, cents))
+    one_offs = 0
     for item in inputs.one_offs:
         if first <= item.day <= inputs.end:
             change[item.day] += item.cents
+            one_offs += item.cents
     days, balances = [], []
     balance = inputs.balance_cents
     below: date | None = None
@@ -121,4 +135,6 @@ def run(inputs: Inputs) -> Result:
         if below is None and inputs.buffer_cents is not None and balance < inputs.buffer_cents:
             below = day
         day += timedelta(days=1)
-    return Result(tuple(days), tuple(balances), balance, below)
+    spent = len(days) * inputs.daily_spend_cents
+    return Result(tuple(days), tuple(balances), balance, below, tuple(totals), spent, len(days),
+                  one_offs)  # fmt: skip
