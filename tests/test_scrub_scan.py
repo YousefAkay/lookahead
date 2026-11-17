@@ -252,3 +252,10 @@ def test_brand_names_are_split_by_whether_they_are_among_my_merchants(
 def test_a_brand_of_several_words_is_mine_when_my_merchant_is_inside_it() -> None:
     pats = scrub_scan.Patterns({"merchant": ("maxi",)}, frozenset())
     assert pats.is_mine("Maxi") and pats.is_mine("Maxi & Cie") and not pats.is_mine("Metro")
+
+
+def test_my_whole_file_removals_are_on_the_must_leave_list() -> None:
+    for path in ("docs/prepublic-scrub-report.md", "docs/HANDOFF.md",
+                 "docs/results/history_scan.md"):  # fmt: skip
+        assert scrub_scan.must_leave(path) is not None, path
+    assert scrub_scan.must_leave("docs/results/other.md") is None

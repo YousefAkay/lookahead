@@ -21,6 +21,7 @@ import sqlite3
 import subprocess
 import sys
 from collections.abc import Iterable
+from datetime import date
 from pathlib import Path
 
 from lookahead.ingest.scotiabank import ExportFormatError, parse_export, read_export_text
@@ -139,21 +140,49 @@ def merged(built: Patterns, extra: Patterns | None) -> Patterns:
     return Patterns(text, built.amounts | extra.amounts)
 
 
+def main_folder(start: Path) -> Path:
+    """The main repository folder (also when run from a worktree): where my private files are."""
+    common = subprocess.run(
+        ["git", "-C", str(start), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return Path(common.stdout.strip()).parent
+
+
 def main(argv: list[str] | None = None) -> int:
+    root = main_folder(Path.cwd())
+    private = root / "data" / "private"
     parser = argparse.ArgumentParser(
         prog="python -m tools.scrub_patterns",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--exports", type=Path, required=True, help="folder of my bank exports")
-    parser.add_argument("--db", type=Path, default=None, help="my database (read-only)")
-    parser.add_argument("--allowlist", type=Path, default=None, help="known businesses")
-    parser.add_argument("--extra", type=Path, default=None, help="the few lines I type myself")
-    parser.add_argument("--repo", type=Path, required=True)
+    parser.add_argument("--exports", type=Path, default=private / "raw")
+    parser.add_argument("--db", type=Path, default=private / "db" / "lookahead.db")
+    parser.add_argument("--allowlist", type=Path, default=private / "pseudonymize_allowlist.txt")
+    parser.add_argument("--extra", type=Path, default=private / "scrub_extra.txt")
+    parser.add_argument("--repo", type=Path, default=root)
     parser.add_argument("--tip", default="prepublic-prep")
-    parser.add_argument("--public-email", default=None)
-    parser.add_argument("--out", type=Path, required=True, help="report file (keep it private)")
+    parser.add_argument("--public-email", default=None, help="default: git config user.email")
+    parser.add_argument("--out", type=Path, default=None, help="default: in data/private/scrub")
     args = parser.parse_args(argv)
+    if not args.exports.is_dir():
+        print(f"no exports folder at {args.exports}; nothing was run")
+        return 2
+    missing = [name for name in ("db", "allowlist", "extra") if not getattr(args, name).exists()]
+    for name in missing:
+        setattr(args, name, None)
+    if missing:
+        print("skipped (not found): " + ", ".join(missing))
+    if args.public_email is None:
+        email = subprocess.run(
+            ["git", "-C", str(args.repo), "config", "user.email"], capture_output=True, text=True
+        )
+        args.public_email = email.stdout.strip() or None
+    if args.out is None:
+        args.out = private / "scrub" / f"scrub-report-{date.today().isoformat()}.md"
 
     if not out_is_private(args.repo, args.out):
         print("--out must be a path git ignores (or outside the repository); nothing was run")

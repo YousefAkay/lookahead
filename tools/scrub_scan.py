@@ -31,6 +31,12 @@ from pathlib import Path
 from lookahead.generator.descriptions import _TEMPLATES
 
 OLD_REPORT = "docs/prepublic-scrub-report.md"
+# Whole files that leave every commit (my decisions, 2026-11-17), with the reason shown.
+LEAVE_WHOLE = {
+    OLD_REPORT: "the old scrub report (it quotes amounts)",
+    "docs/HANDOFF.md": "a local planning document",
+    "docs/results/history_scan.md": "an older scan's index",
+}
 DEMO_DBS = "data/demo/timemachine/"
 SYNTHETIC = "data/synthetic/persona_"
 CATEGORIES = ("name", "address", "etransfer", "merchant", "account", "amount", "phrase")
@@ -162,8 +168,8 @@ def must_leave(path: str) -> str | None:
     why = never_read(path)
     if why is not None:
         return why
-    if path == OLD_REPORT:
-        return "the old scrub report (it quotes amounts)"
+    if path in LEAVE_WHOLE:
+        return LEAVE_WHOLE[path]
     if path.casefold().endswith((".db", ".sqlite", ".sqlite3")) and not path.startswith(DEMO_DBS):
         return "a database outside data/demo/timemachine"
     return None

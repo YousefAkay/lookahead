@@ -117,3 +117,36 @@ def test_the_report_path_must_be_ignored_or_outside_the_repository(tmp_path: Pat
     assert out_is_private(repo, tmp_path / "elsewhere" / "report.md")
     assert out_is_private(repo, repo / "private" / "report.md")
     assert not out_is_private(repo, repo / "docs" / "report.md")
+
+
+def test_with_no_arguments_it_finds_my_files_in_the_main_folder_from_a_worktree(
+    tmp_path: Path,
+) -> None:
+    main = tmp_path / "main"
+    main.mkdir()
+    for args in (["init", "-q", "-b", "main"], ["config", "user.email", "me@example.net"],
+                 ["config", "user.name", "Me"]):  # fmt: skip
+        subprocess.run(["git", "-C", str(main), *args], check=True)
+    (main / ".gitignore").write_text("data/private/\n", encoding="utf-8")
+    (main / "notes.md").write_text("Paid Orrin Tadmuller.\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(main), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(main), "commit", "-q", "-m", "x"], check=True)
+    raw = main / "data" / "private" / "raw"
+    raw.mkdir(parents=True)
+    export(raw)
+    (main / "data" / "private" / "scrub_extra.txt").write_text("name: Velma\n", encoding="utf-8")
+    worktree = tmp_path / "wt"
+    subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", "-b", "side", str(worktree)],
+                   check=True)  # fmt: skip
+    project = Path(__file__).resolve().parents[1]
+    done = subprocess.run(
+        [sys.executable, "-m", "tools.scrub_patterns", "--tip", "main"],
+        capture_output=True, text=True, cwd=worktree, env={"PYTHONPATH": str(project),
+        "PATH": "/usr/bin:/bin"},
+    )  # fmt: skip
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert "skipped (not found): db, allowlist" in done.stdout
+    assert "| etransfer | 1 |" in done.stdout and "| name | 0 |" in done.stdout
+    reports = list((main / "data" / "private" / "scrub").glob("scrub-report-*.md"))
+    assert len(reports) == 1 and "Orrin" not in reports[0].read_text(encoding="utf-8")
+    assert "me@example.net | kept (public)" in reports[0].read_text(encoding="utf-8")
