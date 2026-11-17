@@ -15,7 +15,6 @@ import argparse
 import sqlite3
 import sys
 from collections.abc import Sequence
-from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -206,7 +205,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             series, _ = series_as_of(conn, account, None, None)
             print("Series: rebuilt in memory (the saved list is out of date; nothing written).")
-        print(f"Run on: {date.today().isoformat()}.\n")
+        print()
         print("\n".join(report(conn, account, series)))
     finally:
         conn.close()

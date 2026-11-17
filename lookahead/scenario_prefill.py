@@ -328,7 +328,7 @@ def income_buckets(w: Window) -> pd.Series:
 
 
 def _first(index: pd.Index, reasons: "Iterable[tuple[str, pd.Series]]") -> pd.Series:
-    bucket = pd.Series(COUNTED, index=index, dtype=object)
+    bucket = pd.Series(COUNTED, index=index, dtype="str")  # pandas 3 string dtype
     for name, hit in reversed(list(reasons)):  # the first reason in the list wins
         bucket[hit.fillna(False).astype(bool)] = name
     return bucket
