@@ -647,9 +647,9 @@ def test_with_10_or_fewer_payments_there_is_no_line_without_the_biggest(tmp_path
 
 
 def test_top_ups_from_savings_do_not_hide_a_lump_sum_from_the_one_off_rule(tmp_path: Path) -> None:
-    """My nav-rework check of 2026-11-17: income per month about 3.3k where about 130 was right.
-    Irregular top-ups from savings (never income) raised the typical deposit of the shared rule,
-    so a family lump sum was no longer 5 times it and was counted as income."""
+    """My nav-rework check of 2026-11-17: income per month far too high on my data. Irregular
+    top-ups from savings (never income) raised the typical deposit of the shared rule, so a large
+    one-off deposit was no longer 5 times it and was counted as income."""
     c = connect(tmp_path / "s.db")
     window(c)
     for k in (80, 50, 20):  # small family e-Transfers
@@ -665,4 +665,30 @@ def test_top_ups_from_savings_do_not_hide_a_lump_sum_from_the_one_off_rule(tmp_p
     p = prefill(c, ACCOUNT, stored(c))
     assert dict(p.income_counts)["one-off deposits (big lump sums)"] == 1
     assert p.income is not None and p.income.cents == round(3 * 15_000 * (365.25 / 12) / 90)
+    c.close()
+
+
+def test_transfers_out_to_savings_stay_in_the_reference_of_the_one_off_rule(
+    tmp_path: Path,
+) -> None:
+    """Only transfers in are kept from the rule. With fewer than 5 deposits the rule judges a
+    deposit against everything; leaving out the transfers out too made that my small purchases,
+    and a pay deposit in no series was taken for a one-off."""
+    c = connect(tmp_path / "s.db")
+    window(c)  # two $1 purchases
+    for k, shop in zip((70, 40, 25, 11), ("Opos Grocer", "Opos Pharmacy", "Opos Cafe", "Opos Deli"),
+                       strict=True):  # fmt: skip
+        insert(c, days_back(k), -2_000, shop, flow="everyday")
+    for k, cents in zip((80, 64, 47, 33, 19, 6), (300_000, 280_000, 310_000, 295_000, 305_000,
+                                                 290_000), strict=True):  # fmt: skip
+        insert(c, days_back(k), -cents, "Customer Transfer Dr. MB-Transfer To 1234",
+               kind="customer transfer dr.", flow="transfer")  # fmt: skip
+    for k, cents in zip((75, 52, 29, 8), (120_000, 210_000, 160_000, 90_000), strict=True):
+        insert(c, days_back(k), cents, "Customer Transfer Cr. MB-Transfer From 1234",
+               kind="customer transfer cr.", flow="transfer")  # fmt: skip
+    for k in (58, 15):  # two pay deposits, too few for a series
+        insert(c, days_back(k), 90_000, "Payroll Dep ", kind="deposit", flow="income")
+    p = prefill(c, ACCOUNT, stored(c))
+    assert dict(p.income_counts)["one-off deposits (big lump sums)"] == 0
+    assert p.income is not None and p.income.cents == round(2 * 90_000 * (365.25 / 12) / 90)
     c.close()

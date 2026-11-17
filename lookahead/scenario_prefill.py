@@ -28,7 +28,7 @@ calculator, nothing here comes from the forecaster or the proposers.
 
 import sqlite3
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -377,11 +377,12 @@ def _own_account(typed: _Typed, rows: pd.DataFrame) -> set[str]:
 
 
 def _one_off_deposits(
-    typed: "_Typed", series: Sequence[Stored], as_of: date, own: set[str] = frozenset()
+    typed: "_Typed", series: Sequence[Stored], as_of: date, own: Collection[str] = ()
 ) -> set[str]:
     """Fingerprints of the big one-time deposits at `as_of`, by the shared rule. Transfers in from
     my own accounts are not given to the rule (2026-11-17): they are never income, and irregular
-    top-ups from savings raised its typical deposit until a family lump sum no longer stood out.
+    top-ups from savings raised its typical deposit until a large one-off deposit no longer
+    stood out.
     Transfers out stay in its reference for money in and out, as before.
     The rule itself and the forecaster's use of it are unchanged."""
     row_of = {fp: i for i, fp in typed.fingerprint.items()}
