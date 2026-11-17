@@ -181,7 +181,11 @@ def test_the_end_balance_is_exactly_the_sum_of_its_parts_over_3_rent_days() -> N
                     one_offs=(OneOff(date(2026, 12, 20), 50_000, "gift"),))  # fmt: skip
     r = run(inputs)
     assert r.spend_days == 90 and r.spend_total == 90 * 4_000
-    assert [n for n, _ in r.flow_totals] == [3, 3, 3]  # Nov 1 (Mon), Dec 1, Jan 2 (Jan 1: holiday)
+    assert [n for n, _ in r.flow_totals] == [
+        3,
+        3,
+        3,
+    ]  # Nov 2 (Nov 1 is a Sunday), Dec 1, Jan 2 (Jan 1: holiday)
     assert r.one_off_total == 50_000
     parts = 300_000 + sum(c for _, c in r.flow_totals) - r.spend_total + r.one_off_total
     assert r.end_balance == parts

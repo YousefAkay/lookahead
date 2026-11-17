@@ -111,6 +111,7 @@ if not names:
 account = account_setting(names)
 series = ensure_current(conn, account, stored_key)
 base = prefill(conn, account, series)
+stored_savings = savings_balance(conn)  # of this database: never the demo's
 # Keyed fields keep their values across reruns, so after switching from the demo to my data they
 # showed the demo's end date, rent and income (my real-data checks of 2026-11-17). Deleting a
 # value is not enough: the browser keeps its own copy of a number field (Streamlit identifies it
@@ -127,6 +128,7 @@ prefilled: dict[str, object] = {
     "sc_pay_day": base.income.anchor.day if base.income else 1,
     "sc_end": default_end(base.data_date) if base.data_date else None,
     "sc_buffer": base.buffer_cents / 100,
+    "sc_savings": stored_savings[0] / 100 if stored_savings else None,
 }
 basis = (source, account, base.data_date)
 old = st.session_state.get("sc_basis")
@@ -143,7 +145,6 @@ else:  # a field not drawn last time (top-ups, the pay day) was dropped by Strea
 rows = transactions(conn, account)
 hidden = hidden_series(rows, series, display_key)
 by_key = {s.key: s for s in series}
-stored_savings = savings_balance(conn)
 conn.close()
 
 top_bar(bar, TITLE, base.data_date, source)
@@ -212,14 +213,15 @@ def got_here(name: str, inputs: Inputs, result: Result, kinds: list[str]) -> str
     """ "How we got here": the starting balance plus each part equals the end balance (the parts
     come from `run`, so they add up exactly)."""
     groups: dict[str, tuple[int, int]] = {}
-    for kind, (times, cents_) in zip(kinds, result.flow_totals, strict=True):
+    for kind, flow, (times, cents_) in zip(kinds, inputs.flows, result.flow_totals, strict=True):
         n, c = groups.get(kind, (0, 0))
-        groups[kind] = (n + times, c + cents_)
+        # a flow spread through the month is counted in months, not in its daily shares
+        groups[kind] = (n + (round(times * 12 / 365.25) if flow.spread else times), c + cents_)
     parts = [f"start {money(inputs.balance_cents)}"]
     for kind in ("rent", "recurring payments", "transfers between your accounts", "income",
                  "top-ups from savings"):  # fmt: skip
         n, c = groups.get(kind, (0, 0))
-        if n or kind in ("rent", "income"):
+        if c or kind in ("rent", "income"):
             parts.append(f"{kind} {money(c, signed=True)} ({n} {'time' if n == 1 else 'times'})")
         if kind == "rent":
             parts.append(f"daily spend {money(-result.spend_total, signed=True)} "
@@ -250,7 +252,7 @@ with st.container(border=True, key="card-inputs"):
     with savings_col:
         savings_in = st.number_input(
             "Savings balance ($)", min_value=0.0, step=10.0, key="sc_savings",
-            value=stored_savings[0] / 100 if stored_savings else None, placeholder="not entered",
+            value=None, placeholder="not entered",  # empty allowed: chequing only
         )  # fmt: skip
         savings_cents = None if savings_in is None else cents(savings_in)
         if savings_cents != (stored_savings[0] if stored_savings else None):

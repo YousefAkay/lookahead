@@ -290,6 +290,7 @@ def test_switching_to_my_data_refills_every_prefilled_field(isolated: Path) -> N
     from lookahead.rent import RentRule
     from lookahead.scenario import default_end
     from lookahead.scenario_prefill import prefill
+    from lookahead.settings import savings_balance
 
     mine_csv = isolated / "mine_csv"
     for pid in "ABC":  # the demo builder reads all three
@@ -315,15 +316,22 @@ def test_switching_to_my_data_refills_every_prefilled_field(isolated: Path) -> N
     }
 
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()  # the demo first
+    at.number_input(key="sc_savings").set_value(5000.0).run()  # entered on the demo ...
+    at.number_input(key="sc_savings").set_value(None).run()  # ... then cleared
     at.number_input(key="sc_top_ups").set_value(250.0).run()  # something I typed on the demo
     demo = {k: (at.date_input(key=k) if k == "sc_end" else at.number_input(key=k)).value
             for k in expected}  # fmt: skip
     assert all(demo[k] != v for k, v in expected.items()), (demo, expected)
+    at.number_input(key="sc_savings").set_value(5000.0)  # typed, sent with the switch below
     at.sidebar.radio(key="data_source").set_value("My data").run()
     assert not at.exception, at.exception
     after = {k: (at.date_input(key=k) if k == "sc_end" else at.number_input(key=k)).value
              for k in expected}  # fmt: skip
     assert after == expected
+    assert at.number_input(key="sc_savings").value is None  # the demo's savings did not follow
+    check = connect(private)
+    assert savings_balance(check) is None  # and nothing was written to my database
+    check.close()
     at.run()  # and they stay so on the next rerun
     again = {k: (at.date_input(key=k) if k == "sc_end" else at.number_input(key=k)).value
              for k in expected}  # fmt: skip
