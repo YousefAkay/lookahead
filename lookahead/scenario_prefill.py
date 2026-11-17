@@ -254,7 +254,8 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         out = w.money_out[out_bucket == COUNTED]
         spend = round(-int(out["amount_cents"].sum()) / span)
         paid = sorted((-int(c) for c in out["amount_cents"]), reverse=True)
-        without_largest = round(sum(paid[TOP_LEFT:]) / span)
+        if len(paid) > TOP_LEFT:  # with 10 or fewer, the line would say $0: left out
+            without_largest = round(sum(paid[TOP_LEFT:]) / span)
         big = int((out_bucket == "big one-off payments").sum())
         spend_basis = (
             f"The average day over {span} days (days with no spending count): "

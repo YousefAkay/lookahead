@@ -637,3 +637,10 @@ def test_the_spend_note_gives_the_average_without_the_10_biggest_payments(tmp_pa
     assert p.daily_spend_cents == round((200 + 26 * 2_500 + 10 * 30_000) / 90)
     assert p.spend_without_largest_cents == round((200 + 26 * 2_500) / 90)
     c.close()
+
+
+def test_with_10_or_fewer_payments_there_is_no_line_without_the_biggest(tmp_path: Path) -> None:
+    c = connect(tmp_path / "s.db")
+    window(c)  # two $1 purchases only
+    assert prefill(c, ACCOUNT, stored(c)).spend_without_largest_cents is None
+    c.close()

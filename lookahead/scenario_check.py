@@ -25,6 +25,7 @@ from lookahead.flows import _RULES, OWN_ACCOUNT
 from lookahead.recurring_store import Stored, cache_current, load_series, series_as_of
 from lookahead.scenario_prefill import (
     COUNTED,
+    MIN_HISTORY_DAYS,
     _typed,
     income_buckets,
     prefill,
@@ -100,9 +101,14 @@ def income_detail(money_in: pd.DataFrame, reason_of: dict[str, str], days: int) 
     source = counted["source"].map(lambda v: known(v, SOURCES))
     top = largest_shares(list(money))
     shares = ", ".join(f"largest {n}: {100 * s:.1f}%" for n, s in top.items())
+    how = (
+        f"Income per month = the counted deposits over {days} days, times 30.44 / {days}."
+        if days >= MIN_HISTORY_DAYS
+        else f"Income per month is not estimated (fewer than {MIN_HISTORY_DAYS} days)."
+    )
     return [
         "",
-        f"Income per month = the counted deposits over {days} days, times 30.44 / {days}.",
+        how,
         *table("Counted deposits, by flow-typing reason (bank's type)", reasons, money, "counted"),
         *table(
             "Counted deposits, by stored flow type (its source)",

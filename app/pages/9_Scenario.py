@@ -113,11 +113,15 @@ series = ensure_current(conn, account, stored_key)
 base = prefill(conn, account, series)
 # Keyed fields keep their values across reruns, so after switching from the demo to my data they
 # showed the demo's end date, rent and income (my real-data check of 2026-11-17). When the data
-# changes (source, account or last day), every scenario field is forgotten and refilled.
+# changes (source, account or last day), every scenario field is forgotten and refilled; the
+# one-off items I typed are kept when only the last day changes (a new import).
 basis = (source, account, base.data_date)
-if st.session_state.get("sc_basis") != basis:
+old = st.session_state.get("sc_basis")
+if old != basis:
+    same_data = old is not None and old[:2] == basis[:2]
     for name in [k for k in st.session_state if str(k).startswith("sc_")]:
-        del st.session_state[name]
+        if not (same_data and name == "sc_extras"):
+            del st.session_state[name]
     st.session_state["sc_basis"] = basis
 rows = transactions(conn, account)
 hidden = hidden_series(rows, series, display_key)

@@ -122,7 +122,7 @@ def test_no_row_dominates_the_counted_spend_of_the_synthetic_personas(tmp_path: 
 
 
 def test_it_says_where_the_income_comes_from(db: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """My second real-data check: a solid income from 5 deposits needs its sources shown."""
+    """My fourth real-data check: a solid income from 5 deposits needs its sources shown."""
     assert main(["--db", str(db)]) == 0
     out = capsys.readouterr().out
     assert "Counted deposits, by flow-typing reason (bank's type)" in out

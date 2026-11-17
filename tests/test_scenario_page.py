@@ -282,7 +282,7 @@ def mine_end(at: AppTest) -> float:
 
 
 def test_switching_to_my_data_refills_every_prefilled_field(isolated: Path) -> None:
-    """My second real-data check of 2026-11-17: end date 60 days out (Dec 30), rent $0 and a
+    """My fourth real-data check of 2026-11-17: end date 60 days out, rent $0 and a
     solid income that the counts did not explain. The page had opened on the synthetic demo
     first; keyed fields kept the demo's values after switching to my data."""
     from lookahead.demo import build_demo_db
