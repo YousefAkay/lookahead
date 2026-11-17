@@ -188,8 +188,9 @@ def test_my_patterns_are_also_matched_in_commit_messages_and_amounts_in_whole_ce
     personal = run(repo).split("## 7.")[1].split("## 8.")[0]
     messages = next(x for x in personal.splitlines() if x.startswith("| commit messages |"))
     assert repo["side"][:10] in messages and "name" in messages
-    amounts = personal.split("### amount")[1].split("### ")[0]
-    assert "`side.md`" in amounts and "`story.md`" in amounts
+    formatted = personal.split("### amount\n")[1].split("### ")[0]
+    bare = personal.split("### amount (bare number)")[1].split("### ")[0]
+    assert "`story.md`" in formatted and "`side.md`" in bare
 
 
 @pytest.mark.parametrize("path", PRIVATE)
@@ -200,12 +201,35 @@ def test_never_read_covers_every_private_kind_of_path(path: str) -> None:
 
 def test_a_bare_number_matches_an_amount_as_whole_cents_or_whole_dollars() -> None:
     pats = scrub_scan.Patterns({}, frozenset({145_000}))  # a made-up $1,450.00
-    for line in ("rent 1450", "amount_cents = -145000", "paid $1,450.00", "1,450"):
-        assert "mine: amount" in scrub_scan.line_rules(line, pats), line
-    assert "mine: amount" not in scrub_scan.line_rules("1451 and 14.50", pats)
+    for line in ("rent 1450", "amount_cents = -145000", "1,450"):
+        assert "mine: amount (bare number)" in scrub_scan.line_rules(line, pats), line
+    assert "mine: amount" in scrub_scan.line_rules("paid $1,450.00", pats)
+    assert not scrub_scan.line_rules("1451 and 14.50", pats)
 
 
 def test_more_private_and_database_paths() -> None:
     assert scrub_scan.never_read(".env/secrets") == "a .env file"
     assert scrub_scan.must_leave("data/cache/app.sqlite") is not None
     assert scrub_scan.must_leave("data/demo/timemachine/synthetic-A.db") is None
+
+
+def test_the_public_email_is_shown_and_any_other_is_flagged(repo: dict[str, str]) -> None:
+    r = Path(repo["repo"])
+    git(r, "-c", "user.email=public.me@example.net", "commit", "-q", "--allow-empty", "-m", "x")
+    section = scan(r, "main", None, "public.me@example.net").split("## 2.")[1].split("## 3.")[0]
+    assert "| public.me@example.net | kept (public) |" in section
+    assert "| t***@example.org | to rewrite |" in section and "test.person" not in section
+
+
+def test_text_patterns_match_whole_words_only() -> None:
+    pats = scrub_scan.Patterns({"name": ("ali",)}, frozenset())
+    assert "mine: name" in scrub_scan.line_rules("Paid Ali back", pats)
+    assert not scrub_scan.line_rules("the totalities of it", pats)
+
+
+def test_file_lines_that_name_an_ai_tool_are_listed(repo: dict[str, str]) -> None:
+    r = Path(repo["repo"])
+    write(r, "notes.md", "A plain line about Netflix.\nWritten with Claude.\n")
+    commit(r, "Third")
+    section = run(repo).split("## 9.")[1]
+    assert "`notes.md`" in section and "at the tip" in section

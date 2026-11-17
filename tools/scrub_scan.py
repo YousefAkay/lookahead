@@ -33,12 +33,19 @@ from lookahead.generator.descriptions import _TEMPLATES
 OLD_REPORT = "docs/prepublic-scrub-report.md"
 DEMO_DBS = "data/demo/timemachine/"
 SYNTHETIC = "data/synthetic/persona_"
-CATEGORIES = ("name", "amount", "etransfer", "merchant", "phrase")
+CATEGORIES = ("name", "address", "etransfer", "merchant", "account", "amount", "phrase")
+# How section 7 counts them: a bare number (no $, no cents) is counted apart, it is noisier.
+REPORTED = (*CATEGORIES, "amount (bare number)")
 
 AI_WORDS = re.compile(
     r"\b(claude|anthropic|chatgpt|gpt-?\d+|openai|copilot|cursor|gemini|codex|llm|haiku|ai|"
     r"co-authored-by|generated with)\b",
     re.IGNORECASE,
+)
+# In file lines, a narrower list: an AI assistant or tool named (llm, ai or haiku alone are too
+# common in the app's own LLM-fallback code to be worth listing).
+FILE_AI_WORDS = re.compile(
+    r"\b(claude|anthropic|chatgpt|openai|copilot|co-authored-by|generated with)\b", re.I
 )
 DOLLARS = re.compile(r"\$\s?\d[\d,]*(?:\.\d{1,2})?")
 FIRST_PERSON = re.compile(r"\b(?:my|i|me|mine|personal|own)\b|real account|real data", re.I)
@@ -82,6 +89,14 @@ class Patterns:
 
     text: dict[str, tuple[str, ...]]
     amounts: frozenset[int]
+    compiled: dict[str, re.Pattern[str]] = field(default_factory=dict, compare=False)
+
+    def __post_init__(self) -> None:
+        # whole words, without case: a short name never matches inside a longer word
+        for category, values in self.text.items():
+            if values:
+                alternation = "|".join(re.escape(v) for v in sorted(set(values), key=len)[::-1])
+                self.compiled[category] = re.compile(rf"(?<!\w)(?:{alternation})(?!\w)", re.I)
 
     def counts(self) -> dict[str, int]:
         out = {c: len(self.text.get(c, ())) for c in CATEGORIES if c != "amount"}
@@ -267,10 +282,11 @@ def line_rules(line: str, patterns: Patterns | None) -> set[str]:
         hits.add("own account")
     if BRANDS.search(line):
         hits.add("brand")
+    if FILE_AI_WORDS.search(line):
+        hits.add("ai tool")
     if patterns is not None:
-        folded = line.casefold()
-        for category, values in patterns.text.items():
-            if any(v in folded for v in values):
+        for category, regex in patterns.compiled.items():
+            if regex.search(line):
                 hits.add(f"mine: {category}")
         if patterns.amounts:
             for m in AMOUNT_TOKEN.finditer(line):
@@ -282,8 +298,7 @@ def line_rules(line: str, patterns: Patterns | None) -> set[str]:
                 if not (m.group(1) or m.group(3)):
                     whole = int(m.group(2).replace(",", ""))
                     if whole in patterns.amounts or whole * 100 in patterns.amounts:
-                        hits.add("mine: amount")
-                        break
+                        hits.add("mine: amount (bare number)")
     return hits
 
 
@@ -310,7 +325,7 @@ class PathHits:
     at_tip: bool = False
 
 
-def scan(repo: Path, tip: str, patterns: Patterns | None) -> str:
+def scan(repo: Path, tip: str, patterns: Patterns | None, public_email: str | None = None) -> str:
     """The report, as Markdown. Reads git objects only; writes nothing."""
     reach = all_commits(repo)
     commits = {oid: Commit(oid, how) for oid, how in reach.items()}
@@ -367,7 +382,7 @@ def scan(repo: Path, tip: str, patterns: Patterns | None) -> str:
     finally:
         reader.close()
 
-    return render(repo, tip, refs, commits, by_rule, leaving, patterns, skipped)
+    return render(tip, refs, commits, by_rule, leaving, patterns, skipped, public_email)
 
 
 def _reach_of(oids: Iterable[str], commits: dict[str, Commit]) -> str:
@@ -397,7 +412,6 @@ def _path_table(hits: dict[str, PathHits], commits: dict[str, Commit]) -> list[s
 
 
 def render(
-    repo: Path,
     tip: str,
     refs: list[str],
     commits: dict[str, Commit],
@@ -405,6 +419,7 @@ def render(
     leaving: dict[str, PathHits],
     patterns: Patterns | None,
     skipped: int,
+    public_email: str | None = None,
 ) -> str:
     kinds = defaultdict(int)
     for c in commits.values():
@@ -413,7 +428,8 @@ def render(
         f"# Scrub scan, {date.today().isoformat()}",
         "",
         "Read-only. Counts, file paths, commit ids and ref names only: no amount, matched line, "
-        "pattern or email is quoted (emails are masked). Spec: "
+        "pattern or email is quoted (emails are masked, except the public one given with "
+        "--public-email). Spec: "
         "docs/specs/2026-11-17-scrub-scan.md.",
         "",
         f"- Refs scanned ({len(refs)}): {', '.join(short_ref(r) for r in refs)}.",
@@ -439,17 +455,22 @@ def render(
     ] or ["None found."]
     out.append("")
 
-    people: dict[tuple[str, str, str], int] = defaultdict(int)
+    public = (public_email or "").casefold()
+    people: dict[tuple[str, str, str, str], int] = defaultdict(int)
     for c in commits.values():
         for role, (name, email) in (("author", c.author), ("committer", c.committer)):
-            people[(role, mask_name(name), mask_email(email))] += 1
+            if public and email.casefold() == public:
+                shown, status = email, "kept (public)"
+            else:
+                shown, status = mask_email(email), "to rewrite" if public else "-"
+            people[(role, mask_name(name), shown, status)] += 1
     out += [
         "## 2. Author and committer identities",
         "",
-        "| Role | Name | Email | Commits |",
-        "|---|---|---|---|",
+        "| Role | Name | Email | Status | Commits |",
+        "|---|---|---|---|---|",
     ]
-    out += [f"| {r} | {n} | {e} | {k} |" for (r, n, e), k in sorted(people.items())]
+    out += [f"| {r} | {n} | {e} | {st} | {k} |" for (r, n, e, st), k in sorted(people.items())]
     out.append("")
 
     sections = (
@@ -488,7 +509,7 @@ def render(
         out += ["Not run: no patterns file was given.", ""]
     else:
         out += ["| Category | Paths | Distinct lines | Commits |", "|---|---|---|---|"]
-        for category in CATEGORIES:
+        for category in REPORTED:
             hits = by_rule.get(f"mine: {category}", {})
             n_commits = len({o for h in hits.values() for o in h.commits})
             out.append(
@@ -500,7 +521,7 @@ def render(
         ids = "; ".join(f"`{c.oid[:10]}` ({', '.join(c.mine)}; {c.reach})" for c in flagged)
         out += ["| In | Commits | Which (categories only) |", "|---|---|---|",
                 f"| commit messages | {len(flagged)} | {ids or 'none'} |", ""]  # fmt: skip
-        for category in CATEGORIES:
+        for category in REPORTED:
             hits = by_rule.get(f"mine: {category}", {})
             if hits:
                 out += [f"### {category}", ""]
@@ -533,6 +554,16 @@ def render(
             f"- {why}: {n_paths} paths in {len(hidden.get(why, set()))} commits "
             "(names not listed, contents never read)."
         )
+    ai_lines = by_rule.get("ai tool", {})
+    out += [
+        "",
+        f"## 9. File lines that name an AI tool or assistant ({len(ai_lines)} paths)",
+        "",
+        'Claude, Anthropic, ChatGPT, OpenAI, Copilot, Co-Authored-By or "Generated with". Many '
+        "are the app's own optional LLM fallback (keep); a line about who wrote the code is not.",
+        "",
+    ]
+    out += _path_table(ai_lines, commits)
     return "\n".join(out) + "\n"
 
 
@@ -545,6 +576,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, default=Path("."))
     parser.add_argument("--tip", default="prepublic-prep", help="the branch to call 'the tip'")
     parser.add_argument(
+        "--public-email", default=None, help="the author email that stays public (shown as is)"
+    )
+    parser.add_argument(
         "--patterns",
         type=Path,
         default=None,
@@ -555,7 +589,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     patterns = load_patterns(args.patterns) if args.patterns is not None else None
-    report = scan(args.repo, args.tip, patterns)
+    report = scan(args.repo, args.tip, patterns, args.public_email)
     out = args.out or args.repo / "logs" / f"scrub-report-{date.today().isoformat()}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
