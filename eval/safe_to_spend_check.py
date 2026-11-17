@@ -8,7 +8,7 @@ classified with the rows up to the window's end); whether the observed closing b
 or above the buffer on every day of the window. If the amount means what it says, about 80 percent
 or more of the origins that spent no more than it stayed above the buffer.
 
-    python -m eval.safe_to_spend_check            # writes docs/results/safe_to_spend_check.md
+    python -m eval.safe_to_spend_check     # writes docs/results/safe_to_spend_check_<date>.md
 """
 
 import argparse
@@ -29,7 +29,10 @@ from lookahead.resolve import load_user_decisions
 from lookahead.safe_to_spend import safe_to_spend
 
 WORK = Path("data/backtest/safe_to_spend")
-REPORT = Path("docs/results/safe_to_spend_check.md")
+# Each run writes a new dated file (the first, 2026-10-11, is safe_to_spend_check.md).
+RESULTS = Path("docs/results")
+# Near the edge: a safe amount at most this many times the usual (DECISIONS, 2026-11-17).
+NEAR_EDGE_TIMES = 2
 
 Record = dict[str, Any]
 
@@ -78,11 +81,36 @@ def _share(rows: list[Record]) -> str:
     return f"{n / len(rows):.0%} ({n} of {len(rows)}, {len({r['persona'] for r in rows})} personas)"
 
 
+def near_edge(records: list[Record]) -> list[Record]:
+    """Origins with a safe amount at most NEAR_EDGE_TIMES the usual everyday spending."""
+    return [r for r in records if r["safe"] is not None and r["usual"] > 0
+            and r["safe"] <= NEAR_EDGE_TIMES * r["usual"]]  # fmt: skip
+
+
+def reading(records: list[Record]) -> str:
+    """The reading rule written before the run (DECISIONS, 2026-11-17), on the near-the-edge
+    origins that spent at or below the safe amount."""
+    rows = [r for r in near_edge(records) if r["actual"] <= r["safe"]]
+    personas = len({r["persona"] for r in rows})
+    if len(rows) < 30 or personas < 5:
+        return (f"too few origins near the edge to say ({len(rows)} origins, "
+                f"{personas} personas)")  # fmt: skip
+    share = sum(r["stayed"] for r in rows) / len(rows)
+    if share >= 0.8:
+        return "the 80 percent holds near the edge"
+    if share >= 0.7:
+        return "slightly optimistic near the edge"
+    return "optimistic near the edge: the 80 percent does not hold there"
+
+
 def report(records: list[Record]) -> str:
     with_amount = [r for r in records if r["safe"] is not None]
     within = [r for r in with_amount if r["actual"] <= r["safe"]]
     over = [r for r in with_amount if r["actual"] > r["safe"]]
     none = [r for r in records if r["safe"] is None]
+    edge = near_edge(records)
+    edge_within = [r for r in edge if r["actual"] <= r["safe"]]
+    edge_over = [r for r in edge if r["actual"] > r["safe"]]
     lines = [
         "# Safe-to-spend honesty check (synthetic development personas)", "",
         "Made with `python -m eval.safe_to_spend_check`. Method in DECISIONS.md (2026-10-11, "
@@ -90,10 +118,14 @@ def report(records: list[Record]) -> str:
         f"origins: {len(records)} origins, {len({r['persona'] for r in records})} personas. "
         "Stayed above = the observed closing balance was at or above the buffer on every day of "
         "the window.", "",
+        f"Near the edge = a safe amount at most {NEAR_EDGE_TIMES} times the usual everyday "
+        "spending (DECISIONS, 2026-11-17, written before the run).", "",
         "| Origins | Stayed above the buffer |", "|---|---|",
         f"| a safe amount, actual everyday spending at or below it | {_share(within)} |",
         f"| a safe amount, actual everyday spending above it | {_share(over)} |",
         f"| no safe amount | {_share(none)} |",
+        f"| near the edge, actual everyday spending at or below it | {_share(edge_within)} |",
+        f"| near the edge, actual everyday spending above it | {_share(edge_over)} |",
         f"| all | {_share(records)} |", "",
         "## By archetype (a safe amount, spending at or below it)", "",
         "| Archetype | Stayed above |", "|---|---|",
@@ -105,6 +137,7 @@ def report(records: list[Record]) -> str:
         ratio.sort()
         lines += ["", f"Safe amount against the usual everyday spending (origins with both): "
                   f"median {ratio[len(ratio) // 2]:.1f} times (n = {len(ratio)})."]  # fmt: skip
+    lines += ["", f"Reading (rule written before the run): {reading(records)}."]
     lines += ["", "Origins overlap within a persona; the persona counts are the honest n."]
     return "\n".join(lines) + "\n"
 
@@ -120,7 +153,8 @@ def main(argv: list[str] | None = None) -> int:
         records = [r for rows in pool.map(check_persona, ids) for r in rows]
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / "records.json").write_text(json.dumps(records), encoding="utf-8")
-    REPORT.write_text(report(records), encoding="utf-8")
+    out = RESULTS / f"safe_to_spend_check_{date.today().isoformat()}.md"
+    out.write_text(report(records), encoding="utf-8")
     print(report(records))
     return 0
 
