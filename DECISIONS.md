@@ -2155,6 +2155,9 @@ I merged `records-from-main` into main (a fast-forward) after the full suite pas
 - **The held-out data stays unopened.** The held-out personas and Berka held-out accounts are not opened by going public; the test runs once, later, when the forecaster is final, and nothing is tuned after it. Going public changes nothing about that rule.
 - **No deployment for now.** Demo mode stays in the code, but I am not putting the app on Streamlit Community Cloud yet.
 
+### 2026-11-17: What from my real data may be public
+Categorizer and merchant-matching accuracy on my labelled rows may be public, as percentages with n (no amounts, merchants or dates); the two such numbers already here stay. Never public: money-revealing metrics, meaning anything the forecaster scores on my account (dollar errors, dips caught, coverage, Brier), balances, amounts and income timing.
+
 ### 2026-11-17: The history scrub goes to a new repository, not a force-push
 - **Decision.** I do not force-push a rewritten history over the existing GitHub repository: GitHub keeps commits that a force-push rewrote away reachable by their id, so the old text would stay readable. Instead I rewrite the history on a fresh clone and push it to a new, empty GitHub repository, created only after I approve it. The old repository is renamed `lookahead-archive` and stays private.
 - **Lost:** a force-push over the existing repository, with a request to GitHub to purge the cached commits. It depends on GitHub support and leaves the old commits readable until they act.
