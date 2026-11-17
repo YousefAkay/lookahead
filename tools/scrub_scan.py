@@ -98,6 +98,11 @@ class Patterns:
                 alternation = "|".join(re.escape(v) for v in sorted(set(values), key=len)[::-1])
                 self.compiled[category] = re.compile(rf"(?<!\w)(?:{alternation})(?!\w)", re.I)
 
+    def is_mine(self, brand: str) -> bool:
+        """Whether a brand name is also one of my own card merchants."""
+        b = brand.casefold()
+        return any(b == m or b in m for m in self.text.get("merchant", ()))
+
     def counts(self) -> dict[str, int]:
         out = {c: len(self.text.get(c, ())) for c in CATEGORIES if c != "amount"}
         out["amount"] = len(self.amounts)
@@ -280,8 +285,9 @@ def line_rules(line: str, patterns: Patterns | None) -> set[str]:
         hits.add("amount")
     if OWN_ACCOUNT.search(line):
         hits.add("own account")
-    if BRANDS.search(line):
-        hits.add("brand")
+    for m in BRANDS.finditer(line):
+        mine = patterns is not None and patterns.is_mine(m.group(0))
+        hits.add("brand (also mine)" if mine else "brand")
     if FILE_AI_WORDS.search(line):
         hits.add("ai tool")
     if patterns is not None:
@@ -492,8 +498,10 @@ def render(
         out += _path_table(by_rule.get(rule, {}), commits)
 
     brands = by_rule.get("brand", {})
+    mine = by_rule.get("brand (also mine)", {})
     elsewhere = {p: h for p, h in brands.items() if not p.startswith(SYNTHETIC)}
-    synthetic = {p: h for p, h in brands.items() if p.startswith(SYNTHETIC)}
+    mine_elsewhere = {p: h for p, h in mine.items() if not p.startswith(SYNTHETIC)}
+    synthetic = {p: h for p, h in [*brands.items(), *mine.items()] if p.startswith(SYNTHETIC)}
     out += [
         f"## 5. Brand names outside the synthetic persona files ({len(elsewhere)} paths)",
         "",
@@ -501,6 +509,11 @@ def render(
         "",
     ]
     out += _path_table(elsewhere, commits)
+    if patterns is not None:
+        out += [f"### Also among my own merchants ({len(mine_elsewhere)} paths)", "",
+                "The same brand names, where the brand is also one of my own card merchants.",
+                ""]  # fmt: skip
+        out += _path_table(mine_elsewhere, commits)
     out += [f"## 6. Brand names in the synthetic persona files ({len(synthetic)} paths)", ""]
     out += _path_table(synthetic, commits)
 

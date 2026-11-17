@@ -64,6 +64,8 @@ def test_patterns_come_from_the_bank_files_and_the_database(tmp_path: Path) -> N
     assert {75_000, 15_000, 12_000, 25_000} <= pats.amounts  # every amount over $100
     assert 4_000 not in pats.amounts and 3_505 not in pats.amounts  # $100 or less
     assert {"0098765432", "12345678", "87654321"} <= set(pats.text["account"])
+    assert "maxi" in pats.text["merchant"]  # my card merchants (to split brand names)
+    assert "orrin tadmuller" not in pats.text["merchant"]  # a payee is not a card merchant
 
 
 def test_the_command_prints_counts_only_and_never_a_value(tmp_path: Path) -> None:

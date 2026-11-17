@@ -233,3 +233,17 @@ def test_file_lines_that_name_an_ai_tool_are_listed(repo: dict[str, str]) -> Non
     commit(r, "Third")
     section = run(repo).split("## 9.")[1]
     assert "`notes.md`" in section and "at the tip" in section
+
+
+def test_brand_names_are_split_by_whether_they_are_among_my_merchants(
+    repo: dict[str, str],
+) -> None:
+    r = Path(repo["repo"])
+    write(r, "shops.md", "Groceries at Maxi.\n")
+    commit(r, "Shops")
+    mine = scrub_scan.Patterns({"merchant": ("maxi",)}, frozenset())
+    brands = scan(r, "main", mine).split("## 5.")[1].split("## 6.")[0]
+    also_mine = brands.split("### Also among my own merchants")[1]
+    not_mine = brands.split("### Also among my own merchants")[0]
+    assert "`shops.md`" in also_mine and "`notes.md`" not in also_mine
+    assert "`notes.md`" in not_mine and "`shops.md`" not in not_mine

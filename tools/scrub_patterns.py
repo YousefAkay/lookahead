@@ -8,6 +8,7 @@ What it builds:
 - etransfer: every e-Transfer counterpart name (the sender on a credit memo; a person's name on a
   transfer-type row or a mobile-banking payee), the known businesses of the allowlist left out;
 - amount: every transaction amount over $100, from the exports and the database;
+- merchant: every card merchant (to tell brand names from my own shops apart);
 - account: every run of 7 or more digits in the exports' text and file names, and every
   mobile-banking reference;
 and adds the few lines I type myself (--extra: my name spellings, address, building), in the
@@ -22,6 +23,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from lookahead.ingest.scotiabank import ExportFormatError, parse_export, read_export_text
+from lookahead.merchants import extract_merchant
 from lookahead.pseudonymize import (
     _CAPITALIZED_WORD,
     _FIXED_TEXTS,
@@ -79,6 +81,7 @@ def build_patterns(exports: Path | None, db: Path | None, allowlist: Path | None
     """Patterns from every export under `exports` and every row of `db`."""
     known = load_allowlist(allowlist) if allowlist is not None else set()
     names: set[str] = set()
+    merchants: set[str] = set()
     accounts: set[str] = set()
     amounts: set[int] = set()
     rows: list[tuple[str, str, int]] = []
@@ -99,13 +102,21 @@ def build_patterns(exports: Path | None, db: Path | None, allowlist: Path | None
         found, numbers = names_in(description, sub, known)
         names |= {n.casefold() for n in found}
         accounts |= set(numbers)
+        found_merchant = extract_merchant(sub)
+        if found_merchant.kind == "card":
+            for name in (found_merchant.merchant, found_merchant.via_restaurant):
+                if name and len(name) >= MIN_NAME - 1:
+                    merchants.add(" ".join(name.split()).casefold())
         if abs(cents) > OVER_CENTS:
             amounts.add(abs(cents))
     if skipped:
         print(f"files skipped (not a bank export): {skipped}")
-    return Patterns(
-        {"etransfer": tuple(sorted(names)), "account": tuple(sorted(accounts))}, frozenset(amounts)
-    )
+    text = {
+        "etransfer": tuple(sorted(names)),
+        "account": tuple(sorted(accounts)),
+        "merchant": tuple(sorted(merchants)),
+    }
+    return Patterns(text, frozenset(amounts))
 
 
 def merged(built: Patterns, extra: Patterns | None) -> Patterns:
