@@ -195,3 +195,23 @@ def test_the_reasons_for_a_zero_estimate_are_told_apart() -> None:
     counted = berka.classify_rows([row, paid], {"fp3"}, Counter())
     assert counted["counted"] == 1 and "counted" in counted["reason"]
     assert aside[(date(1994, 5, 2), 150000)] == 1  # the caller's counter is not used up
+
+
+def test_a_sanity_report_goes_to_a_new_dated_file_and_never_changes_an_old_one(
+    tmp_path: Path,
+) -> None:
+    old = tmp_path / "berka_sanity_2026-10-17.md"
+    old.write_text("## primary development accounts\n\nold numbers\n", encoding="utf-8")
+    first = berka.write_report(["## primary development accounts", "", "new"], "primary",
+                               tmp_path, date(2026, 11, 20))  # fmt: skip
+    assert first == tmp_path / "berka_sanity_2026-11-20.md"
+    assert old.read_text(encoding="utf-8") == "## primary development accounts\n\nold numbers\n"
+    # a second group the same day joins that day's file; a rerun of a group replaces its block
+    berka.write_report(["## sensitivity development accounts", "", "other"], "sensitivity",
+                       tmp_path, date(2026, 11, 20))  # fmt: skip
+    berka.write_report(["## primary development accounts", "", "newer"], "primary",
+                       tmp_path, date(2026, 11, 20))  # fmt: skip
+    text = first.read_text(encoding="utf-8")
+    assert "newer" in text and "other" in text and "new\n" not in text.replace("newer", "")
+    assert text.index("## primary") < text.index("## sensitivity")
+    assert "old numbers" not in text

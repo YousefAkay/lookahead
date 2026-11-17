@@ -42,7 +42,7 @@ from lookahead.recurring_store import series_as_of
 from lookahead.settings import set_safety_buffer_cents
 
 DATA = Path("data/berka")
-REPORT = Path("docs/results/berka_sanity_2026-10-17.md")
+RESULTS = Path("docs/results")  # each sanity run writes berka_sanity_<date>.md here
 CENTS_PER_KORUNA = 5  # a scaling choice so amounts match the forecaster's, not an exchange rate
 N_ORIGINS = 40
 STEP_DAYS = 7
@@ -499,23 +499,32 @@ def sanity(group: str, limit: int | None, jobs: int, directory: Path, cash: bool
     lines = summarize(results, drift, group)
     print("\n".join(lines))
     if limit is None:
-        existing = REPORT.read_text(encoding="utf-8") if REPORT.exists() else ""
-        head = (
-            "# Berka: does it run and look sane (development accounts only, nothing scored)\n\n"
-            "Made with `python -m eval.berka sanity`. Method in DECISIONS.md (2026-10-17). Counts "
-            'only: no forecast is compared with what happened. The dip line is called "fell '
-            "below one month's outflow\" and was chosen from dip counts only, not from any "
-            "forecast result. Held-out accounts are not read.\n\n"
-        )
-        blocks: dict[str, str] = {}
-        for chunk in re.split(r"(?m)^(?=## [a-z])", existing):
-            if chunk.startswith("## "):
-                blocks[chunk[3:].split(" ", 1)[0]] = chunk.rstrip() + "\n"
-        blocks[group] = "\n".join(lines).rstrip() + "\n"
-        body = "\n".join(blocks[g] for g in ("primary", "sensitivity") if g in blocks)
-        REPORT.write_text(head + body, encoding="utf-8")
-        print(f"written: {REPORT}")
+        print(f"written: {write_report(lines, group)}")
     return 0
+
+
+def write_report(
+    lines: list[str], group: str, folder: Path = RESULTS, day: date | None = None
+) -> Path:
+    """Write a sanity run to `berka_sanity_<day>.md` (today by default). An older dated file is
+    never changed; a group run the same day joins that day's file, replacing its own block."""
+    report = folder / f"berka_sanity_{(day or date.today()).isoformat()}.md"
+    existing = report.read_text(encoding="utf-8") if report.exists() else ""
+    head = (
+        "# Berka: does it run and look sane (development accounts only, nothing scored)\n\n"
+        "Made with `python -m eval.berka sanity`. Method in DECISIONS.md (2026-10-17). Counts "
+        'only: no forecast is compared with what happened. The dip line is called "fell '
+        "below one month's outflow\" and was chosen from dip counts only, not from any "
+        "forecast result. Held-out accounts are not read.\n\n"
+    )
+    blocks: dict[str, str] = {}
+    for chunk in re.split(r"(?m)^(?=## [a-z])", existing):
+        if chunk.startswith("## "):
+            blocks[chunk[3:].split(" ", 1)[0]] = chunk.rstrip() + "\n"
+    blocks[group] = "\n".join(lines).rstrip() + "\n"
+    body = "\n".join(blocks[g] for g in ("primary", "sensitivity") if g in blocks)
+    report.write_text(head + body, encoding="utf-8")
+    return report
 
 
 # --- The truncated-future (leakage) test ---
