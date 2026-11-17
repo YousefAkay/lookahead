@@ -454,8 +454,10 @@ def summarize(results: list[dict[str, Any]], drift: list[float], group: str) -> 
         f"{len(ok):,} |",
         f"| origins with no recurring income placed | "
         f"{sum(o['recurring_in'] == 0 for o in ok):,} of {len(ok):,} |",
-        f"| origins whose forecast has an income series | {sum(o['has_income'] for o in ok):,} "
-        f"of {len(ok):,} |",
+        # Until 2026-11-17 this flag (and this row) counted any active income series; it now
+        # counts placed ones only, so a possibly ended salary no longer counts (DECISIONS).
+        f"| origins whose forecast places an income series | "
+        f"{sum(o['has_income'] for o in ok):,} of {len(ok):,} |",
         f"| recurring series detected per origin | "
         f"{quantile_line([float(o['series']) for o in ok], '{:.0f}')} |",
         "| scheduled items per origin | "

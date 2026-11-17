@@ -151,6 +151,29 @@ def test_a_possibly_ended_series_is_never_placed_on_the_first_day_as_due_and_not
 
 
 @pytest.mark.slow
+def test_a_possibly_ended_salary_is_not_income_assumed_and_is_listed_as_not_placed(
+    persona_conn, monkeypatch: pytest.MonkeyPatch  # type: ignore[no-untyped-def]
+) -> None:  # fmt: skip
+    fp, day = a_payment(persona_conn)
+    origin = day + timedelta(days=60)  # more than 45 days since the last payment
+    salary = series(
+        evidence=(fp,),
+        direction="in",
+        expected_cents=300000,
+        range_cents=(300000, 300000),
+        next_expected=origin + timedelta(days=3),
+    )
+    on = forecast_with(monkeypatch, persona_conn, salary, origin, ON)
+    off = forecast_with(monkeypatch, persona_conn, salary, origin, OFF)
+    assert not has_item(on) and on.has_income is False  # not placed, so no income is assumed
+    assert on.not_placed == (("s", "possibly ended"),)
+    assert has_item(off) and off.has_income is True and off.not_placed == ()
+    recent = replace(salary, next_expected=day + timedelta(days=33))  # inside the limit
+    inside = forecast_with(monkeypatch, persona_conn, recent, day + timedelta(days=30), ON)
+    assert inside.has_income is True and inside.not_placed == ()
+
+
+@pytest.mark.slow
 def test_the_default_is_a_and_b_and_off_changes_only_what_is_possibly_ended_by_b(
     persona_conn,  # type: ignore[no-untyped-def]
 ) -> None:

@@ -631,6 +631,40 @@ with st.container(key="evidence"):
                 "- **Income:** no regular income found; irregular deposits estimated from your "
                 "history (below)."
             )
+        arrivals = forecast.arrivals
+        n_in, n_out = len(arrivals.in_sizes), len(arrivals.out_sizes)
+        if n_in or n_out:
+            st.markdown(
+                f"- **Big money that keeps coming:** {n_in} recurring-size deposit"
+                f"{'' if n_in == 1 else 's'} and {n_out} recurring-size payment"
+                f"{'' if n_out == 1 else 's'} of the last 365 days, in no series, each with 2 or "
+                "more earlier ones of similar size. The simulated futures draw them as random "
+                "arrivals, at their observed rate and with their observed sizes, so the range, "
+                "the middle future and the chances include them."
+            )
+        else:
+            st.markdown(
+                "- **Big money that keeps coming:** none. A big row of the last 365 days with 2 "
+                "or more earlier ones of similar size would be drawn as random arrivals in the "
+                "simulated futures."
+            )
+        if arrivals.payments_below_floor:
+            st.markdown(
+                f"- **Recurring-size big payments set aside:** {arrivals.payments_below_floor}, "
+                "because there are fewer than 6 a year. They are not drawn."
+            )
+        if forecast.not_placed:
+            why = {
+                "weekly card purchases": "weekly card purchases, counted as everyday spending",
+                "possibly ended": "possibly ended: no payment for over 1.5 times its usual gap",
+            }
+            by_key = {s.key: s for s in forecast.series}
+            listed = "; ".join(f"{series_label(by_key[k], k in hidden)} ({why[r]})"
+                               for k, r in forecast.not_placed)  # fmt: skip
+            st.markdown(
+                f"- **Recurring series not placed:** {listed}. Confirm one on the Recurring page "
+                "to have it placed."
+            )
         if sim is not None:
             st.markdown(
                 f"- **Simulated futures:** {sim.futures}. Each draws, for every week ahead, one "
@@ -673,9 +707,11 @@ with st.container(key="evidence"):
             "The simulated futures draw whole past weeks. For each week ahead a future picks one "
             "of the weeks below at random and takes that week's irregular deposits (and its "
             "spending). A week with a large deposit in the stream therefore adds it to about one "
-            f"in {max(len(forecast.deposit_weeks), 1)} of the weeks ahead. Big deposits and "
-            "pass-throughs are set aside (last column) and are never drawn. Deposits of "
-            "recurring income series are not here: they are placed on their own dates."
+            f"in {max(len(forecast.deposit_weeks), 1)} of the weeks ahead. The big deposits and "
+            "pass-throughs set aside (last column) are not drawn. Big deposits that keep coming "
+            "at a similar size are not in this table: they are drawn as random arrivals (see the "
+            "assumptions). Deposits of recurring income series are not here: they are placed on "
+            "their own dates."
         )
         if forecast.deposit_weeks:
             weeks = deposit_weeks_table(list(forecast.deposit_weeks))
@@ -692,7 +728,9 @@ with st.container(key="evidence"):
         st.caption(
             "Big one-time rows of the last 13 weeks: a row of at least $500 that is at least 5 "
             "times the typical row, money out or money in. They are not everyday spending or "
-            "irregular deposits, and they are not repeated in the forecast. A big deposit that "
+            "irregular deposits, and the rows listed here are not drawn in the forecast. Big rows "
+            "that keep coming at a similar size are not listed: they are drawn as random arrivals "
+            "(see the assumptions). A big deposit that "
             "went straight back out (outflows adding up to 85 to 115 percent of it within 14 "
             "days) is shown with those outflows as a numbered pass-through. A big deposit with "
             "no such outflows is a large deposit: when one arrives cannot be predicted from "

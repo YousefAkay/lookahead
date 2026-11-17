@@ -4,7 +4,7 @@ All paths point into a temporary folder: these tests never open data/private/.
 """
 
 import re
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -698,6 +698,46 @@ def test_forecast_page_lists_the_big_one_time_events_it_leaves_out(isolated: Pat
         d.value for d in at.dataframe if list(d.value.columns) == ["Date", "Type", "Amount ($)"]
     ]
     assert events or "No big one-time rows in the last 13 weeks" in text
+
+
+def insert_rows(db: Path, rows: list[tuple[str, int, str, str]]) -> None:
+    from lookahead.db import connect
+
+    conn = connect(db)
+    with conn:
+        for n, (day, cents, description, sub) in enumerate(rows):
+            conn.execute(
+                "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+                " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+                " VALUES ('synthetic-B', ?, ?, ?, ?, 0, ?, 'f', 'x')",
+                (day, cents, description, sub, f"planted{n}"),
+            )
+    conn.close()
+
+
+def test_forecast_page_says_what_keeps_coming_is_drawn_and_lists_what_is_not_placed(
+    isolated: Path,
+) -> None:
+    run(FORECAST).sidebar.selectbox[0].set_value("synthetic-B").run()  # builds the demo database
+    yoga = [
+        (
+            (date(2026, 7, 2) + timedelta(weeks=k)).isoformat(),
+            -2500,
+            "pos purchase",
+            "Apos Studio Yoga #12     Montr ",
+        )
+        for k in range(13)
+    ]  # weekly card purchases: (a)
+    big = [(d, c, "deposit", "Atelier Photo Rive ") for d, c in
+           (("2026-06-20", 400000), ("2026-08-04", 350000), ("2026-09-08", 420000))]  # fmt: skip
+    insert_rows(isolated / "demo.db", yoga + big)
+    at = run(FORECAST)
+    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    assert not at.exception, at.exception
+    text = page_text(at)
+    assert "1 recurring-size deposit" in text and "drawn as random arrivals" in text
+    assert "Recurring series not placed:" in text and "weekly card purchases" in text
+    assert "never drawn" not in text and "not repeated in the forecast" not in text
 
 
 def test_the_transactions_page_refreshes_an_older_saved_copy_too(isolated: Path) -> None:

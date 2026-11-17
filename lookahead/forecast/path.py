@@ -147,7 +147,7 @@ class Forecast:
     method: str  # how everyday spending was estimated
     days: list[ForecastDay]
     items: list[ScheduledItem]
-    has_income: bool  # an income series exists (if not, no income is assumed)
+    has_income: bool  # a placed income series exists (if not, no income is assumed)
     buffer_cents: int = DEFAULT_BUFFER_CENTS
     series: tuple[Stored, ...] = ()
     breakdown: tuple[BreakdownRow, ...] = ()  # what the weekday baseline's history is made of
@@ -162,6 +162,8 @@ class Forecast:
     # Proposals, only when their options are on (step 2): what was detected at this date.
     outflow_placements: tuple[OutflowPlacement, ...] = ()
     first_time_offers: tuple[FirstTimeOffer, ...] = ()
+    # Series (a) or (b) chose not to place: (key, "weekly card purchases" or "possibly ended").
+    not_placed: tuple[tuple[str, str], ...] = ()
 
     @property
     def large_deposits(self) -> tuple[BigEvent, ...]:
@@ -294,7 +296,7 @@ def build_forecast(
         simulation = run(inputs, keep_paths=keep_paths)
     return Forecast(
         start, BASELINES[method], project_balance(start, items, spending, fees), items,
-        any(s.direction == "in" and s.active and s.status != "rejected" for s in series),
+        any(s.direction == "in" and s.active and s.status != "rejected" for s in placeable),
         safety_buffer_cents(conn), tuple(series),
         tuple(spending_breakdown(txns, flows, in_series, start.data_last_updated, first_posted)),
         tuple(big_events(txns, flows, in_series, start.data_last_updated, arrivals.members)),
@@ -308,6 +310,8 @@ def build_forecast(
         arrivals,
         proposed.placements,
         proposed.offers,
+        tuple((s.key, "weekly card purchases" if s.key in card_keys else "possibly ended")
+              for s in series if s.key in not_placed and s.active and s.status != "rejected"),
     )  # fmt: skip
 
 
