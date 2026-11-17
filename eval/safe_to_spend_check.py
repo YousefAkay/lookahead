@@ -81,6 +81,16 @@ def _share(rows: list[Record]) -> str:
     return f"{n / len(rows):.0%} ({n} of {len(rows)}, {len({r['persona'] for r in rows})} personas)"
 
 
+def dated_path(folder: Path, day: date) -> Path:
+    """A new results file for `day`: a second run the same day gets -2, -3 ..., never overwrites."""
+    out = folder / f"safe_to_spend_check_{day.isoformat()}.md"
+    n = 2
+    while out.exists():
+        out = folder / f"safe_to_spend_check_{day.isoformat()}-{n}.md"
+        n += 1
+    return out
+
+
 def near_edge(records: list[Record]) -> list[Record]:
     """Origins with a safe amount at most NEAR_EDGE_TIMES the usual everyday spending."""
     return [r for r in records if r["safe"] is not None and r["usual"] > 0
@@ -153,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         records = [r for rows in pool.map(check_persona, ids) for r in rows]
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / "records.json").write_text(json.dumps(records), encoding="utf-8")
-    out = RESULTS / f"safe_to_spend_check_{date.today().isoformat()}.md"
+    out = dated_path(RESULTS, date.today())
     out.write_text(report(records), encoding="utf-8")
     print(report(records))
     return 0

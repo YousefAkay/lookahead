@@ -1,6 +1,9 @@
 """The honesty check's report (eval/safe_to_spend_check.py) on made-up records."""
 
-from eval.safe_to_spend_check import near_edge, reading, report
+from datetime import date
+from pathlib import Path
+
+from eval.safe_to_spend_check import dated_path, near_edge, reading, report
 
 
 def rec(persona: str, safe: int | None, usual: int, actual: int, stayed: bool) -> dict:
@@ -42,3 +45,25 @@ def test_the_report_has_the_near_the_edge_rows_with_their_n() -> None:
     )
     assert "near the edge, actual everyday spending above it | 0% (0 of 1, 1 personas)" in text
     assert "Reading (rule written before the run): too few" in text
+
+
+def test_the_reading_boundaries_at_30_origins() -> None:
+    def rows(n: int) -> list[dict]:
+        return [rec(f"p{k % 5}", 1_500, 1_000, 1_000, True) for k in range(n)]
+
+    assert reading(rows(29)).startswith("too few")
+    assert reading(rows(30)) == "the 80 percent holds near the edge"
+
+
+def test_exactly_twice_the_usual_is_near_the_edge_whatever_was_spent() -> None:
+    rows = [rec("p1", 2_000, 1_000, 2_500, False)]  # exactly 2 times, spent above it
+    assert near_edge(rows) == rows
+    assert "above it | 0% (0 of 1, 1 personas)" in report(rows)
+
+
+def test_a_second_run_the_same_day_never_overwrites(tmp_path: Path) -> None:
+    first = dated_path(tmp_path, date(2026, 11, 17))
+    first.write_text("scored", encoding="utf-8")
+    second = dated_path(tmp_path, date(2026, 11, 17))
+    assert second != first and second.name == "safe_to_spend_check_2026-11-17-2.md"
+    assert first.read_text(encoding="utf-8") == "scored"

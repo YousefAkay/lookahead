@@ -247,3 +247,8 @@ def test_brand_names_are_split_by_whether_they_are_among_my_merchants(
     not_mine = brands.split("### Also among my own merchants")[0]
     assert "`shops.md`" in also_mine and "`notes.md`" not in also_mine
     assert "`notes.md`" in not_mine and "`shops.md`" not in not_mine
+
+
+def test_a_brand_of_several_words_is_mine_when_my_merchant_is_inside_it() -> None:
+    pats = scrub_scan.Patterns({"merchant": ("maxi",)}, frozenset())
+    assert pats.is_mine("Maxi") and pats.is_mine("Maxi & Cie") and not pats.is_mine("Metro")

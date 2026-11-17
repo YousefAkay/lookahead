@@ -44,3 +44,6 @@ DECISIONS-private.md
 
 # The public demo's Time Machine (synthetic personas only), committed so the server never builds it
 !data/demo/timemachine/*.db
+
+# local logs and reports (never committed)
+logs/

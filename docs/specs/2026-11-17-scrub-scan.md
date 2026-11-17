@@ -15,7 +15,8 @@ message it names which words of the script's own public AI-tool list matched.
 
 - The report is local only: written to the git-ignored `logs/` folder, never committed.
 - Author and committer identities are in scope: commits counted per identity, emails masked
-  (first letter and domain only). The history rewrite will switch them to the GitHub noreply
+  (first letter and domain only). *(Superseded in the second round: my gmail address stays and
+  is shown; the others are flagged.)* The history rewrite will switch them to the GitHub noreply
   address.
 - Brand names in the committed synthetic persona files (`data/synthetic/persona_*`) are counted
   in their own section, apart from real-merchant hits elsewhere.
@@ -47,7 +48,8 @@ message it names which words of the script's own public AI-tool list matched.
   is written as whole cents. The report gives counts per category only, never the pattern or the
   matched text. The tests
   use a made-up patterns file.
-- **Email.** After the rewrite, every commit (old and new) uses my GitHub noreply address; new
+- **Email** *(superseded in the second round: one public gmail address, no noreply)*. After the
+  rewrite, every commit (old and new) uses my GitHub noreply address; new
   commits get it from `git config`, and I check GitHub's email privacy settings.
 - **Coverage, confirmed:**
   - commit messages: the AI-tool word list includes Claude, Anthropic, Co-Authored-By and
@@ -118,5 +120,6 @@ message it names which words of the script's own public AI-tool list matched.
   an AI-tool commit on a side branch is found; a path is told apart as "at the tip" or "history
   only".
 - Run on this repository, it writes `logs/scrub-report-<date>.md` and prints only counts.
-- Yousef reads the report locally. The scrub itself (backup, rewrite, the single force-push)
-  is planned in a later session and needs his go before the force-push.
+- Yousef reads the report locally. The scrub itself is planned in a later session: a rewrite
+  on a fresh clone pushed to a new empty repository (no force-push; the second round), created
+  only after his go.

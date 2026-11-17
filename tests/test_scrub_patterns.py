@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from lookahead.db import connect
-from tools.scrub_patterns import build_patterns
+from tools.scrub_patterns import build_patterns, out_is_private
 
 HEADER = '"Filter","Date","Description","Sub-description","Type of Transaction","Amount","Balance"'
 ROWS = [
@@ -107,3 +107,13 @@ def test_a_file_that_is_not_an_export_is_skipped_by_count_only(tmp_path: Path) -
     (exports / "notes.csv").write_text("not,an,export\nOrrin Tadmuller,1,2\n", encoding="utf-8")
     pats = build_patterns(exports, None, None)
     assert "zorblax quintworth" in pats.text["etransfer"]
+
+
+def test_the_report_path_must_be_ignored_or_outside_the_repository(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    (repo / ".gitignore").write_text("private/\n", encoding="utf-8")
+    assert out_is_private(repo, tmp_path / "elsewhere" / "report.md")
+    assert out_is_private(repo, repo / "private" / "report.md")
+    assert not out_is_private(repo, repo / "docs" / "report.md")

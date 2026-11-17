@@ -18,6 +18,7 @@ format of `tools/scrub_scan.py`.
 import argparse
 import re
 import sqlite3
+import subprocess
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -119,6 +120,15 @@ def build_patterns(exports: Path | None, db: Path | None, allowlist: Path | None
     return Patterns(text, frozenset(amounts))
 
 
+def out_is_private(repo: Path, out: Path) -> bool:
+    """True if the report path is outside the repository or one git ignores."""
+    root, target = repo.resolve(), out.resolve()
+    if root not in target.parents:
+        return True
+    done = subprocess.run(["git", "-C", str(root), "check-ignore", "-q", str(target)])
+    return done.returncode == 0
+
+
 def merged(built: Patterns, extra: Patterns | None) -> Patterns:
     if extra is None:
         return built
@@ -145,6 +155,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True, help="report file (keep it private)")
     args = parser.parse_args(argv)
 
+    if not out_is_private(args.repo, args.out):
+        print("--out must be a path git ignores (or outside the repository); nothing was run")
+        return 2
     built = build_patterns(args.exports, args.db, args.allowlist)
     patterns = merged(built, load_patterns(args.extra) if args.extra else None)
     print("patterns built: " + ", ".join(f"{k} {v}" for k, v in patterns.counts().items() if v))

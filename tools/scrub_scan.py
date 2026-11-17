@@ -101,7 +101,7 @@ class Patterns:
     def is_mine(self, brand: str) -> bool:
         """Whether a brand name is also one of my own card merchants."""
         b = brand.casefold()
-        return any(b == m or b in m for m in self.text.get("merchant", ()))
+        return any(b == m or b in m or m in b for m in self.text.get("merchant", ()))
 
     def counts(self) -> dict[str, int]:
         out = {c: len(self.text.get(c, ())) for c in CATEGORIES if c != "amount"}
