@@ -245,7 +245,8 @@ def forecast_chart(actual: pd.DataFrame, forecast: object, buffer_cents: int) ->
 
 
 def calculator_chart(
-    start_day: object, start_cents: int, now: object, mine: object, buffer_cents: int | None
+    start_day: object, start_cents: int, now: object, mine: object, buffer_cents: int | None,
+    title: str = "End-of-day balance",
 ) -> go.Figure:  # fmt: skip
     """The scenario calculator's two lines, "as things are now" and "my scenario" (both
     lookahead.scenario results), from the starting balance, with the buffer and the first day
@@ -266,7 +267,7 @@ def calculator_chart(
         by_day = dict(zip(mine.days, mine.balances, strict=True))  # type: ignore[attr-defined]
         figure.add_scatter(x=[below], y=[by_day[below] / 100], mode="markers", meta="first_below",
                            name="First day below the buffer", marker={"size": 10})  # fmt: skip
-    figure.update_layout(title="End-of-day balance", yaxis_title="balance ($)")
+    figure.update_layout(title=title, yaxis_title="balance ($)")
     return figure
 
 

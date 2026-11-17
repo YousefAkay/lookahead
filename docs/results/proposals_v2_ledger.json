@@ -1,0 +1,66 @@
+[
+ {
+  "label": "variant 1: rent judged on a cluster (from my real-account veto, 2026-10-21)",
+  "kind": "change",
+  "when": "2026-10-21T13:15:51",
+  "code": "7b9602d",
+  "planter_version": 3,
+  "seed": 2026,
+  "sets": [],
+  "arms": false
+ },
+ {
+  "label": "variant 2: possible-subscription tolerance 5 percent (from my real-account veto, 2026-10-21)",
+  "kind": "change",
+  "when": "2026-10-21T13:15:52",
+  "code": "7b9602d",
+  "planter_version": 3,
+  "seed": 2026,
+  "sets": [],
+  "arms": false
+ },
+ {
+  "label": "variant 3: planter version 3, noise and currency pairs (2026-10-21)",
+  "kind": "change",
+  "when": "2026-10-21T13:15:54",
+  "code": "7b9602d",
+  "planter_version": 3,
+  "seed": 2026,
+  "sets": [],
+  "arms": false
+ },
+ {
+  "label": "rent proposer: the latest amount of a size is allowed (2026-10-22)",
+  "kind": "bug fix",
+  "when": "2026-10-22T12:43:19",
+  "code": "4026489",
+  "planter_version": 3,
+  "seed": 2026,
+  "sets": [],
+  "arms": false
+ },
+ {
+  "label": "rent proposer: the window covers every send day when 14 days or less allow it (from my real-account veto, 2026-10-22)",
+  "kind": "change",
+  "when": "2026-10-22T12:47:41",
+  "code": "dd46da9",
+  "planter_version": 3,
+  "seed": 2026,
+  "sets": [],
+  "arms": false
+ },
+ {
+  "label": "part (b), first scored run: paused at zero personas by the 92 percent memory line, then run to completion with --memory-limit 95; planter version 3, proposers as committed at e1a4726, run executed on code 0b3a225 (the --memory-limit change only)",
+  "kind": "scored run",
+  "when": "2026-10-22T13:29:30",
+  "code": "e1a4726",
+  "planter_version": 3,
+  "seed": 2026,
+  "sets": [
+   "12",
+   "long"
+  ],
+  "arms": false,
+  "run_id": "part-b-20261022-132930"
+ }
+]

@@ -104,9 +104,19 @@ def test_money_in_with_no_spending_and_no_flows_stays_flat() -> None:
     assert set(r.balances) == {5_000} and r.end_balance == 5_000
 
 
-def test_the_default_end_is_december_31_of_this_year() -> None:
-    assert default_end(date(2026, 11, 2)) == date(2026, 12, 31)
-    assert default_end(date(2026, 12, 31)) == date(2026, 12, 31)
+def test_the_default_end_is_90_days_after_the_last_day_of_data() -> None:
+    """Scenario v2, definition of done 8 (it was December 31 of this year)."""
+    assert default_end(date(2026, 10, 1)) == date(2026, 12, 30)
+    assert default_end(date(2026, 12, 15)) == date(2027, 3, 15)  # crosses the year
+
+
+def test_a_future_lump_sum_raises_my_scenario_by_exactly_its_amount_from_its_day() -> None:
+    """Scenario v2, definition of done 5: an expected family transfer entered as a dated one-off
+    "money in" changes nothing before its day and adds exactly its amount from that day on."""
+    gift = OneOff(date(2026, 4, 20), 250_000, "family transfer")
+    without, with_gift = run(month()), run(month(one_offs=(*month().one_offs, gift)))
+    for day, a, b in zip(without.days, without.balances, with_gift.balances, strict=True):
+        assert b - a == (250_000 if day >= gift.day else 0), day
 
 
 def test_the_calculator_and_its_adapter_import_nothing_from_the_forecaster_or_proposers() -> None:
@@ -156,3 +166,27 @@ def test_top_ups_from_savings_add_to_money_in() -> None:
     base = Inputs(100_000, START, QUARTER_END, daily_spend_cents=2_000)
     with_top_ups = Inputs(100_000, START, QUARTER_END, (top_up,), daily_spend_cents=2_000)
     assert run(with_top_ups).end_balance == run(base).end_balance + 3 * 50_000
+
+
+def test_the_end_balance_is_exactly_the_sum_of_its_parts_over_3_rent_days() -> None:
+    """My check of 2026-11-17 (chequing today - rent x 3 - daily spend x 90 + income x 3): the
+    page's "How we got here" adds up to the end balance exactly, and the daily spend is taken off
+    every one of the 90 days."""
+    rent = Flow("Rent", -120_000, "monthly", date(2024, 1, 1), card=True)
+    income = Flow("Income", 250_000, "monthly", date(2024, 1, 25))
+    phone = Flow("Phone", -6_500, "monthly", date(2024, 1, 15))
+    start = date(2026, 10, 31)
+    inputs = Inputs(balance_cents=300_000, start=start, end=start + timedelta(days=90),
+                    flows=(rent, income, phone), daily_spend_cents=4_000,
+                    one_offs=(OneOff(date(2026, 12, 20), 50_000, "gift"),))  # fmt: skip
+    r = run(inputs)
+    assert r.spend_days == 90 and r.spend_total == 90 * 4_000
+    assert [n for n, _ in r.flow_totals] == [
+        3,
+        3,
+        3,
+    ]  # Nov 2 (Nov 1 is a Sunday), Dec 1, Jan 2 (Jan 1: holiday)
+    assert r.one_off_total == 50_000
+    parts = 300_000 + sum(c for _, c in r.flow_totals) - r.spend_total + r.one_off_total
+    assert r.end_balance == parts
+    assert r.end_balance == 300_000 - 3 * 120_000 - 90 * 4_000 + 3 * 250_000 - 3 * 6_500 + 50_000
