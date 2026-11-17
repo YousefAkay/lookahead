@@ -3,10 +3,12 @@
 - The balance: after the newest posting (rows within a day are stored newest first).
 - Recurring flows: my confirmed and hand-added series. A series with a rent rule is rent: its
   latest allowed amount (my latest rent payment's amount if it is allowed, otherwise the larger
-  one) on its usual day.
+  one) on its usual day. A rent series that has ended is dropped when another rent series is still
+  active (after a move, 2026-11-17).
 - Income: the money in of the last WINDOW_DAYS, scaled to a month, less what is not income:
   transfers between my own accounts (the flow typing's "transfer", both directions), refunds,
-  netted pairs, money already in a confirmed or hand-added series, and big one-off deposits (the
+  netted pairs, money already in a confirmed or hand-added series (ended ones too, 2026-11-17),
+  and big one-off deposits (the
   shared one-time money rule, `lookahead.one_time`: the deposits the forecaster sets aside). Its
   usual day is kept for the "arrives on a set day" choice.
 - The daily spend: the average day of the last WINDOW_DAYS (total over the days, days with no
@@ -154,6 +156,10 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     own_flows: list[Flow] = []
     own_keys: set[str] = set()
     rents: list[tuple[date, Flow]] = []
+    # After a move (2026-11-17, my decision): an ended rent series is dropped when another rent
+    # series is still active; with none active, the most recently paid one is still the rent.
+    if any(s.active for s in rent_series):
+        rent_series = [s for s in rent_series if s.active]
     for s in rent_series:
         rule = rent_rule_of(s)
         assert rule is not None  # rent_series keeps only series with a rule
@@ -182,7 +188,9 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         f"Only {_count(span, 'day')} of history (fewer than {MIN_HISTORY_DAYS}): not estimated."
     )
     recent = rows[rows["date"].dt.date >= since]
-    in_decided = {fp for s in decided for fp in s.evidence}
+    # every confirmed or hand-added series, ended ones too: an ended one is not carried on, and
+    # its money is neither income nor daily spend (2026-11-17, my decision, same as spending)
+    in_confirmed = {fp for s in series if s.status in _DECIDED for fp in s.evidence}
     # rent paid by a series with a rent rule, confirmed or not: the page has its own rent field
     in_rent = {
         fp for s in series if s.status != "rejected" and rent_rule_of(s) for fp in s.evidence
@@ -190,7 +198,7 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
 
     income = None
     income_basis = ""
-    money_in = recent[(recent["amount_cents"] > 0) & ~recent["fingerprint"].isin(in_decided)
+    money_in = recent[(recent["amount_cents"] > 0) & ~recent["fingerprint"].isin(in_confirmed)
                       & ~recent["flow_type"].isin(NOT_INCOME)
                       & (recent["source"] != "netted")]  # fmt: skip
     one_off = money_in["fingerprint"].isin(_one_off_deposits(typed, series, last))
@@ -229,8 +237,6 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         # Left out only what is counted elsewhere (2026-11-10, my decision): rent, confirmed
         # recurring series and transfers between my own accounts; refunded pairs net to zero.
         # Card payments, e-Transfers to other people and withdrawals are spending.
-        # every confirmed or hand-added series, ended ones too: an ended one is not carried on
-        in_confirmed = {fp for s in series if s.status in _DECIDED for fp in s.evidence}
         counted_elsewhere = in_confirmed | in_rent | own
         out = recent[(recent["amount_cents"] < 0)
                      & ~recent["fingerprint"].isin(counted_elsewhere)

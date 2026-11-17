@@ -496,3 +496,79 @@ def test_confirmed_series_are_left_out_of_the_daily_spend_even_once_ended(tmp_pa
     assert [f.cents for f in p.flows] == [-4_000]  # the gym is listed, the ended plan is not
     assert p.daily_spend_cents == round(200 / 90)  # neither series is daily spend
     c.close()
+
+
+# --- The two open points of 2026-11-10, my decisions of 2026-11-17 ---
+
+
+def moved(c: sqlite3.Connection) -> tuple[str, str]:
+    """Rent by e-Transfer to an old landlord January to April ($900, ended), then to a new one from
+    March 30 ($1,200, still going); both with a rent rule. Returns (old key, new key)."""
+    window(c)
+    for m in range(1, 5):
+        insert(c, date(2026, m, 2), -90_000, "Free Interac E-Transfer ", kind="withdrawal",
+               flow="transfer")  # fmt: skip
+    for d in (date(2026, 3, 30), date(2026, 4, 30), date(2026, 5, 30), date(2026, 6, 29)):
+        insert(c, d, -120_000, "Free Interac E-Transfer ", kind="withdrawal", flow="transfer")
+    rents = [s for s in stored(c) if s.kind == "e-transfer" and s.direction == "out"]
+    old = next(s for s in rents if s.expected_cents == -90_000)
+    new = next(s for s in rents if s.expected_cents == -120_000)
+    set_rent_rule(c, ACCOUNT, old, RentRule((90_000,), 1, 5), LONG_AGO)
+    set_rent_rule(c, ACCOUNT, new, RentRule((120_000,), 28, 3), LONG_AGO)
+    return old.key, new.key
+
+
+def test_an_ended_rent_series_is_dropped_when_another_rent_series_is_active(
+    tmp_path: Path,
+) -> None:
+    """My decision (1) of 2026-11-17: after a move, the old rent is neither the rent field nor a
+    listed flow; its payments stay out of the daily spend."""
+    c = connect(tmp_path / "s.db")
+    old_key, new_key = moved(c)
+    series = stored(c)
+    by_key = {s.key: s for s in series}
+    assert not by_key[old_key].active and by_key[new_key].active
+    p = prefill(c, ACCOUNT, series)
+    assert p.rent is not None and (p.rent.cents, p.rent.key) == (-120_000, new_key)
+    assert all(f.key != old_key for f in p.flows)
+    assert p.daily_spend_cents == round(200 / 90)  # the two $1 purchases only
+    c.close()
+
+
+def test_an_ended_rent_series_stays_the_rent_when_no_rent_series_is_active(
+    tmp_path: Path,
+) -> None:
+    """With no active rent series, the most recently paid one still fills the rent field, as
+    before (the page lets me switch it off)."""
+    c = connect(tmp_path / "s.db")
+    window(c)
+    for m in range(1, 5):
+        insert(c, date(2026, m, 2), -90_000, "Free Interac E-Transfer ", kind="withdrawal",
+               flow="transfer")  # fmt: skip
+    rent = next(s for s in stored(c) if s.kind == "e-transfer" and s.direction == "out")
+    set_rent_rule(c, ACCOUNT, rent, RentRule((90_000,), 1, 5), LONG_AGO)
+    series = stored(c)
+    assert not next(s for s in series if s.key == rent.key).active
+    p = prefill(c, ACCOUNT, series)
+    assert p.rent is not None and p.rent.cents == -90_000
+    c.close()
+
+
+def test_an_ended_confirmed_pay_series_is_left_out_of_income(tmp_path: Path) -> None:
+    """My decision (2) of 2026-11-17, same as spending: the deposits of a confirmed pay series that
+    has ended are not income per month, and it is not listed either."""
+    c = connect(tmp_path / "s.db")
+    window(c)
+    day = date(2026, 1, 2)
+    while day <= date(2026, 5, 8):  # pay every two weeks to May 8 (three inside the 90 days)
+        insert(c, day, 150_000, "Payroll Dep ", kind="deposit", flow="income")
+        day += timedelta(days=14)
+    confirm_all(c)
+    series = stored(c)
+    pay = next(s for s in series if s.direction == "in")
+    assert pay.status == "confirmed" and not pay.active
+    p = prefill(c, ACCOUNT, series)
+    assert p.income is None and "income" in p.missing
+    assert "No deposits counted as income" in p.income_basis
+    assert all(f.cents < 0 for f in p.flows)
+    c.close()

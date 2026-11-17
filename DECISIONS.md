@@ -1876,6 +1876,12 @@ My second check on my real data failed: the year-end balance looked wrong, and I
 - **The default end date is 90 days after my last data date** (it was December 31, which grows less useful through the year).
 - **Lost:** leaving the calculator chequing-only and asking me to type a monthly top-up (it depends on a number I don't know in advance, and a wrong one moves the whole line); importing savings (not in v1).
 
+### 2026-11-17: Scenario v2, the two open points decided
+My decisions on the two open points of the scenario v2 entry above (2026-11-10):
+- **An ended rent series is dropped when another rent series is still active** (after a move, say): it is neither the rent field nor a listed flow, and its payments stay out of the daily spend as rent. With no rent series active, the most recently paid one still fills the rent field, as before, and I can switch it off on the page. Lost: listing the old rent beside the new one until I switch it off (it carried a rent I no longer pay into the scenario).
+- **An ended confirmed pay or income series is left out of income, same as spending:** its deposits in the last 90 days no longer count in "income per month", and it is not listed. If nothing else counts, the income note says no deposits were counted and income is left at zero for me to type. Lost: counting those deposits (an income that has ended would then still count).
+Tests on made-up data for both, and for the case with no active rent series.
+
 ### 2026-11-02: Recurring alerts merged into main
 I merged `recurring-alerts` into main (a fast-forward) after the full suite passed on it (2,234 tests) and after my own check on my real database: the Recurring page loads, my series are all there, the alert state was recorded, and rent does not show "may have stopped". Dismissing an alert and bringing it back are still untested on my real data: no alert was open on this first look, so that waits until new data arrives.
 
