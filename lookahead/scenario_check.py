@@ -91,6 +91,29 @@ def table(title: str, groups: pd.Series, money: pd.Series, of: str) -> list[str]
     return lines
 
 
+def income_detail(money_in: pd.DataFrame, reason_of: dict[str, str], days: int) -> list[str]:
+    """Where the income figure comes from: the counted deposits by type and source."""
+    counted = money_in[money_in["bucket"] == COUNTED]
+    money = counted["amount_cents"]
+    reasons = counted["fingerprint"].map(reason_of).map(lambda r: known(r, REASONS))
+    flow = counted["flow_type"].map(lambda v: known(v, FLOW_TYPES))
+    source = counted["source"].map(lambda v: known(v, SOURCES))
+    top = largest_shares(list(money))
+    shares = ", ".join(f"largest {n}: {100 * s:.1f}%" for n, s in top.items())
+    return [
+        "",
+        f"Income per month = the counted deposits over {days} days, times 30.44 / {days}.",
+        *table("Counted deposits, by flow-typing reason (bank's type)", reasons, money, "counted"),
+        *table(
+            "Counted deposits, by stored flow type (its source)",
+            flow + " (" + source + ")",
+            money,
+            "counted",
+        ),  # fmt: skip
+        f"How concentrated the counted deposits are ({len(counted)} rows): {shares}.",
+    ]
+
+
 def report(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) -> list[str]:
     """The lines to print: counts and shares only."""
     base = prefill(conn, account, series)
@@ -154,6 +177,8 @@ def report(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) -> 
             money_in["amount_cents"],
             "money in",
         ),  # fmt: skip
+        "",
+        *income_detail(money_in, reason_of, w.days),
         "",
         "Series listed on the page:",
         f"  listed in both views: {len(base.flows)}"

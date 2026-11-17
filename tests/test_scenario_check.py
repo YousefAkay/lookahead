@@ -119,3 +119,13 @@ def test_no_row_dominates_the_counted_spend_of_the_synthetic_personas(tmp_path: 
         assert counted, account
         assert largest_shares(counted)[1] <= DOMINANT_SHARE, account
     conn.close()
+
+
+def test_it_says_where_the_income_comes_from(db: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """My second real-data check: a solid income from 5 deposits needs its sources shown."""
+    assert main(["--db", str(db)]) == 0
+    out = capsys.readouterr().out
+    assert "Counted deposits, by flow-typing reason (bank's type)" in out
+    assert "Counted deposits, by stored flow type (its source)" in out
+    assert "Income per month = the counted deposits over 90 days, times 30.44 / 90" in out
+    assert "Acme" not in out and "1500" not in out

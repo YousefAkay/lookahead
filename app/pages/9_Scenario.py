@@ -38,6 +38,7 @@ from lookahead.recurring_store import ensure_current  # noqa: E402
 from lookahead.scenario import Flow, Inputs, OneOff, default_end, run  # noqa: E402
 from lookahead.scenario_prefill import (  # noqa: E402
     ANCHOR_YEAR,
+    TOP_LEFT,
     counts_top_up_twice,
     prefill,
     starting_point,
@@ -110,6 +111,14 @@ if not names:
 account = account_setting(names)
 series = ensure_current(conn, account, stored_key)
 base = prefill(conn, account, series)
+# Keyed fields keep their values across reruns, so after switching from the demo to my data they
+# showed the demo's end date, rent and income (my real-data check of 2026-11-17). When the data
+# changes (source, account or last day), every scenario field is forgotten and refilled.
+basis = (source, account, base.data_date)
+if st.session_state.get("sc_basis") != basis:
+    for name in [k for k in st.session_state if str(k).startswith("sc_")]:
+        del st.session_state[name]
+    st.session_state["sc_basis"] = basis
 rows = transactions(conn, account)
 hidden = hidden_series(rows, series, display_key)
 by_key = {s.key: s for s in series}
@@ -147,7 +156,13 @@ def forget_savings() -> None:
     st.session_state["sc_savings"] = None
 
 
-def basis_note(title: str, sentence: str, days: int, counts: tuple[tuple[str, int], ...]) -> str:
+def basis_note(
+    title: str,
+    sentence: str,
+    days: int,
+    counts: tuple[tuple[str, int], ...],
+    without_largest: int | None = None,
+) -> str:
     """An estimate's basis as a labelled block: one count per line, then the rule in words."""
     lines = [f"<strong>{html.escape(title)}</strong>"]
     if counts:
@@ -155,6 +170,9 @@ def basis_note(title: str, sentence: str, days: int, counts: tuple[tuple[str, in
         (counted, n), *left_out = counts
         lines.append(f"{html.escape(counted[:1].upper() + counted[1:])}: {n}")
         lines += [f"Left out, {html.escape(name)}: {k}" for name, k in left_out]
+    if without_largest is not None:  # to judge the average by; the field keeps the full one
+        lines.append(f"Without the {TOP_LEFT} biggest payments counted: "
+                     f"{html.escape(money(without_largest))} a day")  # fmt: skip
     lines.append(html.escape(sentence))
     return f'<p class="la-note">{"<br>".join(lines)}</p>'
 
@@ -221,7 +239,7 @@ with st.container(border=True, key="card-inputs"):
                                 value=base.daily_spend_cents / 100)  # fmt: skip
         st.markdown(
             basis_note("How the daily spend was estimated", base.spend_basis, base.window_days,
-                       base.spend_counts),
+                       base.spend_counts, base.spend_without_largest_cents),
             unsafe_allow_html=True,
         )  # fmt: skip
         income_in = st.number_input(

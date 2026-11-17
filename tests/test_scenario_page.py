@@ -279,3 +279,40 @@ def mine_end(at: AppTest) -> float:
 
     spec = json.loads(at.get("plotly_chart")[0].proto.spec)
     return float(next(d for d in spec["data"] if d.get("meta") == "mine")["y"][-1])
+
+
+def test_switching_to_my_data_refills_every_prefilled_field(isolated: Path) -> None:
+    """My second real-data check of 2026-11-17: end date 60 days out (Dec 30), rent $0 and a
+    solid income that the counts did not explain. The page had opened on the synthetic demo
+    first; keyed fields kept the demo's values after switching to my data."""
+    from lookahead.demo import build_demo_db
+    from lookahead.recurring_store import refresh
+    from lookahead.scenario import default_end
+    from lookahead.scenario_prefill import prefill
+
+    mine_csv = isolated / "mine_csv"
+    for pid in "ABC":  # the demo builder reads all three
+        write_persona(PERSONAS[pid], mine_csv, seed=7, start=date(2026, 3, 1),
+                      export_date=date(2026, 7, 31))  # fmt: skip
+    private = isolated / "private" / "lookahead.db"
+    build_demo_db(private, mine_csv)
+    conn = connect(private)
+    account = conn.execute("SELECT MIN(account) FROM transactions").fetchone()[0]
+    base = prefill(conn, account, refresh(conn, account))
+    conn.close()
+
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()  # the demo first
+    at.sidebar.radio(key="data_source").set_value("My data").run()
+    assert not at.exception, at.exception
+    assert base.data_date is not None
+    assert at.date_input(key="sc_end").value == default_end(base.data_date)
+    assert at.number_input(key="sc_spend").value == base.daily_spend_cents / 100
+    income = base.income.cents / 100 if base.income else 0.0
+    assert at.number_input(key="sc_income").value == income
+    rent = -base.rent.cents / 100 if base.rent else 0.0
+    assert at.number_input(key="sc_rent").value == rent
+
+
+def test_the_spend_note_shows_the_average_without_the_10_biggest() -> None:
+    at = AppTest.from_file(str(PAGE), default_timeout=90).run()
+    assert "Without the 10 biggest payments counted: $" in text_of(at)

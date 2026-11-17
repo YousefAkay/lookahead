@@ -45,6 +45,7 @@ from lookahead.settings import safety_buffer_cents
 from lookahead.views import transactions
 
 WINDOW_DAYS = 90
+TOP_LEFT = 10  # the spend note also gives the average without this many biggest payments
 MIN_HISTORY_DAYS = 30  # less than this: the daily spend and income are not estimated
 MONTH_DAYS = 365.25 / 12
 ANCHOR_YEAR = 2024  # a monthly flow's anchor: only its day of the month is used
@@ -91,6 +92,7 @@ class Prefill:
     window_days: int = 0
     income_counts: tuple[tuple[str, int], ...] = ()
     spend_counts: tuple[tuple[str, int], ...] = ()
+    spend_without_largest_cents: int | None = None  # the same average without the TOP_LEFT biggest
 
 
 @dataclass(frozen=True)
@@ -240,6 +242,7 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
 
     spend = 0
     spend_basis = ""
+    without_largest = None
     out_bucket = spend_buckets(w)
     if span < MIN_HISTORY_DAYS:
         missing.append("daily spend")
@@ -250,6 +253,8 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
         # Card payments, e-Transfers to other people and withdrawals are spending.
         out = w.money_out[out_bucket == COUNTED]
         spend = round(-int(out["amount_cents"].sum()) / span)
+        paid = sorted((-int(c) for c in out["amount_cents"]), reverse=True)
+        without_largest = round(sum(paid[TOP_LEFT:]) / span)
         big = int((out_bucket == "big one-off payments").sum())
         spend_basis = (
             f"The average day over {span} days (days with no spending count): "
@@ -262,7 +267,7 @@ def prefill(conn: sqlite3.Connection, account: str, series: Sequence[Stored]) ->
     spend_counts = _tally(out_bucket, ("payments counted", *SPEND_LEFT_OUT))
     return Prefill(last, balance, tuple(flows), rent, income, int(spend), buffer,
                    tuple(missing), income_basis, spend_basis, tuple(own_flows), span,
-                   income_counts, spend_counts)  # fmt: skip
+                   income_counts, spend_counts, without_largest)  # fmt: skip
 
 
 @dataclass(frozen=True)

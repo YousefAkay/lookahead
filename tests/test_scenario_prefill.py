@@ -622,3 +622,18 @@ def test_a_monthly_bill_is_not_a_one_off_payment(conn: sqlite3.Connection) -> No
     confirmed) is not set aside: it stays counted as before."""
     p = prefill(conn, ACCOUNT, stored(conn))
     assert dict(p.spend_counts)["big one-off payments"] == 0
+
+
+def test_the_spend_note_gives_the_average_without_the_10_biggest_payments(tmp_path: Path) -> None:
+    """My second real-data check of 2026-11-17: a line to judge the daily spend by; the default
+    stays the full average."""
+    c = connect(tmp_path / "s.db")
+    window(c)  # two $1 purchases
+    for k in range(2, 80, 3):  # 26 purchases of $25
+        insert(c, days_back(k), -2_500, "Opos Grocer", flow="everyday")
+    for k in range(1, 11):  # 10 purchases of $300, under the big one-off floor
+        insert(c, days_back(5 * k), -30_000, "Opos Store", flow="everyday")
+    p = prefill(c, ACCOUNT, stored(c))
+    assert p.daily_spend_cents == round((200 + 26 * 2_500 + 10 * 30_000) / 90)
+    assert p.spend_without_largest_cents == round((200 + 26 * 2_500) / 90)
+    c.close()
