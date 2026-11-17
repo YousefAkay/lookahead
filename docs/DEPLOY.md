@@ -107,7 +107,8 @@ is needed, `.env` is never read and nothing under `data/private` can be opened.
 ## Known limits of the free demo
 
 - Visitors share one demo database: a series confirmed by one visitor is confirmed for the next,
-  until the app restarts (**Reboot app** resets it).
+  until the app restarts (**Reboot app** resets it). A savings balance typed on the Scenario page
+  is the exception: it stays in that visitor's own session and is never saved.
 - An app with no visitors goes to sleep after a while; the next visit wakes it (a minute).
 - To refresh the Time Machine snapshots after a forecaster change:
   `python -m lookahead.timemachine_snapshots --out data/demo/timemachine` (synthetic personas only,

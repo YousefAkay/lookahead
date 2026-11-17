@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from app.navigation import APP_PAGES
 from lookahead import demo_mode
 from lookahead.demo_mode import DEMO_KEY, is_demo, is_private
 
@@ -240,11 +241,14 @@ def test_every_page_runs_in_demo_mode_without_env_and_never_opens_private_data(
     out = json.loads(done.stdout.strip().splitlines()[-1])
     assert out.pop("private opened") == []
     assert out.pop("env opened") == []
-    assert len(out) == 9  # Home and the eight pages
+    # The router (app/Home.py, which opens Home) and every other page it lists: a page added to
+    # the app without being run here fails this line.
+    assert set(out) == {"app/Home.py"} | {f"app/{p.file}" for p in APP_PAGES if p.url_path}
     for page, result in out.items():
         assert result["exception"] == [], (page, result["exception"])
         assert result["banner"], page
         assert not result["my data offered"], page
+    assert out["app/Home.py"]["safe to spend"]
     assert out["app/pages/5_Forecast.py"]["safe to spend"]
     assert out["app/pages/6_Time_machine.py"]["time machine dates"]  # the committed snapshots
     assert not (tmp_path / ".env").exists()

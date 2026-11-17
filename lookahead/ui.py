@@ -248,6 +248,33 @@ def forecast_chart(actual: pd.DataFrame, forecast: object, buffer_cents: int) ->
     return figure
 
 
+def calculator_chart(
+    start_day: object, start_cents: int, now: object, mine: object, buffer_cents: int | None,
+    title: str = "End-of-day balance",
+) -> go.Figure:  # fmt: skip
+    """The scenario calculator's two lines, "as things are now" and "my scenario" (both
+    lookahead.scenario results), from the starting balance, with the buffer and the first day
+    "my scenario" goes below it. Not the forecast's what-if, which is `scenario_chart`."""
+    figure = go.Figure()
+    for result, name, meta in ((now, "As things are now", "now"), (mine, "My scenario", "mine")):
+        days, balances = result.days, result.balances  # type: ignore[attr-defined]
+        figure.add_scatter(
+            x=[start_day, *days], y=[start_cents / 100, *(c / 100 for c in balances)],
+            mode="lines", line_shape="hv", name=name, meta=meta,
+        )  # fmt: skip
+    figure.add_hline(y=0, line_dash="dot", name="zero")
+    if buffer_cents is not None:
+        figure.add_hline(y=buffer_cents / 100, line_dash="dash", annotation_text="safety buffer",
+                         name="buffer")  # fmt: skip
+    below = getattr(mine, "first_below", None)
+    if below is not None:
+        by_day = dict(zip(mine.days, mine.balances, strict=True))  # type: ignore[attr-defined]
+        figure.add_scatter(x=[below], y=[by_day[below] / 100], mode="markers", meta="first_below",
+                           name="First day below the buffer", marker={"size": 10})  # fmt: skip
+    figure.update_layout(title=title, yaxis_title="balance ($)")
+    return figure
+
+
 _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
