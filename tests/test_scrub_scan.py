@@ -11,7 +11,22 @@ import pytest
 from tools import scrub_scan
 from tools.scrub_scan import load_patterns, mask_email, scan
 
-SECRETS = ("SENTINEL-PRIVATE", "SENTINEL-ENV")
+SECRETS = (
+    "SENTINEL-PRIVATE",
+    "SENTINEL-ENV",
+    "SENTINEL-LOCAL",
+    "SENTINEL-PROD",
+    "SENTINEL-RC",
+    "SENTINEL-DECISIONS",
+)
+PRIVATE = (
+    "data/private/secret.csv",
+    ".env",
+    ".env.local",
+    "config/prod.env",
+    ".envrc",
+    "DECISIONS-private.md",
+)
 MADE_UP = ("Zorblax", "Quintworth", "income arrives late", "Glimfood")
 
 
@@ -43,15 +58,18 @@ def repo(tmp_path: Path) -> dict[str, str]:
     write(r, "data/synthetic/persona_A.csv", "2026-01-01,Netflix,-1899\n")
     write(r, "docs/prepublic-scrub-report.md", "my old amount $99.99\n")
     write(r, "data/private/secret.csv", "SENTINEL-PRIVATE,$5,555.55 my\n")
-    write(r, ".env", "SENTINEL-ENV=1\n")
+    for path, secret in zip(PRIVATE[1:], SECRETS[1:], strict=True):
+        write(r, path, f"{secret}=1\n")
     first = commit(r, "First")
     write(r, "DECISIONS.md", "Nothing here.\n")  # the amount line is now in history only
     write(r, "story.md", "Zorblax Quintworth sent 77.10 by e-Transfer.\nMy income arrives late.\n")
     (r / "docs/prepublic-scrub-report.md").unlink()
     tip = commit(r, "Second")
     git(r, "checkout", "-q", "-b", "side")
-    write(r, "side.md", "side\n")
-    side = commit(r, "Side work\n\nCo-Authored-By: Claude <noreply@example.com>")
+    write(r, "side.md", "amount_cents = -7710\n")  # 77.10, written as whole cents
+    side = commit(
+        r, "Side work for Zorblax Quintworth\n\nCo-Authored-By: Claude <noreply@example.com>"
+    )
     git(r, "checkout", "-q", "main")
     git(r, "checkout", "-q", "-b", "proto")
     write(r, "proto.md", "Glimfood\n")
@@ -100,10 +118,12 @@ def test_private_files_are_never_read(
     monkeypatch.setattr(scrub_scan.BlobReader, "read", spy)
     text = run(repo)
     r = Path(repo["repo"])
-    private = git(r, "rev-parse", f"{repo['first']}:data/private/secret.csv")
-    env = git(r, "rev-parse", f"{repo['first']}:.env")
-    assert read and private not in read and env not in read
-    assert "a path under data/private" in text and "a .env file" in text
+    oids = {path: git(r, "rev-parse", f"{repo['first']}:{path}") for path in PRIVATE}
+    assert read
+    for path, oid in oids.items():
+        assert oid not in read, path
+    assert "- a path under data/private: 1 paths" in text
+    assert "- a .env file: 4 paths" in text and "- DECISIONS-private.md: 1 paths" in text
 
 
 def test_ai_mentions_are_found_on_side_branches_reflogs_and_unreachable_commits(
@@ -160,3 +180,19 @@ def test_a_bad_patterns_line_names_its_line_number_not_its_text(tmp_path: Path) 
 def test_emails_are_masked_to_their_first_letter_and_domain() -> None:
     assert mask_email("someone@example.org") == "s***@example.org"
     assert mask_email("123+someone@users.noreply.github.com") == "1***@users.noreply.github.com"
+
+
+def test_my_patterns_are_also_matched_in_commit_messages_and_amounts_in_whole_cents(
+    repo: dict[str, str],
+) -> None:
+    personal = run(repo).split("## 7.")[1].split("## 8.")[0]
+    messages = next(x for x in personal.splitlines() if x.startswith("| commit messages |"))
+    assert repo["side"][:10] in messages and "name" in messages
+    amounts = personal.split("### amount")[1]
+    assert "`side.md`" in amounts and "`story.md`" in amounts
+
+
+@pytest.mark.parametrize("path", PRIVATE)
+def test_never_read_covers_every_private_kind_of_path(path: str) -> None:
+    assert scrub_scan.never_read(path) is not None
+    assert scrub_scan.never_read(".env.example") is None

@@ -124,7 +124,9 @@ def never_read(path: str) -> str | None:
     if any(a == "data" and b == "private" for a, b in zip(parts, parts[1:], strict=False)):
         return "a path under data/private"
     name = parts[-1]
-    if name == ".env" or (name.startswith(".env.") and name != ".env.example"):
+    if name != ".env.example" and (
+        name in (".env", ".envrc") or name.startswith(".env.") or name.endswith(".env")
+    ):
         return "a .env file"
     if name == "decisions-private.md":
         return "DECISIONS-private.md"
@@ -193,6 +195,7 @@ class Commit:
     author: tuple[str, str] = ("", "")
     committer: tuple[str, str] = ("", "")
     ai_words: tuple[str, ...] = ()
+    mine: tuple[str, ...] = ()  # categories of my patterns its message matches
     refs: set[str] = field(default_factory=set)
 
 
@@ -270,6 +273,12 @@ def line_rules(line: str, patterns: Patterns | None) -> set[str]:
                 if (m.group(1) or m.group(3)) and to_cents(m.group(0)) in patterns.amounts:
                     hits.add("mine: amount")
                     break
+                # the project's own convention: an amount written as whole cents (-123456)
+                if not (m.group(1) or m.group(3)) and int(m.group(2).replace(",", "")) in (
+                    patterns.amounts
+                ):
+                    hits.add("mine: amount")
+                    break
     return hits
 
 
@@ -315,6 +324,11 @@ def scan(repo: Path, tip: str, patterns: Patterns | None) -> str:
             c.author = people.get("author", ("", ""))
             c.committer = people.get("committer", ("", ""))
             c.ai_words = tuple(sorted({m.group(1).casefold() for m in AI_WORDS.finditer(message)}))
+            if patterns is not None:
+                c.mine = tuple(sorted({rule.removeprefix("mine: ")
+                                       for line in message.splitlines()
+                                       for rule in line_rules(line, patterns)
+                                       if rule.startswith("mine: ")}))  # fmt: skip
 
         where: dict[tuple[str, str], set[str]] = defaultdict(set)  # (path, blob) -> commits
         for c in commits.values():
@@ -477,6 +491,10 @@ def render(
                 f"| {n_commits} |"
             )
         out.append("")
+        flagged = sorted((c for c in commits.values() if c.mine), key=lambda c: c.oid)
+        ids = "; ".join(f"`{c.oid[:10]}` ({', '.join(c.mine)}; {c.reach})" for c in flagged)
+        out += ["| In | Commits | Which (categories only) |", "|---|---|---|",
+                f"| commit messages | {len(flagged)} | {ids or 'none'} |", ""]  # fmt: skip
         for category in CATEGORIES:
             hits = by_rule.get(f"mine: {category}", {})
             if hits:

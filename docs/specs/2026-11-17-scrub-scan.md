@@ -8,7 +8,8 @@ every tag, including local-only tags such as `archive/lightgbm-prototype`: not j
 one branch's tip.
 
 The report says counts, file paths and commit ids only. It never quotes an amount, a merchant
-line or any other matched text.
+line or any other matched text from the files or my patterns. The one exception: for a commit
+message it names which words of the script's own public AI-tool list matched.
 
 ## Decisions (Yousef, 2026-11-17)
 
@@ -30,8 +31,8 @@ line or any other matched text.
   already uses, and a generic "my own account" wording rule. My name, my amounts, e-Transfer
   names, my merchants and exact wordings live in a git-ignored file I fill in myself,
   `data/private/scrub_patterns.txt`, passed with `--patterns`. The script never opens it unless
-  that option is given, so a run without `--patterns` (generic rules only) never touches it; the run
-  with my patterns is mine. Its format (one pattern a line, matched without case):
+  that option is given, so a run without `--patterns` (generic rules only) never touches it;
+  the run with my patterns is mine. Its format (one pattern a line, matched without case):
 
   ```
   # a line starting with # is ignored
@@ -42,7 +43,9 @@ line or any other matched text.
   phrase: <any exact wording to find, e.g. a sentence about my income timing>
   ```
 
-  The report gives counts per category only, never the pattern or the matched text. The tests
+  My patterns are also matched against commit messages, and an amount is also matched when it
+  is written as whole cents. The report gives counts per category only, never the pattern or the
+  matched text. The tests
   use a made-up patterns file.
 - **Email.** After the rewrite, every commit (old and new) uses my GitHub noreply address; new
   commits get it from `git config`, and I check GitHub's email privacy settings.
