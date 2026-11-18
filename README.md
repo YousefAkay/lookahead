@@ -48,7 +48,9 @@ categories have fewer than 10 test rows, and macro-F1 is much lower (69.6% on th
   one it may use only the rows posted by then, and it is scored against the 30 days that followed.
   Tests rewrite or delete later rows and check that the forecast does not change.
 - **Berka.** As an outside check I use the public PKDD'99 Berka bank data (a Czech bank in the
-  1990s), split into development and held-out accounts. It is not committed here.
+  1990s), split into development and held-out accounts. Source: the PKDD'99 Discovery Challenge
+  financial dataset, prepared by Petr Berka and Marta Sochorova. The data is not included here (only
+  the account-id split lists in `docs/`); download it yourself.
 - **The held-out test has not been run.** I made this repository public before the forecaster's
   final held-out test. The held-out personas and Berka accounts are unopened, and every forecaster
   number below is on development data only. The test runs once, when the forecaster is final, and
