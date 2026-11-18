@@ -2204,6 +2204,10 @@ Categorizer and merchant-matching accuracy on my labelled rows may be public, as
 ### 2026-11-18: scrub-prep merged into main
 - I merged `scrub-prep` into main (a fast-forward to 1465643) after the full suite (2,503 passed) and the reviewer's PASS: two DECISIONS lines (the rent rule's first version and the final veto) read correctly in context. The test values the reviewer asked about are made up and stay; the generator constants stay.
 
+### 2026-11-18: No AI assistant named in files, before the rewrite
+- **Decision.** The history scan no longer allows a vendor email domain, the real-account proposals script no longer says who never runs it, and the exported design mockup (`docs/design/target/`) is removed, with the lines that pointed at it reworded. The rewrite removes the same things from every older version: the local-only entries in old `.gitignore` versions, the old scanner lines that named a local instructions file, and the mockup's only version. The generic AI word lists of the two scanners stay: they are what the scans look for.
+- **Lost:** keeping the mockup (it was a design export, not code; the screenshots in `docs/design/` show the result).
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.

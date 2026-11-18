@@ -2,7 +2,7 @@
 
 A range from simulated futures built from your own past weeks. It needs no confirmations:
 recurring payments are used as the app found them unless you changed them on the Recurring page.
-The look (the target in docs/design/target) lives in app/theme.py.
+The look (the target design) lives in app/theme.py.
 """
 
 import html

@@ -1,4 +1,4 @@
-"""Tests for the look of the app (the light design in docs/design/target): tokens, contrast, the
+"""Tests for the look of the app (the light target design): tokens, contrast, the
 font, offline use, and the small helpers (money, dates, tags, callouts, the top bar, tables and the
 chart template). Presentation only: nothing here touches a forecast."""
 

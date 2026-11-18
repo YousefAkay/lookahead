@@ -12,7 +12,7 @@ gatherUsageStats = false
 toolbarMode = "minimal"  # hides the Deploy button and developer items
 showSidebarNavigation = false  # the pages are linked from the green top bar (app/theme.py)
 
-# --- Look: light, a green top bar, white cards. The target is in docs/design/target; every colour
+# --- Look: light, a green top bar, white cards. The target is a design mockup (not kept); every colour
 # is a token named in app/theme.py (a test keeps the two in step and checks WCAG AA contrast).
 # No external calls: Manrope is a file in app/static/fonts (SIL Open Font Licence).
 [theme]

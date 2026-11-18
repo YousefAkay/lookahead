@@ -1,6 +1,6 @@
 """The look of Lookahead: light, a green top bar, white cards, Manrope. Presentation only.
 
-The target is docs/design/target (a Forecast page and a Recurring page, with made-up data).
+The target was a design mockup (a Forecast page and a Recurring page, with made-up data).
 Everything visual lives here so that every page uses the same pieces:
 - `COLORS`: the tokens (the same values are in .streamlit/config.toml; a test keeps them in step
   and checks that every text/background pair meets WCAG AA);
