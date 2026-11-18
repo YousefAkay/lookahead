@@ -405,6 +405,8 @@ def scan(repo: Path, tip: str, patterns: Patterns | None, public_email: str | No
 
 
 NAME_CATEGORIES = ("name", "address", "etransfer", "merchant", "account", "phrase")
+AMOUNT_CATEGORIES = ("amount", "amount (with cents)")
+MESSAGE = "(commit message)"
 
 
 @dataclass
@@ -416,13 +418,27 @@ class NameHits:
 
 
 def matched_names(repo: Path, tip: str, patterns: Patterns) -> tuple[str, dict[str, int]]:
-    """Which of my text patterns matched, with counts: a PRIVATE file's contents (it names my
-    merchants and e-Transfer names), and how many distinct names matched per category (safe to
-    print). Same reach as `scan`: every commit, contents of private paths never read."""
+    """Which of my text patterns and formatted amounts matched, with counts: a PRIVATE file's
+    contents (it names my merchants, e-Transfer names and amounts), and how many distinct names
+    or amounts matched per category (safe to print). Same reach as `scan`: every commit, contents
+    of private paths never read. Amounts are listed per file; bare numbers are left out."""
     commits = all_commits(repo)
     tip_files = dict(tree_of(repo, git(repo, "rev-parse", f"{tip}^{{commit}}").strip()))
     hits: dict[str, dict[str, NameHits]] = {c: defaultdict(NameHits) for c in NAME_CATEGORIES}
     regexes = {c: r for c, r in patterns.compiled.items() if c in NAME_CATEGORIES}
+    # (category, cents, path) -> distinct line hashes, and whether the tip's version holds it
+    amounts: dict[tuple[str, int, str], set[str]] = defaultdict(set)
+    amount_at_tip: set[tuple[str, int, str]] = set()
+
+    def amounts_in(line: str) -> Iterable[tuple[str, int]]:
+        for m in AMOUNT_TOKEN.finditer(line):
+            if m.group(1) or m.group(3):
+                cents = to_cents(m.group(0))
+                if cents in patterns.amounts:
+                    yield ("amount (with cents)" if cents % 100 else "amount"), cents
+
+    def digest(line: str) -> str:
+        return hashlib.sha256(line.strip().encode()).hexdigest()
 
     def found(line: str) -> Iterable[tuple[str, str]]:
         for category, regex in regexes.items():
@@ -437,6 +453,8 @@ def matched_names(repo: Path, tip: str, patterns: Patterns) -> tuple[str, dict[s
             for line in message.splitlines():
                 for category, name in found(line):
                     hits[category][name].messages.add(oid)
+                for category, cents in amounts_in(line):
+                    amounts[(category, cents, MESSAGE)].add(digest(line))
             for path, blob in tree_of(repo, oid):
                 where[(path, blob)] = tip_files.get(path) == blob
         for (path, blob), at_tip in sorted(where.items()):
@@ -448,19 +466,25 @@ def matched_names(repo: Path, tip: str, patterns: Patterns) -> tuple[str, dict[s
             for line in data.decode("utf-8", "replace").splitlines():
                 for category, name in found(line):
                     h = hits[category][name]
-                    h.lines.add(hashlib.sha256(line.strip().encode()).hexdigest())
+                    h.lines.add(digest(line))
                     h.paths.add(path)
                     h.at_tip = h.at_tip or at_tip
+                for category, cents in amounts_in(line):
+                    amounts[(category, cents, path)].add(digest(line))
+                    if at_tip:
+                        amount_at_tip.add((category, cents, path))
     finally:
         reader.close()
 
     leave = patterns.leave
     out = [
-        "# Matched names (PRIVATE: never commit, never paste)",
+        "# Matched names and amounts (PRIVATE: never commit, never paste)",
         "",
         f"Every commit of this clone; tip `{tip}`. Distinct lines are counted over every version "
         "of every file. Synthetic = every path is a synthetic persona file; leaving = every path "
-        "leaves the history whole; brand = also a brand name of the synthetic generator.",
+        "leaves the history whole; brand = also a brand name of the synthetic generator. Amounts "
+        "are formatted ones ($ or cents) per file; at the tip = the tip's version of that file "
+        "holds it; bare numbers are not listed.",
         "",
     ]
     for category in NAME_CATEGORIES:
@@ -483,7 +507,31 @@ def matched_names(repo: Path, tip: str, patterns: Patterns) -> tuple[str, dict[s
                 f"{'yes' if leaving else 'no'} | {'yes' if brand else 'no'} |"
             )
         out.append("")
-    return "\n".join(out) + "\n", {c: len(hits[c]) for c in NAME_CATEGORIES}
+    counts = {c: len(hits[c]) for c in NAME_CATEGORIES}
+    for category in AMOUNT_CATEGORIES:
+        rows = sorted((k for k in amounts if k[0] == category), key=lambda k: (k[1], k[2]))
+        counts[category] = len({k[1] for k in rows})
+        out += [
+            f"## {category} ({counts[category]} amounts matched, in {len(rows)} amount-file pairs)",
+            "",
+        ]
+        if not rows:
+            continue
+        out += [
+            "| Amount | File | Distinct lines | At the tip | Synthetic | Leaving |",
+            "|---|---|---|---|---|---|",
+        ]
+        for key in rows:
+            _, cents, path = key
+            synthetic = path.startswith(SYNTHETIC)
+            leaving = path != MESSAGE and must_leave(path, leave) is not None
+            out.append(
+                f"| ${cents / 100:,.2f} | {path} | {len(amounts[key])} | "
+                f"{'yes' if key in amount_at_tip else 'no'} | {'yes' if synthetic else 'no'} | "
+                f"{'yes' if leaving else 'no'} |"
+            )
+        out.append("")
+    return "\n".join(out) + "\n", counts
 
 
 def _reach_of(oids: Iterable[str], commits: dict[str, Commit]) -> str:

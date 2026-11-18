@@ -1929,6 +1929,7 @@ My veto rerun after the bug fix still said rent **no** (`window_misses_payment_d
 - A cost I accept: one late payment now stretches the window, so the window can be wider than the days I usually pay; the 14-day limit and the fallback bound that.
 
 ### 2026-10-22: Rent is vetoed by my account in this round (under the 3590bcc definition); no more proposer changes for my account
+My final veto rerun (not independent, after every change prompted by my account) gave: **rent no, window_misses_payment_days**; link yes; hand-added yes. For rent the cluster is the right one; what differs is the window: the 80 percent fallback leaves out a day inside my own window, and the veto requires every one of them.
 - **I accept the veto for rent.** Under the definition committed in 3590bcc (the same forward amount; the window covers every day of my past payments inside my window) the proposer does not recover my rent rule, and I will not change the proposers again for my account in this round.
 - Link (yes) and hand-added (yes) pass the veto. The rent kind stays marked **"vetoed by my account"** in every report, whatever part (b) shows, and it is not adopted.
 - This is a counts-only reading of my real account; real and synthetic results stay in separate columns, and the veto remains not independent of the changes made after it.
@@ -2174,6 +2175,13 @@ Categorizer and merchant-matching accuracy on my labelled rows may be public, as
 - **Decision.** A bare run of `python -m tools.scrub_patterns` reads nothing and stops with a message: `--mine` is required. With it, the paths I leave out default to my private folder; a default file that does not exist is skipped by name, and a path I type that does not exist stops the run (a typo must not quietly drop patterns).
 - **Decision.** The public scan code names only one whole file that leaves the history: the old scrub report. Every other whole file to remove is a `leave:` line (one repository path) of my private extras file, so no planning or local file is named in public code.
 - **Lost:** defaults that read my private files on a bare run (one mistyped command reads my bank files), and the removal list written in the scan's code.
+
+### 2026-11-18: How the history rewrite is done and checked
+- **Tool.** `git-filter-repo` (a git tool installed with Homebrew, not a project dependency), on a fresh clone. It removes the whole files that leave the history, replaces text in every version of every file (one rule for every old version of each line I reworded, so earlier commits get the new wording too, not just the tip), moves the old yahoo address to my gmail address, and rewords the two commit messages of the scrub tool that say "AI tool".
+- **What the new repository gets:** `main`, and the tags `exp4-final` and `proposals-v2-final` (where the code of experiment 4 and of proposals part (b) lives; they go through the same rewrite and checks). Not `demo`, `archive/lightgbm-prototype`, `runs-2026-10-16` or any other old branch.
+- **Commit ids.** The rewrite gives every commit a new id. After it, one commit replaces the old ids cited in DECISIONS, the README and `docs/` at the tip with the new ones, from filter-repo's commit map, plus one line saying that ids inside older commits refer to the history before the rewrite. No mapping table.
+- **Checks on the new clone:** every old wording is found 0 times in every commit; the scrub scan with the old wordings as my `phrase:` patterns finds 0 paths; the tip's files equal today's tip except the files that leave; the full suite passes.
+- **Lost:** fixing the wording at the tip only (older commits would still show it); a mapping table of old and new ids.
 
 ## Known issues
 

@@ -109,6 +109,10 @@ message it names which words of the script's own public AI-tool list matched.
   to `data/private/scrub/matched-names-<date>.md` (a path git must ignore). Only the number of
   names per category is printed. It lets me check which local names are left; it is never
   committed or pasted.
+- **Amounts in `--names`** (2026-11-18): each of my formatted amounts that matched (`amount` and
+  `amount (with cents)`), per file: distinct lines, whether the tip's version of the file holds it,
+  and whether the file is a synthetic persona file or leaves the history. Commit messages are one
+  "file". Bare numbers are not listed (too many coincidences).
 
 ## Sections of the report
 

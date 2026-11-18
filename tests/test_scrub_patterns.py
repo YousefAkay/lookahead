@@ -211,21 +211,33 @@ def test_names_go_to_the_private_file_only_with_their_counts(tmp_path: Path) -> 
         subprocess.run(["git", "-C", str(repo), *args], check=True)
     (repo / "notes.md").write_text("Paid Orrin Tadmuller.\nOrrin Tadmuller again.\n",
                                    encoding="utf-8")  # fmt: skip
-    (repo / "shop.md").write_text("Lunch at Maxi.\n", encoding="utf-8")
+    (repo / "shop.md").write_text("Lunch at Maxi.\nRent $750.00, then $512.34, then 750.\n",
+                                  encoding="utf-8")  # fmt: skip
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "Paid Orrin Tadmuller"],
                    check=True)  # fmt: skip
+    (repo / "shop.md").write_text("Lunch at Maxi.\n", encoding="utf-8")  # amounts gone at the tip
+    (repo / "old.md").write_text("Paid $512.34 once.\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "tidy"], check=True)
+    extra = tmp_path / "extra.txt"
+    extra.write_text("amount: 512.34\n", encoding="utf-8")  # a made-up amount with cents
     out = tmp_path / "names.md"
     done = subprocess.run(
         [sys.executable, "-m", "tools.scrub_patterns", "--mine", "--names", "--exports",
-         str(exports), "--repo", str(repo), "--tip", "main", "--out", str(out)],
+         str(exports), "--extra", str(extra), "--repo", str(repo), "--tip", "main", "--out",
+         str(out)],
         capture_output=True, text=True, check=True, cwd=Path(__file__).resolve().parents[1],
     )  # fmt: skip
     printed = done.stdout + done.stderr
-    for value in ("Orrin", "Tadmuller", "orrin", "maxi", "Maxi", "Zorblax"):
+    for value in ("Orrin", "Tadmuller", "orrin", "maxi", "Maxi", "Zorblax", "750", "512"):
         assert value not in printed, value
     assert "names matched: name 0, address 0, etransfer 1, merchant 1" in printed
+    assert "amount 1, amount (with cents) 1" in printed
     assert "## 7." not in printed and f"written: {out}" in printed
     text = out.read_text(encoding="utf-8")
     assert "| orrin tadmuller | 2 | 1 | 1 | yes | no | no | no |" in text
     assert "| maxi | 1 | 1 | 0 | yes | no | no | yes |" in text  # also a generator brand
+    assert "| $750.00 | shop.md | 1 | no | no | no |" in text  # the bare 750 is not listed
+    assert "| $512.34 | old.md | 1 | yes | no | no |" in text
+    assert "| $512.34 | shop.md | 1 | no | no | no |" in text
