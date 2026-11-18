@@ -408,6 +408,7 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Counted by hand before confirming anything and before any detector change: 5 regular payments, all bills or subscriptions. This is a case study of one account.
 - The detector found 4 of the 5, with 0 false series. The fifth has only 2 charges so far, so it is below the detector's minimum and was added by hand.
 - My decisions in the log: 5 confirms, 0 rejects, 1 add, 1 continuation link (one subscription under two merchant names), several rent-rule saves.
+- Rent: outgoing e-Transfers, all in the rule; once it was saved, the rule added no payment the series did not already show, because it matched only payments inside its window.
 - Two gaps found by using it: a hand-added series does not pick up its own past charges (shows none), and a series has no name of my own for display.
 - Consequence for the rent rule: matching must not depend on the day (late payers exist). Design change planned next, see the next entry.
 
@@ -1931,6 +1932,7 @@ My veto rerun after the bug fix still said rent **no** (`window_misses_payment_d
 ### 2026-10-22: Rent is vetoed by my account in this round (under the 3590bcc definition); no more proposer changes for my account
 My final veto rerun (not independent, after every change prompted by my account) gave: **rent no, window_misses_payment_days**; link yes; hand-added yes. For rent the cluster is the right one; what differs is the window: the 80 percent fallback leaves out a day inside my own window, and the veto requires every one of them.
 - **I accept the veto for rent.** Under the definition committed in 3590bcc (the same forward amount; the window covers every day of my past payments inside my window) the proposer does not recover my rent rule, and I will not change the proposers again for my account in this round.
+- **A "most days within 14" window would not clearly help:** on my account it leaves out the same day as the 80 percent fallback.
 - Link (yes) and hand-added (yes) pass the veto. The rent kind stays marked **"vetoed by my account"** in every report, whatever part (b) shows, and it is not adopted.
 - This is a counts-only reading of my real account; real and synthetic results stay in separate columns, and the veto remains not independent of the changes made after it.
 
@@ -2182,6 +2184,7 @@ Categorizer and merchant-matching accuracy on my labelled rows may be public, as
 - **Commit ids.** The rewrite gives every commit a new id. After it, one commit replaces the old ids cited in DECISIONS, the README and `docs/` at the tip with the new ones, from filter-repo's commit map, plus one line saying that ids inside older commits refer to the history before the rewrite. No mapping table.
 - **Checks on the new clone:** every old wording is found 0 times in every commit; the scrub scan with the old wordings as my `phrase:` patterns finds 0 paths; the tip's files equal today's tip except the files that leave; the full suite passes.
 - **Lost:** fixing the wording at the tip only (older commits would still show it); a mapping table of old and new ids.
+- **Persona C and the old brand names in older commits.** I chose to give every older commit today's versions of C's export, answer key and Time Machine snapshot, today's C settings in the generator and its tests, and today's made-up brand names (older versions of the demo snapshot databases become today's), so commits before the rewrite may not reproduce or run Persona C as it was, and their pinned export hashes may not match. Lost: leaving C and the old names as they were in older commits (they tied the generator to my account).
 
 ### 2026-11-18: Persona C's settings replaced with made-up values
 - **Decision.** Every setting of the demo persona C is now made up: the opening balance, rent, bill and subscription, tuition amounts and dates, the family memos before each term, the top-up rule (threshold, delays, amounts, rounding, gaps), the posting-day rule, the quiet month, the spending profile and its merchants and weights, and the returned e-Transfer. The story stays: a student funded by family credit memos, with tuition each term. The C tests now check C against its own made-up profile.
