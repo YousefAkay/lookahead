@@ -1,6 +1,6 @@
 # Lookahead
 
-Lookahead is a small app I built to forecast the balance of one chequing account for the next 30
+Lookahead is an app I built to forecast the balance of one chequing account for the next 30
 days. It reads bank CSV exports, sorts every transaction into a category, works out which payments
 repeat, and simulates 500 possible futures from the account's own past weeks. From those it shows
 a likely range for the balance, the chance of dipping below a buffer you choose, and a warning with
