@@ -32,6 +32,7 @@ from app.theme import (  # noqa: E402
     tag_html,
     top_bar,
 )
+from lookahead import demo_mode  # noqa: E402
 from lookahead.db import connect  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
@@ -157,7 +158,8 @@ with action_col:
         confirm_all(conn, account, listed)
         refresh(conn, account, stored_key)
         st.rerun()
-if last_date is not None and any(last_date < s.next_expected < date.today() for s in listed):
+today = demo_mode.today(last_date)
+if last_date is not None and any(last_date < s.next_expected < today for s in listed):
     st.markdown(
         '<p class="la-note">A next expected date after the data ends but before today is a '
         "payment due since then that has not been seen yet; it may already have posted.</p>",
@@ -236,7 +238,7 @@ if picked == ADD:
                                  key="add_direction")  # fmt: skip
             cadence = st.selectbox("How often", CADENCES, index=CADENCES.index("monthly"),
                                    key="add_cadence")  # fmt: skip
-            first = st.date_input("A date it is due", value=date.today(), key="add_date")
+            first = st.date_input("A date it is due", value=today, key="add_date")
             size = st.number_input("Amount ($)", min_value=0.0, step=1.0, key="add_amount")
             add = st.form_submit_button("Add", type="primary")
         if add:

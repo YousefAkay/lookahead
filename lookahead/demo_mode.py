@@ -13,6 +13,7 @@ off, and once installed it stays for the life of the process (audit hooks cannot
 import hashlib
 import os
 import sys
+from datetime import date, timedelta
 from typing import Any
 
 ENV = "LOOKAHEAD_DEMO"
@@ -26,6 +27,14 @@ _GUARDED_EVENTS = ("open", "sqlite3.connect", "os.listdir", "os.scandir", "glob.
                    "glob.glob/2", "pathlib.Path.glob", "pathlib.Path.rglob", "shutil.copyfile",
                    "shutil.copytree")  # fmt: skip
 _installed = False
+
+
+def today(data_end: date | None) -> date:
+    """The app's "today": the real date, except in demo mode, where it is the day after the
+    demo data ends, so no line compares made-up data with the real calendar."""
+    if is_demo() and data_end is not None:
+        return data_end + timedelta(days=1)
+    return date.today()
 
 
 def is_demo() -> bool:

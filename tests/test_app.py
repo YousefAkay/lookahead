@@ -629,6 +629,7 @@ def test_forecast_page_shows_the_start_the_assumptions_and_the_placed_payments(
     assert not at.exception, at.exception
     text = page_text(at)
     assert "Data to " in text and "the day after the data ends" in text
+    assert "Today is " in text  # not demo mode: the real date (the data ends before it)
     assert "Starting point:" in text and "Everyday spending:" in text  # the assumptions
     assert "Bank fees:" in text and "recent daily average" in text
     assert "Not financial advice" in text

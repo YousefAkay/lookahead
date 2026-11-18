@@ -45,6 +45,7 @@ from app.theme import (  # noqa: E402
     tag_html,
     top_bar,
 )
+from lookahead import demo_mode  # noqa: E402
 from lookahead.alerts import (  # noqa: E402
     PROVISIONAL,
     alert_message,
@@ -168,7 +169,7 @@ by_key = {s.key: s for s in forecast.series}
 names_in_order = list(forecast.items and forecast_table(forecast.items, by_key, hidden)["Name"])
 
 # --- Title row ---
-today = date.today()
+today = demo_mode.today(start.first_day - timedelta(days=1))
 title_col, action_col = st.columns([4, 1.3], vertical_alignment="bottom")
 with title_col:
     st.markdown(

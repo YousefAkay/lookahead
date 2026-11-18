@@ -30,6 +30,7 @@ from app.theme import (  # noqa: E402
     money,
     top_bar,
 )
+from lookahead import demo_mode  # noqa: E402
 from lookahead.db import connect  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
@@ -183,7 +184,7 @@ st.markdown(
 )
 assert base.data_date is not None  # an account has at least one row
 start = base.data_date
-if start < date.today():
+if start < demo_mode.today(start):
     st.markdown(
         f'<p class="la-note">Starting from {fmt_date(start)}, the latest day in your data.</p>',
         unsafe_allow_html=True,

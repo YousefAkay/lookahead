@@ -456,3 +456,20 @@ def test_the_label_command_needs_an_existing_database(
                    "--selection", str(selection), "--labels", str(labels)])  # fmt: skip
     assert code == 2 and "no database" in capsys.readouterr().out
     assert not labels.exists()  # nothing frozen either
+
+
+def test_the_ledger_is_one_absolute_path_in_the_main_folder() -> None:
+    ledger = h.default_ledger()
+    assert ledger.is_absolute()
+    assert ledger == h.main_folder() / "data" / "private" / "eval" / "categorizer_v2_ledger.jsonl"
+    assert h.ledger_is_private(ledger)
+
+
+def test_a_worktree_finds_the_main_folder(repo: Path, tmp_path: Path) -> None:
+    (repo / "f.txt").write_text("x", encoding="utf-8")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-q", "-m", "f")
+    tree = tmp_path / "tree"
+    _git(repo, "worktree", "add", "-q", str(tree))
+    assert h.main_folder(tree).resolve() == repo.resolve()
+    assert h.main_folder(repo).resolve() == repo.resolve()

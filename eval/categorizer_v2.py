@@ -57,7 +57,6 @@ from lookahead.taxonomy import CATEGORIES
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ADOPT_RULE = Path("docs/specs/2026-11-18-categorizer-v2-adopt-rule.md")  # once approved
 APPROVED_ADOPT_RULE = ROOT / DEFAULT_ADOPT_RULE  # the only file accepted as the adopt rule
-DEFAULT_LEDGER = Path("data/private/eval/categorizer_v2_ledger.jsonl")
 DEFAULT_RAG_CACHE = Path("data/private/cache/rag_categories.json")
 VARIANTS = ("current", "cleaner+directory", "+RAG")
 LEAKAGE_AT = 0.95  # any variant above this: check for leakage before reading anything
@@ -69,6 +68,30 @@ DRY_RUN = "dry run, not a result"
 
 def _git(args: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+
+
+def main_folder(start: Path = ROOT) -> Path:
+    """The main repository folder, also when run from a worktree (git's shared folder is the
+    main folder's .git): where my private files are."""
+    out = _git(["rev-parse", "--path-format=absolute", "--git-common-dir"], start)
+    common = Path(out.stdout.strip()) if out.returncode == 0 and out.stdout.strip() else None
+    return common.parent if common is not None and common.name == ".git" else start
+
+
+def default_ledger() -> Path:
+    """The one ledger, an absolute path in the main folder's data/private: the same file
+    whichever folder the command is run from."""
+    return main_folder() / "data" / "private" / "eval" / "categorizer_v2_ledger.jsonl"
+
+
+DEFAULT_LEDGER = default_ledger()
+
+
+def ledger_is_private(path: Path) -> bool:
+    """Inside this checkout's data/private, or the main folder's (from a worktree)."""
+    return is_private_path(path) or path.resolve().is_relative_to(
+        (main_folder() / "data" / "private").resolve()
+    )
 
 
 @dataclass(frozen=True)
@@ -281,7 +304,7 @@ def ledger_entries(path: Path) -> list[dict[str, object]]:
 
 
 def add_to_ledger(path: Path, entry: dict[str, object]) -> None:
-    if not is_private_path(path):
+    if not ledger_is_private(path):
         raise ValueError("the ledger holds results on my data: keep it in data/private/")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -403,7 +426,7 @@ def score_my_data(args: argparse.Namespace) -> int:
     from lookahead.synthetic_training import synthetic_examples
 
     args.ledger = DEFAULT_LEDGER  # one ledger: a fresh file must not reset "scored once"
-    if not is_private_path(args.ledger):
+    if not ledger_is_private(args.ledger):
         print("the ledger must be inside data/private/ (nothing scored, nothing logged)")
         return 2
     now = datetime.now().isoformat(timespec="seconds")

@@ -218,6 +218,7 @@ for page in pages:
     out[page] = {"exception": [str(e.value) for e in at.exception],
                  "banner": BANNER in text, "safe to spend": "Safe to spend" in text,
                  "time machine dates": "As of " in text,
+                 "real date": "Today is " in text or "but before today" in text,
                  "my data offered": any("My data" in str(r.options) for r in at.sidebar.radio)}
 out["private opened"] = sorted({p for p in opened if is_private(p)})
 out["env opened"] = sorted({p for p in opened if p.endswith(".env")})
@@ -248,7 +249,21 @@ def test_every_page_runs_in_demo_mode_without_env_and_never_opens_private_data(
         assert result["exception"] == [], (page, result["exception"])
         assert result["banner"], page
         assert not result["my data offered"], page
+        assert not result["real date"], page  # "today" is the day after the demo data ends
     assert out["app/Home.py"]["safe to spend"]
     assert out["app/pages/5_Forecast.py"]["safe to spend"]
     assert out["app/pages/6_Time_machine.py"]["time machine dates"]  # the committed snapshots
     assert not (tmp_path / ".env").exists()
+
+
+def test_today_is_the_day_after_the_data_in_demo_mode_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import date
+
+    end = date(2026, 10, 1)
+    monkeypatch.setenv("LOOKAHEAD_DEMO", "1")
+    assert demo_mode.today(end) == date(2026, 10, 2)
+    assert demo_mode.today(None) == date.today()  # no data: the real date
+    monkeypatch.delenv("LOOKAHEAD_DEMO")
+    assert demo_mode.today(end) == date.today()  # my real data: the real clock, unchanged
