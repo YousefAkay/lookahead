@@ -2201,6 +2201,9 @@ Categorizer and merchant-matching accuracy on my labelled rows may be public, as
 - I merged `tip-scrub` into main (a fast-forward to 9b6dcfd) after the full suite (2,503 passed) and the reviewer's PASS on both commits. It removes figures from my account from generator and test comments (notes on the bank's file format kept), rewords the last DECISIONS lines with facts about my account, replaces the old persona C numbers still used in ten tests with C's made-up values, and records what the history rewrite does to persona C and the old brand names in older commits.
 - Open for me (reviewer notes, not blocking): some generator constants still hold the values the removed comments described; a few test values (rent rule amounts, a large deposit and payment, a tuition item) to confirm as made up.
 
+### 2026-11-18: scrub-prep merged into main
+- I merged `scrub-prep` into main (a fast-forward to 1465643) after the full suite (2,503 passed) and the reviewer's PASS: two DECISIONS lines (the rent rule's first version and the final veto) read correctly in context. The test values the reviewer asked about are made up and stay; the generator constants stay.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
