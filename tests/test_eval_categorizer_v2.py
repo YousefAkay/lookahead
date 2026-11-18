@@ -182,8 +182,11 @@ def test_no_adopt_rule_no_score(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert "refusing to score" in capsys.readouterr().out
 
 
-def _blind_labels(db: Path, tmp_path: Path, splits: tuple[str, ...]) -> Path:
-    """A labels file for persona C's rows of the given frozen splits, from its answer key."""
+def _blind_labels(
+    db: Path, tmp_path: Path, splits: tuple[str, ...], sets: dict[str, str] | None = None
+) -> Path:
+    """A labels file for persona C's rows of the given frozen splits, from its answer key; each
+    row's group is `sets[fingerprint]`, K when not given."""
     from lookahead.db import connect_readonly
     from lookahead.labels import current_labels, load_rows
 
@@ -194,9 +197,9 @@ def _blind_labels(db: Path, tmp_path: Path, splits: tuple[str, ...]) -> Path:
     path = tmp_path / "labels.csv"
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["fingerprint", "category"])
+        w.writerow(["fingerprint", "set", "category"])
         for fp in rows[rows["split"].isin(splits)]["fingerprint"]:
-            w.writerow([fp, labels[fp].category])
+            w.writerow([fp, (sets or {}).get(fp, "K"), labels[fp].category])
     return path
 
 
@@ -220,10 +223,13 @@ def test_old_holdout_rows_are_refused(
     assert [e["status"] for e in h.ledger_entries(ledger)] == ["refused"]  # logged
 
 
-def _unlabelled_new_rows(db: Path, tmp_path: Path) -> tuple[Path, Path]:
-    """A copy of the database where persona C's Test B rows lose their labels and their split
-    (as if they were fresh rows), and a labels file for them."""
-    labels = _blind_labels(db, tmp_path, ("test_b",))
+def _unlabelled_new_rows(
+    db: Path, tmp_path: Path, splits: tuple[str, ...] = ("test_b",)
+) -> tuple[Path, Path]:
+    """A copy of the database where persona C's rows of `splits` lose their labels and their
+    split (as if they were fresh rows), and a labels file for them."""
+    labels = _blind_labels(db, tmp_path, splits)
+    marks = ", ".join("?" * len(splits))
     copy = _private_copy(db, tmp_path)
     import sqlite3
 
@@ -231,18 +237,40 @@ def _unlabelled_new_rows(db: Path, tmp_path: Path) -> tuple[Path, Path]:
     with conn:
         conn.execute(
             "DELETE FROM category_labels WHERE fingerprint IN"
-            " (SELECT fingerprint FROM label_splits WHERE split = 'test_b')"
+            f" (SELECT fingerprint FROM label_splits WHERE split IN ({marks}))",
+            splits,
         )
-        conn.execute("DELETE FROM label_splits WHERE split = 'test_b'")
+        conn.execute(f"DELETE FROM label_splits WHERE split IN ({marks})", splits)
     conn.close()
     return copy, labels
 
 
+def _true_sets(copy: Path, labels: Path) -> dict[str, int]:
+    """Rewrite the labels file's group column as the selection would draw it: K when the
+    row's merchant has training labels, A otherwise. Returns the count of each."""
+    from lookahead.categorize import training_rows
+    from lookahead.db import connect_readonly
+
+    conn = connect_readonly(copy)
+    groups = dict(zip(*h.categorizer_features(conn, "scotia-chequing")[["fingerprint", "group"]]
+                      .to_numpy().T, strict=True))  # fmt: skip
+    trained = set(training_rows(conn, "scotia-chequing")["group"])
+    conn.close()
+    rows = pd.read_csv(labels, dtype=str, keep_default_na=False)
+    rows["set"] = ["K" if groups.get(f) in trained else "A" for f in rows["fingerprint"]]
+    rows.to_csv(labels, index=False)
+    return rows["set"].value_counts().to_dict()
+
+
 @pytest.mark.slow
 def test_scoring_prints_n_never_row_text_and_counts_every_variant(
-    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    copy, labels = _unlabelled_new_rows(db, tmp_path)
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    copy, labels = _unlabelled_new_rows(db, tmp_path, ("test_a", "test_b"))
+    counts = _true_sets(copy, labels)
+    assert counts.get("A") and counts.get("K")  # both groups present
+    monkeypatch.setattr(h, "A_MIN_ROWS", 1)  # a small synthetic persona has fewer than 100
     ledger = tmp_path / "data" / "private" / "ledger.jsonl"
     choice = tmp_path / "choice.json"
     choice.write_text(json.dumps({"params": {"model__C": 1.0}, "flag_threshold": 0.5,
@@ -261,16 +289,18 @@ def test_scoring_prints_n_never_row_text_and_counts_every_variant(
     for text in [*texts, *features["group"]]:
         if text.strip():
             assert text.strip() not in out  # no row text, no merchant name
+    assert "cleaner+directory vs current, group A" in out and "passes: " in out
     entries = h.ledger_entries(ledger)
-    assert [e["variant"] for e in entries] == list(h.VARIANTS[:2])
+    assert [e.get("variant") or e.get("comparison") for e in entries] == [
+        *h.VARIANTS[:2], "cleaner+directory vs current"]  # fmt: skip
     assert all(e["adopt_rule_commit"] and not e["dry_run"] for e in entries)
     # the same labels again: refused, unless --again (which is recorded)
     assert h.main(args) == 2
     assert "already scored" in capsys.readouterr().out
     assert h.main([*args, "--again"]) == 0
     entries = h.ledger_entries(ledger)
-    assert [e["status"] for e in entries] == ["scored", "scored", "refused", "scored", "scored"]
-    assert [e["again"] for e in entries] == [False, False, False, True, True]
+    assert [e["status"] for e in entries] == ["scored"] * 3 + ["refused"] + ["scored"] * 3
+    assert [e["again"] for e in entries] == [False] * 4 + [True] * 3
 
 
 def test_blind_rows_labelled_in_the_app_are_refused(
@@ -359,10 +389,10 @@ def _earlier_scored(ledger: Path, fingerprints: list[str]) -> None:
 @pytest.mark.parametrize(
     "rows",
     [
-        "f1,Shopping\nf2,Groceries\n",  # the same labels
-        "f1,Transport\nf2,Groceries\n",  # a label edited
-        "f1,Shopping\nf2,\n",  # a label removed
-        "f2,Groceries\nf3,Shopping\n",  # a row swapped for a new one
+        "f1,A,Shopping\nf2,A,Groceries\n",  # the same labels
+        "f1,A,Transport\nf2,A,Groceries\n",  # a label edited
+        "f1,A,Shopping\nf2,A,\n",  # a label removed
+        "f2,A,Groceries\nf3,A,Shopping\n",  # a row swapped for a new one
     ],
 )
 def test_a_scored_selection_is_never_scored_again(
@@ -372,7 +402,7 @@ def test_a_scored_selection_is_never_scored_again(
     ledger = tmp_path / "data" / "private" / "ledger.jsonl"
     _earlier_scored(ledger, ["f1", "f2"])
     labels = tmp_path / "labels.csv"
-    labels.write_text("fingerprint,category\n" + rows, encoding="utf-8")
+    labels.write_text("fingerprint,set,category\n" + rows, encoding="utf-8")
     assert h.main(_score_args(tmp_path, labels, rule)) == 2
     assert "already scored" in capsys.readouterr().out
     assert h.ledger_entries(ledger)[-1]["status"] == "refused"
@@ -391,11 +421,12 @@ def test_a_missing_flag_is_refused_and_logged(tmp_path: Path) -> None:
 # --- Blind labelling: merchant text only ---
 
 
-def _selection(tmp_path: Path, fingerprints: list[str]) -> Path:
+def _selection(tmp_path: Path, fingerprints: list[str], sets: list[str] | None = None) -> Path:
     path = tmp_path / "data" / "private" / "eval" / "candidates.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({"fingerprint": fingerprints, "posted_date": "2026-10-02",
-                  "group": "x", "category": ""}).to_csv(path, index=False)  # fmt: skip
+    pd.DataFrame({"fingerprint": fingerprints, "posted_date": "2026-10-02", "group": "x",
+                  "set": sets or ["A"] * len(fingerprints),
+                  "category": ""}).to_csv(path, index=False)  # fmt: skip
     return path
 
 
@@ -473,3 +504,207 @@ def test_a_worktree_finds_the_main_folder(repo: Path, tmp_path: Path) -> None:
     _git(repo, "worktree", "add", "-q", str(tree))
     assert h.main_folder(tree).resolve() == repo.resolve()
     assert h.main_folder(repo).resolve() == repo.resolve()
+
+
+# --- The adopt rule of 2026-11-18: groups A and K, the cap, the minimum, (c) against (b) ---
+
+
+def _features(
+    new_merchants: int, rows_each: int, known: int = 4, known_rows: int = 40
+) -> pd.DataFrame:
+    """Made-up categorizer rows: `new_merchants` merchants first seen in October with
+    `rows_each` rows each, `known` labelled merchants with rows before and after October, and
+    one merchant first seen in August (not new)."""
+    rows = []
+    for m in range(new_merchants):
+        rows += [(f"n{m}-{r}", f"New {m}", date(2026, 10, 1 + r % 28)) for r in range(rows_each)]
+    for m in range(known):
+        rows += [(f"k{m}-{r}", f"Known {m}", date(2026, 9 + r % 2, 1 + r % 28))
+                 for r in range(known_rows)]  # fmt: skip
+    rows += [("o-0", "Old", date(2026, 8, 3)), ("o-1", "Old", date(2026, 10, 3))]
+    return pd.DataFrame(rows, columns=["fingerprint", "group", "posted_date"])
+
+
+KNOWN = {"Known 0", "Known 1", "Known 2", "Known 3"}
+SINCE = date(2026, 10, 1)
+
+
+def test_the_selection_caps_each_merchant_and_group_a_and_draws_60_known_rows() -> None:
+    features = _features(new_merchants=80, rows_each=5)
+    excluded = {"n0-0", "k0-1"}  # old holdout or labelled rows: never picked
+    got = h.select_blind_rows(features, KNOWN, excluded, SINCE)
+    a, k = got[got["set"] == "A"], got[got["set"] == "K"]
+    assert len(a) == h.A_MAX_ROWS == 150
+    assert a.groupby("group").size().max() <= h.A_PER_MERCHANT == 3
+    assert not set(a["group"]) & (KNOWN | {"Old"})  # new merchants only
+    assert len(k) == h.K_ROWS == 60 and set(k["group"]) <= KNOWN
+    assert (got["posted_date"] >= SINCE).all()
+    assert not set(got["fingerprint"]) & excluded
+    assert got["fingerprint"].is_unique
+
+
+def test_the_selection_is_seeded_and_mixes_the_groups() -> None:
+    features = _features(new_merchants=80, rows_each=5)
+    first = h.select_blind_rows(features, KNOWN, set(), SINCE)
+    again = h.select_blind_rows(features.sample(frac=1, random_state=3), KNOWN, set(), SINCE)
+    assert list(first["fingerprint"]) == list(again["fingerprint"])  # input order is irrelevant
+    other = h.select_blind_rows(features, KNOWN, set(), SINCE, seed=1)
+    assert set(other["fingerprint"]) != set(first["fingerprint"])
+    # shuffled together: the labelling order does not tell the group
+    assert list(first["set"]) != sorted(first["set"])
+
+
+def test_fewer_than_100_rows_for_group_a_selects_nothing() -> None:
+    # 40 new merchants with 5 rows each: 200 rows, but only 120 after the cap of 3: enough
+    assert len(h.select_blind_rows(_features(40, 5), KNOWN, set(), SINCE)) > 0
+    # 33 merchants with 5 rows each: 165 rows, 99 after the cap: refused
+    with pytest.raises(ValueError, match="Wait for more data"):
+        h.select_blind_rows(_features(33, 5), KNOWN, set(), SINCE)
+
+
+def test_the_candidates_command_never_redraws(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "data" / "private" / "eval" / "candidates.csv"
+    out.parent.mkdir(parents=True)
+    out.write_text("frozen\n", encoding="utf-8")
+    code = h.main(["candidates", "--db", str(tmp_path / "x.db"), "--since", "2026-10-01",
+                   "--out", str(out)])  # fmt: skip
+    assert code == 2 and "never redrawn" in capsys.readouterr().out
+    assert out.read_text(encoding="utf-8") == "frozen\n"
+
+
+def test_the_candidates_command_writes_both_groups(
+    db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    copy, _ = _unlabelled_new_rows(db, tmp_path, ("test_a", "test_b"))
+    out = tmp_path / "data" / "private" / "eval" / "candidates.csv"
+    args = ["candidates", "--db", str(copy), "--since", "2025-10-01", "--out", str(out)]
+    monkeypatch.setattr(h, "A_MIN_ROWS", 10_000)  # too few rows: refused, nothing written
+    assert h.main(args) == 2 and "Wait for more data" in capsys.readouterr().out
+    assert not out.exists()
+    monkeypatch.setattr(h, "A_MIN_ROWS", 1)
+    assert h.main(args) == 0
+    printed = capsys.readouterr().out
+    written = pd.read_csv(out, dtype=str, keep_default_na=False)
+    assert list(written.columns) == ["fingerprint", "posted_date", "group", "set", "category"]
+    assert set(written["set"]) == {"A", "K"} and (written["category"] == "").all()
+    assert (written["set"] == "K").sum() <= h.K_ROWS
+    for name in written["group"]:
+        assert name not in printed  # counts only, no merchant names
+
+
+def test_variant_b_uses_exact_and_alias_matches_only() -> None:
+    b = h.variant_options("cleaner+directory")
+    assert b.cleaner and b.directory and not b.directory_similar
+    assert not h.variant_options("current").any_on
+    assert not h.variant_options("+RAG").directory_similar
+
+
+def test_freezing_keeps_each_rows_group_but_labelling_never_shows_it(tmp_path: Path) -> None:
+    labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
+    h.freeze_selection(_selection(tmp_path, ["f1", "f2"], ["K", "A"]), labels)
+    assert h.load_blind_sets(labels) == {"f1": "K", "f2": "A"}
+    shown: list[str] = []
+    h.label_session({"f1": "Opos Velorin Cafe", "f2": "Apos Lunaire"}, labels,
+                    lambda prompt: (shown.append(prompt), "q")[1], shown.append)  # fmt: skip
+    assert "group" not in "\n".join(shown).casefold()
+
+
+def test_a_selection_without_groups_is_refused(tmp_path: Path) -> None:
+    labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
+    old = tmp_path / "data" / "private" / "eval" / "old.csv"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_text("fingerprint,posted_date,group,category\nf1,2026-10-02,x,\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="set column"):
+        h.freeze_selection(old, labels)
+    labels.write_text("fingerprint,category\nf1,Shopping\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="set column"):
+        h.load_blind_sets(labels)
+
+
+def _blind(a_merchants: int, k_rows: int) -> pd.DataFrame:
+    """Group A: two rows per merchant; group K: `k_rows` rows. Every truth is Shopping."""
+    groups = [f"m{i}" for i in range(a_merchants) for _ in range(2)] + ["known"] * k_rows
+    return pd.DataFrame({"group": groups, "truth": "Shopping",
+                         "set": ["A"] * (2 * a_merchants) + ["K"] * k_rows})  # fmt: skip
+
+
+def _results(blind: pd.DataFrame, right: dict[str, tuple[int, int]]) -> dict[str, h.VariantResult]:
+    """Per variant, (rows right in group A, rows right in group K), the first ones of each."""
+    out = {}
+    for variant, (a_right, k_right) in right.items():
+        a, k = (blind["set"] == "A").to_numpy(), (blind["set"] == "K").to_numpy()
+        cats = ["Groceries"] * len(blind)
+        for i in [*np.flatnonzero(a)[:a_right], *np.flatnonzero(k)[:k_right]]:
+            cats[i] = "Shopping"
+        out[variant] = h.VariantResult(variant, cats, ["model"] * len(blind))
+    return out
+
+
+def test_c_is_compared_with_b_not_with_a() -> None:
+    blind = _blind(a_merchants=75, k_rows=60)  # 150 rows in A
+    # (a) 60 of 150 right, (b) 105 (+30 points), (c) 108: +32 points on (a), only +2 on (b)
+    got = h.compare(_results(blind, {"current": (60, 50), "cleaner+directory": (105, 50),
+                                     "+RAG": (108, 50)}), blind)  # fmt: skip
+    b, c = got
+    assert (b.variant, b.base, c.variant, c.base) == (
+        "cleaner+directory", "current", "+RAG", "cleaner+directory")  # fmt: skip
+    assert b.a_n == 150 and b.k_n == 60
+    assert b.gain == pytest.approx(0.30) and b.low > 0 and b.passes
+    assert c.gain == pytest.approx(0.02) and not c.gain_ok and not c.passes
+
+
+def test_the_gain_needs_3_points_and_a_bootstrap_bound_above_0() -> None:
+    blind = _blind(a_merchants=75, k_rows=60)
+    # exactly +3 points on 150 rows: 4.5 rows is not possible, so +3.33 (5 rows) passes the
+    # size, +2.67 (4 rows) does not
+    five = h.compare(_results(blind, {"current": (60, 50), "cleaner+directory": (65, 50)}), blind)
+    four = h.compare(_results(blind, {"current": (60, 50), "cleaner+directory": (64, 50)}), blind)
+    assert five[0].gain >= h.MIN_GAIN and not four[0].gain_ok
+    # five more rows right, all in 3 merchants: the bound reaches 0, so it does not pass
+    assert five[0].low <= 0 and not five[0].passes
+
+
+def test_the_guard_allows_one_more_known_row_wrong_than_a() -> None:
+    blind = _blind(a_merchants=75, k_rows=60)
+    one = h.compare(_results(blind, {"current": (60, 50), "cleaner+directory": (105, 49)}), blind)
+    two = h.compare(_results(blind, {"current": (60, 50), "cleaner+directory": (105, 48)}), blind)
+    assert one[0].extra_wrong == 1 and one[0].passes
+    assert two[0].extra_wrong == 2 and not two[0].guard_ok and not two[0].passes
+    # (c)'s guard is against (a) too, not against (b)
+    c = h.compare(_results(blind, {"current": (60, 50), "cleaner+directory": (105, 50),
+                                   "+RAG": (150, 48)}), blind)[1]  # fmt: skip
+    assert c.extra_wrong == 2 and not c.passes
+
+
+def test_scoring_refuses_fewer_than_100_group_a_rows(
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    copy, labels = _unlabelled_new_rows(db, tmp_path)
+    _true_sets(copy, labels)
+    rows = pd.read_csv(labels, dtype=str, keep_default_na=False)
+    rows.head(h.A_MIN_ROWS - 1).to_csv(labels, index=False)  # 99 rows of group A
+    assert (rows.head(h.A_MIN_ROWS - 1)["set"] == "A").all()
+    code = h.main(["score", "--db", str(copy), "--labels", str(labels),
+                   "--choice", str(tmp_path / "none.json"),
+                   "--adopt-rule", str(_committed_rule(repo))])  # fmt: skip
+    assert code == 2 and "Wait for more data" in capsys.readouterr().out
+    assert (
+        h.ledger_entries(tmp_path / "data" / "private" / "ledger.jsonl")[-1]["status"] == "refused"
+    )
+
+
+def test_scoring_refuses_a_group_a_merchant_that_has_training_labels(
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    copy, labels = _unlabelled_new_rows(db, tmp_path, ("test_a",))
+    _true_sets(copy, labels)
+    rows = pd.read_csv(labels, dtype=str, keep_default_na=False)
+    assert (rows["set"] == "K").any()
+    rows["set"] = "A"  # known merchants passed off as new ones
+    rows.to_csv(labels, index=False)
+    code = h.main(["score", "--db", str(copy), "--labels", str(labels),
+                   "--choice", str(tmp_path / "none.json"),
+                   "--adopt-rule", str(_committed_rule(repo))])  # fmt: skip
+    assert code == 2 and "not new merchants" in capsys.readouterr().out

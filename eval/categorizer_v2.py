@@ -1,14 +1,17 @@
 """Categorizer v2 evaluation harness. BUILT, NOT RUN on anything real.
 
-Later I run it once on a fresh blind set: about 150 new-merchant rows from October 2026 on,
-labelled by me after v2 is built. It compares three variants:
+Later I run it once on a fresh blind set drawn at random with a fixed seed, from October 2026
+on, and labelled by me after v2 is built: group A, up to 150 rows of new merchants (at most 3
+per merchant; at least 100 must qualify), and group K, 60 rows of merchants with training
+labels, for the guard. It compares three variants:
     (a) "current":            today's model;
-    (b) "cleaner+directory":  (a) with the merchant-text cleaner and the chain directory;
+    (b) "cleaner+directory":  (a) with the merchant-text cleaner and the chain directory (exact
+                              and alias matches only; similarity matching stays off);
     (c) "+RAG":               (b) with the RAG categorizer on its flagged new merchants (opt-in:
                               only with --rag; it sends names only with --send).
 
     python -m eval.categorizer_v2 candidates --db PATH --account A --since 2026-10-01 \
-        --out data/private/eval/categorizer_v2_blind_candidates.csv
+        --out data/private/eval/categorizer_v2_blind_candidates.csv   # drawn once
     python -m eval.categorizer_v2 label --db PATH --selection CANDIDATES --labels LABELS
     python -m eval.categorizer_v2 score --db PATH --labels PATH --choice PATH [--rag [--send]]
     python -m eval.categorizer_v2 score --synthetic        # plumbing check, not a result
@@ -20,6 +23,11 @@ Rules, in code:
 - It refuses any row from the old, used holdout (Test A, Test B) and any row the model could
   train on.
 - It prints counts and accuracy with n only, never row text.
+- The adopt rule's comparisons, in code (`compare`): (b) against (a) and (c) against (b) on
+  group A (gain of at least 3 points and a merchant-level bootstrap 2.5th percentile above 0),
+  each with the guard on group K (at most 1 more row wrong than (a)).
+- It refuses to score with fewer than 100 labelled group A rows, or when a group A merchant
+  has training labels by the time of scoring.
 - Only docs/specs/2026-11-18-categorizer-v2-adopt-rule.md is accepted as the adopt rule.
 - Every variant run is appended to the one ledger (DEFAULT_LEDGER, in data/private/; there is
   no option to point at another), and so is every refused run.
@@ -62,6 +70,16 @@ VARIANTS = ("current", "cleaner+directory", "+RAG")
 LEAKAGE_AT = 0.95  # any variant above this: check for leakage before reading anything
 BOOTSTRAP_RESAMPLES = 2000
 DRY_RUN = "dry run, not a result"
+# The adopt rule's numbers (docs/specs/2026-11-18-categorizer-v2-adopt-rule.md).
+SELECTION_SEED = 0  # fixed: the blind selection is drawn once and never redrawn
+A_MAX_ROWS = 150  # group A, new merchants: at most this many rows
+A_PER_MERCHANT = 3  # ... and at most this many rows of one merchant
+A_MIN_ROWS = 100  # fewer rows for group A: nothing is selected or scored; wait for more data
+K_ROWS = 60  # group K, known merchants: rows for the guard
+MIN_GAIN = 0.03  # a variant must beat its base by at least 3 points on group A
+GUARD_EXTRA_WRONG = 1  # on group K, at most 1 more row wrong than (a)
+# (b) is compared with (a), and (c) with (b): RAG must earn its place on top of (b)
+COMPARISONS = (("cleaner+directory", "current"), ("+RAG", "cleaner+directory"))
 
 # --- The adopt rule must be committed and unchanged ---
 
@@ -148,6 +166,19 @@ def load_blind_labels(path: Path) -> dict[str, str]:
     return out
 
 
+def load_blind_sets(path: Path) -> dict[str, str]:
+    """fingerprint -> "A" (new merchant) or "K" (known merchant), for every row of the labels
+    file, labelled or not."""
+    with path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None or "set" not in reader.fieldnames:
+            raise ValueError("the labels file has no set column (A or K): select the rows again")
+        out = {row["fingerprint"]: row["set"] for row in reader}
+    if set(out.values()) - {"A", "K"}:
+        raise ValueError("the labels file's set column holds something other than A or K")
+    return out
+
+
 def selection_fingerprints(path: Path) -> list[str]:
     """Every row of the labels file, labelled or not, sorted: the blind set's row selection."""
     with path.open(encoding="utf-8", newline="") as f:
@@ -206,15 +237,54 @@ def holdout_fingerprints(conn) -> set[str]:  # type: ignore[no-untyped-def]
 def candidate_blind_rows(
     features: pd.DataFrame, training_groups: set[str], since: date
 ) -> pd.DataFrame:
-    """Candidate rows for the fresh blind set: rows of merchants first seen on or after
-    `since` (over all of the account's categorizer rows) whose merchant has no training
-    label. Sorted by date."""
+    """Every row that may go in group A: rows of merchants first seen on or after `since`
+    (over all of the account's categorizer rows) whose merchant has no training label.
+    Sorted by date."""
     if features.empty:
         return features
     first = features.groupby("group")["posted_date"].min()
     new_groups = {g for g, d in first.items() if d >= since and g not in training_groups}
     picked = features[features["group"].isin(new_groups)]
     return picked.sort_values(["posted_date", "fingerprint"]).reset_index(drop=True)
+
+
+def _take(rows: pd.DataFrame, n: int, rng: np.random.Generator) -> pd.DataFrame:
+    """`n` rows at random (all of them if there are fewer), from rows sorted by fingerprint
+    first, so the draw depends only on the rows and the generator."""
+    rows = rows.sort_values("fingerprint").reset_index(drop=True)
+    if len(rows) <= n:
+        return rows
+    return rows.iloc[np.sort(rng.choice(len(rows), size=n, replace=False))]
+
+
+def select_blind_rows(
+    features: pd.DataFrame, training_groups: set[str], excluded: set[str], since: date,
+    seed: int = SELECTION_SEED,
+) -> pd.DataFrame:  # fmt: skip
+    """The blind selection, drawn at random with a fixed seed: group A (new merchants, at
+    most A_PER_MERCHANT rows each, then at most A_MAX_ROWS rows) and group K (K_ROWS rows of
+    merchants with training labels, from `since` on). `excluded` holds the rows that may not
+    be picked (the old holdout and every row with a label). Both groups are shuffled together,
+    so the labelling order does not tell which group a row is in. Raises ValueError when
+    fewer than A_MIN_ROWS rows qualify for group A (after the per-merchant cap)."""
+    rng = np.random.default_rng(seed)
+    free = features[~features["fingerprint"].isin(excluded)]
+    # "first seen" counts every row of the merchant, excluded or not
+    pool_a = candidate_blind_rows(features, training_groups, since)
+    pool_a = pool_a[~pool_a["fingerprint"].isin(excluded)] if not pool_a.empty else pool_a
+    capped = [_take(rows, A_PER_MERCHANT, rng) for _, rows in sorted(pool_a.groupby("group"))]
+    capped_a = pd.concat(capped, ignore_index=True) if capped else pool_a.iloc[0:0]
+    if len(capped_a) < A_MIN_ROWS:
+        raise ValueError(
+            f"only {len(capped_a)} rows qualify for group A (new merchants, at most "
+            f"{A_PER_MERCHANT} per merchant); at least {A_MIN_ROWS} are needed. Wait for more "
+            "data: nothing was selected."
+        )
+    group_a = _take(capped_a, A_MAX_ROWS, rng).assign(set="A")
+    pool_k = free[(free["posted_date"] >= since) & free["group"].isin(training_groups)]
+    group_k = _take(pool_k, K_ROWS, rng).assign(set="K")
+    both = pd.concat([group_a, group_k], ignore_index=True)
+    return both.iloc[rng.permutation(len(both))].reset_index(drop=True)
 
 
 # --- Variants ---
@@ -242,14 +312,20 @@ def fit_model(
     return model.fit(train_x, list(train_y), extra_x=extra, extra_y=extra["label"])
 
 
+def variant_options(variant: str) -> v2.Options:
+    """(a) has everything off; (b) and (c) have the cleaner and the directory with exact and
+    alias matches only: the directory's similarity matching is not part of this test."""
+    on = variant != "current"
+    return v2.Options(cleaner=on, directory=on, directory_similar=False)
+
+
 def run_variant(
     variant: str, blind: pd.DataFrame, train_x: pd.DataFrame, train_y: Sequence[str],
     settings: Settings, extra: pd.DataFrame | None,
     rag_answer: Callable[[pd.Series], str | None] | None = None,
 ) -> VariantResult:  # fmt: skip
     """Predictions of one variant for the blind rows (in memory: nothing is stored)."""
-    on = variant != "current"
-    options = v2.Options(cleaner=on, directory=on)
+    options = variant_options(variant)
     model = fit_model(train_x, train_y, settings, options, extra)
     preds = model.predict_rows(blind)
     table = pd.DataFrame(
@@ -316,27 +392,35 @@ def add_to_ledger(path: Path, entry: dict[str, object]) -> None:
 
 @dataclass(frozen=True)
 class Split:
-    blind: pd.DataFrame  # the blind rows that can be scored, with "truth" and "known"
+    blind: pd.DataFrame  # the blind rows that can be scored, with "truth", "set" and "known"
     train_x: pd.DataFrame
     train_y: list[str]
     refused_holdout: int
     refused_training: int
     not_categorizer: int
+    a_now_known: int = 0  # group A rows whose merchant has training labels by now
 
 
 def prepare(
     features: pd.DataFrame, labels: dict[str, str], train_x: pd.DataFrame,
-    train_y: Sequence[str], holdout: set[str],
+    train_y: Sequence[str], holdout: set[str], sets: dict[str, str] | None = None,
 ) -> Split:  # fmt: skip
+    """The scorable blind rows. `sets` gives each row's group from the frozen selection (A or
+    K); without it (the synthetic dry run), a row is K when its merchant has training labels."""
     in_holdout = {f for f in labels if f in holdout}
     in_training = {f for f in labels if f in set(train_x.get("fingerprint", []))}
     usable = features[features["fingerprint"].isin(set(labels) - in_holdout - in_training)].copy()
     usable["truth"] = [labels[f] for f in usable["fingerprint"]]
     known_groups = set(train_x["group"]) if not train_x.empty else set()
     usable["known"] = usable["group"].isin(known_groups)
+    if sets is None:
+        usable["set"] = np.where(usable["known"], "K", "A")
+    else:
+        usable["set"] = [sets[f] for f in usable["fingerprint"]]
+    a_now_known = int(((usable["set"] == "A") & usable["known"]).sum())
     not_categorizer = len(set(labels) - set(features["fingerprint"]) - in_holdout)
     return Split(usable.reset_index(drop=True), train_x, list(train_y), len(in_holdout),
-                 len(in_training), not_categorizer)  # fmt: skip
+                 len(in_training), not_categorizer, a_now_known)  # fmt: skip
 
 
 def _accuracy_line(name: str, correct: np.ndarray) -> str:
@@ -345,15 +429,66 @@ def _accuracy_line(name: str, correct: np.ndarray) -> str:
     return f"  {name}: accuracy {correct.mean():6.1%} (n = {len(correct)})"
 
 
+@dataclass(frozen=True)
+class Comparison:
+    """One line of the adopt rule: `variant` against `base` on group A, and the guard on
+    group K against (a)."""
+
+    variant: str
+    base: str
+    a_n: int
+    gain: float  # accuracy points on group A, as a fraction (0.03 = 3 points)
+    low: float  # the bootstrap's 2.5th percentile of the gain
+    k_n: int
+    extra_wrong: int  # rows of group K wrong under `variant` minus wrong under (a)
+
+    @property
+    def gain_ok(self) -> bool:
+        return self.gain >= MIN_GAIN - 1e-9 and self.low > 0
+
+    @property
+    def guard_ok(self) -> bool:
+        return self.extra_wrong <= GUARD_EXTRA_WRONG
+
+    @property
+    def passes(self) -> bool:
+        return self.a_n > 0 and self.gain_ok and self.guard_ok
+
+
+def compare(results: dict[str, VariantResult], blind: pd.DataFrame) -> list[Comparison]:
+    """(b) against (a) and (c) against (b) on group A (merchant-level paired bootstrap), each
+    with the guard on group K against (a). Only the pairs that were both run."""
+    truth = blind["truth"].to_numpy()
+    in_a, in_k = (blind["set"] == "A").to_numpy(), (blind["set"] == "K").to_numpy()
+    groups = blind["group"].to_numpy()
+
+    def right(variant: str) -> np.ndarray:
+        return np.array(results[variant].categories, dtype=object) == truth
+
+    out: list[Comparison] = []
+    for variant, base in COMPARISONS:
+        if variant not in results or base not in results or "current" not in results:
+            continue
+        gain, low = (0.0, 0.0)
+        if in_a.any():
+            gain, low = paired_bootstrap(right(base)[in_a], right(variant)[in_a],
+                                         list(groups[in_a]))  # fmt: skip
+        extra = int((~right(variant)[in_k]).sum() - (~right("current")[in_k]).sum())
+        out.append(Comparison(variant, base, int(in_a.sum()), gain, low, int(in_k.sum()), extra))
+    return out
+
+
 def score(
     split: Split, settings: Settings, extra: pd.DataFrame | None, variants: Sequence[str],
     rag_answer: Callable[[pd.Series], str | None] | None, dry_run: bool,
     record: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, VariantResult]:  # fmt: skip
-    """Run each variant on the blind rows. A dry run prints counts only."""
+    """Run each variant on the blind rows, then the adopt rule's comparisons. A dry run prints
+    counts only."""
     blind = split.blind
-    print(f"blind rows: {len(blind)} (new merchants: {int((~blind['known']).sum())}, "
-          f"known merchants: {int(blind['known'].sum())}); merchants: "
+    in_a = (blind["set"] == "A").to_numpy()
+    print(f"blind rows: {len(blind)} (group A, new merchants: {int(in_a.sum())}; group K, "
+          f"known merchants: {int((~in_a).sum())}); merchants: "
           f"{blind['group'].nunique()}")  # fmt: skip
     print(f"refused: old holdout rows {split.refused_holdout}, rows the model trains on "
           f"{split.refused_training}; labelled rows not left for the categorizer "
@@ -369,30 +504,27 @@ def score(
                                                    strict=True)])  # fmt: skip
         entry = {"variant": variant, "rows": len(blind), "dry_run": dry_run}
         if not dry_run:
-            new, known = correct[~blind["known"].to_numpy()], correct[blind["known"].to_numpy()]
-            print(_accuracy_line("new-merchant rows", new))
-            print(_accuracy_line("known-merchant rows", known))
-            entry |= {
-                "new_n": len(new), "new_correct": int(new.sum()),
-                "known_n": len(known), "known_correct": int(known.sum()),
-            }  # fmt: skip
-            if (len(new) and new.mean() > LEAKAGE_AT) or (len(known) and known.mean() > LEAKAGE_AT):
+            a, k = correct[in_a], correct[~in_a]
+            print(_accuracy_line("group A, new-merchant rows", a))
+            print(_accuracy_line("group K, known-merchant rows", k))
+            entry |= {"a_n": len(a), "a_correct": int(a.sum()),
+                      "k_n": len(k), "k_correct": int(k.sum())}  # fmt: skip
+            if (len(a) and a.mean() > LEAKAGE_AT) or (len(k) and k.mean() > LEAKAGE_AT):
                 print(f"  above {LEAKAGE_AT:.0%}: check for leakage before reading anything")
         if record is not None:
             record(entry)
-    if not dry_run and "current" in results:
-        new_mask = ~blind["known"].to_numpy()
-        truth = blind["truth"].to_numpy()
-        base = np.array(results["current"].categories, dtype=object) == truth
-        for variant in results:
-            if variant == "current" or not new_mask.any():
-                continue
-            other = np.array(results[variant].categories, dtype=object) == truth
-            gain, low = paired_bootstrap(base[new_mask], other[new_mask],
-                                         list(blind["group"][new_mask]))  # fmt: skip
-            print(f"  {variant} vs current, new-merchant rows: {gain * 100:+.1f} points, "
-                  f"bootstrap 2.5th percentile {low * 100:+.1f} (n = {int(new_mask.sum())}, "
-                  f"merchants resampled)")  # fmt: skip
+    if not dry_run:
+        for c in compare(results, blind):
+            print(f"  {c.variant} vs {c.base}, group A: {c.gain * 100:+.1f} points (needs "
+                  f"{MIN_GAIN * 100:+.0f}), bootstrap 2.5th percentile {c.low * 100:+.1f} (needs "
+                  f"above 0; n = {c.a_n}, merchants resampled); guard, group K: "
+                  f"{c.extra_wrong:+d} rows wrong against current (at most "
+                  f"{GUARD_EXTRA_WRONG:+d}; n = {c.k_n}); passes: "
+                  f"{'yes' if c.passes else 'no'}")  # fmt: skip
+            if record is not None:
+                record({"comparison": f"{c.variant} vs {c.base}", "dry_run": False,
+                        "a_n": c.a_n, "gain": c.gain, "bootstrap_low": c.low, "k_n": c.k_n,
+                        "k_extra_wrong": c.extra_wrong, "passes": c.passes})  # fmt: skip
     if dry_run:
         print(DRY_RUN)
     return results
@@ -450,8 +582,9 @@ def score_my_data(args: argparse.Namespace) -> int:
     try:
         labels = load_blind_labels(args.labels)
         selection = selection_fingerprints(args.labels)
+        sets = load_blind_sets(args.labels)
     except (OSError, ValueError, KeyError) as e:
-        return refuse(f"the labels file cannot be read ({type(e).__name__})")
+        return refuse(f"the labels file cannot be read ({type(e).__name__}: {e})")
     key = selection_key(selection)
     labels_hash = _sha256(args.labels)
     again = scored_fingerprints(ledger_entries(args.ledger)) & set(selection)
@@ -466,7 +599,7 @@ def score_my_data(args: argparse.Namespace) -> int:
     features = categorizer_features(conn, args.account)
     train = training_rows(conn, args.account)
     split = prepare(features, labels, train, list(train.get("label", [])),
-                    holdout_fingerprints(conn))  # fmt: skip
+                    holdout_fingerprints(conn), sets)  # fmt: skip
     if split.refused_training:
         # a blind row I labelled in the app would reach training and the RAG examples
         conn.close()
@@ -480,6 +613,21 @@ def score_my_data(args: argparse.Namespace) -> int:
         return refuse(
             f"{split.refused_holdout} labelled rows are from the old holdout (Test A or "
             "Test B). Remove them from the labels file.",
+            selection_key=key,
+        )
+    if split.a_now_known:
+        conn.close()
+        return refuse(
+            f"{split.a_now_known} group A rows have a merchant with training labels by now: "
+            "they are not new merchants any more.",
+            selection_key=key,
+        )
+    a_rows = int((split.blind["set"] == "A").sum())
+    if a_rows < A_MIN_ROWS:
+        conn.close()
+        return refuse(
+            f"only {a_rows} labelled group A rows can be scored; at least {A_MIN_ROWS} are "
+            "needed. Wait for more data.",
             selection_key=key,
         )
     extra = synthetic_examples(settings.synthetic_months) if settings.synthetic_months else None
@@ -564,14 +712,14 @@ def dry_run() -> int:
 
 def _read_labels_file(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8", newline="") as f:
-        return [{"fingerprint": r["fingerprint"], "category": r.get("category") or ""}
-                for r in csv.DictReader(f)]  # fmt: skip
+        return [{"fingerprint": r["fingerprint"], "set": r.get("set") or "",
+                 "category": r.get("category") or ""} for r in csv.DictReader(f)]  # fmt: skip
 
 
 def _write_labels_file(path: Path, rows: Sequence[dict[str, str]]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["fingerprint", "category"])
+        w = csv.DictWriter(f, fieldnames=["fingerprint", "set", "category"])
         w.writeheader()
         w.writerows(rows)
     tmp.replace(path)
@@ -579,17 +727,22 @@ def _write_labels_file(path: Path, rows: Sequence[dict[str, str]]) -> None:
 
 def freeze_selection(selection: Path, labels: Path) -> list[str]:
     """The blind rows, in the selection file's order. The first call writes the labels file
-    with every row and an empty category (the selection is then frozen); a later call checks
-    the labels file holds exactly the same rows, and refuses otherwise."""
+    with every row, its group (A or K, never shown while labelling) and an empty category (the
+    selection is then frozen); a later call checks the labels file holds exactly the same rows,
+    and refuses otherwise."""
     with selection.open(encoding="utf-8", newline="") as f:
-        picked = list(dict.fromkeys(r["fingerprint"] for r in csv.DictReader(f)))
+        group = {r["fingerprint"]: r.get("set") or "" for r in csv.DictReader(f)}
+    if any(g not in ("A", "K") for g in group.values()):
+        raise ValueError("the selection has no set column (A or K): make it with `candidates`")
+    picked = list(group)
     if labels.exists():
         frozen = [r["fingerprint"] for r in _read_labels_file(labels)]
         if set(frozen) != set(picked):
             raise ValueError("the labels file holds another set of rows than the selection")
         return frozen
     labels.parent.mkdir(parents=True, exist_ok=True)
-    _write_labels_file(labels, [{"fingerprint": fp, "category": ""} for fp in picked])
+    _write_labels_file(labels, [{"fingerprint": fp, "set": group[fp], "category": ""}
+                                for fp in picked])  # fmt: skip
     return picked
 
 
@@ -663,6 +816,8 @@ def label_command(args: argparse.Namespace) -> int:
 
 
 def write_candidates(args: argparse.Namespace) -> int:
+    """Draw the blind selection (groups A and K, seeded) and write it inside data/private/.
+    An existing selection file is never overwritten: the draw is made once."""
     from lookahead.db import connect_readonly
 
     if args.db is None:
@@ -671,20 +826,30 @@ def write_candidates(args: argparse.Namespace) -> int:
     if not is_private_path(args.out):
         print("--out must be inside data/private/ (the file names merchants)")
         return 2
+    if args.out.exists():
+        print(f"refusing: {args.out} exists. The selection is drawn once and never redrawn.")
+        return 2
     conn = connect_readonly(args.db)
     features = categorizer_features(conn, args.account)
     mine = training_rows(conn, args.account)
     groups = set(mine["group"]) if not mine.empty else set()
-    picked = candidate_blind_rows(features, groups, args.since)
-    picked = picked[~picked["fingerprint"].isin(holdout_fingerprints(conn))]
+    labelled = set(mine["fingerprint"]) if not mine.empty else set()
+    excluded = holdout_fingerprints(conn) | labelled
     conn.close()
+    try:
+        picked = select_blind_rows(features, groups, excluded, args.since)
+    except ValueError as e:
+        print(f"refusing: {e}")
+        return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    picked.assign(category="")[["fingerprint", "posted_date", "group", "category"]].to_csv(
+    picked.assign(category="")[["fingerprint", "posted_date", "group", "set", "category"]].to_csv(
         args.out, index=False
     )
-    print(f"candidate blind rows since {args.since}: {len(picked)} rows from "
-          f"{picked['group'].nunique() if len(picked) else 0} new merchants; written to "
-          f"{args.out} (not shown here)")  # fmt: skip
+    a, k = picked[picked["set"] == "A"], picked[picked["set"] == "K"]
+    print(f"blind selection since {args.since} (seed {SELECTION_SEED}): group A {len(a)} rows "
+          f"from {a['group'].nunique()} new merchants; group K {len(k)} rows from "
+          f"{k['group'].nunique()} known merchants; written to {args.out} "
+          "(not shown here)")  # fmt: skip
     return 0
 
 
@@ -703,7 +868,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--rag-cache", type=Path, default=DEFAULT_RAG_CACHE)
     s.add_argument("--env", type=Path, default=Path(".env"))
     s.add_argument("--again", action="store_true", help="score the same labels again")
-    c = commands.add_parser("candidates", help="candidate rows for the fresh blind set")
+    c = commands.add_parser("candidates", help="draw the blind selection (groups A and K)")
     c.add_argument("--db", type=Path)
     c.add_argument("--account", default="scotia-chequing")
     c.add_argument("--since", type=date.fromisoformat, required=True)
