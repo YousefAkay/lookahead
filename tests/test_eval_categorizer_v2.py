@@ -47,7 +47,7 @@ def _committed_rule(repo: Path, text: str = RULE) -> Path:
 def _safe_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Refused runs are logged too: the default ledger must never be my real one, and the
     approved adopt-rule path is the test repository's rule."""
-    monkeypatch.setattr(h, "DEFAULT_LEDGER", tmp_path / "data" / "private" / "default.jsonl")
+    monkeypatch.setattr(h, "DEFAULT_LEDGER", tmp_path / "data" / "private" / "ledger.jsonl")
     monkeypatch.setattr(h, "APPROVED_ADOPT_RULE", tmp_path / "repo" / "rule.md")
 
 
@@ -214,7 +214,7 @@ def test_old_holdout_rows_are_refused(
     rule = _committed_rule(repo)
     code = h.main(["score", "--db", str(_private_copy(db, tmp_path)), "--labels", str(labels),
                    "--choice", str(tmp_path / "none.json"),
-                   "--adopt-rule", str(rule), "--ledger", str(ledger)])  # fmt: skip
+                   "--adopt-rule", str(rule)])  # fmt: skip
     out = capsys.readouterr().out
     assert code == 2 and "old holdout" in out
     assert [e["status"] for e in h.ledger_entries(ledger)] == ["refused"]  # logged
@@ -248,7 +248,7 @@ def test_scoring_prints_n_never_row_text_and_counts_every_variant(
     choice.write_text(json.dumps({"params": {"model__C": 1.0}, "flag_threshold": 0.5,
                                   "synthetic_months": 0}), encoding="utf-8")  # fmt: skip
     args = ["score", "--db", str(copy), "--labels", str(labels), "--choice", str(choice),
-            "--adopt-rule", str(_committed_rule(repo)), "--ledger", str(ledger)]  # fmt: skip
+            "--adopt-rule", str(_committed_rule(repo))]  # fmt: skip
     assert h.main(args) == 0
     out = capsys.readouterr().out
     assert "(n = " in out
@@ -290,7 +290,7 @@ def test_blind_rows_labelled_in_the_app_are_refused(
     rule = _committed_rule(repo)
     code = h.main(["score", "--db", str(copy), "--labels", str(labels),
                    "--choice", str(tmp_path / "none.json"), "--rag",
-                   "--adopt-rule", str(rule), "--ledger", str(ledger)])  # fmt: skip
+                   "--adopt-rule", str(rule)])  # fmt: skip
     out = capsys.readouterr().out
     assert code == 2 and "blind rows carry a label" in out
     assert [e["status"] for e in h.ledger_entries(ledger)] == ["refused"]  # logged
@@ -328,8 +328,7 @@ def test_candidates_command_refuses_a_public_output(
 
 def _score_args(tmp_path: Path, labels: Path, rule: Path) -> list[str]:
     return ["score", "--db", str(tmp_path / "none.db"), "--labels", str(labels),
-            "--choice", str(tmp_path / "c.json"), "--adopt-rule", str(rule),
-            "--ledger", str(tmp_path / "data" / "private" / "ledger.jsonl")]  # fmt: skip
+            "--choice", str(tmp_path / "c.json"), "--adopt-rule", str(rule)]  # fmt: skip
 
 
 def test_only_the_approved_adopt_rule_file_is_accepted(
@@ -441,3 +440,19 @@ def test_the_label_command_needs_private_paths(tmp_path: Path) -> None:
     code = h.main(["label", "--db", str(tmp_path / "x.db"),
                    "--selection", str(selection), "--labels", str(public)])  # fmt: skip
     assert code == 2 and not public.exists()
+
+
+def test_there_is_one_ledger() -> None:
+    with pytest.raises(SystemExit):  # no --ledger option: a fresh ledger cannot reset the rule
+        h.main(["score", "--ledger", "data/private/other.jsonl"])
+
+
+def test_the_label_command_needs_an_existing_database(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
+    selection = _selection(tmp_path, ["f1"])
+    code = h.main(["label", "--db", str(tmp_path / "missing.db"),
+                   "--selection", str(selection), "--labels", str(labels)])  # fmt: skip
+    assert code == 2 and "no database" in capsys.readouterr().out
+    assert not labels.exists()  # nothing frozen either

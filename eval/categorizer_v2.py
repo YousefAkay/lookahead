@@ -21,7 +21,8 @@ Rules, in code:
   train on.
 - It prints counts and accuracy with n only, never row text.
 - Only docs/specs/2026-11-18-categorizer-v2-adopt-rule.md is accepted as the adopt rule.
-- Every variant run is appended to a ledger (data/private/ only), and so is every refused run.
+- Every variant run is appended to the one ledger (DEFAULT_LEDGER, in data/private/; there is
+  no option to point at another), and so is every refused run.
   A blind selection (the rows of the labels file, labelled or not) is scored once: a run with
   any row of an earlier scored run is refused unless --again, which the ledger records.
 - --synthetic runs everything on personas A, B and C (trained on A, B and C's rows as the
@@ -401,8 +402,9 @@ def score_my_data(args: argparse.Namespace) -> int:
     from lookahead.db import connect_readonly
     from lookahead.synthetic_training import synthetic_examples
 
+    args.ledger = DEFAULT_LEDGER  # one ledger: a fresh file must not reset "scored once"
     if not is_private_path(args.ledger):
-        print("--ledger must be inside data/private/ (nothing scored, nothing logged)")
+        print("the ledger must be inside data/private/ (nothing scored, nothing logged)")
         return 2
     now = datetime.now().isoformat(timespec="seconds")
 
@@ -615,6 +617,9 @@ def label_command(args: argparse.Namespace) -> int:
     if not (is_private_path(args.selection) and is_private_path(args.labels)):
         print("--selection and --labels must be inside data/private/ (they name merchants)")
         return 2
+    if not args.db.is_file():
+        print(f"refusing to label: no database at {args.db}")
+        return 2
     try:
         frozen = freeze_selection(args.selection, args.labels)
     except ValueError as e:
@@ -670,7 +675,6 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--choice", type=Path, help="model settings saved by step 7a")
     s.add_argument("--account", default="scotia-chequing")
     s.add_argument("--adopt-rule", type=Path, default=DEFAULT_ADOPT_RULE)
-    s.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER)
     s.add_argument("--rag", action="store_true", help="add variant (c), the RAG categorizer")
     s.add_argument("--send", action="store_true", help="with --rag: ask for missing answers")
     s.add_argument("--rag-cache", type=Path, default=DEFAULT_RAG_CACHE)
