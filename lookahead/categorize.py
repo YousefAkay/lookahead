@@ -31,6 +31,7 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+import lookahead.categorizer_v2 as categorizer_v2
 import lookahead.llm_fallback as llm_fallback
 from lookahead.categories import category_by_rules, load_category_preferences
 from lookahead.categorizer import HybridCategorizer, examples
@@ -125,7 +126,10 @@ def train(
     synthetic = (
         synthetic_examples(settings.synthetic_months) if settings.synthetic_months > 0 else None
     )
-    model = HybridCategorizer(params=settings.params, threshold=settings.threshold)
+    options = categorizer_v2.load_options(conn)  # all off by default: today's hybrid
+    model = categorizer_v2.make_hybrid(
+        options, params=settings.params, threshold=settings.threshold
+    )
     if mine.empty:
         if synthetic is None:
             raise ValueError("nothing to train on: no labels and no synthetic rows")
