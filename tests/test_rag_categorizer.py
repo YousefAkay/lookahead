@@ -48,7 +48,7 @@ class _Response:
 
 
 class FakeClient:
-    """Stands in for the Anthropic client: records each request, returns a fixed answer."""
+    """Stands in for the API client: records each request, returns a fixed answer."""
 
     def __init__(self, answer: str) -> None:
         self.answer = answer

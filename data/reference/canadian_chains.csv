@@ -21,7 +21,6 @@ Rachelle-Bery,Rachelle Bery|Marche Rachelle-Bery,Groceries,QC,no
 Intermarche,Inter Marche|Intermarche Quebec,Groceries,QC,no
 Marche Tradition,Tradition Marche,Groceries,QC,no
 Bonichoix,Boni Choix|Marche Bonichoix,Groceries,QC,no
-PA Supermarche,P.A. Supermarche|Supermarche PA|PA Nature,Groceries,QC,no
 Fermes Lufa,Lufa Farms,Groceries,QC,no
 Premiere Moisson,Boulangerie Premiere Moisson,Groceries,QC,no
 Couche-Tard,Alimentation Couche-Tard|Couche Tard|Depanneur Couche-Tard,Groceries,QC,no
@@ -181,7 +180,6 @@ Sports Experts,Sportsexperts|Sports Experts Atmosphere,Shopping,QC,no
 Atmosphere,Atmosphère,Shopping,national,no
 Decathlon,Decathlon Canada,Shopping,national,no
 MEC,Mountain Equipment Co-op|Mountain Equipment Company,Shopping,national,no
-La Cordee,La Cordée|Cordee Plein Air,Shopping,QC,no
 Roots,Roots Canada,Shopping,national,no
 Aritzia,Aritzia LP,Shopping,national,no
 Lululemon,Lululemon Athletica,Shopping,national,no
@@ -224,7 +222,6 @@ MAC Cosmetics,M.A.C Cosmetics,Personal care,national,no
 First Choice Haircutters,First Choice Hair,Personal care,national,no
 Great Clips,Greatclips,Personal care,national,no
 Chatters,Chatters Salon,Personal care,national,no
-Lord Barbier,Lord Barbier Inc,Personal care,QC,no
 Jean Coutu,PJC Jean Coutu|Pharmacie Jean Coutu|PJC,Health & pharmacy,QC,no
 Pharmaprix,Pharmaprix Inc,Health & pharmacy,QC,no
 Shoppers Drug Mart,Shoppers Drug Mart Inc,Health & pharmacy,national,no
@@ -254,10 +251,7 @@ Eventbrite,Eventbrite.ca,Entertainment,national,no
 Steam,Steamgames.com|Steam Purchase|Valve Steam,Entertainment,national,no
 PlayStation Store,Playstation Network Store|PS Store|Sony Playstation,Entertainment,national,no
 Nintendo eShop,Nintendo Canada,Entertainment,national,no
-La Ronde,Six Flags La Ronde,Entertainment,QC,no
-Loto-Quebec,Loto-Québec|Loto Quebec|Mise-o-jeu|Lotoquebec,Entertainment,QC,no
-Casino de Montreal,Casino de Montréal|Casino Montreal,Entertainment,QC,no
-Tremblant,Station Mont Tremblant|Mont-Tremblant Resort,Entertainment,QC,no
+Loto-Quebec,Loto-Québec|Loto Quebec|Mise-o-jeu|Lotoquebec|Casino de Montreal|Casino de Montréal,Entertainment,QC,no
 Centraide,Centraide du Grand Montreal|Centraide Grand Montréal,Gifts & donations,QC,no
 United Way,United Way Canada|Centraide United Way,Gifts & donations,national,no
 Canadian Red Cross,Croix-Rouge canadienne|Croix Rouge,Gifts & donations,national,no

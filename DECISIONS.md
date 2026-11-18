@@ -2222,3 +2222,13 @@ Categorizer and merchant-matching accuracy on my labelled rows may be public, as
 ### 2026-10-01: Slow marker
 - Decision: 22 tests are marked `slow`. I run `pytest -m "not slow"` routinely (about 46 s) and the full suite before commits (about 3 min).
 - Lost: skipping slow tests by default; pytest-xdist.
+
+## Categorizer v2
+
+### 2026-11-18: Categorizer v2 groundwork, all off by default
+- **Built.** A merchant-text cleaner, a public directory of 267 big Canadian chains (national and Quebec, all unverified), a RAG categorizer for new merchants (Haiku 4.5 with my labelled examples and directory entries, strict JSON answers with citations), one setup question for it, and an evaluation harness. Spec: `docs/specs/2026-11-18-categorizer-v2.md` (DRAFT).
+- **Off by default.** Each piece has its own setting; none is on until I turn it on, and RAG only after I answer yes to the question. With everything off, the categorizer's outputs on personas A, B and C are identical to a snapshot taken on main before any v2 code (`tests/test_categorizer_v2_identity.py`).
+- **Directory similarity threshold:** 0.60, from the synthetic merchants that are not chains only (one 0.05 step above the best score any of them reaches, plus one step of margin). Similarity matching has its own switch, also off.
+- **Nothing scored.** No accuracy on any data, real or synthetic. The harness ran only as its synthetic dry run, which prints counts. No API call was made.
+- **Adopt rule:** still a draft (`docs/specs/2026-11-18-categorizer-v2-adopt-rule-DRAFT.md`). The harness refuses to score until a final version is committed and unchanged.
+- **Lost:** a hidden toggle for RAG (one question instead).
