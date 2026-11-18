@@ -1,0 +1,919 @@
+run,account,fingerprint,merchant,flow_type,category,source,detail,flagged,confidence
+demo,synthetic-A,0007feadc76257ce8df1e6edeca05ae98ab83ac01dd4cccc0c78b689bb355976,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,009ab44f5e156ed61e2de54f6f51d065cbe10b745070285de57df4f4ce5b4e9c,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,018fd0c5ad889bb3f9da5cdbf0b1751c5aad08098f485578e6821990d4d8f950,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,019f65c0cd1462edb5b508bc758f2754bc3187ed7070ff9e54e51352c887ff4b,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,01a4b103a6a621af88559f074a0a6614ce2880d02ef37b46e7325f58e8755055,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,03d558ae3916b4cd1bbd058739bdd1fed50180299bc813e77c03db3dbf1de8cb,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,046f1fe85f38d0b8387b36e047d1aaf5f1908c456ee9cba5d02f2335498d507d,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,04ebbd8f9107d47f3365724582211d62cc53ad67f3d6ec20e21708359e7c535e,Boutique Mile End,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-A,05b56569efa1aab3cd926cfd44bcdc423fbf4cb99416e0b6aecb7201077b47b4,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,0750c63f67d4bd1253bd11e27165d100cfd6f91e9377a80c3288b6a07bdda58b,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,078cdafe2635bb1ee4ba48f10544f4efb585d6276848cae386a606631ba800e3,Spotify,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-A,0836dd1493202db339c66a411df491c1faa5d672329c6851646edb505af3ff87,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-A,08690170b81b79907dc2b41acac44976f167d6c788affa3ba568f5ce0a9fcd4b,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,09fd6bfe32439a438288ae2934321f0b45000b970ce2ed19fee6e65baf8f4b09,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,0bcbad85e79aecd1b099e614e40b3ad9f017e2ad629aeffdda61020fc8cb6c1d,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+demo,synthetic-A,0c6c1507c29016d45a5d91097737ed74d131185523c5abc0e1129f339525ae7a,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,0c7fd9b54e31f7f8b9d403a57baf609e0c41c6e44c7b5e1c0d400d7a9b3327c5,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,0c847e46dc72f898b354b8a359f03e725ef88bf9497ccac4eb7e5ee7d099e664,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,10f116ff4b9cedef6d2169b198be67bc06b33b92d06940c85f90c8aa998d54a5,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,10fa1dc5b8851f69f05cbe3ba21bd25e8037bd924dc154c51b6640c558110b0a,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,1170b8e44cb9548703c58936f3dff1a9ca98f93e3f4914f5496c841f176d9f7c,Spotify,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-A,149a155719fe1fefaa7a0c34d52117bf9a04c274b35f4dc995a6f58a4c7748c1,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,175d721bf438fe07b163f977816de803f651f3a89205b6be37f47d261b0ff6ae,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,1a78ba55b2b13553c87d873f39e65df8b6ece98bffae52ac05429b19ccc5ae51,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,1bf7979755be5c42f59de7c8985ed5ff942b0ee36b9710690a475bb487898a66,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,1cea56956526da9f492d167c75b3381c2797711567f63a9dcde57d347de62004,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-A,2028920cb9b6d6bcbb7093d5809519cbdc09ddb31759bb76c40470bb59f72658,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,20491e7d5efe9efd405d21cf43b033c908511d8553c11c51f2ab211a94d896e6,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,20cda922dbb258c7e1b5b86af29633a1fe9484cdd1e5e12a87a473a9c5bd95a8,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,2175095d4ed22573adb5ae665c5ddbf9fa73fc874e14897ad1abe744f8753435,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,21c3920a4ba2a39ad45d56151e6e91686176607953475a7032a12b41bd4de060,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,21cf8b6c8a70d47d0eb0d1a2e4a171653e83b2a4bbea1c2fdcab5177db2647e3,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,2236b99b585ff5ee3936f5ed1639253b78e7902c4b8ecfcf99144ecd8e56ca90,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,22bec49c163cfe69d46cd205e4521ded25de61657770752bbc3c80d9660faefb,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,24f86f6f545ba98c9d92d8faa177c528a566439c8c1aa6c10306197012cb0a10,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,2792cb9b0bc1125216b4c700dc818d3c5cac78afcfdaa78d8ef05e565f98619b,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,285f0fbd5c53722fc050a0b02b5691df4e434c5bdb611e1d17fa77ed6c0e9cec,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,292cdbfdc97bf38bea099e738b6efe2c726e7f28b0813f29fe4293dde65b560d,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,29300be5ba7a64be88fb0db4cf359edb97a323159f8a56b28d6b76ff1661d1af,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,295484194053a9060fe24af2523a95ac4a5dad75eb3af73a835dda1a83e9e9dd,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,2a8fc780a8aa1de413e5c94740038bb50a04e87203e90ca61a57a8655efdf35e,Boutique Mile End,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-A,2b9a997db5a4e631d571a42361599881dacaaa88a4c837288eb85e84b480265b,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,2bef909e0ba7ce9ca8bacf4e3a2a49c425c307d0f7c38147324068ae0a983cb2,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-A,2c0e49909e75d63ef555c41f8faa004644b119fa03bb66fdb6a8049cb7d2433f,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-A,2d2dcf6f1428d46893b514b57a217e434a2355151d2d20dbae6908ef1dfd3a8b,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,301ec2786cb3cf27cc0a2043db7426980a5cda0c2f566de16b10c2905aae06b7,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,3306e9eb1889cf6c327306a4cecf2bbf45c486ef156f00f9a52654cb28633a1c,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,33d5af4492c1cd210778c9c1bf035a1ae80fab1154f4fa95ff00d1efd244e4b0,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-A,3d51c0910c04714f799df1a576eb3fc149fd00cc720ccc0f9d9f58419120240f,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+demo,synthetic-A,3ea66829ec364478079873a24767ca5b4fe6026a932472e6202099c1975eff4c,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-A,3f3c6aa91f126bf5bf15d8eafdfd5d46d0e56214ef9bb2facc8839128b97bb20,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,4124092526682b23b3381f3641ed88763ae5d4517461bfb76310a3318e298317,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,418c59c5862dda35cabf9b0f32349680dde3d5cea7ccf6cb3700cd3408093c7c,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,419d3b57d02bc89141f812b5cb3fb4ef016c09e651d5617d9467ec6bb22ab8bb,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,439246630c91a012a48e0eddcda81678391e2ffe392b14a3b664f4f59ac03845,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,4469cd2c7e49ba16a72509b2eb59e387b2cc98a964d456b40491fad6996d284e,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,450f97cefe6b52b5430553ba1ecb2511e61dd6d1d097faa68b8837dfad06b5f5,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+demo,synthetic-A,4627e350e3b1ad52f00088d53de73c4a1c304e36d41787e2080fe8be063ac108,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,462ee37de32b4e5a123156edf2b0601914d28703daf4477acf9082d0998c6bf3,Concordia Bookstore,everyday,Education,known merchant,known merchant,0,1.000000
+demo,synthetic-A,469b18f775684590899925ebdc1614b246a5e058880ca144ec78a245575c5512,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,47530bc54cc1c1c08694527e62b02db1763ed6d05845859faf04e74de9e6b27a,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,4b339daa77594c890cf0d57ed0d34c580f4de371da82be6aa004d66c9960d223,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,4dce1dc9e8910a01233fbc048ff24ef10ddbab333a7fcaa39085bab8330b2750,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,4e9229c5e3f938b66617542bc108c9996bb2a942a935939913802867dc710f55,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-A,4fdbc0704d46159df0d959bfbb5ff9ba5e9357ec34c1cc2c5f5f3c56c7805105,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,4ffd2957a1cc5f6bf10c7feac59a3774a18e7524a3a074c3172fe4acc5d38ca0,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,501dad1f61ee5edb49e3fc7ca4839d1f0037d1760ec1164a43c3c74affb4140d,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,504247e2b95d47abb0c767d758b07c283dc7943cb04867ba9313dc9a6a63b5c8,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,506943956557ae8398e924581490b52acf7908916a6cff772022c8a405c3a6b4,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,50e80c32807c372a5d496f535ed2f88ffb20625f074ba93d8bdc24da9fa0e2ca,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,542dd9922711f28a91778238d35a4f86045b2f5c428488c1eceeaf58a524cee2,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,554879984573e09de2ce4c1fb2d3aa7ef2c5cfc4c46e3a8352ebc1845ae82907,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,56425b1e109c3528ff81d4ddb1bde1d6a083c713a98555d8bc5d562b311c0597,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,565584319d08d23b56b1ad44eba8ad41220f30d7da4c6ddda9610bdb0eec6eec,Ticketmaster Canada,everyday,Entertainment,known merchant,known merchant,0,1.000000
+demo,synthetic-A,565c8fe3bba16974b712a6c66397c082debca218732ba7145ad78f4e25f99b5e,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,56b64b7b6874bf07d924313d00a100e2ec321c756a751a3e5e00d18dd20046bd,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,579425462a38bab61484f7ca31fd7767c81d4394d12382ff832fb1cdb9fc662e,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+demo,synthetic-A,5965f289987ecfaedf294d204d5fec8f59f4f3498b45ef7acd56cbdacabecd73,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,5aa63515f860097e4e4a5c27bf2b46ed562a7c0ea780a39f7a999f30245d4fb2,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,5aea8aa31f41da88700c4e677eb24bc511883df5bf1da1a353a9e5dd7fd47d3f,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,5eacd1faf8dbf4e6dadf3be2a8260996e0b28d3fb57e0fae43581216532161c9,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,6247f8086e090c70da83c20190708e8fb8af793d0cf958d2cfbca9099cb5cdc5,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,6352e9c989735a0f18498a79aa990a2262838e50f5dc9961ceda2d20741cf468,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,645fba6ca4c3ae3593c048e7b5fc8ce0f4593f97a683eac7a02377e7f218cb43,Ubreakifix,everyday,Shopping,known merchant,known merchant,0,1.000000
+demo,synthetic-A,6515a7ac2b366e2a4762f0ed53799ed7b250f46fd96509b869b3a9a8d5b0114f,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,65dcd0305ac0a4e67dad3db3ef591357f0e81eed276e0990bd3734ca97bc0f1c,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-A,66ee594b2a1da9d5d3511cc92c3c4be00fb791e9313166117f767dfeec4ff17e,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,680acf1a4b5bdc629b067d7ea08fea7b720016b1675b0bfc6a6180b1e60b8a6d,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+demo,synthetic-A,6b39776b58703ba1ad57783aa88e9900c158a851e5818ffdd61a04a608c40391,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,6b41bafd45dfe0dfdebd60057285f992f9e408e4a08a5ae8c2b09561f3c9c06c,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,6c296a3eb94e2f7f3fa833cc4441c5e89b748024142ad2ccac4c48e719c1c941,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,6e8cb92d680f7ae935897c45172769455e24d41ed5513d7d1111578205010f45,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,6f7c81f7ea609d33f81c8a41bda3e9ba392e5953e412890d145f8e2256bbd537,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,7212efb1a713f30fcf38463af1fe013a9d7e29169467f175fc1790b44fd3ae21,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,7377d13db1a80702ddc7c80db29f5114b67ded0bffe4c58cc03b88b8fa005481,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,7528a762d68d053b983292d64ebcf2196aeddc40f00d2b912e564e3691ca68c8,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-A,7550cdc32d2fd8cd8e6badc6d7f803ee479d71b8e5142b44e71b9c92b3bce2c7,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,758b85581bd4c93c9f2e3d26b7b4342a3e15dad382cf96b96fc674b562ce2aa1,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,7594a5fc1f6bb343080f09f6c91616c74ad741dfe845e60d4dd165fe6681e8c3,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,75a10c863725d4e3a1a9503e6182e9c14f79e0e2bd2903bada51e7813c638d3e,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,78d1f450eb3b04c45cc0e2977d2000aeb206d74915a2cd3b5839c7973f4b76c5,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,79307d408b44cefdc9b80cfef630326d897a9d9c13515d21084f1627feccd990,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,7a1084d7584e8049ee0b4f9051d7db32a447dd0dba017fd470579d2f578cf30b,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,7a3b362b2260e73aabcb37ebbe5fea4604e9c5365a86c2da32d52e253649f2f2,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,7b21c4d9f4ed0c65421d6f97e8ebc20bac457104fb042c17ae9673864bf2e3f5,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,7b8af6e1f51c87ec19479573c62b840a4b14aa59c92a17f36ff9742683dc693c,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,7d25a9efb0c324bc30c008ac3fd6bdeaeb4f55b6ced82d451338bb2095aa72ae,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,80259508e85dc8b35edbc329e501842c97635db4b8e3df20c82ec5daa9ce15cc,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,81791ccdfc5c910c898710a3b2399c7241c78968785e70b26dd45d189a85c5c7,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,81e8e8fa07797b491d0c0fd821a7697bcfa8b2320abd6d10a3eec79f2a661c63,Boutique Mile End,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-A,822c6d5ac67f521db196a36c3345cfe5cee02db57491d7755bd87f875148979b,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,83f8258bfb62e0f58d275189cb53f874fae42cc2c17cea1349a070e39a4fc8f1,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,84cfcc6242173cf460c488499ad32e1cfccce95582105abe98969ef0fd819d72,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,84d9f26656f5a8c3570133f40d6d7e69497fec41367d303b5716028a4da46e71,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+demo,synthetic-A,84e21d24940c6abaffeb2fa56b9236974b701656641999c0f0cc0b6b604e106b,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,85303cc4b1df2d1487c1ba57f9a0276d18dcdb7d2f2d9f43eefa24160a0ee0aa,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,862408a4173ad01615ed769c803be98cb2a5944714a8f2cbe08061c1438887b6,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,868453c54e79d70dafc1e4c9304cc9723b804653ba53e1ef0a0eac06d084dddb,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,89a21b9860d7f5b312f299b984b803b65790819d55a45153d55193b43356088f,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,8a15fe82cab425c5e2d74698185610caab9053cb8dcbb9840be4ef78ca223adf,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,8a6da217e7a840749ce6bc18c0be2a09bc0757b7637bb124d56fe07529bab500,Boutique Mile End,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-A,8ab3bb4ed94f9c4b59b14187eb4fc3e1658cba17acbeba54c0a9cc183700f271,Spotify,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-A,8d6586aaaee6c370e6c8cb323482f22eb0f0c2759b2f01d79e6cb0c80f772bc7,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,8e2a78c9a14ae1e7055c0cb20cc427a5fbe6ebbd5034f62a4de7e7ba6687ef03,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,8e800887a2f85387b77d012f3648482fa45375955c2ac82c18637def8d5a3db4,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,8fc3a2ba0a03fbf6814766edb70f231a89bd7269992fa7dad9cea27ccfbdae2f,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,9026b47dad9bdd655613a341d9ec08e241a09f1318ede2be70e86fcd44f07860,Boutique Mile End,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-A,94314dc456086b7d9913f9f00f30b4397cc57cf9f21eb85bea93907b4ca6e178,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,9533b74ea1e7bac43ac042bb421b27a15853b44a45cba0e0f9b258017b7e7c2b,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,9640d53a81420ef1111ec22bbdbbebad308e377fa87a9e6bad495e2b09cc711d,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,96963da4cff5030813f69771177dbea2cbdcc8432d710983ed71638050cbddaf,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,974ad4acf224f0110ca918adf55532fe46adcae1bb7ab64774793f9b9147dffa,Dollarama,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,98ca5169410e422094ac867539452b3dcf4b8a26e1df79c4a9bb4b29609e7598,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,9a18aed14e74e65841c84c2b2d96c506788cec1dedb7929bc935a2d554d91ca3,Dollarama,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,9de755b8a656288601890e2de6b262c68abe865483cdae4505ebcbd4b6eabfa9,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,9ecd0093a8c9c244d1744248403a2b68a20a0892009dea3f9020dfe00c1ad6fd,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,9fc89e08c6f592b5d649aa4623f3b761c5dea5f4bbba16bf4c6e19a75b8b7e7d,Spotify,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-A,a00bd926d0bfdde35e58de2a161e57749678312fd20b25b3643de8a5a65037a8,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,a04ae0d6f49797e0733e08a9c75ee65248f32bdf79bee6485146d26d81558ec5,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,a3d45f2b9f2869229ec5feace0a37b9b13e81e60ff51c74b2f122f90e96bbf45,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,a512db397fb700fa2e33d2aa8281e13ec3da11491d2b85daf2f8b7321713c734,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,a6c35f92a812b5a4de5b471075f78fedfab3434cf4d5372b82b844f40f001188,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,a726a1a38b31a6c5c95b7cf93d88e87ece25819c7b4fba726befd52a7c9c4adf,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,a7a4946f7dd6d7c6559644125f58978ebf1d4468297e8b71bb0629b33f34e822,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,a830815a80a02314f1c1e3d2c78c78a807dc7c66b780dd93b0f67b2136900e68,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,ab50003e4484656189c36c3ddc8bb11232efbcf538cee10919446c722084d2d7,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,ac8074a52f1e933def068c8a9f9a9fbc1912d459546a4bb34b0b7be8e3f62ae2,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,acd0163ed56af515f7e54abd50c537bd5b4b002c4ef20f545ad1f7dec330fc52,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,ad226f79316e211433dfa46f9f29001a20163ba58eacf93240184c16052315da,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,adb2cd377e6ba37b9691fd3e25a74f4fb9540065ee36fa18d946927412874a25,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,ae79d12b4e4be7a38fb091953e0efc487f4b605e9b63562ecd82475adaf23cf2,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,aecdaa043861bb08a8b7a6c0ab6c77c6c150820fd514669c37e735b3064f5a36,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,b135abe099f610569b09a1cb7d4e5a648770531e0bfdff9549520b7c66f7eb1f,Dollarama,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,b40b5f2f77604b983ffe96a6b3edc5a9287045bad26f24a64253baa0f7efbb71,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,b420c7f7b358903ca58514a23f70a12a40fd89d3ebc838963eb5898d176aa4cf,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,b4b4d3208ad205ae115d1d5ddd7af0a4245c51c22e96f3239ce0999415399441,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,b5bad3d148cda665fb1477818940c3a3dc29cbf36d51b02624fe2c825491c347,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-A,b5f12d19366ccf6f5835fe279ed215d3c07e54116736e574733dd4b26d51f8c4,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,b61c29df257c290b80595180f9aa1b45bc7071d9971a2f860c22593144d8d0b0,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,b7802987f2a1fc1768ae15d1a756c5cc5871a28987181bc5449f71ab03d303b6,Boutique Mile End,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-A,b7ebbac8b68f11fc694e958d88a89a008af8deb93d4fb6b331eac043596a04a3,Dollarama,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,b8641aa2dd5166eb57e6ae1d4fa7bdac6cd5e37d81bcf4e71bd62bd2ed955da4,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,b957ee1eaffe188f776dcd728ee16998c4ce25ba3b5c91cfcf00a92dcf9a3955,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,ba33e69bdfc5889661c842fae3d22040016ad48fe1c8ca007d087bb61101c5aa,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,ba3dd6b740f92cdc6d3adbff569a6f0601698e1dd56332081fd80f1a15dd1076,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-A,bcf28fd78107f3a3309f8dfac5c83a76d12764525916b18d69744a2f0c0bf9a1,Boutique Mile End,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-A,bd6033da7f272e3e4f220f31e9dc5da8ea6747e2dab7bd8b5aff8dcb0c04c7a7,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,bd622e17ec07e1675c864a7ead2b4d6b2b3fb7acad0e3bd8e2f5384d4dd1fd0b,Boutique Mile End,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-A,bee2a8b6196e33f05cb1aa157b3eedf3992d7c3bf2406b94dcdc8ab018a82568,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,c2022915e664ad3a632c908881504bdd23c9d66909a3677073d73025fb317434,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,c6cd5eb93f951bb6ee38956449759f62f8085b5b2d79fba5faa90def7d50a0fd,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,c844f5bc586e0ca405cdf3974d3dab957eea0bb464b041d8a2402eb8d6b97f45,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,c8482d79a9f2b431d39178684869982643b3f41282d232f1e28f62fbc3d07a08,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,c87969af4171f37570fc7fb50115b6f1b8f3f7d9c38282641ec3a9af2fab74eb,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,c8a3a2b546d653ead887db6570fe4054cfa1c83df5918b2e59861f433ec7022c,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,ca7e5d0caf2b7bf0928ff09cb417b31f166a9646c3d2d94ad46a7ef289dc9fd2,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,cac4109a4694ee6645cde79c4a796d466b9a80384ab1038c3999ccd1131e9367,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,cad0ddf1c3ddbf2546d9ead75eda58d8e1a5391e16581ee121723039af7d2351,DoorDash,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,cc82e62b879da06d2c9069528c251c7d912b2655db8ddb83114e5a86ceaed90d,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,ccac02dfed3ffc0a3297d97a9a7ee8e172728c959143bda2d17a9585c0bfcf8c,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,cdb3717d403da05b29d7e4c77a904cca786f6fa34afdfbd4b74379ba98c6351b,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,cfaf326dfcf3049b9ccf33c7aff5c1e8165ba826d9338a51efcfbcb3fcad64d3,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,d16575513699a2b45dbcc0e5d98bca250f5bed23fcf08da9531c6e7635c5a64d,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,d575d33251699f74b9d869e7a244fcd97769d280285f9a4929d92ec44fe01cc3,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,d80d0b583855d2a5c73402ffc871ba8236823aa09d7dc069b1876d1fa7be0a04,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,d80fa03c638c0d5d5418c0e826708edffe99acd59476901cbd30a99b2528798f,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,da6708861854fdbe3fe3f713fd2eb1579d4dec5aac3c4ec34c635e244c6d0927,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,dc7cd00a98526bfef3246c12639c900dcfc733f6e4cbc7cc8e15a8f6105b3912,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,dd171ed55dc7cc8f00e58638963193ceac2b5329f7b8e181b47923e65df85063,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-A,dd7ace29735963a897ca3d506d570fea85782e4177676ae4a25a41b87013d153,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,e29a1880e8473d8505c2cb640156a58af1a52e3eb6437271966d2db99092bb7c,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-A,e69d3df226d85fd162f60a19493ce59075b913fc964fe595396f6926cc74705b,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-A,e70291a2d8f7955894637578bea92768c5b577586c2faccc6daca3ec1255f92b,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-A,e945436739c8c9309b65132938cddc37ca1fcdc870b2e2f2beae517ee8dd5651,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,e9d6e881005c39b608bdd3a665bb25b1026d05ccd0499287b9dac62551dae53b,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,eabbf000a5500be72c92e3f9c3d3b55b3ef441c01819bc5a34e312ef882d08d5,Maxi,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,ed8478e55daae4c2693cb43f13a3db3bfc7e1f3797f14eb48f9980ca4d5fb911,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-A,f03c889c5f8afe2e6a2d1e0f265f2d2e6ab9b6769b4e68be80e47ca4898d930f,Boutique Mile End,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-A,f3babd75753379f51d5e6d885025afec7690ac64c8a49c6c97fee9be70a7f378,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,f4f08d3220b39c0720cd7df1ef4302c478d333030fb8f78ac1cb3a668f26e058,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,f89b263891193236564edfdc8a02361a7244102c88fab986e3efe429cb7f9993,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-A,f8bf19e5aa03d7c5f112a3a148c9736e189ec3497d6f129c0e7687e9c6ce0199,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-A,f96891670d61f909c1329905d6f68906adb43959a72d46575d6f294ac584a25b,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,fa98a2967f96f96a9a5fbbe9596b4ca95907786fd0d9802140cfccd52debf816,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-A,fd921fe1b29f41030387a4576c93fad56ff400302d292fdecfac2eb6a4807b3e,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-A,feb56fea88dbc9a0d60c5c8107826d8e36417b0bd65468fe49485b40e620863f,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,003814be349deffddcda8cf932ccdc26229e204cd7fcde43a7929e1f9130713e,Gestion Immobiliere,recurring_outflow,Rent & housing,known merchant,known merchant,0,1.000000
+demo,synthetic-B,01d8546a38e2dca2fb5b15db471b0e860b3c9eb45af86f7b8525076e15164c43,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,0562c55e2a3782885d58c2f6d9aed1d8d215e532e162ef7dae9b7643f447ab38,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,056c0da2e90b7db0f6480902e42d3ec5590e2a6d50689aa2933950857c04363c,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,0686f8a35602047d1ae2cb5dfa7bb6cdb27022bfd6594fba4a6d6b5108e6b10a,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,0751cf89391b78cc9d69f727078376dfc8091422e9530e8db3cdabc96126b597,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,08f641f1f5809be6c8efb66314a5150463d6c464bdd3c138c6e43cc6557be1a1,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,0ff0f6619d50477e6da9af5507b9613f72a1a2741c700b9b89326cadd4a3928b,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,10999feeec46922ecfb61a59f0d7835df52912f2570fd099f711d33884e38ea7,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-B,11334337b5ec27a55d889ee9cb1eb21f5ff705ae2d201cc9b4cdeb445b66ed17,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,156afe7f6441cb93cc5261be3f9ebac8473c1002a3973cc2f6405a3559417242,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,1591cd00b65387d2e7c61ace0427aaada32e9d202e4c44b26e3234d5d48dc07f,Gestion Immobiliere,recurring_outflow,Rent & housing,known merchant,known merchant,0,1.000000
+demo,synthetic-B,15d3712768e9a045c8931c6593152c33d6b1304a1be3d5b4319cab4f2b2c3fd0,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,15ff10dba18a2fcc3100661c0eff64144ab822335182e8db78a2f3e0b1cb0f69,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,19995fe548223d5cb7ef2f9fe7244034c9f976a2753450b0fbb717f6bc834c18,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,1bfbd6817ce71efede2ecfb1e89314054ae23db7e5833353b718127ee5081216,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-B,1c54648a8134903387c8590da4509e18a9187243c86b384614812863d8820e3d,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,1c56d2d8b2bb605f65665c5c529a3497bb8327d3c4f37fc6c66481585b1ce692,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,1caa4888f0820885be51441238f30e6eb69a9c21e25d1b894663fae8a59198b4,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,1f22ac8f4b0d86b493a730644645002ec1acd49962b02a722cf46de4cc8e3c5a,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,1fdf3cf4412b3e8fb42d586d14c76e9b5229e77057b025aeb81699d937ccd12b,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,1fea9cfcfbbe4e9c43432259c2a8cc2091f2495a4d87eaff50e6bae928c5fd8b,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-B,20ba74b7fa7d8d0dcbaa62a6dd25d7c1f94828919eedb245548e29d5be55745f,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,226bd5a92fdc83b52c01be59e304d465528e1b93703592c44029d5a2b6ecc8c3,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,22edf104905e46a8da30d2cb1aad51ca4bb5e19f908b6062d9f76c085e71d6d8,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,25510addda390a6f7f1a5c7f45e6260d46cdb802389c8310be16abf140900bae,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,258ee7faa5515214f95177f06798266842c78140cc33c1082bfb8ed141224ef4,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,25f835b2d65a3a693c542ffc6cb2a417d364a1119d09585569162a74af7f143e,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,2814ca67bd9a6102add55a269d8eb517921075a4d1c457b220466dccbf56db32,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+demo,synthetic-B,2c2e0c703e2b0ef59037e08addbcb2c78c995013d1f4d91f52497767f8854661,Vidéotron,recurring_outflow,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-B,2d149df20e4862ff79c9cd55d15140e3c0e89ecd3da1abb2d84ddc21abd29340,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,2e3586ef52535ea9e9b3c0ef4f43965e3cc5db6a430e8fa9c62ea7d3f28b6e44,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,303294e3030e0b9125a5149f7c1be9654903ee7c32f6164a50e9c01a6033c743,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,330eb214014d4bcf49651334142343617527381f08a3133eaa3aed4b0406705d,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,33f3fa10c82bf598f39573c77fa67ec3b27c2b102c7714eb8f5f8e3d26d5fa6a,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,353a09d856a5d4dce94f50e198b5b7bec91685938d93f0b04bc52d30d0ef11e1,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,35a1105a0728688edb07339b210fc2eb2fe12f5a6948540dfd26dcdd9e84dfb0,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,3774dc14ee311ad659ed3a2912362b1327ddf294c40d834be882ad91bc42bb72,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,38f50ee40e393c118aa75dcee5a978e5f97d3aee0685945934c6216ea53846d3,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,3942b7f15fee2155f03c58163de27186659385d5d5e14ffcd8ca1a8461f84c12,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,3b5bab52ce1ca5f2e939e807027d615b234ca19ac961cebe0a8f221779ced617,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,3dba22136198a1f8c6b4f675cdb340eeb90f8906ece1ef373e684fc5a11c6405,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,3de00b17428271a774b018b921e17e7a595f2c1ecccc055e85d28e7cce3deef6,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,3e945c90f8c97946af2e4bf1b94b8ca1ef629e61c45394ed20217302e0382113,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,408da5ee7f997221303b5c1733d3cd6634b1f43da1b87f14a06a3cccd2badf09,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,40f4dbe07718694c9f788ff730843223386984c93c5b35364d0d404dd2932772,Gestion Immobiliere,recurring_outflow,Rent & housing,known merchant,known merchant,0,1.000000
+demo,synthetic-B,428228fbd4b456696aaedde5c85bf28dde4a386adc5c411fd9fcbdc015c9404b,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,428a2eaef35b476235a5d533d32fb146a0f323fda3b7f4c2b14c9e3daa0448b7,Netflix,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-B,43a36880d9ec0a1f416cf7a2737e92da6af35f3d98a25bcf65a522fe6def965f,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,43eca77f7c914d35151afcc9cca0da388ddd6e84b88a17d4e23776f0854da6b6,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,45f72a7fa7f5d462bae60feb1007ec4bb4f606ec7dacf5ec5e18583cc401d532,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,46c1aa74d3aef5d291db0b07b31ad6fef676ec4957d861481da65b559df44dcd,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,4bf2dda80634c4cfcb1d94b57a8bdd033298a2f7f33c6ece7ef0bef5fdad0e9c,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,4e4ad8e8be791590325076d4f156a4f31774257a8f66b120e04c0b4f74a62428,Netflix,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-B,4efd9949e63532a82888f5c107b603063bb349036b1a86a9dcd29be40387c4cb,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,50d1031624ab95bda3cf8efc42c4f58345d6202f897f77fe036ddd5839d7081f,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,514c97c68399f2ebd1f95fe8f74028d90ba991d28d1c1d1f1f35c9d0ea52e5b1,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,52736b4e2b08701b3c1fcd8ba9679fa63f1ec120ab52f8ceb7b9991ed0cf2406,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,59215c33e1c6e11f203e93e4ac6c773dfc099429cdaebaf99e2cd46c6cdd6741,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-B,592be66e5fbca77e25197abf35e8c7b09ffb2014bdc59162829212dd7f0de8d4,Gestion Immobiliere,recurring_outflow,Rent & housing,known merchant,known merchant,0,1.000000
+demo,synthetic-B,5b61e64df90909f551ae8b403c0ac67363a97a52e5f67e13bd17f232779535f3,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-B,5b6c2aecae469aec5b0d9e6fa20e3974307f83e9f6090926bd3b3fce1523e514,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,5c6902ad0142e80083b5b0e6fad677dc4f73eb2d54f81e7250195a728abc319e,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-B,6023c46b186e20d664f9eea211c835a2205665867413a1512cd1ade3ed2d5c92,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-B,6152a8ef29e1d7f3be515aa7aa5e4a177dd3066707433369493a7a0579fc624c,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,626a396cf9f80cb272fafc59f2c6e48fe357aeae315f07495754b8d5610c29b1,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,64783ad7f89ab725f4a89a404d7b805770d089978bf5488905220cf6363e1e45,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,64e220bcd47f9d393741c93be9067e9b156da1f43f470dfbc0a82972e3b7b6a7,,transfer,Transfers,rule,transaction type: own-account transfer,0,1.000000
+demo,synthetic-B,66206729ebfd4ca1f05aed076c62e35dd49eff4c442a756284adde3f1a3c41a9,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,6a68c937bb1c70580ce5f9b431a9c24d9d825e4aea3e7260e6989ebfce0a1e22,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,6b728c89985bc3d2feef0d23179cce3ae26831021c33287c1111ad57a2ac83ef,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,6c6821537394487e9e7a66047848ccc20fdda521eefa901b873e660931623d1c,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,7164f3e9f541b23457c64d836cde02538fb98e6a824f1ef7f35e8e14fe644198,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,73321fcfa12fadaa46e6e3670b9b1a04c1d7ff26f705ba01dea4bb4b2b729f21,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,7734713585ebaf418f2da710787657f4340d34ad49c164bf4641a89566f9ca6e,Winners,everyday,Shopping,known merchant,known merchant,0,1.000000
+demo,synthetic-B,78aeb7df679137514531a09ef6c13e05386e666c9ae2fb973a1c46d2c01d871e,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,7a5604d0625373c57d36e7fa5c32d7b02a84d002dee14224ddf12796bea62fa0,Hydro-Québec,recurring_outflow,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-B,7b836cd0c3077e988e19075181cf24205d641eb6ce008ba8feb7e140c1515f64,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,7cadc130575896f7dbc5b3fef91c555512439ffd71e0de8361642d45462201f4,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-B,7e061bf63972e05399e7ed4057137e75accbb642cf1274358073820a818935ba,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,7e89f310e4dffd7cfe4c51dba77b50e3719aab448768400f5bd40c5ec81af095,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,7f000422397b203c349f6c5f42a66f514f7e1c549529a02a6984e0730a386b31,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,82bb7a7795496f5171951f87c81dcf8d43d610e480211a74cf2eac186be4618c,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-B,84c773b935b14ba55aac2cf703bfbe8e059e1aed60af3257cba2aabe8905eb60,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,8e73aa8640afe310c2d49b7266c41159958fe5f0c92a27fe57876c2f0da16be0,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,8f1e200d93ad9e0fdd353bd84d9bbc13260735ad60ee4efa12356ce5d5090973,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,8f65ac1957f4230571d1c5817b4e02dc01056b1af2cb6695d45d9137e08810c7,Winners,everyday,Shopping,known merchant,known merchant,0,1.000000
+demo,synthetic-B,905411714c97acc4d4cefb0f86c6042f8e039f495041eb9bfd25fb339c3e3d19,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,911c7a78dcaab5a76fa4dfd3b6003b2d57328cb5c2db03f199eb02f3c6488473,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,912d9c9b557f2b1a047d2840fab57a2d0f4cce9913d96fcc513a3f7b4c692bba,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,93eb32d75e7fb15f042d1508dc2b3da3487493502bfab9c48849623dcf5d059a,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,95b3a91123f460635891bb8620607c54b3aa62cdf83cef61af130655588b63ea,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,9b1606acd5221ea38aa59c2a2310cf525b9962599827a81a96b1da5c1d3053dc,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,9c45f6c69f1a0234ee5f5bd8b1b719bc34f9226575764a08097702e7fc2548ea,,transfer,Transfers,rule,transaction type: own-account transfer,0,1.000000
+demo,synthetic-B,a5c8f112c1872988a274220e3b3081dd9cab7ea235ac8cce69b8f0b60e16b021,,transfer,Transfers,rule,transaction type: own-account transfer,0,1.000000
+demo,synthetic-B,a61610e19d062ed979d73b80c32cec7f2dcb298668fdce22188f2ffcf1f9206e,Netflix,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-B,a6bf8b94cf54fb50811a44d4c611c9f2a5c254665679056f002d8be5beca2d9a,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,a79a6d1fa16732fbe76cd7ed079d7dc9fbe03039784c72e23274692c55ce32e6,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,a900dccfdfa6b3c2f11946c65cd5431665507874e5664b13af038ead5237492f,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-B,aa2541aafc8a94be04b02668fbe7d22541bf0c2e6753809ae9046bcfcad1eebb,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,ac64d1aa47f451606d76c4b2fba785e9895446e4a6e020cca3d8ed6a4d17143d,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,ad722ea7d11406d5dd524102e39a8fab0b19b74de0282226af36592cca2f380d,Hydro-Québec,recurring_outflow,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-B,ad83076447b9e6b59cde33cdd5bdec39e87860adf0f52b32a19a701cf5dcf32b,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,aed638226a5509e52403993909743d99d3dc6f6cd66a40fc5ec595928fe0d3eb,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,b055b6ee9d368341e763359b2317ad04e215084da8aec2de303c5de91c7ecaa5,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,b0caa507faffba660d236c59b24c9330cc8d353cea3f34a35a8a4a5f85c79274,Winners,refund,,netted,fully reversed pair,0,
+demo,synthetic-B,b0f2616e831aeabc974058bac4d64c5b2d47cc95c579681b58b109d11ffaed64,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,b0fca515ca8629915f56f89372aaa3245f73736d274ee6db09940ef64deb8da8,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,b294850f24c71d00f6df3ccee66a4904a21c82cedd09f80e31f925998d9aae4d,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,b4aa93b8e5dbb0628ef0c210af34a547966283831d993427f7575a68d5af7ad5,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,b4d7e7f67e3a33ceccf8d1471e14f7833e3760ef0c8317f28667363a07bea267,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-B,b58bc544bccb012fd78cbfe6f301d0016f4fc3b65b94ff08965d8a32d5566179,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,b65adca9b077cdfda7416d55bcd73d689c5c8c484b4abf98d8883d1edfb2c929,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,b6c5851267798a321dee3495f71ffe5614aa15a348f30146673f28720ae86070,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-B,b8d8b7e99257d27d1baa8cb018ae27e3e772112cca43b6c662d5cc2ebb35d1a7,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-B,ba57bcd504f80f9bcc07d98c830eb634c8358a2fa98762e40dbddd67010caf60,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-B,c00b87aac3cfc3aab0973ca33a9439cbcf86526ab81faa08131098e06053ffea,Hydro-Québec,recurring_outflow,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-B,c0b29d085065dbadb3efbe8d5574e01b46a3eac838f8da2a2ae527b66b0768e0,Winners,everyday,Shopping,known merchant,known merchant,0,1.000000
+demo,synthetic-B,c11b8a89f8aca03037d8beb19ccafd7cfee3b84f860abadc0ef65b6d5eecb605,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,c172d08eea2b82a7f647774683959e278cc8577bc71c7b20a833c35477a521a1,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,c2052d7f4928f74247bfdc4dd0b9558330b450bbf4150220bb2fe447154fedf1,Vidéotron,recurring_outflow,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-B,c2a16b7e7d8586b458fb931c06116d7aaadf3c93e1ce21e510376e74da99fa94,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-B,c62e0981c9327adfd216250fa20cbfb77f435ceb60c356f158f4337b2773ff26,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,c646913e829a77c883dfd07df951cf7108b1fe3127c4066c9b41da8014ae8363,,transfer,Transfers,rule,transaction type: own-account transfer,0,1.000000
+demo,synthetic-B,c77ff34bcf277fb2553c2a96717c12e0eae0d2c9596b7554a84a5bddadd1f2fa,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,c78c3b111c4253562eb8b58fb78d8a94c1855fe9b664d6c28a8fca36d4c2ed69,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,c80580892efd56fac39045f7863746a87c44cfed233e6f13daf94b0172ba5e9b,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,c87bdffc0a16ae0fb7794330dc6a88c021abcd0182deef245247a9fed599549b,Winners,everyday,,netted,fully reversed pair,0,
+demo,synthetic-B,c8f246245f7a2ae29d95da5048d9872756f30083b8f95b10fc3e516527026eaf,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,ca82eea9b7aa4c3675209ad334a0a4ec6d1122c558fe9e1fa97bcf55032d800b,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,caad9b6a79ed8954a51e2aa4efe1e3824e9dcabee72cc1f33c0d953ebffee611,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,cb7c61d2bb68c7817cdada86dd781021ea7a374a76ab5d1c7047c005e4ff1e43,Gestion Immobiliere,recurring_outflow,Rent & housing,known merchant,known merchant,0,1.000000
+demo,synthetic-B,cbdcc40a0ff752c2e440e8fe4e742e652c10a0549e4f820fe5702e74bd12ce1e,Netflix,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-B,ce92b741a87f140e38eab7ed5954e318191d889b0735ae1649ad6e6e734c04ac,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,cf11cd9fe1a7205bee40b43421403b78c6441732257668d205fe06bfa05a42a3,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-B,d16d8c57a27a82883563ad715ba4c5c87bbed982e9bec71c3cfa402064b8a1f1,Winners,refund,,netted,fully reversed pair,0,
+demo,synthetic-B,d2117d35c07e8171c64bcaf5e030e442865d7268fe524ba023601eea2ccca1b6,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-B,d28a097479e1f78d7f7dac2af3d3dbf5ed42f8baa7bb23b9774cddb5549c144a,Winners,everyday,Shopping,known merchant,known merchant,0,1.000000
+demo,synthetic-B,d438a068f7fd44e2a05c4af4007861e7a9eaba23fed66dc8aa50b11906bd9a42,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,d739e1a9ea9e2f841eb6986a3460ca413e25e46a5946972175e981a5e045d511,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,d8944e7452140a15eaffefffc4969181b8e727605d89a3f7f32a4375c7c6313d,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,df6aa83e7f975bc4e7605ebb3e6cf3946200016aa845a69f481da7dc6d30cd1a,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,e012e3af85e9cf3eab46f364e51772fac9a0a3161c06cceac6c23b8b86073c16,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,e1e1a8c7e92887872310452a206a42d21cdc9592001523c15801881e2d921c62,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,e60b0421bb64396be9535266e4af0834bc3a65e7f01f0a4908be3e98c6a522f4,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-B,e61da69a8f4f3178b74d58e6c30c338ebbfafa7d656bee3469f8257bf50eb9a5,Winners,everyday,Shopping,known merchant,known merchant,0,1.000000
+demo,synthetic-B,e6f73ff348730ba6a7f1ad51a2fa676d2630e7cdf7b6276ecaa31418df475c4f,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,e7835728dd5259f062dadb0b083f1b5def01338c28a15178f53ca873f77a5977,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-B,ea09c92d243de1f151ebefd7296f3babbbd54e4a481899f25629a14808c96f11,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,ea4086e01d043373da23ced34b8e22cc8fe0d8c04582373ece142a408c542838,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,ee038f5c27a179e228074c2725758a1fde7a5e8cd1cfc3e0330eea1dbf34329b,Vidéotron,recurring_outflow,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-B,ee4ac20a5d7f6ea3c1d676716f38239f2adf05aa986f686d8ceaca0c2413a24e,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,efc3381dc879c519a49a0bf07e89e731eec2f15e213a71d44fc4145d20492464,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-B,f036fcc6e93844e3e874c4664c677e887fe2dc31453a55d9f894f69e8065c927,Hydro-Québec,recurring_outflow,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-B,f10c8578f0981a2222abc74c7c8bd2f1ccfc6f0d0c7243e9a976c654c751f46f,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,f130bfd1b258f3ef1de5a0fed4c99f6b865e5df069abec2e743966d5d1b98da8,Iga,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-B,f1b8cb25a18dfc7920b1f557dffb66088d3dec374d1fd188452bf80fe2bc07bb,Caf? Velisaro,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-B,f789e0d6085d4418919107248c1bb7df4c79f1db1f8f8aefecd002a89d4faea3,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-B,f93aec2831fc27d11f8ccd854b589b10fce67d221ece16c59ac05639331e3660,Pharmaprix,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-B,fadac0c5b4a71fffd6b9f63da40076dba799c0ba5ae3a2df7210528ab3c1f980,Vidéotron,recurring_outflow,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-B,fefc3cf0a809fc7fbdc125f99da252069981803f2ab5c67936902168321a2e50,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+demo,synthetic-B,ff2ed5536aede35e4215fb35bf6afc20dc2e44b3a2edddf35cf0ad9aef6ff501,Winners,everyday,,netted,fully reversed pair,0,
+demo,synthetic-B,ff690a241b7fe5887730a7e77083c6408f7b9dd29c846a4dedec6999009fba3a,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,0158515c615067b9e5630cfd0f08ff7f777862d202d19cc85875e670176657aa,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,01b84648d02359e8689dac4cd90a0d0acec41b9c01795cc6984db013cd1e71be,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,020730e9a8394ac501c86cf7148f20442aeb006f8751f134ea86b3507e148c50,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,03049923421f6d666eade0d2448f349c78bad4cf06f9ab67d70fc68c62655ed6,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,0404b5081ac4489aa01d45b12e93b100c6819277c9b680662f7cd8f13d7e0b69,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,07b3a88442d927ca13eb30a29249c304e59a6cabf2a0351f167a320d060ca886,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-C,07cfe443e299c960e5524387016ae8587e75f4525fe55cb5fde791f82ae9e963,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+demo,synthetic-C,07d5052dea0ee26aa5b9d6b018b59201b49d63edecd03e4987bfc5343de11f2e,Jean Coutu,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-C,0887a81908bb6d728595882b259b650adcd729ae66046e8625208910e747e952,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+demo,synthetic-C,08a6ad283b04dbca874a7866e4107a0d2d10577dbda251209de78163e9e8335f,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,0a5b0f61537fb359667ae2b4dfe24e98ba62dd7b3d835f4d6b6202bc2383ca60,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,0b661fcc3ed902b53884df4950924e8d5bc7ea4e53097fb232194649bcf2d423,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,0c1381bd9cdfb2eeed49c3543875e5c7630834b5daa922abedef8929b6df22f6,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,0d7784c6f8a9f4bdb9dd9a4985ae1cf06691d3cee34a60663ea59fd5efbe6e1c,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,0f81605c783613c96b5c349b91c97c5e382401d522a4fd083a83acf23f8369bf,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,11836ef13e5a67d87822fac9659118ff70734800c545fcccc35a1a61e3861c39,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+demo,synthetic-C,1290f7d600168b6ae5236725d6c25162eb7db4c34c8b8cbacc9a17af79325bde,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,16323ae8fdc16654a170d92f6f03d72fc76333ea3c6a6eecd100a15f825aeb8b,Lyft,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,1702ae08c08fb0c627a27d735065f8a5435fd15c4d8c0ffd87ce0506795a9cc6,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+demo,synthetic-C,1718c60963fa1bb821577909c3146c33b13b79864e0d3eebdd6fae9efc3b0ed7,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,18257ecdb77b90ec7ce07078969e8ac1b1c3a790921887323fd9bf758e15c66d,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,18ff1dd653bae3bd161d9df7c288aa77599ad950dbb88e12bd6447b5ed468f86,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,1967c7acfa33c30dd511017d5cf88169fe8184dc999cd2ab04d0124d483fd8ac,Etsy.Com,refund,,netted,fully reversed pair,0,
+demo,synthetic-C,197d31ded2fee38e368a03a466635f5b0c6548c389db97e2d3f612b088b5f101,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-C,1bce1bb26ec547c768d1952f666589665c9d6559fe98d2a8008b087eba631caa,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+demo,synthetic-C,1ed35a1d61a4c891fe1ab672ff21e8f54e95d4ef7fd0e7a2b8acc67a8bd2955d,Uber,refund,,netted,fully reversed pair,0,
+demo,synthetic-C,1f7d786e5c181755c33c2ef2708c12aae08213fc289ec70b46281277d4dcea25,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+demo,synthetic-C,203390aa57c0abbff225e13fcc5b468acf0e5227d34713bd86b827373c32ebe3,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,23099108f9e038974b1164d1b077bdaa2f49871307f463b7643dc636b9932fb5,Uber,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,269e783d43a8611f5222bcb1d920047cb2d0291f46172b15de034cbf398cd2b8,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,289c19b7a7a2caefe2d0886416cae63838da772424c29d7af5054f33dcad286d,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,297c1d75538653060922e2003b34f948e94199dbe9e668a6ccc84d61e3690ddd,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+demo,synthetic-C,2cd55ce7acfdb31f26545076af575c19f2e75cc3501fb8cf755f6b1e4e6f2e8b,Jean Coutu,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-C,2e369977745400bfc0b366e86ed35d45be9237ee3c316861c6b51f071bdc6301,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,2f1b293dbe57fdba0fe0c05f0942189816514f71dbec7240eef070fe635156ee,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+demo,synthetic-C,2f683e68815c5dfa29dc0edcb89cffa4ff1438e72c06f0361bf6408cb1c065a9,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,31d0e471d145868380ced3ca268f3fc2fe6d3762574f57fb6a5560c4bb0557ae,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,344a4b2de67005e4eacf325faad851a5df943ae44785f2b436c2ad73ce39eb5e,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,36a3e7b10bc0fa58820fffe65614c48f297485f327927c52a8b2f79e55419ebe,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,36b8d4a60b6cc51c98c3fcc2bd3c802cb4f8b3592bf7f0c29a867743a9332b2f,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,39d85f8ecd405815a7ed78075b1f0a0428775260cbc6c52a3e98feb6bf03389d,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-C,3b9c655948482a08cf62eaef255adf541bca0aa17672dfe6667921d1fd6f0a3b,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,3cd1b79b445e5621fef719177a12fec2097f67f976ffa16c078ddb79aef4313e,Best Buy,everyday,Shopping,known merchant,known merchant,0,1.000000
+demo,synthetic-C,3d000c84eb9a4edcf862a67a2d3790bd18cac40a0f3700ad4e70c8c770b59c7b,Uber,everyday,,netted,fully reversed pair,0,
+demo,synthetic-C,428e8170545dd2ec04542f10aaa7bbeae4ff7f3e56ae60f0447ddddfb54f32f2,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,44255559f8945c5c111f858022baf5bc62b9832430cc3489aee5a642b6d8957a,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,4608f5643c37342a33a5590352e1c7fe65cf5a49f8ab316d96994666b9e9ed79,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,48c55d99964fc35fdc9ffd74e4f6bec30c9e62e51351424aa7adfa89ca410839,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,48d3e73e01fd42ad7088add1bbe56f5782e6470844f9930cd8c84fb47c234fbb,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,4918dcd5383e0b074e96eacf3cc7ccae3e57304897c51278447d62d8f91e8286,Jean Coutu,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-C,4aef4ec934b5651210f5f49bbd1ccf1497b7ae0e4c8cf85230759368ead33e8e,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+demo,synthetic-C,4b812ed1a87f9d4a5da942be5bebd9b6e8e36a033f7de5d1175ac63cbd1290e6,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,4cb51ba5505b55caa646fad8bc8cfb613c45062abd7c5c5b7a0aef204f64a38a,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,4de43c55df895f27c7dbaa04fe0001ed785b945446e17b35d474845e120d2973,Uber,refund,,netted,fully reversed pair,0,
+demo,synthetic-C,4e6074c207113a5b3f404d234faf6b3df66b3c11b2bedb2e7185896328ccf7cd,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,4f399171391986b79d06a982405a5e72fdde6b0e747e63fcb7a453b1515f36bc,Steam,everyday,Entertainment,known merchant,known merchant,0,1.000000
+demo,synthetic-C,50617a38bc898622cfb869dcef35331f9a46cb6406b35fdd95320ef9f4dbd76c,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,50ccb6f7815d6bda7de95271c72a3aadd9616de06776a1a025f7441c5a343f97,,transfer,,netted,fully reversed pair,0,
+demo,synthetic-C,5137a617423254e76a8565948c48e47cddffc518224bc395e47db5db71288826,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,519bc826fb761bc24014ca88ac94a2f3a7b47b19e6cb7395d0b6a9f8e10638b2,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,52dcaf5b0ffbe0387877ab50d4927d375d3902dd95a17062c4953447c9a0cf34,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,5414abb7ac65c6a88de637c1d65bb062c9f32fa95f704a8ada7aced80c870384,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+demo,synthetic-C,5538bbc87cbf94090d25e11c75a24f89eb127403f038b597e640eec26d6317e5,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,56559ff3f38fda996927347edd2abff48fa6cc4510dc95e3771bdb513bc48206,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+demo,synthetic-C,582b0bb8a451f305272430d83bf28e8deac0f952044a241c99c6619082bc628e,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,5d0ba9822d8b097e482e38612526ea7ed83d71fb2315fc5bdaf62fe3e2ae0ab1,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,5dcf303f64d817e2fa4079624b59f1d5bc71c4f125ec1df1873b27ec01804618,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,5e155ab381cbe34fb6a9e566df3d613c4c768f464233b94455baad65d4b90d50,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,5e78518f42aa05745386c0645223d54a04ba556ff8764f5c77145c563bfa7bf3,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,5f8a77ca5281502d89c7f920d62101ace6d2daf3673759347e65969691762c57,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,60219cce18bb3150390a481ba07c1217d9432c2c0a3d624c3fd7ba89c0eaae55,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,621c399f5a4e5240cf8c3e09264e34f06cea0419bc2d584b2b7413d6b84bf8cd,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,624c13c7b33aa7561179a09e0d444d67db1aa7d1a1395cab26f734fbfc864755,Netflix,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-C,62b2e413166a39a0437c11c3b4aa5c09200519cb416dc0c24bb38ad3d07ff15e,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,632293d1c2a6c888b477e3faaf72dd7c671041cb3581b7717ed5b0a48ad5c225,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,687edf8e5e5616ae809d235089f8e2a5b3e52258171044b42d3f5d564f536877,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,68c88f9fbb5f5cf0f302ab5928bfa0e26add62cbd3513ecaabcf78daaabaff04,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+demo,synthetic-C,6b1e34b9f000498c9d2742381ab550f179ba79acfb7c4909fc67f886ace6c881,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-C,6c34e37626c5bcf1f83ba598eabf1bc80fb0541e02faa194d304f04035605777,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+demo,synthetic-C,6f70e38458c6766b89d7f6389e115e4f3b6012a5aace4af6f6d1c3d3daeb3347,Uber,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,6f7da5f1c6273a95456513ddb6fd93675471d87725deecee7778bbebda38ede4,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,70ab396ea54ea9dd63a54ec9076ea34b9591dc6c2e19f60c2c29d53094d35281,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,71023d11830258265d8b51673bb7c638e39e959fb7c637033e9a5263446fcf75,Lyft,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,717f1b538dfb515ec48d5a6e64f698fc947b9a2b0df6e107a4a54eaf83d1f4e3,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,72d86222cfe543af93ba7ca1e9527526f904e4e2e1009b42eb72e4300b65b547,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,740743ecb9bd5240efe4f7a1ffdc6f3f1ee36defafa34679af73acd0007d4f3f,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,79ac49c54fd1518bf0cec6394d95f6ec34da46cdc103cc8cb7e6f1a3ce2e5001,Uber,refund,,netted,fully reversed pair,0,
+demo,synthetic-C,7e1c24807788fd9ad932af582db0808b28a76feb594d5a507ff2d46080eb2335,Concordia University,recurring_outflow,Education,known merchant,known merchant,0,1.000000
+demo,synthetic-C,817a94fbed54e38b19d7c3aa7c0394cfc9fda298a6db20ec274bfdb69fcdb530,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,832320d36ca3b3f270c0527673197b169b3efa9318de17601a4be6432332c347,Lyft,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,838c1b435aff6461b4eff4f38a7b83c269496e6ba40fa1dea017bb96ab267b1c,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,84748b3d6ddcf8776cbd98666e7f07b1dc11ce1e43a8e85f05763269ff5ee6ef,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,870c05dff977268ed5818ac4db96fb02c14fe360d029e269dd47885b16e24940,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+demo,synthetic-C,874eca20019d5ee3c57e731c68a3dc3eb14b4e9dd8f9a2d48e3c45a906ba9c1c,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,877e01bf2933d5e735957a7ca34b26480b17b560870309f8aca6419296e76a4b,Netflix,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-C,8e364b922f776d072e40b6c94e3da5cd7ba81af8268b8374bda6433bd870c1e4,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,8f94525b4f2dacdacff5b2f2f3f96925a5ffdc7b37475e110fa6f3e00211190e,Nadia Haddad,income,Income,rule,transaction type: credit memo,0,1.000000
+demo,synthetic-C,917be52a763c48c12f7897511933b77f27f57f1e04176cb2533912c7e762eede,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,919bd092ec36857e681b8fcf3cf08a5d539ef985aacaba5ba5c5c8ed507e910e,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,92cfa82d23d27f7479f3dd06721eb461c1000e9fdeb67d28e2b53320f58add81,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,949bd873e36757640e8a811c5e9ce229f23994a35fcd18eeeb2b714cbe6b4675,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,965f896a94b19a06f214e8abae198e79e532c198cbc09b846b080f0203484f44,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,97ac5ab2f26d0123e5aa8428ec06abe848605ece0ffcf24e6de79a3cfb3ab44e,Uber,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,993de6a423365fbecd50cf434b842825cdc3cb4147cabd1da499a5df21988211,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,9cff2466bce05bfe5a8fe01253553335e39fcff09badf309482bb82f54829483,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,9dca111c53684df710142cf3ca28abb91bb7d7fbff6050d8f0b94072481c18b6,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,9e18965b592223e9c85ffc7defea72c8956731a9e37526e0d1d0002f31906331,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,9e4c9b13516b4df479c63efb31c86e4bae10f95aeba41efc5ee169c93c4711d5,Uber,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,a1e5c24f60a9fa0de8f2c5a8cabbc1cc2b74c74c0290ced19610735e9f43d249,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,a2719553cb0e68b3710b7566bc3fd8568f74262a9d368e07f23680ddddba2144,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,a482b9c60c3af373199fcbd69c034a3110f79f204cde64aea0d97af98da80c70,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+demo,synthetic-C,a6a8d1f3f83689ad77d096972dff4768c45435b4f1f84ada26d49cdb64de5424,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,ab8972de927734f64e389e36ffa00bc57c3f0cfb303a82990d8a89b5fb6fddcf,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+demo,synthetic-C,acdfed381307791f9c804d52c8981bd7c972d4cd1813f4637f211f4db5fa0177,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,afbd3e54ee2d46de4f1cbb6d2a5dd2684c924176cea865b5f7f452c81963f5f0,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,b1b0dccd30db8fe79ec15bd733bd4619fbd8a64f2c26bc42608f8c3617886cc5,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,b51c9e9e78d89473249deeed51f22bc59710a37e2767d0b6949717c5600ab80e,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,b59a5fd7efe6da51c0ce89e56f51d36cbd74f102d44a7a37a132ab271d3122fc,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,b5e33ca8b8cb44ea713869a615d8ac5ebd483dcb148efb2c6f28a78aee21dc6d,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,b6d68fe421bba0e657d52746d63750b8c5efe0c49b0edf91cdea2de573f467df,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,b707858da81ec8f4e806e284d1095e77c14d747827e2162a2bd610783c4654b1,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,b84f46a4069622254d88245550fa0f061007107a0898b4d4ee7412882e235458,Nadia Haddad,income,Income,rule,transaction type: credit memo,0,1.000000
+demo,synthetic-C,b8cccdbfa914eb768c26567dc4dcb51675944713a2e01ff7c721cc2fc56e9cc0,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,b992f4452f05e5736d30536fe87352c1f8085fd7976c15a1d21e1683d34e49d7,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,b993d9e606eaf033dbb8f7c49ebd8c6dab640c1914557402b95c7a8f6bf2cbee,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+demo,synthetic-C,b9d343bf7dfff33a37efaf469b499e34a7984cbb357d71b1d221dd9b08cd611e,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,bbf14a4e1e8ad594523b75de56c47b43aaa07f62c83f9494a4c21ca5598dd229,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,bc53a246ea521ce634319d59fccdbdc6626adbc5e985fdc0654e700d7b8e2b84,Etsy.Com,everyday,,netted,fully reversed pair,0,
+demo,synthetic-C,be7035ba8ec8c61718ee2c8b1bee1ba99c52c46a7b8a365205c4cba130123088,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,c0fb7fa2cd3b46a28e2261022e6539c791b15f8dc12c2dbd40b3f140b19f14bb,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,c2082e71f44bc1e365d7c13fc889ef5a0ebb571d8c4c92681c0a2e27892362d5,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,c2e061fd55bd0c1b240a3127daedfa2a2b954caaa23a605aab3cd5c465f634e9,Uber,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,c452a6c104b8f88405c36f65b6dc2f64874cff3ca07b7008eed6e80064a5e529,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,c49fce9af2af126909a9b9e587ab8a39466ae091c7c97d85a9aabfbe4481d801,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,c642a9ce4f10fff9e0bc8db3656c490e2b868d4fa96c26780f9f112fd5eb84ce,Uber Eats,refund,,netted,fully reversed pair,0,
+demo,synthetic-C,c6885ef7ce166a5f33d6022a0efd01550bc7f27f568704f7aed4444c5a334c9b,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,c70616ef856f88ff51928e3a11166a9722c250675dcb63d58bbe52561bacf686,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,c73ccc586b5db45940c74980cd52dd947563072a343655c36878a3867ce6c308,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,c7594c50ada92a29ef38b1b7b281b608a159e3364bcaacf6f95e1ba4dbfc208f,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-C,c8e7a504475fd5a03be303f889f1d71296a72b4002c6da45254b84a3df706ecc,Uber,everyday,,netted,fully reversed pair,0,
+demo,synthetic-C,ca9ffe9fbdf0c89e118c08a03ea3c04065d40936adfcca98a23ee6d12e8207fe,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,cdd5eb2953bc4d354d4ce03f415de9ecdadfee1bd31e0b6629d803afdae92939,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,ce8c1a185f24f354657dfc280904ccbc4883bf7e4bdfda94edae697b2cfd9ecc,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,cf485248e73857d54cb306b9c3486162ace2fbdc3f460a647bcb7bc21605a392,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,cf4edc619044283154bd45ff1e68246643e85e28121cea784ae2f849aefacc47,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,cfaa2bf76ac70d9058703810c14806659d99e7684e6b43a2e4b1b076627cdc2b,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-C,cfab5974a6b292e1eefb351c1a153625273dd575e0fbd14bee84b4aa5747853a,Netflix,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-C,d00cbb3953a7e3afbb1b10e89577b3e812015079da758cb4dea9822787a27e12,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,d08135dca00384fff906a5b94cc5ea1a3c55af519f44614b96477fe881dede5b,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,d1a0a6cd15e8c336e06895b80b8fca6a41c6a11796073a5d0d224a0433fb9905,Nadia Haddad,income,Income,rule,transaction type: credit memo,0,1.000000
+demo,synthetic-C,d369b57686f5a72aa34183eb0d4d231bbc27d367f7ace504b7201030df888c52,Tim Hortons,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,d40cf7cd7a467bae65e6b112cbdc3873810685feff99aeb9e2e8568c4ea344d4,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-C,d416d05a32f2a0305287120115e85eac0a1df54bd3676f2b73b3ba422a35a38c,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,d43136b9bbc6e42933ed3f7d67745ebaa78192e22437b97abccf1a9c27a89c60,Uber,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,d51107b0bc397c12059646a4db12710e9842ade26b8dd1afa02951f0c8b5a48c,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,d5b479548f11399c9b3572615cbd64c416c88846d36512bd5aae1a9f3492ce90,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,d80c5f89ed21d786377ec9b491bc1b77595cb779343ede386dfe61a90379e370,Nadia Haddad,income,Income,rule,transaction type: credit memo,0,1.000000
+demo,synthetic-C,d81034a1d208e47ecf1b7a0cdbf34cc4549ab42bf224e9bd6272e59ae31a891d,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,d8357940cef638c3623425cdf9846d9b77a2124cb302f5932a83b0137e1fff80,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,d9b29ff2a973a3f9da3f2a9e83f7a0fbb0225a099c31f8ff41e20eed6b220fd9,Netflix,everyday,Subscriptions,known merchant,known merchant,0,1.000000
+demo,synthetic-C,d9df368593c113727ed4d6edf8de018027ec58452e545a6afb5b2ff645bf717b,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,d9f1728f3cd39e91a1850636d96b054dcf78b9d27d44cc42f2460344a2ab5c5b,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-C,da58cb8211644eb8a75d6b629ebafd4bbb67f8f8728f28d3a424f4855c3387a8,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,dcb7e323d0c42c1c1052822e0e2a1356e4859a08fe1d931166d358c89977170b,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-C,dd918cf9d0db0714b6ec8d2fe98ce69289d8340a7552c5820a8776fbc60e9410,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,ddabe11685e274248ae49bb026e21910fe7229c03617efcadd8c6b158a1be52a,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,ddbd993a395806d6d64ee4951a08dd84ac045dae13f869bcb45a38e21a24a408,Uber Eats,everyday,,netted,fully reversed pair,0,
+demo,synthetic-C,ddf9e436131719acdedd7a10bb8ac4cd5c48088125b4121d7817fbeda8913c0b,Jean Coutu,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-C,e1ddb78394292889ff620e55a94ca2f07a0054853ece3867c126123089968ff8,Uber,everyday,,netted,fully reversed pair,0,
+demo,synthetic-C,e3d6bba8f1b379f910a31d92d56cf39c27ceeec298121775e3afbf65c10bcad6,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,e437e36ad3346b54b89cb2168acb6be7f2ffa0a3f4743bd2bb472a8a3fff5ddb,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,e510d2ea1dd9f781cc52c50d180ceb0e0e65c663166014797b54b69782ab0ed5,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,e682b655731a571099393114ea7d0d74dfa581c225425a2bc82702b4ccbf792d,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,e7adb4a88b3d6bf16da5378d93ee18cf0d7328d05f91bb40751b5e9d534a2b26,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,e8c955a021f17cc1b07782fbd1fc17d7ba955eccce70cad5add7a4699dcd7529,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,e93f46c119fe7ff8a2f0380730e2dba02f28ba860db1cec4e5b37349a5f76fab,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,e97421ec225d435ba18d25cf7c6d1cec6cd7ed58de0e57fd5a5d74ade76925e2,Bixi,everyday,Transport,known merchant,known merchant,0,1.000000
+demo,synthetic-C,e9a9bef9c82712baa2a3d1d6c8a81bb867e9d79963dc7a65b556d89ff1f975fc,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+demo,synthetic-C,eb0b7c898b62a78fa028b46a98027efcd62d16fad41fd44ec0d4ef006cd0d117,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+demo,synthetic-C,ecd0f1e3148579459867f272be2097e1f94efc5182ae2a56f781c622c8f53d10,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,ee95e67938d884c8f79d6861b2078124042b675605e333b526524419db648ba8,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+demo,synthetic-C,eeffc2d5ac3b63016aeecdd5b9fa6c4964c6a618a3d53d308aa16d90c591516e,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+demo,synthetic-C,f020dfa872862a1b740451c6d345620bd5e60f26f7a94175f0ac32b4a0e78c5c,Jean Coutu,everyday,Health & pharmacy,known merchant,known merchant,0,1.000000
+demo,synthetic-C,f0b3d97dfc8730e9fa872d91fcdfe1ac90ca00db18897492b67b4f1676a808d0,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,f0b8b36ce3d85ddb47a9dc618e444150dd174c4124f072928b4d5cf047051e02,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+demo,synthetic-C,f6395322a7924d85ed1dd3ee68c45cab494f6d0906f14eaa79657dc26057f832,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+demo,synthetic-C,f987e6d17231ec5a0df0ab049394d092c7b27eab0374f9c0e299a7fd16376549,Restaurant Le Petit,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+demo,synthetic-C,fa7748bf17e7982394ad3961625e5add468d4c464e44c23fc25f5ad015e594d6,Uber,everyday,,netted,fully reversed pair,0,
+demo,synthetic-C,fc28937841f0a2ac5974405d8375ef028983b99418065e0ccc79822d1c3d9b51,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+demo,synthetic-C,fdb0434acbec5f0ba1afe78a4b20b3c1b938cd592188458b255a70a42143ecda,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+demo,synthetic-C,fe4f9fa0c2406baacb685e01abaf8a10a156e464d615c29dffe3edd484636ba4,,refund,,netted,fully reversed pair,0,
+demo,synthetic-C,feaf779f8ba401dd857ea4591244bdea5c751425ac1251f1a2b9c77d5560b38f,Uber,refund,,netted,fully reversed pair,0,
+demo,synthetic-C,ff58024017a860bc7fb88b8fb2fa9737633a2e663ce2eca2ea138ab226557d62,Metro,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-B,003814be349deffddcda8cf932ccdc26229e204cd7fcde43a7929e1f9130713e,Gestion Immobiliere,recurring_outflow,Groceries,model,new merchant,1,0.340411
+new,synthetic-B,01d8546a38e2dca2fb5b15db471b0e860b3c9eb45af86f7b8525076e15164c43,Pharmaprix,everyday,Groceries,model,new merchant,0,0.567685
+new,synthetic-B,0562c55e2a3782885d58c2f6d9aed1d8d215e532e162ef7dae9b7643f447ab38,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,056c0da2e90b7db0f6480902e42d3ec5590e2a6d50689aa2933950857c04363c,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,0686f8a35602047d1ae2cb5dfa7bb6cdb27022bfd6594fba4a6d6b5108e6b10a,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-B,0751cf89391b78cc9d69f727078376dfc8091422e9530e8db3cdabc96126b597,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,08f641f1f5809be6c8efb66314a5150463d6c464bdd3c138c6e43cc6557be1a1,Bixi,everyday,Groceries,model,new merchant,1,0.316614
+new,synthetic-B,0ff0f6619d50477e6da9af5507b9613f72a1a2741c700b9b89326cadd4a3928b,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,10999feeec46922ecfb61a59f0d7835df52912f2570fd099f711d33884e38ea7,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+new,synthetic-B,11334337b5ec27a55d889ee9cb1eb21f5ff705ae2d201cc9b4cdeb445b66ed17,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,156afe7f6441cb93cc5261be3f9ebac8473c1002a3973cc2f6405a3559417242,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,1591cd00b65387d2e7c61ace0427aaada32e9d202e4c44b26e3234d5d48dc07f,Gestion Immobiliere,recurring_outflow,Groceries,model,new merchant,1,0.340411
+new,synthetic-B,15d3712768e9a045c8931c6593152c33d6b1304a1be3d5b4319cab4f2b2c3fd0,Metro,everyday,Groceries,model,new merchant,0,0.598518
+new,synthetic-B,15ff10dba18a2fcc3100661c0eff64144ab822335182e8db78a2f3e0b1cb0f69,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,19995fe548223d5cb7ef2f9fe7244034c9f976a2753450b0fbb717f6bc834c18,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,1bfbd6817ce71efede2ecfb1e89314054ae23db7e5833353b718127ee5081216,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-B,1c54648a8134903387c8590da4509e18a9187243c86b384614812863d8820e3d,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,1c56d2d8b2bb605f65665c5c529a3497bb8327d3c4f37fc6c66481585b1ce692,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,1caa4888f0820885be51441238f30e6eb69a9c21e25d1b894663fae8a59198b4,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,1f22ac8f4b0d86b493a730644645002ec1acd49962b02a722cf46de4cc8e3c5a,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,1fdf3cf4412b3e8fb42d586d14c76e9b5229e77057b025aeb81699d937ccd12b,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,1fea9cfcfbbe4e9c43432259c2a8cc2091f2495a4d87eaff50e6bae928c5fd8b,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+new,synthetic-B,20ba74b7fa7d8d0dcbaa62a6dd25d7c1f94828919eedb245548e29d5be55745f,Pharmaprix,everyday,Groceries,model,new merchant,0,0.753675
+new,synthetic-B,226bd5a92fdc83b52c01be59e304d465528e1b93703592c44029d5a2b6ecc8c3,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-B,22edf104905e46a8da30d2cb1aad51ca4bb5e19f908b6062d9f76c085e71d6d8,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,25510addda390a6f7f1a5c7f45e6260d46cdb802389c8310be16abf140900bae,Restaurant Le Petit,everyday,Restaurants & cafés,model,new merchant,1,0.390597
+new,synthetic-B,258ee7faa5515214f95177f06798266842c78140cc33c1082bfb8ed141224ef4,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,25f835b2d65a3a693c542ffc6cb2a417d364a1119d09585569162a74af7f143e,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,2814ca67bd9a6102add55a269d8eb517921075a4d1c457b220466dccbf56db32,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+new,synthetic-B,2c2e0c703e2b0ef59037e08addbcb2c78c995013d1f4d91f52497767f8854661,Vidéotron,recurring_outflow,Groceries,model,new merchant,0,0.563805
+new,synthetic-B,2d149df20e4862ff79c9cd55d15140e3c0e89ecd3da1abb2d84ddc21abd29340,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,2e3586ef52535ea9e9b3c0ef4f43965e3cc5db6a430e8fa9c62ea7d3f28b6e44,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,303294e3030e0b9125a5149f7c1be9654903ee7c32f6164a50e9c01a6033c743,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,330eb214014d4bcf49651334142343617527381f08a3133eaa3aed4b0406705d,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,33f3fa10c82bf598f39573c77fa67ec3b27c2b102c7714eb8f5f8e3d26d5fa6a,Pharmaprix,everyday,Groceries,model,new merchant,0,0.567685
+new,synthetic-B,353a09d856a5d4dce94f50e198b5b7bec91685938d93f0b04bc52d30d0ef11e1,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,35a1105a0728688edb07339b210fc2eb2fe12f5a6948540dfd26dcdd9e84dfb0,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,3774dc14ee311ad659ed3a2912362b1327ddf294c40d834be882ad91bc42bb72,Pharmaprix,everyday,Groceries,model,new merchant,0,0.567685
+new,synthetic-B,38f50ee40e393c118aa75dcee5a978e5f97d3aee0685945934c6216ea53846d3,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,3942b7f15fee2155f03c58163de27186659385d5d5e14ffcd8ca1a8461f84c12,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-B,3b5bab52ce1ca5f2e939e807027d615b234ca19ac961cebe0a8f221779ced617,Pharmaprix,everyday,Groceries,model,new merchant,0,0.753675
+new,synthetic-B,3dba22136198a1f8c6b4f675cdb340eeb90f8906ece1ef373e684fc5a11c6405,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,3de00b17428271a774b018b921e17e7a595f2c1ecccc055e85d28e7cce3deef6,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-B,3e945c90f8c97946af2e4bf1b94b8ca1ef629e61c45394ed20217302e0382113,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-B,408da5ee7f997221303b5c1733d3cd6634b1f43da1b87f14a06a3cccd2badf09,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,40f4dbe07718694c9f788ff730843223386984c93c5b35364d0d404dd2932772,Gestion Immobiliere,recurring_outflow,Groceries,model,new merchant,1,0.340411
+new,synthetic-B,428228fbd4b456696aaedde5c85bf28dde4a386adc5c411fd9fcbdc015c9404b,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,428a2eaef35b476235a5d533d32fb146a0f323fda3b7f4c2b14c9e3daa0448b7,Netflix,everyday,Transport,model,new merchant,1,0.269953
+new,synthetic-B,43a36880d9ec0a1f416cf7a2737e92da6af35f3d98a25bcf65a522fe6def965f,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,43eca77f7c914d35151afcc9cca0da388ddd6e84b88a17d4e23776f0854da6b6,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,45f72a7fa7f5d462bae60feb1007ec4bb4f606ec7dacf5ec5e18583cc401d532,Pharmaprix,everyday,Groceries,model,new merchant,0,0.567685
+new,synthetic-B,46c1aa74d3aef5d291db0b07b31ad6fef676ec4957d861481da65b559df44dcd,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,4bf2dda80634c4cfcb1d94b57a8bdd033298a2f7f33c6ece7ef0bef5fdad0e9c,Pharmaprix,everyday,Groceries,model,new merchant,0,0.567685
+new,synthetic-B,4e4ad8e8be791590325076d4f156a4f31774257a8f66b120e04c0b4f74a62428,Netflix,everyday,Transport,model,new merchant,1,0.269953
+new,synthetic-B,4efd9949e63532a82888f5c107b603063bb349036b1a86a9dcd29be40387c4cb,Metro,everyday,Groceries,model,new merchant,1,0.469397
+new,synthetic-B,50d1031624ab95bda3cf8efc42c4f58345d6202f897f77fe036ddd5839d7081f,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,514c97c68399f2ebd1f95fe8f74028d90ba991d28d1c1d1f1f35c9d0ea52e5b1,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,52736b4e2b08701b3c1fcd8ba9679fa63f1ec120ab52f8ceb7b9991ed0cf2406,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,59215c33e1c6e11f203e93e4ac6c773dfc099429cdaebaf99e2cd46c6cdd6741,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-B,592be66e5fbca77e25197abf35e8c7b09ffb2014bdc59162829212dd7f0de8d4,Gestion Immobiliere,recurring_outflow,Groceries,model,new merchant,1,0.340411
+new,synthetic-B,5b61e64df90909f551ae8b403c0ac67363a97a52e5f67e13bd17f232779535f3,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-B,5b6c2aecae469aec5b0d9e6fa20e3974307f83e9f6090926bd3b3fce1523e514,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,5c6902ad0142e80083b5b0e6fad677dc4f73eb2d54f81e7250195a728abc319e,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+new,synthetic-B,6023c46b186e20d664f9eea211c835a2205665867413a1512cd1ade3ed2d5c92,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-B,6152a8ef29e1d7f3be515aa7aa5e4a177dd3066707433369493a7a0579fc624c,Restaurant Le Petit,everyday,Restaurants & cafés,model,new merchant,1,0.390597
+new,synthetic-B,626a396cf9f80cb272fafc59f2c6e48fe357aeae315f07495754b8d5610c29b1,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,64783ad7f89ab725f4a89a404d7b805770d089978bf5488905220cf6363e1e45,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,64e220bcd47f9d393741c93be9067e9b156da1f43f470dfbc0a82972e3b7b6a7,,transfer,Transfers,rule,transaction type: own-account transfer,0,1.000000
+new,synthetic-B,66206729ebfd4ca1f05aed076c62e35dd49eff4c442a756284adde3f1a3c41a9,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,6a68c937bb1c70580ce5f9b431a9c24d9d825e4aea3e7260e6989ebfce0a1e22,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,6b728c89985bc3d2feef0d23179cce3ae26831021c33287c1111ad57a2ac83ef,Pharmaprix,everyday,Groceries,model,new merchant,0,0.567685
+new,synthetic-B,6c6821537394487e9e7a66047848ccc20fdda521eefa901b873e660931623d1c,Iga,everyday,Groceries,model,new merchant,1,0.423903
+new,synthetic-B,7164f3e9f541b23457c64d836cde02538fb98e6a824f1ef7f35e8e14fe644198,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-B,73321fcfa12fadaa46e6e3670b9b1a04c1d7ff26f705ba01dea4bb4b2b729f21,Iga,everyday,Groceries,model,new merchant,0,0.551947
+new,synthetic-B,7734713585ebaf418f2da710787657f4340d34ad49c164bf4641a89566f9ca6e,Winners,everyday,Groceries,model,new merchant,0,0.754775
+new,synthetic-B,78aeb7df679137514531a09ef6c13e05386e666c9ae2fb973a1c46d2c01d871e,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,7a5604d0625373c57d36e7fa5c32d7b02a84d002dee14224ddf12796bea62fa0,Hydro-Québec,recurring_outflow,Groceries,model,new merchant,1,0.313612
+new,synthetic-B,7b836cd0c3077e988e19075181cf24205d641eb6ce008ba8feb7e140c1515f64,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,7cadc130575896f7dbc5b3fef91c555512439ffd71e0de8361642d45462201f4,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+new,synthetic-B,7e061bf63972e05399e7ed4057137e75accbb642cf1274358073820a818935ba,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,7e89f310e4dffd7cfe4c51dba77b50e3719aab448768400f5bd40c5ec81af095,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,7f000422397b203c349f6c5f42a66f514f7e1c549529a02a6984e0730a386b31,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-B,82bb7a7795496f5171951f87c81dcf8d43d610e480211a74cf2eac186be4618c,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-B,84c773b935b14ba55aac2cf703bfbe8e059e1aed60af3257cba2aabe8905eb60,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-B,8e73aa8640afe310c2d49b7266c41159958fe5f0c92a27fe57876c2f0da16be0,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,8f1e200d93ad9e0fdd353bd84d9bbc13260735ad60ee4efa12356ce5d5090973,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,8f65ac1957f4230571d1c5817b4e02dc01056b1af2cb6695d45d9137e08810c7,Winners,everyday,Groceries,model,new merchant,0,0.754775
+new,synthetic-B,905411714c97acc4d4cefb0f86c6042f8e039f495041eb9bfd25fb339c3e3d19,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,911c7a78dcaab5a76fa4dfd3b6003b2d57328cb5c2db03f199eb02f3c6488473,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,912d9c9b557f2b1a047d2840fab57a2d0f4cce9913d96fcc513a3f7b4c692bba,Iga,everyday,Groceries,model,new merchant,0,0.551947
+new,synthetic-B,93eb32d75e7fb15f042d1508dc2b3da3487493502bfab9c48849623dcf5d059a,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.538918
+new,synthetic-B,95b3a91123f460635891bb8620607c54b3aa62cdf83cef61af130655588b63ea,Pharmaprix,everyday,Groceries,model,new merchant,0,0.567685
+new,synthetic-B,9b1606acd5221ea38aa59c2a2310cf525b9962599827a81a96b1da5c1d3053dc,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,9c45f6c69f1a0234ee5f5bd8b1b719bc34f9226575764a08097702e7fc2548ea,,transfer,Transfers,rule,transaction type: own-account transfer,0,1.000000
+new,synthetic-B,a5c8f112c1872988a274220e3b3081dd9cab7ea235ac8cce69b8f0b60e16b021,,transfer,Transfers,rule,transaction type: own-account transfer,0,1.000000
+new,synthetic-B,a61610e19d062ed979d73b80c32cec7f2dcb298668fdce22188f2ffcf1f9206e,Netflix,everyday,Transport,model,new merchant,1,0.269953
+new,synthetic-B,a6bf8b94cf54fb50811a44d4c611c9f2a5c254665679056f002d8be5beca2d9a,Restaurant Le Petit,everyday,Groceries,model,new merchant,1,0.411809
+new,synthetic-B,a79a6d1fa16732fbe76cd7ed079d7dc9fbe03039784c72e23274692c55ce32e6,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,a900dccfdfa6b3c2f11946c65cd5431665507874e5664b13af038ead5237492f,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+new,synthetic-B,aa2541aafc8a94be04b02668fbe7d22541bf0c2e6753809ae9046bcfcad1eebb,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,ac64d1aa47f451606d76c4b2fba785e9895446e4a6e020cca3d8ed6a4d17143d,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.538918
+new,synthetic-B,ad722ea7d11406d5dd524102e39a8fab0b19b74de0282226af36592cca2f380d,Hydro-Québec,recurring_outflow,Groceries,model,new merchant,0,0.605700
+new,synthetic-B,ad83076447b9e6b59cde33cdd5bdec39e87860adf0f52b32a19a701cf5dcf32b,Metro,everyday,Groceries,model,new merchant,0,0.598518
+new,synthetic-B,aed638226a5509e52403993909743d99d3dc6f6cd66a40fc5ec595928fe0d3eb,Iga,everyday,Groceries,model,new merchant,0,0.551947
+new,synthetic-B,b055b6ee9d368341e763359b2317ad04e215084da8aec2de303c5de91c7ecaa5,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,b0caa507faffba660d236c59b24c9330cc8d353cea3f34a35a8a4a5f85c79274,Winners,refund,,netted,fully reversed pair,0,
+new,synthetic-B,b0f2616e831aeabc974058bac4d64c5b2d47cc95c579681b58b109d11ffaed64,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,b0fca515ca8629915f56f89372aaa3245f73736d274ee6db09940ef64deb8da8,Iga,everyday,Groceries,model,new merchant,0,0.551947
+new,synthetic-B,b294850f24c71d00f6df3ccee66a4904a21c82cedd09f80e31f925998d9aae4d,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,b4aa93b8e5dbb0628ef0c210af34a547966283831d993427f7575a68d5af7ad5,Bixi,everyday,Groceries,model,new merchant,1,0.316614
+new,synthetic-B,b4d7e7f67e3a33ceccf8d1471e14f7833e3760ef0c8317f28667363a07bea267,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-B,b58bc544bccb012fd78cbfe6f301d0016f4fc3b65b94ff08965d8a32d5566179,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,b65adca9b077cdfda7416d55bcd73d689c5c8c484b4abf98d8883d1edfb2c929,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,b6c5851267798a321dee3495f71ffe5614aa15a348f30146673f28720ae86070,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+new,synthetic-B,b8d8b7e99257d27d1baa8cb018ae27e3e772112cca43b6c662d5cc2ebb35d1a7,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-B,ba57bcd504f80f9bcc07d98c830eb634c8358a2fa98762e40dbddd67010caf60,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-B,c00b87aac3cfc3aab0973ca33a9439cbcf86526ab81faa08131098e06053ffea,Hydro-Québec,recurring_outflow,Groceries,model,new merchant,0,0.605700
+new,synthetic-B,c0b29d085065dbadb3efbe8d5574e01b46a3eac838f8da2a2ae527b66b0768e0,Winners,everyday,Groceries,model,new merchant,0,0.754775
+new,synthetic-B,c11b8a89f8aca03037d8beb19ccafd7cfee3b84f860abadc0ef65b6d5eecb605,Iga,everyday,Groceries,model,new merchant,0,0.551947
+new,synthetic-B,c172d08eea2b82a7f647774683959e278cc8577bc71c7b20a833c35477a521a1,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,c2052d7f4928f74247bfdc4dd0b9558330b450bbf4150220bb2fe447154fedf1,Vidéotron,recurring_outflow,Groceries,model,new merchant,0,0.563805
+new,synthetic-B,c2a16b7e7d8586b458fb931c06116d7aaadf3c93e1ce21e510376e74da99fa94,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-B,c62e0981c9327adfd216250fa20cbfb77f435ceb60c356f158f4337b2773ff26,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,c646913e829a77c883dfd07df951cf7108b1fe3127c4066c9b41da8014ae8363,,transfer,Transfers,rule,transaction type: own-account transfer,0,1.000000
+new,synthetic-B,c77ff34bcf277fb2553c2a96717c12e0eae0d2c9596b7554a84a5bddadd1f2fa,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,c78c3b111c4253562eb8b58fb78d8a94c1855fe9b664d6c28a8fca36d4c2ed69,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,c80580892efd56fac39045f7863746a87c44cfed233e6f13daf94b0172ba5e9b,Metro,everyday,Groceries,model,new merchant,0,0.598518
+new,synthetic-B,c87bdffc0a16ae0fb7794330dc6a88c021abcd0182deef245247a9fed599549b,Winners,everyday,,netted,fully reversed pair,0,
+new,synthetic-B,c8f246245f7a2ae29d95da5048d9872756f30083b8f95b10fc3e516527026eaf,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,ca82eea9b7aa4c3675209ad334a0a4ec6d1122c558fe9e1fa97bcf55032d800b,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,caad9b6a79ed8954a51e2aa4efe1e3824e9dcabee72cc1f33c0d953ebffee611,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,cb7c61d2bb68c7817cdada86dd781021ea7a374a76ab5d1c7047c005e4ff1e43,Gestion Immobiliere,recurring_outflow,Groceries,model,new merchant,1,0.340411
+new,synthetic-B,cbdcc40a0ff752c2e440e8fe4e742e652c10a0549e4f820fe5702e74bd12ce1e,Netflix,everyday,Transport,model,new merchant,1,0.269953
+new,synthetic-B,ce92b741a87f140e38eab7ed5954e318191d889b0735ae1649ad6e6e734c04ac,Iga,everyday,Groceries,model,new merchant,0,0.551947
+new,synthetic-B,cf11cd9fe1a7205bee40b43421403b78c6441732257668d205fe06bfa05a42a3,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+new,synthetic-B,d16d8c57a27a82883563ad715ba4c5c87bbed982e9bec71c3cfa402064b8a1f1,Winners,refund,,netted,fully reversed pair,0,
+new,synthetic-B,d2117d35c07e8171c64bcaf5e030e442865d7268fe524ba023601eea2ccca1b6,Saq,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-B,d28a097479e1f78d7f7dac2af3d3dbf5ed42f8baa7bb23b9774cddb5549c144a,Winners,everyday,Groceries,model,new merchant,0,0.754775
+new,synthetic-B,d438a068f7fd44e2a05c4af4007861e7a9eaba23fed66dc8aa50b11906bd9a42,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.538918
+new,synthetic-B,d739e1a9ea9e2f841eb6986a3460ca413e25e46a5946972175e981a5e045d511,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,d8944e7452140a15eaffefffc4969181b8e727605d89a3f7f32a4375c7c6313d,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,df6aa83e7f975bc4e7605ebb3e6cf3946200016aa845a69f481da7dc6d30cd1a,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,e012e3af85e9cf3eab46f364e51772fac9a0a3161c06cceac6c23b8b86073c16,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,e1e1a8c7e92887872310452a206a42d21cdc9592001523c15801881e2d921c62,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,e60b0421bb64396be9535266e4af0834bc3a65e7f01f0a4908be3e98c6a522f4,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-B,e61da69a8f4f3178b74d58e6c30c338ebbfafa7d656bee3469f8257bf50eb9a5,Winners,everyday,Groceries,model,new merchant,0,0.754775
+new,synthetic-B,e6f73ff348730ba6a7f1ad51a2fa676d2630e7cdf7b6276ecaa31418df475c4f,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,e7835728dd5259f062dadb0b083f1b5def01338c28a15178f53ca873f77a5977,Bixi,everyday,Transport,model,new merchant,1,0.262599
+new,synthetic-B,ea09c92d243de1f151ebefd7296f3babbbd54e4a481899f25629a14808c96f11,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,ea4086e01d043373da23ced34b8e22cc8fe0d8c04582373ece142a408c542838,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,ee038f5c27a179e228074c2725758a1fde7a5e8cd1cfc3e0330eea1dbf34329b,Vidéotron,recurring_outflow,Groceries,model,new merchant,0,0.563805
+new,synthetic-B,ee4ac20a5d7f6ea3c1d676716f38239f2adf05aa986f686d8ceaca0c2413a24e,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-B,efc3381dc879c519a49a0bf07e89e731eec2f15e213a71d44fc4145d20492464,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-B,f036fcc6e93844e3e874c4664c677e887fe2dc31453a55d9f894f69e8065c927,Hydro-Québec,recurring_outflow,Groceries,model,new merchant,0,0.605700
+new,synthetic-B,f10c8578f0981a2222abc74c7c8bd2f1ccfc6f0d0c7243e9a976c654c751f46f,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-B,f130bfd1b258f3ef1de5a0fed4c99f6b865e5df069abec2e743966d5d1b98da8,Iga,everyday,Groceries,model,new merchant,0,0.744695
+new,synthetic-B,f1b8cb25a18dfc7920b1f557dffb66088d3dec374d1fd188452bf80fe2bc07bb,Caf? Velisaro,everyday,Restaurants & cafés,model,new merchant,0,0.842711
+new,synthetic-B,f789e0d6085d4418919107248c1bb7df4c79f1db1f8f8aefecd002a89d4faea3,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-B,f93aec2831fc27d11f8ccd854b589b10fce67d221ece16c59ac05639331e3660,Pharmaprix,everyday,Groceries,model,new merchant,0,0.567685
+new,synthetic-B,fadac0c5b4a71fffd6b9f63da40076dba799c0ba5ae3a2df7210528ab3c1f980,Vidéotron,recurring_outflow,Groceries,model,new merchant,0,0.563805
+new,synthetic-B,fefc3cf0a809fc7fbdc125f99da252069981803f2ab5c67936902168321a2e50,Groupe Conseil Plateau,income,Income,rule,transaction type: deposit,0,1.000000
+new,synthetic-B,ff2ed5536aede35e4215fb35bf6afc20dc2e44b3a2edddf35cf0ad9aef6ff501,Winners,everyday,,netted,fully reversed pair,0,
+new,synthetic-B,ff690a241b7fe5887730a7e77083c6408f7b9dd29c846a4dedec6999009fba3a,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,0158515c615067b9e5630cfd0f08ff7f777862d202d19cc85875e670176657aa,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,01b84648d02359e8689dac4cd90a0d0acec41b9c01795cc6984db013cd1e71be,Tim Hortons,everyday,Transport,model,new merchant,1,0.379266
+new,synthetic-C,020730e9a8394ac501c86cf7148f20442aeb006f8751f134ea86b3507e148c50,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,03049923421f6d666eade0d2448f349c78bad4cf06f9ab67d70fc68c62655ed6,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,0404b5081ac4489aa01d45b12e93b100c6819277c9b680662f7cd8f13d7e0b69,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-C,07b3a88442d927ca13eb30a29249c304e59a6cabf2a0351f167a320d060ca886,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+new,synthetic-C,07cfe443e299c960e5524387016ae8587e75f4525fe55cb5fde791f82ae9e963,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+new,synthetic-C,07d5052dea0ee26aa5b9d6b018b59201b49d63edecd03e4987bfc5343de11f2e,Jean Coutu,everyday,Groceries,model,new merchant,0,0.558625
+new,synthetic-C,0887a81908bb6d728595882b259b650adcd729ae66046e8625208910e747e952,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+new,synthetic-C,08a6ad283b04dbca874a7866e4107a0d2d10577dbda251209de78163e9e8335f,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,0a5b0f61537fb359667ae2b4dfe24e98ba62dd7b3d835f4d6b6202bc2383ca60,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,0b661fcc3ed902b53884df4950924e8d5bc7ea4e53097fb232194649bcf2d423,Bixi,everyday,Groceries,model,new merchant,1,0.346439
+new,synthetic-C,0c1381bd9cdfb2eeed49c3543875e5c7630834b5daa922abedef8929b6df22f6,Tim Hortons,everyday,Groceries,model,new merchant,0,0.519260
+new,synthetic-C,0d7784c6f8a9f4bdb9dd9a4985ae1cf06691d3cee34a60663ea59fd5efbe6e1c,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,0f81605c783613c96b5c349b91c97c5e382401d522a4fd083a83acf23f8369bf,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,11836ef13e5a67d87822fac9659118ff70734800c545fcccc35a1a61e3861c39,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+new,synthetic-C,1290f7d600168b6ae5236725d6c25162eb7db4c34c8b8cbacc9a17af79325bde,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,16323ae8fdc16654a170d92f6f03d72fc76333ea3c6a6eecd100a15f825aeb8b,Lyft,everyday,Transport,model,new merchant,1,0.272369
+new,synthetic-C,1702ae08c08fb0c627a27d735065f8a5435fd15c4d8c0ffd87ce0506795a9cc6,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+new,synthetic-C,1718c60963fa1bb821577909c3146c33b13b79864e0d3eebdd6fae9efc3b0ed7,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-C,18257ecdb77b90ec7ce07078969e8ac1b1c3a790921887323fd9bf758e15c66d,Tim Hortons,everyday,Transport,model,new merchant,1,0.379266
+new,synthetic-C,18ff1dd653bae3bd161d9df7c288aa77599ad950dbb88e12bd6447b5ed468f86,Tim Hortons,everyday,Transport,model,new merchant,1,0.379266
+new,synthetic-C,1967c7acfa33c30dd511017d5cf88169fe8184dc999cd2ab04d0124d483fd8ac,Etsy.Com,refund,,netted,fully reversed pair,0,
+new,synthetic-C,197d31ded2fee38e368a03a466635f5b0c6548c389db97e2d3f612b088b5f101,Uber Eats,refund,,netted,fully reversed pair,0,
+new,synthetic-C,1bce1bb26ec547c768d1952f666589665c9d6559fe98d2a8008b087eba631caa,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+new,synthetic-C,1ed35a1d61a4c891fe1ab672ff21e8f54e95d4ef7fd0e7a2b8acc67a8bd2955d,Uber,refund,,netted,fully reversed pair,0,
+new,synthetic-C,1f7d786e5c181755c33c2ef2708c12aae08213fc289ec70b46281277d4dcea25,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+new,synthetic-C,203390aa57c0abbff225e13fcc5b468acf0e5227d34713bd86b827373c32ebe3,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,23099108f9e038974b1164d1b077bdaa2f49871307f463b7643dc636b9932fb5,Uber,everyday,Transport,model,new merchant,1,0.249292
+new,synthetic-C,269e783d43a8611f5222bcb1d920047cb2d0291f46172b15de034cbf398cd2b8,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,289c19b7a7a2caefe2d0886416cae63838da772424c29d7af5054f33dcad286d,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,297c1d75538653060922e2003b34f948e94199dbe9e668a6ccc84d61e3690ddd,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+new,synthetic-C,2cd55ce7acfdb31f26545076af575c19f2e75cc3501fb8cf755f6b1e4e6f2e8b,Jean Coutu,everyday,Groceries,model,new merchant,0,0.747330
+new,synthetic-C,2e369977745400bfc0b366e86ed35d45be9237ee3c316861c6b51f071bdc6301,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,2f1b293dbe57fdba0fe0c05f0942189816514f71dbec7240eef070fe635156ee,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+new,synthetic-C,2f683e68815c5dfa29dc0edcb89cffa4ff1438e72c06f0361bf6408cb1c065a9,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,31d0e471d145868380ced3ca268f3fc2fe6d3762574f57fb6a5560c4bb0557ae,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,344a4b2de67005e4eacf325faad851a5df943ae44785f2b436c2ad73ce39eb5e,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,36a3e7b10bc0fa58820fffe65614c48f297485f327927c52a8b2f79e55419ebe,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,36b8d4a60b6cc51c98c3fcc2bd3c802cb4f8b3592bf7f0c29a867743a9332b2f,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,39d85f8ecd405815a7ed78075b1f0a0428775260cbc6c52a3e98feb6bf03389d,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+new,synthetic-C,3b9c655948482a08cf62eaef255adf541bca0aa17672dfe6667921d1fd6f0a3b,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,3cd1b79b445e5621fef719177a12fec2097f67f976ffa16c078ddb79aef4313e,Best Buy,everyday,Groceries,model,new merchant,1,0.367425
+new,synthetic-C,3d000c84eb9a4edcf862a67a2d3790bd18cac40a0f3700ad4e70c8c770b59c7b,Uber,everyday,,netted,fully reversed pair,0,
+new,synthetic-C,428e8170545dd2ec04542f10aaa7bbeae4ff7f3e56ae60f0447ddddfb54f32f2,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,44255559f8945c5c111f858022baf5bc62b9832430cc3489aee5a642b6d8957a,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,4608f5643c37342a33a5590352e1c7fe65cf5a49f8ab316d96994666b9e9ed79,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,48c55d99964fc35fdc9ffd74e4f6bec30c9e62e51351424aa7adfa89ca410839,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,48d3e73e01fd42ad7088add1bbe56f5782e6470844f9930cd8c84fb47c234fbb,Tim Hortons,everyday,Transport,model,new merchant,1,0.379266
+new,synthetic-C,4918dcd5383e0b074e96eacf3cc7ccae3e57304897c51278447d62d8f91e8286,Jean Coutu,everyday,Groceries,model,new merchant,0,0.747330
+new,synthetic-C,4aef4ec934b5651210f5f49bbd1ccf1497b7ae0e4c8cf85230759368ead33e8e,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+new,synthetic-C,4b812ed1a87f9d4a5da942be5bebd9b6e8e36a033f7de5d1175ac63cbd1290e6,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,4cb51ba5505b55caa646fad8bc8cfb613c45062abd7c5c5b7a0aef204f64a38a,Metro,everyday,Groceries,model,new merchant,0,0.598518
+new,synthetic-C,4de43c55df895f27c7dbaa04fe0001ed785b945446e17b35d474845e120d2973,Uber,refund,,netted,fully reversed pair,0,
+new,synthetic-C,4e6074c207113a5b3f404d234faf6b3df66b3c11b2bedb2e7185896328ccf7cd,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,4f399171391986b79d06a982405a5e72fdde6b0e747e63fcb7a453b1515f36bc,Steam,everyday,Transport,model,new merchant,1,0.327762
+new,synthetic-C,50617a38bc898622cfb869dcef35331f9a46cb6406b35fdd95320ef9f4dbd76c,Tim Hortons,everyday,Transport,model,new merchant,1,0.379266
+new,synthetic-C,50ccb6f7815d6bda7de95271c72a3aadd9616de06776a1a025f7441c5a343f97,,transfer,,netted,fully reversed pair,0,
+new,synthetic-C,5137a617423254e76a8565948c48e47cddffc518224bc395e47db5db71288826,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-C,519bc826fb761bc24014ca88ac94a2f3a7b47b19e6cb7395d0b6a9f8e10638b2,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,52dcaf5b0ffbe0387877ab50d4927d375d3902dd95a17062c4953447c9a0cf34,Bixi,everyday,Groceries,model,new merchant,1,0.346439
+new,synthetic-C,5414abb7ac65c6a88de637c1d65bb062c9f32fa95f704a8ada7aced80c870384,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+new,synthetic-C,5538bbc87cbf94090d25e11c75a24f89eb127403f038b597e640eec26d6317e5,Metro,everyday,Groceries,model,new merchant,0,0.598518
+new,synthetic-C,56559ff3f38fda996927347edd2abff48fa6cc4510dc95e3771bdb513bc48206,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+new,synthetic-C,582b0bb8a451f305272430d83bf28e8deac0f952044a241c99c6619082bc628e,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,5d0ba9822d8b097e482e38612526ea7ed83d71fb2315fc5bdaf62fe3e2ae0ab1,Restaurant Le Petit,everyday,Groceries,model,new merchant,1,0.411809
+new,synthetic-C,5dcf303f64d817e2fa4079624b59f1d5bc71c4f125ec1df1873b27ec01804618,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,5e155ab381cbe34fb6a9e566df3d613c4c768f464233b94455baad65d4b90d50,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,5e78518f42aa05745386c0645223d54a04ba556ff8764f5c77145c563bfa7bf3,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,5f8a77ca5281502d89c7f920d62101ace6d2daf3673759347e65969691762c57,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,60219cce18bb3150390a481ba07c1217d9432c2c0a3d624c3fd7ba89c0eaae55,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,621c399f5a4e5240cf8c3e09264e34f06cea0419bc2d584b2b7413d6b84bf8cd,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,624c13c7b33aa7561179a09e0d444d67db1aa7d1a1395cab26f734fbfc864755,Netflix,everyday,Transport,model,new merchant,1,0.269953
+new,synthetic-C,62b2e413166a39a0437c11c3b4aa5c09200519cb416dc0c24bb38ad3d07ff15e,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,632293d1c2a6c888b477e3faaf72dd7c671041cb3581b7717ed5b0a48ad5c225,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,687edf8e5e5616ae809d235089f8e2a5b3e52258171044b42d3f5d564f536877,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,68c88f9fbb5f5cf0f302ab5928bfa0e26add62cbd3513ecaabcf78daaabaff04,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+new,synthetic-C,6b1e34b9f000498c9d2742381ab550f179ba79acfb7c4909fc67f886ace6c881,Uber Eats,everyday,,netted,fully reversed pair,0,
+new,synthetic-C,6c34e37626c5bcf1f83ba598eabf1bc80fb0541e02faa194d304f04035605777,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+new,synthetic-C,6f70e38458c6766b89d7f6389e115e4f3b6012a5aace4af6f6d1c3d3daeb3347,Uber,everyday,Transport,model,new merchant,1,0.249292
+new,synthetic-C,6f7da5f1c6273a95456513ddb6fd93675471d87725deecee7778bbebda38ede4,Tim Hortons,everyday,Groceries,model,new merchant,0,0.519260
+new,synthetic-C,70ab396ea54ea9dd63a54ec9076ea34b9591dc6c2e19f60c2c29d53094d35281,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,71023d11830258265d8b51673bb7c638e39e959fb7c637033e9a5263446fcf75,Lyft,everyday,Transport,model,new merchant,1,0.290963
+new,synthetic-C,717f1b538dfb515ec48d5a6e64f698fc947b9a2b0df6e107a4a54eaf83d1f4e3,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,72d86222cfe543af93ba7ca1e9527526f904e4e2e1009b42eb72e4300b65b547,Tim Hortons,everyday,Transport,model,new merchant,1,0.379266
+new,synthetic-C,740743ecb9bd5240efe4f7a1ffdc6f3f1ee36defafa34679af73acd0007d4f3f,Restaurant Le Petit,everyday,Groceries,model,new merchant,1,0.411809
+new,synthetic-C,79ac49c54fd1518bf0cec6394d95f6ec34da46cdc103cc8cb7e6f1a3ce2e5001,Uber,refund,,netted,fully reversed pair,0,
+new,synthetic-C,7e1c24807788fd9ad932af582db0808b28a76feb594d5a507ff2d46080eb2335,Concordia University,recurring_outflow,Groceries,model,new merchant,1,0.356482
+new,synthetic-C,817a94fbed54e38b19d7c3aa7c0394cfc9fda298a6db20ec274bfdb69fcdb530,Tim Hortons,everyday,Groceries,model,new merchant,0,0.519260
+new,synthetic-C,832320d36ca3b3f270c0527673197b169b3efa9318de17601a4be6432332c347,Lyft,everyday,Transport,model,new merchant,1,0.272369
+new,synthetic-C,838c1b435aff6461b4eff4f38a7b83c269496e6ba40fa1dea017bb96ab267b1c,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,84748b3d6ddcf8776cbd98666e7f07b1dc11ce1e43a8e85f05763269ff5ee6ef,Bixi,everyday,Groceries,model,new merchant,1,0.346439
+new,synthetic-C,870c05dff977268ed5818ac4db96fb02c14fe360d029e269dd47885b16e24940,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+new,synthetic-C,874eca20019d5ee3c57e731c68a3dc3eb14b4e9dd8f9a2d48e3c45a906ba9c1c,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,877e01bf2933d5e735957a7ca34b26480b17b560870309f8aca6419296e76a4b,Netflix,everyday,Transport,model,new merchant,1,0.269953
+new,synthetic-C,8e364b922f776d072e40b6c94e3da5cd7ba81af8268b8374bda6433bd870c1e4,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,8f94525b4f2dacdacff5b2f2f3f96925a5ffdc7b37475e110fa6f3e00211190e,Nadia Haddad,income,Income,rule,transaction type: credit memo,0,1.000000
+new,synthetic-C,917be52a763c48c12f7897511933b77f27f57f1e04176cb2533912c7e762eede,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,919bd092ec36857e681b8fcf3cf08a5d539ef985aacaba5ba5c5c8ed507e910e,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,92cfa82d23d27f7479f3dd06721eb461c1000e9fdeb67d28e2b53320f58add81,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,949bd873e36757640e8a811c5e9ce229f23994a35fcd18eeeb2b714cbe6b4675,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,965f896a94b19a06f214e8abae198e79e532c198cbc09b846b080f0203484f44,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,97ac5ab2f26d0123e5aa8428ec06abe848605ece0ffcf24e6de79a3cfb3ab44e,Uber,everyday,Transport,model,new merchant,1,0.265071
+new,synthetic-C,993de6a423365fbecd50cf434b842825cdc3cb4147cabd1da499a5df21988211,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,9cff2466bce05bfe5a8fe01253553335e39fcff09badf309482bb82f54829483,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,9dca111c53684df710142cf3ca28abb91bb7d7fbff6050d8f0b94072481c18b6,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,9e18965b592223e9c85ffc7defea72c8956731a9e37526e0d1d0002f31906331,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,9e4c9b13516b4df479c63efb31c86e4bae10f95aeba41efc5ee169c93c4711d5,Uber,everyday,"Phone, internet & utilities",model,new merchant,1,0.318613
+new,synthetic-C,a1e5c24f60a9fa0de8f2c5a8cabbc1cc2b74c74c0290ced19610735e9f43d249,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-C,a2719553cb0e68b3710b7566bc3fd8568f74262a9d368e07f23680ddddba2144,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,a482b9c60c3af373199fcbd69c034a3110f79f204cde64aea0d97af98da80c70,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+new,synthetic-C,a6a8d1f3f83689ad77d096972dff4768c45435b4f1f84ada26d49cdb64de5424,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,ab8972de927734f64e389e36ffa00bc57c3f0cfb303a82990d8a89b5fb6fddcf,,income,Income,rule,transaction type: incoming e-Transfer,0,1.000000
+new,synthetic-C,acdfed381307791f9c804d52c8981bd7c972d4cd1813f4637f211f4db5fa0177,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,afbd3e54ee2d46de4f1cbb6d2a5dd2684c924176cea865b5f7f452c81963f5f0,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,b1b0dccd30db8fe79ec15bd733bd4619fbd8a64f2c26bc42608f8c3617886cc5,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,b51c9e9e78d89473249deeed51f22bc59710a37e2767d0b6949717c5600ab80e,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,b59a5fd7efe6da51c0ce89e56f51d36cbd74f102d44a7a37a132ab271d3122fc,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-C,b5e33ca8b8cb44ea713869a615d8ac5ebd483dcb148efb2c6f28a78aee21dc6d,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,b6d68fe421bba0e657d52746d63750b8c5efe0c49b0edf91cdea2de573f467df,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,b707858da81ec8f4e806e284d1095e77c14d747827e2162a2bd610783c4654b1,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,b84f46a4069622254d88245550fa0f061007107a0898b4d4ee7412882e235458,Nadia Haddad,income,Income,rule,transaction type: credit memo,0,1.000000
+new,synthetic-C,b8cccdbfa914eb768c26567dc4dcb51675944713a2e01ff7c721cc2fc56e9cc0,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,b992f4452f05e5736d30536fe87352c1f8085fd7976c15a1d21e1683d34e49d7,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,b993d9e606eaf033dbb8f7c49ebd8c6dab640c1914557402b95c7a8f6bf2cbee,,transfer,Transfers,rule,transaction type: outgoing e-Transfer,0,1.000000
+new,synthetic-C,b9d343bf7dfff33a37efaf469b499e34a7984cbb357d71b1d221dd9b08cd611e,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,bbf14a4e1e8ad594523b75de56c47b43aaa07f62c83f9494a4c21ca5598dd229,Amazon,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,bc53a246ea521ce634319d59fccdbdc6626adbc5e985fdc0654e700d7b8e2b84,Etsy.Com,everyday,,netted,fully reversed pair,0,
+new,synthetic-C,be7035ba8ec8c61718ee2c8b1bee1ba99c52c46a7b8a365205c4cba130123088,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,c0fb7fa2cd3b46a28e2261022e6539c791b15f8dc12c2dbd40b3f140b19f14bb,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,c2082e71f44bc1e365d7c13fc889ef5a0ebb571d8c4c92681c0a2e27892362d5,Metro,everyday,Groceries,model,new merchant,0,0.598518
+new,synthetic-C,c2e061fd55bd0c1b240a3127daedfa2a2b954caaa23a605aab3cd5c465f634e9,Uber,everyday,Transport,model,new merchant,1,0.249292
+new,synthetic-C,c452a6c104b8f88405c36f65b6dc2f64874cff3ca07b7008eed6e80064a5e529,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,c49fce9af2af126909a9b9e587ab8a39466ae091c7c97d85a9aabfbe4481d801,Metro,everyday,Groceries,model,new merchant,0,0.778049
+new,synthetic-C,c642a9ce4f10fff9e0bc8db3656c490e2b868d4fa96c26780f9f112fd5eb84ce,Uber Eats,refund,,netted,fully reversed pair,0,
+new,synthetic-C,c6885ef7ce166a5f33d6022a0efd01550bc7f27f568704f7aed4444c5a334c9b,Metro,everyday,Groceries,model,new merchant,0,0.598518
+new,synthetic-C,c70616ef856f88ff51928e3a11166a9722c250675dcb63d58bbe52561bacf686,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-C,c73ccc586b5db45940c74980cd52dd947563072a343655c36878a3867ce6c308,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,c7594c50ada92a29ef38b1b7b281b608a159e3364bcaacf6f95e1ba4dbfc208f,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-C,c8e7a504475fd5a03be303f889f1d71296a72b4002c6da45254b84a3df706ecc,Uber,everyday,,netted,fully reversed pair,0,
+new,synthetic-C,ca9ffe9fbdf0c89e118c08a03ea3c04065d40936adfcca98a23ee6d12e8207fe,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,cdd5eb2953bc4d354d4ce03f415de9ecdadfee1bd31e0b6629d803afdae92939,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-C,ce8c1a185f24f354657dfc280904ccbc4883bf7e4bdfda94edae697b2cfd9ecc,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,cf485248e73857d54cb306b9c3486162ace2fbdc3f460a647bcb7bc21605a392,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,cf4edc619044283154bd45ff1e68246643e85e28121cea784ae2f849aefacc47,Tim Hortons,everyday,Transport,model,new merchant,1,0.379266
+new,synthetic-C,cfaa2bf76ac70d9058703810c14806659d99e7684e6b43a2e4b1b076627cdc2b,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-C,cfab5974a6b292e1eefb351c1a153625273dd575e0fbd14bee84b4aa5747853a,Netflix,everyday,Transport,model,new merchant,1,0.269953
+new,synthetic-C,d00cbb3953a7e3afbb1b10e89577b3e812015079da758cb4dea9822787a27e12,Metro,everyday,Groceries,model,new merchant,0,0.598518
+new,synthetic-C,d08135dca00384fff906a5b94cc5ea1a3c55af519f44614b96477fe881dede5b,Restaurant Le Petit,everyday,Groceries,model,new merchant,1,0.411809
+new,synthetic-C,d1a0a6cd15e8c336e06895b80b8fca6a41c6a11796073a5d0d224a0433fb9905,Nadia Haddad,income,Income,rule,transaction type: credit memo,0,1.000000
+new,synthetic-C,d369b57686f5a72aa34183eb0d4d231bbc27d367f7ace504b7201030df888c52,Tim Hortons,everyday,Transport,model,new merchant,1,0.379266
+new,synthetic-C,d40cf7cd7a467bae65e6b112cbdc3873810685feff99aeb9e2e8568c4ea344d4,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-C,d416d05a32f2a0305287120115e85eac0a1df54bd3676f2b73b3ba422a35a38c,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,d43136b9bbc6e42933ed3f7d67745ebaa78192e22437b97abccf1a9c27a89c60,Uber,everyday,Transport,model,new merchant,1,0.265071
+new,synthetic-C,d51107b0bc397c12059646a4db12710e9842ade26b8dd1afa02951f0c8b5a48c,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,d5b479548f11399c9b3572615cbd64c416c88846d36512bd5aae1a9f3492ce90,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,d80c5f89ed21d786377ec9b491bc1b77595cb779343ede386dfe61a90379e370,Nadia Haddad,income,Income,rule,transaction type: credit memo,0,1.000000
+new,synthetic-C,d81034a1d208e47ecf1b7a0cdbf34cc4549ab42bf224e9bd6272e59ae31a891d,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,d8357940cef638c3623425cdf9846d9b77a2124cb302f5932a83b0137e1fff80,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,d9b29ff2a973a3f9da3f2a9e83f7a0fbb0225a099c31f8ff41e20eed6b220fd9,Netflix,everyday,Transport,model,new merchant,1,0.269953
+new,synthetic-C,d9df368593c113727ed4d6edf8de018027ec58452e545a6afb5b2ff645bf717b,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-C,d9f1728f3cd39e91a1850636d96b054dcf78b9d27d44cc42f2460344a2ab5c5b,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-C,da58cb8211644eb8a75d6b629ebafd4bbb67f8f8728f28d3a424f4855c3387a8,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-C,dcb7e323d0c42c1c1052822e0e2a1356e4859a08fe1d931166d358c89977170b,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+new,synthetic-C,dd918cf9d0db0714b6ec8d2fe98ce69289d8340a7552c5820a8776fbc60e9410,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,ddabe11685e274248ae49bb026e21910fe7229c03617efcadd8c6b158a1be52a,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,ddbd993a395806d6d64ee4951a08dd84ac045dae13f869bcb45a38e21a24a408,Uber Eats,everyday,,netted,fully reversed pair,0,
+new,synthetic-C,ddf9e436131719acdedd7a10bb8ac4cd5c48088125b4121d7817fbeda8913c0b,Jean Coutu,everyday,Groceries,model,new merchant,0,0.558625
+new,synthetic-C,e1ddb78394292889ff620e55a94ca2f07a0054853ece3867c126123089968ff8,Uber,everyday,,netted,fully reversed pair,0,
+new,synthetic-C,e3d6bba8f1b379f910a31d92d56cf39c27ceeec298121775e3afbf65c10bcad6,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,e437e36ad3346b54b89cb2168acb6be7f2ffa0a3f4743bd2bb472a8a3fff5ddb,STM,everyday,Transport,known merchant,known merchant,0,1.000000
+new,synthetic-C,e510d2ea1dd9f781cc52c50d180ceb0e0e65c663166014797b54b69782ab0ed5,Restaurant Le Petit,everyday,Groceries,model,new merchant,1,0.411809
+new,synthetic-C,e682b655731a571099393114ea7d0d74dfa581c225425a2bc82702b4ccbf792d,Super C,everyday,Groceries,known merchant,known merchant,0,1.000000
+new,synthetic-C,e7adb4a88b3d6bf16da5378d93ee18cf0d7328d05f91bb40751b5e9d534a2b26,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-C,e8c955a021f17cc1b07782fbd1fc17d7ba955eccce70cad5add7a4699dcd7529,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,e93f46c119fe7ff8a2f0380730e2dba02f28ba860db1cec4e5b37349a5f76fab,Restaurant Le Petit,everyday,Groceries,model,new merchant,0,0.593966
+new,synthetic-C,e97421ec225d435ba18d25cf7c6d1cec6cd7ed58de0e57fd5a5d74ade76925e2,Bixi,everyday,Groceries,model,new merchant,0,0.661775
+new,synthetic-C,e9a9bef9c82712baa2a3d1d6c8a81bb867e9d79963dc7a65b556d89ff1f975fc,Dollarama,everyday,Shopping,rule,merchant default,0,1.000000
+new,synthetic-C,eb0b7c898b62a78fa028b46a98027efcd62d16fad41fd44ec0d4ef006cd0d117,Uber Eats,everyday,Food delivery,rule,delivery platform,0,1.000000
+new,synthetic-C,ecd0f1e3148579459867f272be2097e1f94efc5182ae2a56f781c622c8f53d10,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,ee95e67938d884c8f79d6861b2078124042b675605e333b526524419db648ba8,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+new,synthetic-C,eeffc2d5ac3b63016aeecdd5b9fa6c4964c6a618a3d53d308aa16d90c591516e,Couche-Tard,everyday,Groceries,rule,merchant default,0,1.000000
+new,synthetic-C,f020dfa872862a1b740451c6d345620bd5e60f26f7a94175f0ac32b4a0e78c5c,Jean Coutu,everyday,Groceries,model,new merchant,0,0.558625
+new,synthetic-C,f0b3d97dfc8730e9fa872d91fcdfe1ac90ca00db18897492b67b4f1676a808d0,Caf? Quorvel,everyday,Restaurants & cafés,known merchant,known merchant,0,1.000000
+new,synthetic-C,f0b8b36ce3d85ddb47a9dc618e444150dd174c4124f072928b4d5cf047051e02,Metro,everyday,Groceries,model,new merchant,0,0.598518
+new,synthetic-C,f6395322a7924d85ed1dd3ee68c45cab494f6d0906f14eaa79657dc26057f832,,everyday,Fees & interest,rule,transaction type: bank fee,0,1.000000
+new,synthetic-C,f987e6d17231ec5a0df0ab049394d092c7b27eab0374f9c0e299a7fd16376549,Restaurant Le Petit,everyday,Groceries,model,new merchant,1,0.411809
+new,synthetic-C,fa7748bf17e7982394ad3961625e5add468d4c464e44c23fc25f5ad015e594d6,Uber,everyday,,netted,fully reversed pair,0,
+new,synthetic-C,fc28937841f0a2ac5974405d8375ef028983b99418065e0ccc79822d1c3d9b51,,everyday,Cash,rule,transaction type: cash withdrawal,0,1.000000
+new,synthetic-C,fdb0434acbec5f0ba1afe78a4b20b3c1b938cd592188458b255a70a42143ecda,Fizz,everyday,"Phone, internet & utilities",known merchant,known merchant,0,1.000000
+new,synthetic-C,fe4f9fa0c2406baacb685e01abaf8a10a156e464d615c29dffe3edd484636ba4,,refund,,netted,fully reversed pair,0,
+new,synthetic-C,feaf779f8ba401dd857ea4591244bdea5c751425ac1251f1a2b9c77d5560b38f,Uber,refund,,netted,fully reversed pair,0,
+new,synthetic-C,ff58024017a860bc7fb88b8fb2fa9737633a2e663ce2eca2ea138ab226557d62,Metro,everyday,Groceries,model,new merchant,0,0.598518
