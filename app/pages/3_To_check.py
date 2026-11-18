@@ -15,6 +15,7 @@ sys.path.insert(
 import streamlit as st  # noqa: E402
 
 import lookahead.llm_fallback as llm_fallback  # noqa: E402
+from app import smarter_categories  # noqa: E402
 from app.theme import (  # noqa: E402
     account_setting,
     apply,
@@ -183,6 +184,14 @@ else:
             llm_fallback.apply(conn, account, fallback_key, llm_cache)  # saved answers only
     if "llm_note" in st.session_state:
         st.sidebar.info(st.session_state.pop("llm_note"))
+
+# --- Smarter categories (categorizer v2): one setup question, off until I answer yes ---
+smarter_categories.ask_once(conn, llm_fallback.has_api_key(), source == "Synthetic demo")
+smarter_categories.settings_panel(
+    conn, account, llm_fallback.has_api_key(), source == "Synthetic demo", fallback_key,
+    private_dir / "cache" / "rag_categories.json",
+    lambda: categorize(conn, account, settings, model_dir=model_dir_for(db_path)),
+)  # fmt: skip
 
 show_all = st.sidebar.toggle(
     "Show every merchant", value=False,

@@ -139,7 +139,7 @@ def Counter_digits(text: str) -> dict[str, int]:  # noqa: N802
 def test_prompt_is_pinned_and_holds_every_reference_with_an_id() -> None:
     r = _retrieved()
     request = rag.request_for(r)
-    assert request["model"] == "claude-haiku-4-5-20251001"
+    assert request["model"] == rag.llm.MODEL
     assert request["extra_body"] == {"temperature": 0.0}
     content = request["messages"][0]["content"]  # type: ignore[index]
     assert "<merchant>VELORIN CAFE BAR</merchant>" in content
