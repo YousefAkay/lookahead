@@ -43,6 +43,14 @@ def _committed_rule(repo: Path, text: str = RULE) -> Path:
     return rule
 
 
+@pytest.fixture(autouse=True)
+def _safe_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refused runs are logged too: the default ledger must never be my real one, and the
+    approved adopt-rule path is the test repository's rule."""
+    monkeypatch.setattr(h, "DEFAULT_LEDGER", tmp_path / "data" / "private" / "default.jsonl")
+    monkeypatch.setattr(h, "APPROVED_ADOPT_RULE", tmp_path / "repo" / "rule.md")
+
+
 # --- The adopt rule ---
 
 
@@ -209,7 +217,7 @@ def test_old_holdout_rows_are_refused(
                    "--adopt-rule", str(rule), "--ledger", str(ledger)])  # fmt: skip
     out = capsys.readouterr().out
     assert code == 2 and "old holdout" in out
-    assert not ledger.exists()
+    assert [e["status"] for e in h.ledger_entries(ledger)] == ["refused"]  # logged
 
 
 def _unlabelled_new_rows(db: Path, tmp_path: Path) -> tuple[Path, Path]:
@@ -260,7 +268,9 @@ def test_scoring_prints_n_never_row_text_and_counts_every_variant(
     assert h.main(args) == 2
     assert "already scored" in capsys.readouterr().out
     assert h.main([*args, "--again"]) == 0
-    assert [e["again"] for e in h.ledger_entries(ledger)] == [False, False, True, True]
+    entries = h.ledger_entries(ledger)
+    assert [e["status"] for e in entries] == ["scored", "scored", "refused", "scored", "scored"]
+    assert [e["again"] for e in entries] == [False, False, False, True, True]
 
 
 def test_blind_rows_labelled_in_the_app_are_refused(
@@ -283,7 +293,7 @@ def test_blind_rows_labelled_in_the_app_are_refused(
                    "--adopt-rule", str(rule), "--ledger", str(ledger)])  # fmt: skip
     out = capsys.readouterr().out
     assert code == 2 and "blind rows carry a label" in out
-    assert not ledger.exists()
+    assert [e["status"] for e in h.ledger_entries(ledger)] == ["refused"]  # logged
 
 
 def test_rag_examples_leave_the_blind_set_out(db: Path) -> None:
@@ -311,3 +321,123 @@ def test_candidates_command_refuses_a_public_output(
     code = h.main(["candidates", "--db", str(tmp_path / "x.db"), "--since", "2026-10-01",
                    "--out", str(tmp_path / "out.csv")])  # fmt: skip
     assert code == 2 and "data/private" in capsys.readouterr().out
+
+
+# --- One adopt-rule file; a selection is scored once; refusals are logged ---
+
+
+def _score_args(tmp_path: Path, labels: Path, rule: Path) -> list[str]:
+    return ["score", "--db", str(tmp_path / "none.db"), "--labels", str(labels),
+            "--choice", str(tmp_path / "c.json"), "--adopt-rule", str(rule),
+            "--ledger", str(tmp_path / "data" / "private" / "ledger.jsonl")]  # fmt: skip
+
+
+def test_only_the_approved_adopt_rule_file_is_accepted(
+    tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _committed_rule(repo)
+    other = repo / "other.md"
+    other.write_text(RULE, encoding="utf-8")
+    _git(repo, "add", "other.md")
+    _git(repo, "commit", "-q", "-m", "other")
+    labels = tmp_path / "labels.csv"
+    labels.write_text("fingerprint,category\nf1,Shopping\n", encoding="utf-8")
+    assert h.main(_score_args(tmp_path, labels, other)) == 2
+    assert "only docs/specs/2026-11-18-categorizer-v2-adopt-rule.md" in capsys.readouterr().out
+    [entry] = h.ledger_entries(tmp_path / "data" / "private" / "ledger.jsonl")
+    assert entry["status"] == "refused" and "only docs/specs" in str(entry["reason"])
+
+
+def test_the_repositorys_approved_path_is_the_named_file() -> None:
+    assert h.DEFAULT_ADOPT_RULE == Path("docs/specs/2026-11-18-categorizer-v2-adopt-rule.md")
+
+
+def _earlier_scored(ledger: Path, fingerprints: list[str]) -> None:
+    h.add_to_ledger(ledger, {"status": "scored", "variant": "current", "selection": fingerprints,
+                             "selection_key": h.selection_key(fingerprints)})  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        "f1,Shopping\nf2,Groceries\n",  # the same labels
+        "f1,Transport\nf2,Groceries\n",  # a label edited
+        "f1,Shopping\nf2,\n",  # a label removed
+        "f2,Groceries\nf3,Shopping\n",  # a row swapped for a new one
+    ],
+)
+def test_a_scored_selection_is_never_scored_again(
+    tmp_path: Path, repo: Path, rows: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rule = _committed_rule(repo)
+    ledger = tmp_path / "data" / "private" / "ledger.jsonl"
+    _earlier_scored(ledger, ["f1", "f2"])
+    labels = tmp_path / "labels.csv"
+    labels.write_text("fingerprint,category\n" + rows, encoding="utf-8")
+    assert h.main(_score_args(tmp_path, labels, rule)) == 2
+    assert "already scored" in capsys.readouterr().out
+    assert h.ledger_entries(ledger)[-1]["status"] == "refused"
+
+
+def test_the_selection_key_ignores_the_labels() -> None:
+    assert h.selection_key(["b", "a"]) == h.selection_key(["a", "b"])
+
+
+def test_a_missing_flag_is_refused_and_logged(tmp_path: Path) -> None:
+    assert h.main(["score"]) == 2
+    [entry] = h.ledger_entries(h.DEFAULT_LEDGER)
+    assert entry["status"] == "refused" and "--db is required" in str(entry["reason"])
+
+
+# --- Blind labelling: merchant text only ---
+
+
+def _selection(tmp_path: Path, fingerprints: list[str]) -> Path:
+    path = tmp_path / "data" / "private" / "eval" / "candidates.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"fingerprint": fingerprints, "posted_date": "2026-10-02",
+                  "group": "x", "category": ""}).to_csv(path, index=False)  # fmt: skip
+    return path
+
+
+def test_the_first_run_freezes_the_selection(tmp_path: Path) -> None:
+    labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
+    assert h.freeze_selection(_selection(tmp_path, ["f2", "f1"]), labels) == ["f2", "f1"]
+    assert h.selection_fingerprints(labels) == ["f1", "f2"]
+    assert h.load_blind_labels(labels) == {}  # every category empty
+    # the same selection again: fine; another selection: refused
+    assert h.freeze_selection(_selection(tmp_path, ["f1", "f2"]), labels) == ["f2", "f1"]
+    with pytest.raises(ValueError, match="another set of rows"):
+        h.freeze_selection(_selection(tmp_path, ["f1", "f3"]), labels)
+
+
+def test_labelling_shows_the_text_only_and_resumes(tmp_path: Path) -> None:
+    labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
+    h.freeze_selection(_selection(tmp_path, ["f1", "f2", "f3"]), labels)
+    texts = {"f1": "Opos Velorin Cafe   Montr ", "f2": "Apos Lunaire       Laval ",
+             "f3": "Opos Zephyr Pharma  Montr "}  # fmt: skip
+    shown: list[str] = []
+    answers = iter(["2", "x", "s", "q"])
+    first = h.label_session(texts, labels, lambda prompt: (shown.append(prompt), next(answers))[1],
+                            shown.append)  # fmt: skip
+    assert first == h.Session(labelled=1, skipped=1, left=2)
+    assert h.load_blind_labels(labels) == {"f1": h.CATEGORIES[1]}  # saved at once
+    screen = "\n".join(shown)
+    for row_text in texts.values():
+        assert row_text.strip() in screen or row_text == texts["f3"]
+    for word in ("confidence", "predict", "source", "model", "suggest", "%"):
+        assert word not in screen.casefold()
+    # a second session asks only the rows still without a category
+    asked: list[str] = []
+    second = h.label_session(texts, labels, lambda prompt: (asked.append(prompt), "1")[1],
+                             lambda _: None)  # fmt: skip
+    assert second.left == 0 and len(asked) == 2
+    assert all(texts["f1"].strip() not in a for a in asked)
+
+
+def test_the_label_command_needs_private_paths(tmp_path: Path) -> None:
+    public = tmp_path / "labels.csv"
+    selection = _selection(tmp_path, ["f1"])
+    code = h.main(["label", "--db", str(tmp_path / "x.db"),
+                   "--selection", str(selection), "--labels", str(public)])  # fmt: skip
+    assert code == 2 and not public.exists()

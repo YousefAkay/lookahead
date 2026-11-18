@@ -194,3 +194,40 @@ def test_directory_switch_is_read_by_categorize(tmp_path: Path) -> None:
     v2.set_option(conn, v2.DIRECTORY_SIMILAR, True)
     assert v2.load_options(conn) == v2.Options(directory=True, directory_similar=True)
     conn.close()
+
+
+# --- Short names and aliases (5 letters or fewer) match only exactly ---
+
+SHORT = ChainDirectory(
+    [
+        Entry("D001", "Gap", (), "Shopping", "national", False),
+        Entry("D002", "Bell", (), "Phone, internet & utilities", "national", False),
+        Entry("D003", "Shell", (), "Transport", "national", False),
+        Entry("D004", "Cora", (), "Restaurants & cafés", "national", False),
+    ]
+)
+LOCAL = ["Gapetto Pizzeria", "Bella Notte Trattoria", "Shellys Deli", "Coralie Fleuriste",
+         "GAPS COUTURE", "BELLE PROVINCE", "SHELLA NAILS", "CORAL SUSHI"]  # fmt: skip
+
+
+@pytest.mark.parametrize("name", LOCAL)
+def test_short_keys_never_match_by_similarity(name: str) -> None:
+    assert SHORT.lookup(name, similar=True, threshold=0.0) is None
+    assert SHORT.similar(name) == []
+
+
+@pytest.mark.parametrize(("text", "name"), [("GAP", "Gap"), ("Bell", "Bell"),
+                                            ("SHELL", "Shell"), ("cora", "Cora")])  # fmt: skip
+def test_short_keys_still_match_exactly(text: str, name: str) -> None:
+    match = SHORT.lookup(text)
+    assert match is not None and match.entry.name == name and match.how == "exact"
+
+
+def test_short_keys_take_no_wildcard_match() -> None:
+    assert SHORT.lookup("G?P") is None  # a "?" (an accent the bank dropped) is not exact
+
+
+@pytest.mark.parametrize("name", LOCAL)
+def test_the_real_directory_gives_no_short_chain_to_local_names(name: str) -> None:
+    match = default_directory().lookup(name, similar=True)
+    assert match is None or match.entry.name not in {"Gap", "Bell", "Shell", "Cora"}

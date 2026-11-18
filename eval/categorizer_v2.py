@@ -9,6 +9,7 @@ labelled by me after v2 is built. It compares three variants:
 
     python -m eval.categorizer_v2 candidates --db PATH --account A --since 2026-10-01 \
         --out data/private/eval/categorizer_v2_blind_candidates.csv
+    python -m eval.categorizer_v2 label --db PATH --selection CANDIDATES --labels LABELS
     python -m eval.categorizer_v2 score --db PATH --labels PATH --choice PATH [--rag [--send]]
     python -m eval.categorizer_v2 score --synthetic        # plumbing check, not a result
 
@@ -19,8 +20,10 @@ Rules, in code:
 - It refuses any row from the old, used holdout (Test A, Test B) and any row the model could
   train on.
 - It prints counts and accuracy with n only, never row text.
-- Every variant run is appended to a ledger (data/private/ only). A second scoring of the same
-  labels file is refused unless --again, which the ledger records.
+- Only docs/specs/2026-11-18-categorizer-v2-adopt-rule.md is accepted as the adopt rule.
+- Every variant run is appended to a ledger (data/private/ only), and so is every refused run.
+  A blind selection (the rows of the labels file, labelled or not) is scored once: a run with
+  any row of an earlier scored run is refused unless --again, which the ledger records.
 - --synthetic runs everything on personas A, B and C (trained on A, B and C's rows as the
   "blind" set), prints counts only and "dry run, not a result". It writes no ledger, checks
   no adopt rule and never sends anything.
@@ -52,6 +55,7 @@ from lookahead.taxonomy import CATEGORIES
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ADOPT_RULE = Path("docs/specs/2026-11-18-categorizer-v2-adopt-rule.md")  # once approved
+APPROVED_ADOPT_RULE = ROOT / DEFAULT_ADOPT_RULE  # the only file accepted as the adopt rule
 DEFAULT_LEDGER = Path("data/private/eval/categorizer_v2_ledger.jsonl")
 DEFAULT_RAG_CACHE = Path("data/private/cache/rag_categories.json")
 VARIANTS = ("current", "cleaner+directory", "+RAG")
@@ -117,6 +121,25 @@ def load_blind_labels(path: Path) -> dict[str, str]:
             if row["fingerprint"] in out:
                 raise ValueError("a fingerprint appears twice in the labels file")
             out[row["fingerprint"]] = category
+    return out
+
+
+def selection_fingerprints(path: Path) -> list[str]:
+    """Every row of the labels file, labelled or not, sorted: the blind set's row selection."""
+    with path.open(encoding="utf-8", newline="") as f:
+        return sorted({row["fingerprint"] for row in csv.DictReader(f)})
+
+
+def selection_key(fingerprints: Sequence[str]) -> str:
+    return hashlib.sha256("\n".join(sorted(fingerprints)).encode("utf-8")).hexdigest()
+
+
+def scored_fingerprints(entries: Sequence[dict[str, object]]) -> set[str]:
+    """Rows of every earlier scoring run (refused runs and dry runs scored nothing)."""
+    out: set[str] = set()
+    for e in entries:
+        if e.get("status", "scored") == "scored" and not e.get("dry_run"):
+            out |= set(e.get("selection", []))  # type: ignore[arg-type]
     return out
 
 
@@ -378,27 +401,41 @@ def score_my_data(args: argparse.Namespace) -> int:
     from lookahead.db import connect_readonly
     from lookahead.synthetic_training import synthetic_examples
 
+    if not is_private_path(args.ledger):
+        print("--ledger must be inside data/private/ (nothing scored, nothing logged)")
+        return 2
+    now = datetime.now().isoformat(timespec="seconds")
+
+    def refuse(reason: str, **extra: object) -> int:
+        """Every refused run goes in the ledger too, with its reason."""
+        print(f"refusing to score: {reason}")
+        add_to_ledger(args.ledger, {"at": now, "status": "refused", "reason": reason,
+                                    "again": args.again, **extra})  # fmt: skip
+        return 2
+
     for flag in ("db", "labels", "choice"):
         if getattr(args, flag) is None:
-            print(f"--{flag} is required (no default points at private data)")
-            return 2
-    status = adopt_rule_status(args.adopt_rule)
+            return refuse(f"--{flag} is required (no default points at private data)")
+    rule = args.adopt_rule if args.adopt_rule.is_absolute() else ROOT / args.adopt_rule
+    if rule.resolve() != APPROVED_ADOPT_RULE.resolve():
+        return refuse(f"only {DEFAULT_ADOPT_RULE} is accepted as the adopt rule")
+    status = adopt_rule_status(rule)
     if not status.ok:
-        print(f"refusing to score: {status.reason} ({args.adopt_rule})")
-        return 2
-    if not is_private_path(args.ledger):
-        print("--ledger must be inside data/private/")
-        return 2
-    labels = load_blind_labels(args.labels)
+        return refuse(f"{status.reason} ({DEFAULT_ADOPT_RULE})")
+    try:
+        labels = load_blind_labels(args.labels)
+        selection = selection_fingerprints(args.labels)
+    except (OSError, ValueError, KeyError) as e:
+        return refuse(f"the labels file cannot be read ({type(e).__name__})")
+    key = selection_key(selection)
     labels_hash = _sha256(args.labels)
-    earlier = [e for e in ledger_entries(args.ledger) if e.get("labels_sha256") == labels_hash
-               and not e.get("dry_run")]  # fmt: skip
-    if earlier and not args.again:
-        print(
-            f"this labels file was already scored ({len(earlier)} variant run(s) in the "
-            "ledger): refusing to score it again. --again scores it again and is recorded."
+    again = scored_fingerprints(ledger_entries(args.ledger)) & set(selection)
+    if again and not args.again:
+        return refuse(
+            f"{len(again)} rows of this blind selection were already scored: a selection is "
+            "scored once, whatever its labels. --again scores it again and is recorded.",
+            selection_key=key,
         )
-        return 2
     settings = load_settings(args.choice)
     conn = connect_readonly(args.db)
     features = categorizer_features(conn, args.account)
@@ -407,19 +444,19 @@ def score_my_data(args: argparse.Namespace) -> int:
                     holdout_fingerprints(conn))  # fmt: skip
     if split.refused_training:
         # a blind row I labelled in the app would reach training and the RAG examples
-        print(
-            f"refusing to score: {split.refused_training} blind rows carry a label saved in "
-            "the app. Score before labelling them in the app, or take them out of the labels file."
-        )
         conn.close()
-        return 2
+        return refuse(
+            f"{split.refused_training} blind rows carry a label saved in the app. Score before "
+            "labelling them in the app, or take them out of the labels file.",
+            selection_key=key,
+        )
     if split.refused_holdout:
-        print(
-            f"refusing to score: {split.refused_holdout} labelled rows are from the old "
-            "holdout (Test A or Test B). Remove them from the labels file."
-        )
         conn.close()
-        return 2
+        return refuse(
+            f"{split.refused_holdout} labelled rows are from the old holdout (Test A or "
+            "Test B). Remove them from the labels file.",
+            selection_key=key,
+        )
     extra = synthetic_examples(settings.synthetic_months) if settings.synthetic_months else None
     variants = list(VARIANTS[:2])
     rag_answer = None
@@ -430,10 +467,11 @@ def score_my_data(args: argparse.Namespace) -> int:
         rag_answer = _rag_answer_function(conn, args.account, pseudonym_key(args.env),
                                           args.rag_cache, args.send, None,
                                           frozenset(labels))  # fmt: skip
-    now = datetime.now().isoformat(timespec="seconds")
 
     def record(entry: dict[str, object]) -> None:
-        add_to_ledger(args.ledger, {**entry, "at": now, "labels_sha256": labels_hash,
+        add_to_ledger(args.ledger, {**entry, "at": now, "status": "scored",
+                                    "selection_key": key, "selection": selection,
+                                    "labels_sha256": labels_hash,
                                     "adopt_rule_commit": status.commit,
                                     "adopt_rule_sha256": status.sha256, "again": args.again,
                                     "send": bool(args.rag and args.send)})  # fmt: skip
@@ -496,6 +534,106 @@ def dry_run() -> int:
     return 0
 
 
+# --- Blind labelling: merchant text only, never a prediction ---
+
+
+def _read_labels_file(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as f:
+        return [{"fingerprint": r["fingerprint"], "category": r.get("category") or ""}
+                for r in csv.DictReader(f)]  # fmt: skip
+
+
+def _write_labels_file(path: Path, rows: Sequence[dict[str, str]]) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["fingerprint", "category"])
+        w.writeheader()
+        w.writerows(rows)
+    tmp.replace(path)
+
+
+def freeze_selection(selection: Path, labels: Path) -> list[str]:
+    """The blind rows, in the selection file's order. The first call writes the labels file
+    with every row and an empty category (the selection is then frozen); a later call checks
+    the labels file holds exactly the same rows, and refuses otherwise."""
+    with selection.open(encoding="utf-8", newline="") as f:
+        picked = list(dict.fromkeys(r["fingerprint"] for r in csv.DictReader(f)))
+    if labels.exists():
+        frozen = [r["fingerprint"] for r in _read_labels_file(labels)]
+        if set(frozen) != set(picked):
+            raise ValueError("the labels file holds another set of rows than the selection")
+        return frozen
+    labels.parent.mkdir(parents=True, exist_ok=True)
+    _write_labels_file(labels, [{"fingerprint": fp, "category": ""} for fp in picked])
+    return picked
+
+
+@dataclass(frozen=True)
+class Session:
+    labelled: int  # in this session
+    skipped: int
+    left: int  # rows still without a category
+
+
+def label_session(
+    texts: dict[str, str], labels: Path, ask: Callable[[str], str],
+    show: Callable[[str], None] = print,
+) -> Session:  # fmt: skip
+    """Ask for a category for each row of the labels file that has none, showing the
+    merchant text only. A number saves a category at once, `s` skips, `q` stops."""
+    rows = _read_labels_file(labels)
+    show("Categories: " + "; ".join(f"{i} {c}" for i, c in enumerate(CATEGORIES, 1)))
+    todo = [r for r in rows if not r["category"]]
+    done = skipped = 0
+    for n, row in enumerate(todo, 1):
+        while True:
+            answer = ask(f"[{n} of {len(todo)}] {texts[row['fingerprint']].strip()}\n"
+                         "category number, s to skip, q to stop: ").strip().casefold()  # fmt: skip
+            if answer in ("q", "s") or (answer.isdigit() and 1 <= int(answer) <= len(CATEGORIES)):
+                break
+            show("not a category number")
+        if answer == "q":
+            break
+        if answer == "s":
+            skipped += 1
+            continue
+        row["category"] = CATEGORIES[int(answer) - 1]
+        _write_labels_file(labels, rows)  # saved at once
+        done += 1
+    left = sum(not r["category"] for r in rows)
+    show(f"labelled {done}, skipped {skipped}; {left} rows still without a category")
+    return Session(done, skipped, left)
+
+
+def label_command(args: argparse.Namespace) -> int:
+    from lookahead.db import connect_readonly
+
+    for flag in ("db", "selection", "labels"):
+        if getattr(args, flag) is None:
+            print(f"--{flag} is required (no default points at private data)")
+            return 2
+    if not (is_private_path(args.selection) and is_private_path(args.labels)):
+        print("--selection and --labels must be inside data/private/ (they name merchants)")
+        return 2
+    try:
+        frozen = freeze_selection(args.selection, args.labels)
+    except ValueError as e:
+        print(f"refusing to label: {e}")
+        return 2
+    conn = connect_readonly(args.db)
+    texts = {fp: text for fp, text in conn.execute(
+        "SELECT fingerprint, sub_description FROM transactions WHERE account = ?",
+        (args.account,))}  # fmt: skip
+    conn.close()
+    missing = [fp for fp in frozen if fp not in texts]
+    if missing:
+        print(f"refusing to label: {len(missing)} selected rows are not in the database")
+        return 2
+    print(f"blind selection frozen: {len(frozen)} rows. Merchant text only: no prediction.")
+    label_session(texts, args.labels, input)
+    return 0
+
+
 def write_candidates(args: argparse.Namespace) -> int:
     from lookahead.db import connect_readonly
 
@@ -543,7 +681,14 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--account", default="scotia-chequing")
     c.add_argument("--since", type=date.fromisoformat, required=True)
     c.add_argument("--out", type=Path, required=True)
+    lab = commands.add_parser("label", help="label the frozen blind selection (text only)")
+    lab.add_argument("--db", type=Path)
+    lab.add_argument("--account", default="scotia-chequing")
+    lab.add_argument("--selection", type=Path, help="the candidates file (data/private/)")
+    lab.add_argument("--labels", type=Path, help="my labels file (data/private/)")
     args = parser.parse_args(argv)
+    if args.command == "label":
+        return label_command(args)
     if args.command == "candidates":
         return write_candidates(args)
     if args.synthetic:

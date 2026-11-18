@@ -166,9 +166,7 @@ else:
         if waiting:
             with st.sidebar.expander("Names that would be sent (shown only here)"):
                 st.write(waiting)
-            if st.sidebar.button(
-                f"Send {count(len(waiting), 'name')} to Claude", disabled=not has_key
-            ):
+            if has_key and st.sidebar.button(f"Send {count(len(waiting), 'name')} to Claude"):
                 try:
                     result = llm_fallback.apply(conn, account, fallback_key, llm_cache, send=True)
                 except Exception as e:  # show the kind of error only: a message may quote a name

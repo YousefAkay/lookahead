@@ -160,3 +160,16 @@ def test_page_without_a_key_explains_instead_of_asking(
     check = connect(path)
     assert v2.stored_answer(check, v2.RAG) is None  # nothing answered for me
     check.close()
+
+
+@pytest.mark.slow
+def test_page_on_but_without_a_key_hides_the_send_buttons(
+    db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _my_data(db, tmp_path, monkeypatch, key=False)
+    c = connect(path)
+    smarter.answer(c, True)  # said yes earlier; the key is gone since
+    c.close()
+    at = _page()
+    assert smarter.NEEDS_KEY in _text(at)  # what is needed, instead of the button
+    assert not [b for b in at.button if b.label.startswith("Send ")]

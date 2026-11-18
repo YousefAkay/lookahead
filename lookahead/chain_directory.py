@@ -7,9 +7,11 @@ Columns: name, aliases (EN/FR names and common bank spellings, separated by "|")
 `ChainDirectory.lookup` matches a merchant name (cleaned by `lookahead.merchant_clean` first):
 1. exact: the match key equals an entry's name;
 2. alias: the match key equals one of an entry's aliases;
-3. similar: character 3-gram TF-IDF cosine (fitted on the directory's own names and aliases)
+3. similar: character 3-gram TF-IDF cosine (fitted on the directory's own names and aliases;
+   a name or alias of 5 letters or fewer is left out: it matches only an equal key)
    at or above `SIMILAR_AT`, only when asked for (`similar=True`). Off by default.
-The bank's "?" (a lost accent) stands for any one letter in steps 1 and 2.
+The bank's "?" (a lost accent) stands for any one letter in steps 1 and 2, except in a
+short key.
 
 How SIMILAR_AT was chosen (synthetic merchants only, never on a result): `choose_threshold`
 takes the synthetic merchant names that are NOT chains (the generator's made-up local
@@ -87,6 +89,15 @@ def _same(a: str, b: str) -> bool:
     return len(a) == len(b) and all(x == y or "?" in (x, y) for x, y in zip(a, b, strict=True))
 
 
+SHORT_LETTERS = 5  # a key with this many letters or fewer matches only an equal key
+
+
+def is_short(key: str) -> bool:
+    """A short name or alias (Gap, Bell, Shell, Cora): matched only exactly, never by
+    similarity or the "?" wildcard, so it cannot take an unrelated local merchant."""
+    return sum(c.isalpha() for c in key) <= SHORT_LETTERS
+
+
 class ChainDirectory:
     def __init__(self, entries: Iterable[Entry]) -> None:
         self.entries = list(entries)
@@ -98,8 +109,9 @@ class ChainDirectory:
         for e in self.entries:
             for a in e.aliases:
                 self._alias.setdefault(match_key(a), e)
-        # TF-IDF over every name and alias key; a key points at its entry
-        self._keys = [(match_key(s), e) for e in self.entries for s in (e.name, *e.aliases)]
+        # TF-IDF over every name and alias key that is not short; a key points at its entry
+        self._keys = [(k, e) for e in self.entries for k in map(match_key, (e.name, *e.aliases))
+                      if not is_short(k)]  # fmt: skip
         counts = [_grams(k) for k, _ in self._keys]
         df = Counter(g for c in counts for g in c)
         n = len(counts)
@@ -116,7 +128,7 @@ class ChainDirectory:
         if key in table:
             return table[key]
         if "?" in key:
-            return next((e for k, e in table.items() if _same(key, k)), None)
+            return next((e for k, e in table.items() if not is_short(k) and _same(key, k)), None)
         return None
 
     def similar(self, name: str, k: int = 3) -> list[Match]:

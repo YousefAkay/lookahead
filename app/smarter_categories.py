@@ -59,6 +59,8 @@ def settings_panel(
         st.rerun()
     if current != "on" or key is None:
         return
+    if not has_key:  # on, but the key is gone: what is needed, and no send button
+        st.sidebar.caption(smarter.NEEDS_KEY)
     from lookahead import rag_categorizer
     from lookahead.llm_fallback import candidates
 
@@ -68,7 +70,7 @@ def settings_panel(
     names = len(candidates(conn, account, key))
     st.sidebar.caption(f"{count(names, 'new merchant name')} could be sent, with similar "
                        "labelled merchants and directory chains.")  # fmt: skip
-    if names and st.sidebar.button(f"Send {count(names, 'name')} to Haiku 4.5"):
+    if names and has_key and st.sidebar.button(f"Send {count(names, 'name')} to Haiku 4.5"):
         try:
             done = rag_categorizer.apply(conn, account, key, cache, send=True)
         except Exception as e:  # the kind of error only: a message may quote a name
