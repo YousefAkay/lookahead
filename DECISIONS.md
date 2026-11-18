@@ -2190,6 +2190,10 @@ Categorizer and merchant-matching accuracy on my labelled rows may be public, as
 - **Known, not fixed:** the planted identical pair can be picked on the day after the export date and drop out of the export (the double charge cannot: its pick leaves the last day out). One of C's made-up café weights was set so its pair stays inside the window; fixing the pick would change the mix-v2 personas, so it waits.
 - **Bug fixed on the way:** the Time Machine's evidence lines read a big event's group name, which a saved step never has (`saved_evidence` leaves it out), so a saved step with a big event stopped the page. It now says "big event" (test). The Forecast page reads stored alert episodes, which always have the name.
 
+### 2026-11-18: prepublic-prep merged into main
+- I merged `prepublic-prep` into main (a fast-forward to 17ff617) after my real-data checks of the branch (Safe to spend on Home, scenario savings kept after a reload, the Forecast page's income line matching my Recurring page), the full suite (2,503 passed) and the reviewer's PASS. It brings safe to spend, demo mode, the README, the scrub scan and pattern builder, the made-up shop names and persona C, and the DECISIONS and results wording without facts about my account.
+- Next: the history rewrite on a fresh clone into a new repository, by the method recorded above (2026-11-18). Not yet run.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.
