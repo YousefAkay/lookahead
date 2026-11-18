@@ -263,6 +263,43 @@ def test_scoring_prints_n_never_row_text_and_counts_every_variant(
     assert [e["again"] for e in h.ledger_entries(ledger)] == [False, False, True, True]
 
 
+def test_blind_rows_labelled_in_the_app_are_refused(
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Test B rows lose their split but keep their labels: blind rows I labelled in the app.
+    # They would reach training and the RAG examples, so the harness refuses to score.
+    labels = _blind_labels(db, tmp_path, ("test_b",))
+    copy = _private_copy(db, tmp_path)
+    import sqlite3
+
+    conn = sqlite3.connect(copy)
+    with conn:
+        conn.execute("DELETE FROM label_splits WHERE split = 'test_b'")
+    conn.close()
+    ledger = tmp_path / "data" / "private" / "ledger.jsonl"
+    rule = _committed_rule(repo)
+    code = h.main(["score", "--db", str(copy), "--labels", str(labels),
+                   "--choice", str(tmp_path / "none.json"), "--rag",
+                   "--adopt-rule", str(rule), "--ledger", str(ledger)])  # fmt: skip
+    out = capsys.readouterr().out
+    assert code == 2 and "blind rows carry a label" in out
+    assert not ledger.exists()
+
+
+def test_rag_examples_leave_the_blind_set_out(db: Path) -> None:
+    from lookahead import rag_categorizer as rag
+    from lookahead.categorize import training_rows
+    from lookahead.db import connect_readonly
+
+    conn = connect_readonly(db)
+    rows = training_rows(conn, "scotia-chequing")
+    key = b"k" * 32
+    everything = rag.labelled_pairs(conn, "scotia-chequing", key)
+    blind = frozenset(rows["fingerprint"])
+    assert everything and rag.labelled_pairs(conn, "scotia-chequing", key, exclude=blind) == []
+    conn.close()
+
+
 def test_the_ledger_must_be_private(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="data/private"):
         h.add_to_ledger(tmp_path / "ledger.jsonl", {"variant": "current"})

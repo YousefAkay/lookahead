@@ -355,11 +355,13 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _rag_answer_function(conn, account: str, key: bytes, cache: Path, send: bool, client):  # type: ignore[no-untyped-def]
+def _rag_answer_function(  # type: ignore[no-untyped-def]
+    conn, account: str, key: bytes, cache: Path, send: bool, client, blind=frozenset()
+):
     import lookahead.llm_categorizer as llm
     from lookahead import rag_categorizer as rag
 
-    pairs = rag.labelled_pairs(conn, account, key)
+    pairs = rag.labelled_pairs(conn, account, key, exclude=blind)
     index = rag.LabelledIndex(pairs)
 
     def answer(row: pd.Series) -> str | None:
@@ -400,11 +402,17 @@ def score_my_data(args: argparse.Namespace) -> int:
     settings = load_settings(args.choice)
     conn = connect_readonly(args.db)
     features = categorizer_features(conn, args.account)
-    mine = training_rows(conn, args.account)
-    keep = ~mine["fingerprint"].isin(set(labels)) if not mine.empty else []
-    train = mine[keep].reset_index(drop=True) if not mine.empty else mine
+    train = training_rows(conn, args.account)
     split = prepare(features, labels, train, list(train.get("label", [])),
                     holdout_fingerprints(conn))  # fmt: skip
+    if split.refused_training:
+        # a blind row I labelled in the app would reach training and the RAG examples
+        print(
+            f"refusing to score: {split.refused_training} blind rows carry a label saved in "
+            "the app. Score before labelling them in the app, or take them out of the labels file."
+        )
+        conn.close()
+        return 2
     if split.refused_holdout:
         print(
             f"refusing to score: {split.refused_holdout} labelled rows are from the old "
@@ -420,7 +428,8 @@ def score_my_data(args: argparse.Namespace) -> int:
 
         variants.append("+RAG")
         rag_answer = _rag_answer_function(conn, args.account, pseudonym_key(args.env),
-                                          args.rag_cache, args.send, None)  # fmt: skip
+                                          args.rag_cache, args.send, None,
+                                          frozenset(labels))  # fmt: skip
     now = datetime.now().isoformat(timespec="seconds")
 
     def record(entry: dict[str, object]) -> None:

@@ -350,12 +350,17 @@ def categorize_one(
 # --- On my data (the app) ---
 
 
-def labelled_pairs(conn: sqlite3.Connection, account: str, key: bytes) -> list[tuple[str, str]]:
+def labelled_pairs(
+    conn: sqlite3.Connection, account: str, key: bytes, exclude: frozenset[str] = frozenset()
+) -> list[tuple[str, str]]:
     """(merchant name, category) of my training labels whose name may be sent: card rows only,
-    by the same rule as the LLM fallback. Holdout rows are never included."""
+    by the same rule as the LLM fallback. Holdout rows are never included, nor rows whose
+    fingerprint is in `exclude` (the evaluation's blind set)."""
     from lookahead.categorize import training_rows
 
     rows = training_rows(conn, account)
+    if exclude and not rows.empty:
+        rows = rows[~rows["fingerprint"].isin(exclude)]
     pairs = []
     for txn_type, text, label in zip(rows.get("txn_type", []), rows.get("text", []),
                                       rows.get("label", []), strict=True):  # fmt: skip
