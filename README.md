@@ -33,11 +33,12 @@ categories have fewer than 10 test rows, and macro-F1 is much lower (69.6% and 4
 - **Rules written first.** Before each experiment I write down what I will measure and the rule
   for adopting the change, in [DECISIONS.md](DECISIONS.md), commit it, and only then run it. A
   change that does not pass its rule is not adopted, and every variant I try is counted. So far
-  six ideas for the forecaster failed their rules and none was adopted: a LightGBM model of
-  everyday spending (worse than the simple weekday average at every horizon), forecasting lump
-  income and repeated large payments, a "renewal draw" for when the next deposit arrives,
-  anchoring the forecast to recent net flow, blending it with "the balance stays the same", and
-  prefilled "Looks right" proposals for recurring payments.
+  eight ideas for the forecaster lost and none was adopted: calibrating the range and the dip
+  chance, an income prototype of random lump arrivals, a LightGBM model of everyday spending
+  (worse than the simple weekday average at every horizon), forecasting lump income and repeated
+  large payments, a "renewal draw" for when the next deposit arrives, anchoring the forecast to
+  recent net flow, blending it with "the balance stays the same", and prefilled "Looks right"
+  proposals for recurring payments.
 - **Synthetic personas.** I generate accounts from rules I wrote, in 8 kinds: students living at
   home, students renting, international students with steady or stretched family money, people
   paid every two weeks or twice a month, workers on a tight budget, a freelancer. 20 are for

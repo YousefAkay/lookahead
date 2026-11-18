@@ -130,6 +130,18 @@ def test_a_bare_run_reads_nothing_and_asks_for_mine(tmp_path: Path) -> None:
     assert "patterns built" not in done.stdout and "written" not in done.stdout
 
 
+def test_with_mine_outside_the_repository_it_stops_without_a_traceback(tmp_path: Path) -> None:
+    project = Path(__file__).resolve().parents[1]
+    done = subprocess.run(
+        [sys.executable, "-m", "tools.scrub_patterns", "--mine"],
+        capture_output=True, text=True, cwd=tmp_path,
+        env={"PYTHONPATH": str(project), "PATH": "/usr/bin:/bin", "GIT_CEILING_DIRECTORIES":
+             str(tmp_path.parent)},
+    )  # fmt: skip
+    assert done.returncode == 2 and "Traceback" not in done.stderr
+    assert "not inside the repository" in done.stdout
+
+
 def test_a_path_i_give_that_does_not_exist_stops_the_run(tmp_path: Path) -> None:
     exports = tmp_path / "raw"
     exports.mkdir()

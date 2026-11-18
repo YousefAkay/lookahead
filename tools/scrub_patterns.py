@@ -154,8 +154,6 @@ def main_folder(start: Path) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    root = main_folder(Path.cwd())
-    private = root / "data" / "private"
     parser = argparse.ArgumentParser(
         prog="python -m tools.scrub_patterns",
         description=__doc__,
@@ -168,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", type=Path, default=None)
     parser.add_argument("--allowlist", type=Path, default=None)
     parser.add_argument("--extra", type=Path, default=None)
-    parser.add_argument("--repo", type=Path, default=root)
+    parser.add_argument("--repo", type=Path, default=None, help="default: the main folder")
     parser.add_argument("--tip", default="prepublic-prep")
     parser.add_argument("--public-email", default=None, help="default: git config user.email")
     parser.add_argument("--out", type=Path, default=None, help="default: in data/private/scrub")
@@ -176,6 +174,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.mine:
         print("this reads my private bank files: add --mine to run it; nothing was read")
         return 2
+    try:
+        root = main_folder(Path.cwd())
+    except subprocess.CalledProcessError:
+        print("not inside the repository (or one of its worktrees); nothing was run")
+        return 2
+    if args.repo is None:
+        args.repo = root
+    private = root / "data" / "private"
     defaults = {
         "exports": private / "raw",
         "db": private / "db" / "lookahead.db",

@@ -42,6 +42,7 @@ message it names which words of the script's own public AI-tool list matched.
   etransfer: <a name on an e-Transfer>
   merchant: <a merchant I use>
   phrase: <any exact wording to find, e.g. a sentence about my income timing>
+  leave: <a repository path that leaves the history whole (third round)>
   ```
 
   My patterns are also matched against commit messages, and an amount is also matched when it
