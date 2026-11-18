@@ -36,6 +36,26 @@ def repo(tmp_path: Path) -> Path:
 RULE = "# Adopt rule\nIn force since my approval.\n"
 
 
+def _log_draw(labels: Path, rule: Path) -> None:
+    """The ledger's draw entry for the rows of `labels`, under the committed `rule` (what the
+    candidates command writes). Scoring needs it."""
+    key = h.selection_key(h.selection_fingerprints(labels))
+    sha = h.adopt_rule_status(rule).sha256
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"status": "drawn", "selection_key": key,
+                                       "adopt_rule_sha256": sha})  # fmt: skip
+
+
+def _runs(ledger: Path) -> list[dict[str, object]]:
+    """The ledger without its draw entry: the scoring runs and refusals."""
+    return [e for e in h.ledger_entries(ledger) if e.get("status") != "drawn"]
+
+
+def _rule_and_draw(repo: Path, labels: Path) -> Path:
+    rule = _committed_rule(repo)
+    _log_draw(labels, rule)
+    return rule
+
+
 def _committed_rule(repo: Path, text: str = RULE) -> Path:
     rule = repo / "rule.md"
     rule.write_text(text, encoding="utf-8")
@@ -215,7 +235,7 @@ def _blind_labels(
 
 def _private_copy(db: Path, tmp_path: Path) -> Path:
     private = tmp_path / "data" / "private"
-    private.mkdir(parents=True)
+    private.mkdir(parents=True, exist_ok=True)
     return Path(shutil.copy(db, private / "t.db"))
 
 
@@ -224,13 +244,13 @@ def test_old_holdout_rows_are_refused(
 ) -> None:
     labels = _blind_labels(db, tmp_path, ("test_b",))
     ledger = tmp_path / "data" / "private" / "ledger.jsonl"
-    rule = _committed_rule(repo)
+    rule = _rule_and_draw(repo, labels)
     code = h.main(["score", "--db", str(_private_copy(db, tmp_path)), "--labels", str(labels),
                    "--choice", str(tmp_path / "none.json"),
                    "--adopt-rule", str(rule)])  # fmt: skip
     out = capsys.readouterr().out
     assert code == 2 and "old holdout" in out
-    assert [e["status"] for e in h.ledger_entries(ledger)] == ["refused"]  # logged
+    assert [e["status"] for e in _runs(ledger)] == ["refused"]  # logged
 
 
 def _unlabelled_new_rows(
@@ -286,7 +306,7 @@ def test_scoring_prints_n_never_row_text_and_counts_every_variant(
     choice.write_text(json.dumps({"params": {"model__C": 1.0}, "flag_threshold": 0.5,
                                   "synthetic_months": 0}), encoding="utf-8")  # fmt: skip
     args = ["score", "--db", str(copy), "--labels", str(labels), "--choice", str(choice),
-            "--adopt-rule", str(_committed_rule(repo))]  # fmt: skip
+            "--adopt-rule", str(_rule_and_draw(repo, labels))]  # fmt: skip
     assert h.main(args) == 0
     out = capsys.readouterr().out
     assert "(n = " in out
@@ -300,7 +320,7 @@ def test_scoring_prints_n_never_row_text_and_counts_every_variant(
         if text.strip():
             assert text.strip() not in out  # no row text, no merchant name
     assert "cleaner+directory vs current, group A" in out and "passes: " in out
-    entries = h.ledger_entries(ledger)
+    entries = _runs(ledger)
     assert [e.get("variant") or e.get("comparison") for e in entries] == [
         *h.VARIANTS[:2], "cleaner+directory vs current"]  # fmt: skip
     assert all(e["adopt_rule_commit"] and not e["dry_run"] for e in entries)
@@ -308,7 +328,7 @@ def test_scoring_prints_n_never_row_text_and_counts_every_variant(
     assert h.main(args) == 2
     assert "already scored" in capsys.readouterr().out
     assert h.main([*args, "--again"]) == 0
-    entries = h.ledger_entries(ledger)
+    entries = _runs(ledger)
     assert [e["status"] for e in entries] == ["scored"] * 3 + ["refused"] + ["scored"] * 3
     assert [e["again"] for e in entries] == [False] * 4 + [True] * 3
 
@@ -327,13 +347,13 @@ def test_blind_rows_labelled_in_the_app_are_refused(
         conn.execute("DELETE FROM label_splits WHERE split = 'test_b'")
     conn.close()
     ledger = tmp_path / "data" / "private" / "ledger.jsonl"
-    rule = _committed_rule(repo)
+    rule = _rule_and_draw(repo, labels)
     code = h.main(["score", "--db", str(copy), "--labels", str(labels),
                    "--choice", str(tmp_path / "none.json"), "--rag",
                    "--adopt-rule", str(rule)])  # fmt: skip
     out = capsys.readouterr().out
     assert code == 2 and "blind rows carry a label" in out
-    assert [e["status"] for e in h.ledger_entries(ledger)] == ["refused"]  # logged
+    assert [e["status"] for e in _runs(ledger)] == ["refused"]  # logged
 
 
 def test_rag_examples_leave_the_blind_set_out(db: Path) -> None:
@@ -413,6 +433,7 @@ def test_a_scored_selection_is_never_scored_again(
     _earlier_scored(ledger, ["f1", "f2"])
     labels = tmp_path / "labels.csv"
     labels.write_text("fingerprint,set,category\n" + rows, encoding="utf-8")
+    _log_draw(labels, rule)
     assert h.main(_score_args(tmp_path, labels, rule)) == 2
     assert "already scored" in capsys.readouterr().out
     assert h.ledger_entries(ledger)[-1]["status"] == "refused"
@@ -721,7 +742,7 @@ def test_scoring_refuses_fewer_than_100_group_a_rows(
     assert (rows.head(h.A_MIN_ROWS - 1)["set"] == "A").all()
     code = h.main(["score", "--db", str(copy), "--labels", str(labels),
                    "--choice", str(tmp_path / "none.json"),
-                   "--adopt-rule", str(_committed_rule(repo))])  # fmt: skip
+                   "--adopt-rule", str(_rule_and_draw(repo, labels))])  # fmt: skip
     assert code == 2 and "Wait for more data" in capsys.readouterr().out
     assert (
         h.ledger_entries(tmp_path / "data" / "private" / "ledger.jsonl")[-1]["status"] == "refused"
@@ -739,7 +760,7 @@ def test_scoring_refuses_a_group_a_merchant_that_has_training_labels(
     rows.to_csv(labels, index=False)
     code = h.main(["score", "--db", str(copy), "--labels", str(labels),
                    "--choice", str(tmp_path / "none.json"),
-                   "--adopt-rule", str(_committed_rule(repo))])  # fmt: skip
+                   "--adopt-rule", str(_rule_and_draw(repo, labels))])  # fmt: skip
     assert code == 2 and "not new merchants" in capsys.readouterr().out
 
 
@@ -779,7 +800,7 @@ def test_scoring_refuses_fewer_than_40_labelled_group_k_rows(
     monkeypatch.setattr(h, "A_MIN_ROWS", 1)
     code = h.main(["score", "--db", str(copy), "--labels", str(labels),
                    "--choice", str(tmp_path / "none.json"),
-                   "--adopt-rule", str(_committed_rule(repo))])  # fmt: skip
+                   "--adopt-rule", str(_rule_and_draw(repo, labels))])  # fmt: skip
     out = capsys.readouterr().out
     assert code == 2 and "only 39 labelled group K rows" in out
     assert h.ledger_entries(h.DEFAULT_LEDGER)[-1]["status"] == "refused"
@@ -869,3 +890,73 @@ def test_a_database_error_is_not_taken_for_no_decisions(monkeypatch: pytest.Monk
     conn = sqlite3.connect(":memory:")  # no labels table at all: nothing was decided
     monkeypatch.undo()
     assert h.decided_fingerprints(conn, "scotia-chequing") == set()
+
+
+# --- After the third review: scoring needs the logged draw and exactly its rows ---
+
+
+@pytest.mark.slow
+def test_draw_then_label_then_score_goes_through(
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    from lookahead.db import connect_readonly
+    from lookahead.labels import current_labels
+
+    conn = connect_readonly(db)
+    truth = {f: lab.category for f, lab in current_labels(conn, "scotia-chequing").items()}
+    conn.close()
+    copy, _ = _unlabelled_new_rows(db, tmp_path, ("test_a", "test_b"))
+    monkeypatch.setattr(h, "BLIND_SINCE", date(2025, 10, 1))
+    monkeypatch.setattr(h, "A_MIN_ROWS", 1)
+    rule = _committed_rule(repo)
+    selection = tmp_path / "data" / "private" / "eval" / "candidates.csv"
+    assert h.main(["candidates", "--db", str(copy), "--out", str(selection)]) == 0
+    labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
+    h.freeze_selection(selection, labels)
+    rows = pd.read_csv(labels, dtype=str, keep_default_na=False)
+    rows["category"] = [truth.get(f) or "" for f in rows["fingerprint"]]  # as if I labelled
+    rows.to_csv(labels, index=False)
+    choice = tmp_path / "choice.json"
+    choice.write_text(json.dumps({"params": {"model__C": 1.0}, "flag_threshold": 0.5,
+                                  "synthetic_months": 0}), encoding="utf-8")  # fmt: skip
+    code = h.main(["score", "--db", str(copy), "--labels", str(labels), "--choice", str(choice),
+                   "--adopt-rule", str(rule)])  # fmt: skip
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "changed after the draw" not in out and "passes: " in out
+
+
+def test_scoring_refuses_without_a_logged_draw(
+    tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rule = _committed_rule(repo)
+    labels = tmp_path / "labels.csv"
+    labels.write_text("fingerprint,set,category\nf1,A,Shopping\n", encoding="utf-8")
+    assert h.main(_score_args(tmp_path, labels, rule)) == 2
+    assert "no draw" in capsys.readouterr().out
+
+
+def test_scoring_refuses_a_labels_file_that_is_not_the_draw(
+    tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rule = _committed_rule(repo)
+    labels = tmp_path / "labels.csv"
+    labels.write_text("fingerprint,set,category\nf1,A,Shopping\n", encoding="utf-8")
+    _log_draw(labels, rule)
+    labels.write_text("fingerprint,set,category\nf1,A,Shopping\nf9,A,Shopping\n",
+                      encoding="utf-8")  # fmt: skip
+    assert h.main(_score_args(tmp_path, labels, rule)) == 2
+    assert "does not hold the drawn rows" in capsys.readouterr().out
+
+
+def test_a_database_error_is_not_taken_for_no_holdout() -> None:
+    import sqlite3
+
+    class Broken:
+        def execute(self, *_: object) -> None:
+            raise sqlite3.OperationalError("disk I/O error")
+
+    with pytest.raises(sqlite3.OperationalError):
+        h.holdout_fingerprints(Broken())
+    assert h.holdout_fingerprints(sqlite3.connect(":memory:")) == set()  # no splits table

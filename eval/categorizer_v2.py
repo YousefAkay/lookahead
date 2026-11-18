@@ -27,7 +27,8 @@ Rules, in code:
   group A (gain of at least 3 points and a merchant-level bootstrap 2.5th percentile above 0),
   each with the guard on group K (at most 1 more row wrong than (a)).
 - `candidates --count` prints how many rows could be drawn, and draws nothing.
-- Scoring refuses if the rule changed after the draw.
+- Scoring refuses without a logged draw, if the labels file does not hold exactly the drawn
+  rows, or if the rule changed after the draw.
 - `candidates` and `label` refuse until the adopt rule is committed. The draw is logged in
   the ledger and refused a second time, whatever the output path.
 - (c) passes only if (b) passes too. The draw leaves out rows I labelled or skipped in the app.
@@ -250,7 +251,9 @@ def holdout_fingerprints(conn) -> set[str]:  # type: ignore[no-untyped-def]
         rows = conn.execute(
             "SELECT fingerprint FROM label_splits WHERE split IN ('test_a', 'test_b')"
         ).fetchall()
-    except Exception:  # no splits table: nothing was held out
+    except sqlite3.OperationalError as e:  # no splits table: nothing was held out
+        if "no such table" not in str(e):
+            raise
         return set()
     return {r[0] for r in rows}
 
@@ -630,7 +633,9 @@ def score_my_data(args: argparse.Namespace) -> int:
     if not status.ok:
         return refuse(f"{status.reason} ({DEFAULT_ADOPT_RULE})")
     drawn = [e for e in ledger_entries(args.ledger) if e.get("status") == "drawn"]
-    if drawn and drawn[-1].get("adopt_rule_sha256") != status.sha256:
+    if not drawn:
+        return refuse("the ledger has no draw: the blind rows come from `candidates` only")
+    if drawn[-1].get("adopt_rule_sha256") != status.sha256:
         return refuse("the adopt rule changed after the draw: the draw's rule is the one in force")
     try:
         labels = load_blind_labels(args.labels)
@@ -639,6 +644,8 @@ def score_my_data(args: argparse.Namespace) -> int:
     except (OSError, ValueError, KeyError) as e:
         return refuse(f"the labels file cannot be read ({type(e).__name__}: {e})")
     key = selection_key(selection)
+    if key != drawn[-1].get("selection_key"):
+        return refuse("the labels file does not hold the drawn rows", selection_key=key)
     labels_hash = _sha256(args.labels)
     again = scored_fingerprints(ledger_entries(args.ledger)) & set(selection)
     if again and not args.again:
