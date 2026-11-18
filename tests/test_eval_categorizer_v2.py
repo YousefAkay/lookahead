@@ -348,7 +348,7 @@ def test_the_ledger_must_be_private(tmp_path: Path) -> None:
 def test_candidates_command_refuses_a_public_output(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code = h.main(["candidates", "--db", str(tmp_path / "x.db"), "--since", "2026-10-01",
+    code = h.main(["candidates", "--db", str(tmp_path / "x.db"),
                    "--out", str(tmp_path / "out.csv")])  # fmt: skip
     assert code == 2 and "data/private" in capsys.readouterr().out
 
@@ -568,21 +568,29 @@ def test_the_candidates_command_never_redraws(
     out = tmp_path / "data" / "private" / "eval" / "candidates.csv"
     out.parent.mkdir(parents=True)
     out.write_text("frozen\n", encoding="utf-8")
-    code = h.main(["candidates", "--db", str(tmp_path / "x.db"), "--since", "2026-10-01",
+    code = h.main(["candidates", "--db", str(tmp_path / "x.db"),
                    "--out", str(out)])  # fmt: skip
     assert code == 2 and "never redrawn" in capsys.readouterr().out
     assert out.read_text(encoding="utf-8") == "frozen\n"
 
 
-def test_the_candidates_command_writes_both_groups(
-    db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_candidates_command_writes_both_groups_once(
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    from lookahead.categorize import training_rows
+    from lookahead.db import connect_readonly
+
     copy, _ = _unlabelled_new_rows(db, tmp_path, ("test_a", "test_b"))
+    monkeypatch.setattr(h, "BLIND_SINCE", date(2025, 10, 1))  # the persona's data ends in 2026-09
     out = tmp_path / "data" / "private" / "eval" / "candidates.csv"
-    args = ["candidates", "--db", str(copy), "--since", "2025-10-01", "--out", str(out)]
+    args = ["candidates", "--db", str(copy), "--out", str(out)]
+    # no committed adopt rule: no draw
+    assert h.main(args) == 2 and "rule comes before the draw" in capsys.readouterr().out
+    _committed_rule(repo)
     monkeypatch.setattr(h, "A_MIN_ROWS", 10_000)  # too few rows: refused, nothing written
     assert h.main(args) == 2 and "Wait for more data" in capsys.readouterr().out
-    assert not out.exists()
+    assert not out.exists() and not h.ledger_entries(h.DEFAULT_LEDGER)
     monkeypatch.setattr(h, "A_MIN_ROWS", 1)
     assert h.main(args) == 0
     printed = capsys.readouterr().out
@@ -592,6 +600,18 @@ def test_the_candidates_command_writes_both_groups(
     assert (written["set"] == "K").sum() <= h.K_ROWS
     for name in written["group"]:
         assert name not in printed  # counts only, no merchant names
+    conn = connect_readonly(copy)
+    labelled = set(training_rows(conn, "scotia-chequing")["fingerprint"])
+    holdout = h.holdout_fingerprints(conn)
+    conn.close()
+    assert labelled and not set(written["fingerprint"]) & (labelled | holdout)
+    [drawn] = h.ledger_entries(h.DEFAULT_LEDGER)
+    assert drawn["status"] == "drawn" and drawn["adopt_rule_commit"]
+    assert drawn["a_rows"] == (written["set"] == "A").sum()
+    # a second draw is refused, even to another file
+    other = out.with_name("other.csv")
+    assert h.main(["candidates", "--db", str(copy), "--out", str(other)]) == 2
+    assert "never redrawn" in capsys.readouterr().out and not other.exists()
 
 
 def test_variant_b_uses_exact_and_alias_matches_only() -> None:
@@ -605,10 +625,13 @@ def test_freezing_keeps_each_rows_group_but_labelling_never_shows_it(tmp_path: P
     labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
     h.freeze_selection(_selection(tmp_path, ["f1", "f2"], ["K", "A"]), labels)
     assert h.load_blind_sets(labels) == {"f1": "K", "f2": "A"}
-    shown: list[str] = []
+    prompts: list[str] = []
     h.label_session({"f1": "Opos Velorin Cafe", "f2": "Apos Lunaire"}, labels,
-                    lambda prompt: (shown.append(prompt), "q")[1], shown.append)  # fmt: skip
-    assert "group" not in "\n".join(shown).casefold()
+                    lambda prompt: (prompts.append(prompt), "1")[1], lambda _: None)  # fmt: skip
+    ask = "category number, s to skip, q to stop: "
+    # the prompt is the position and the bank text, nothing else: no group, no set
+    assert prompts == [f"[1 of 2] Opos Velorin Cafe\n{ask}", f"[2 of 2] Apos Lunaire\n{ask}"]
+    assert h.load_blind_sets(labels) == {"f1": "K", "f2": "A"}  # kept after labelling
 
 
 def test_a_selection_without_groups_is_refused(tmp_path: Path) -> None:
@@ -708,3 +731,13 @@ def test_scoring_refuses_a_group_a_merchant_that_has_training_labels(
                    "--choice", str(tmp_path / "none.json"),
                    "--adopt-rule", str(_committed_rule(repo))])  # fmt: skip
     assert code == 2 and "not new merchants" in capsys.readouterr().out
+
+
+def test_labelling_waits_for_the_committed_rule(
+    db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
+    code = h.main(["label", "--db", str(db), "--selection", str(_selection(tmp_path, ["f1"])),
+                   "--labels", str(labels)])  # fmt: skip
+    assert code == 2 and "The rule comes first" in capsys.readouterr().out
+    assert not labels.exists()  # nothing frozen

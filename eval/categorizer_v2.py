@@ -10,7 +10,7 @@ labels, for the guard. It compares three variants:
     (c) "+RAG":               (b) with the RAG categorizer on its flagged new merchants (opt-in:
                               only with --rag; it sends names only with --send).
 
-    python -m eval.categorizer_v2 candidates --db PATH --account A --since 2026-10-01 \
+    python -m eval.categorizer_v2 candidates --db PATH --account A \
         --out data/private/eval/categorizer_v2_blind_candidates.csv   # drawn once
     python -m eval.categorizer_v2 label --db PATH --selection CANDIDATES --labels LABELS
     python -m eval.categorizer_v2 score --db PATH --labels PATH --choice PATH [--rag [--send]]
@@ -26,6 +26,8 @@ Rules, in code:
 - The adopt rule's comparisons, in code (`compare`): (b) against (a) and (c) against (b) on
   group A (gain of at least 3 points and a merchant-level bootstrap 2.5th percentile above 0),
   each with the guard on group K (at most 1 more row wrong than (a)).
+- `candidates` and `label` refuse until the adopt rule is committed. The draw is logged in
+  the ledger and refused a second time, whatever the output path.
 - It refuses to score with fewer than 100 labelled group A rows, or when a group A merchant
   has training labels by the time of scoring.
 - Only docs/specs/2026-11-18-categorizer-v2-adopt-rule.md is accepted as the adopt rule.
@@ -72,6 +74,7 @@ BOOTSTRAP_RESAMPLES = 2000
 DRY_RUN = "dry run, not a result"
 # The adopt rule's numbers (docs/specs/2026-11-18-categorizer-v2-adopt-rule.md).
 SELECTION_SEED = 0  # fixed: the blind selection is drawn once and never redrawn
+BLIND_SINCE = date(2026, 10, 1)  # fixed: both groups are rows from this day on
 A_MAX_ROWS = 150  # group A, new merchants: at most this many rows
 A_PER_MERCHANT = 3  # ... and at most this many rows of one merchant
 A_MIN_ROWS = 100  # fewer rows for group A: nothing is selected or scored; wait for more data
@@ -796,6 +799,10 @@ def label_command(args: argparse.Namespace) -> int:
     if not args.db.is_file():
         print(f"refusing to label: no database at {args.db}")
         return 2
+    status = adopt_rule_status(APPROVED_ADOPT_RULE)
+    if not status.ok:
+        print(f"refusing to label: {status.reason} ({DEFAULT_ADOPT_RULE}). The rule comes first.")
+        return 2
     try:
         frozen = freeze_selection(args.selection, args.labels)
     except ValueError as e:
@@ -829,6 +836,16 @@ def write_candidates(args: argparse.Namespace) -> int:
     if args.out.exists():
         print(f"refusing: {args.out} exists. The selection is drawn once and never redrawn.")
         return 2
+    status = adopt_rule_status(APPROVED_ADOPT_RULE)
+    if not status.ok:
+        print(f"refusing: {status.reason} ({DEFAULT_ADOPT_RULE}). The rule comes before the draw.")
+        return 2
+    if not ledger_is_private(DEFAULT_LEDGER):
+        print("the ledger must be inside data/private/ (nothing drawn)")
+        return 2
+    if any(e.get("status") == "drawn" for e in ledger_entries(DEFAULT_LEDGER)):
+        print("refusing: the ledger already has a blind selection drawn. It is never redrawn.")
+        return 2
     conn = connect_readonly(args.db)
     features = categorizer_features(conn, args.account)
     mine = training_rows(conn, args.account)
@@ -837,7 +854,7 @@ def write_candidates(args: argparse.Namespace) -> int:
     excluded = holdout_fingerprints(conn) | labelled
     conn.close()
     try:
-        picked = select_blind_rows(features, groups, excluded, args.since)
+        picked = select_blind_rows(features, groups, excluded, BLIND_SINCE)
     except ValueError as e:
         print(f"refusing: {e}")
         return 2
@@ -846,7 +863,14 @@ def write_candidates(args: argparse.Namespace) -> int:
         args.out, index=False
     )
     a, k = picked[picked["set"] == "A"], picked[picked["set"] == "K"]
-    print(f"blind selection since {args.since} (seed {SELECTION_SEED}): group A {len(a)} rows "
+    add_to_ledger(DEFAULT_LEDGER, {
+        "at": datetime.now().isoformat(timespec="seconds"), "status": "drawn",
+        "selection_key": selection_key(list(picked["fingerprint"])), "seed": SELECTION_SEED,
+        "since": BLIND_SINCE.isoformat(), "a_rows": len(a), "a_merchants": a["group"].nunique(),
+        "k_rows": len(k), "k_merchants": k["group"].nunique(),
+        "adopt_rule_commit": status.commit, "adopt_rule_sha256": status.sha256,
+    })  # fmt: skip
+    print(f"blind selection since {BLIND_SINCE} (seed {SELECTION_SEED}): group A {len(a)} rows "
           f"from {a['group'].nunique()} new merchants; group K {len(k)} rows from "
           f"{k['group'].nunique()} known merchants; written to {args.out} "
           "(not shown here)")  # fmt: skip
@@ -871,7 +895,6 @@ def main(argv: list[str] | None = None) -> int:
     c = commands.add_parser("candidates", help="draw the blind selection (groups A and K)")
     c.add_argument("--db", type=Path)
     c.add_argument("--account", default="scotia-chequing")
-    c.add_argument("--since", type=date.fromisoformat, required=True)
     c.add_argument("--out", type=Path, required=True)
     lab = commands.add_parser("label", help="label the frozen blind selection (text only)")
     lab.add_argument("--db", type=Path)
