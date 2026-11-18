@@ -25,7 +25,8 @@ from lookahead.categories import conflicts
 from lookahead.taxonomy import CATEGORIES
 
 NO_MERCHANT = "(no merchant name)"
-_MODEL_SOURCES = ("your label", "known merchant", "model", "LLM", "none")  # not rule, not netted
+# not rule, not netted; "directory" and "RAG" exist only when categorizer v2 is turned on
+_MODEL_SOURCES = ("your label", "known merchant", "model", "LLM", "none", "directory", "RAG")
 
 
 def _has_table(conn: sqlite3.Connection) -> bool:

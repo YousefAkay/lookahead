@@ -6,7 +6,10 @@ Settings, kept in `app_settings` ("on" / "off"; a missing row or table means off
 - `categorizer_v2_cleaner`:   the model learns and predicts from cleaned merchant names
                               (`lookahead.merchant_clean`);
 - `categorizer_v2_directory`: a flagged new-merchant row that matches the public chain
-                              directory gets the directory's category (source "directory");
+                              directory by exact name or alias gets the directory's category
+                              (source "directory"; it stays flagged: entries are unverified);
+- `categorizer_v2_directory_similar`: the directory may also match by character similarity
+                              (`chain_directory.SIMILAR_AT`); only used with the directory on;
 - `categorizer_v2_rag`:       saved RAG answers (Haiku 4.5 with retrieved examples) are shown
                               for flagged new-merchant rows (source "RAG"). Set only by the
                               setup question; nothing is ever sent by retraining.
@@ -19,12 +22,15 @@ from dataclasses import dataclass
 import pandas as pd
 
 from lookahead.categorizer import HybridCategorizer, Prediction
+from lookahead.chain_directory import ChainDirectory, default_directory
 from lookahead.merchant_clean import clean_merchant
 
 CLEANER = "categorizer_v2_cleaner"
 DIRECTORY = "categorizer_v2_directory"
 RAG = "categorizer_v2_rag"
-SETTINGS = (CLEANER, DIRECTORY, RAG)
+DIRECTORY_SIMILAR = "categorizer_v2_directory_similar"
+SETTINGS = (CLEANER, DIRECTORY, RAG, DIRECTORY_SIMILAR)
+DIRECTORY_SOURCE = "directory"
 
 
 @dataclass(frozen=True)
@@ -32,10 +38,11 @@ class Options:
     cleaner: bool = False
     directory: bool = False
     rag: bool = False
+    directory_similar: bool = False
 
     @property
     def any_on(self) -> bool:
-        return self.cleaner or self.directory or self.rag
+        return self.cleaner or self.directory or self.rag or self.directory_similar
 
 
 def stored_answer(conn: sqlite3.Connection, setting: str) -> bool | None:
@@ -95,3 +102,27 @@ class CleanedHybrid(HybridCategorizer):
 def make_hybrid(options: Options, **kwargs: object) -> HybridCategorizer:
     """The model `lookahead.categorize.train` builds: today's hybrid unless the cleaner is on."""
     return (CleanedHybrid if options.cleaner else HybridCategorizer)(**kwargs)  # type: ignore[arg-type]
+
+
+def apply_directory(
+    predictions: pd.DataFrame, options: Options, directory: ChainDirectory | None = None
+) -> pd.DataFrame:
+    """`lookahead.categorize.predict`'s table with the directory's category on each flagged
+    new-merchant row ("model" source) whose merchant is a directory chain. Every other row,
+    and everything when the directory is off, is returned unchanged. A row it answers stays
+    flagged (the directory is not verified yet)."""
+    if not options.directory or predictions.empty:
+        return predictions
+    directory = directory or default_directory()
+    out = predictions.copy()
+    for i in out.index[(out["source"] == "model") & out["flagged"].astype(bool)]:
+        merchant = out.at[i, "merchant"]
+        if not isinstance(merchant, str) or not merchant:
+            continue
+        match = directory.lookup(merchant, similar=options.directory_similar)
+        if match is None:
+            continue
+        out.at[i, "category"] = match.entry.category
+        out.at[i, "source"] = DIRECTORY_SOURCE
+        out.at[i, "detail"] = f"public chain directory ({match.how}): {match.entry.name}"
+    return out

@@ -56,8 +56,9 @@ def _label_from_answer_key(conn: sqlite3.Connection, account: str, persona: str)
                   category[(r.posted_date, r.amount_cents, r.text)])  # fmt: skip
 
 
-def build_outputs(tmp: Path) -> list[list[str]]:
-    """Every stored category output of both runs, sorted, as text."""
+def build_outputs(tmp: Path, turn_on: tuple[str, ...] = ()) -> list[list[str]]:
+    """Every stored category output of both runs, sorted, as text. `turn_on`: categorizer v2
+    settings switched on in the "new" run's database (none for the identity check)."""
     from lookahead.categorize import Settings, categorize, train
     from lookahead.db import connect
     from lookahead.demo import build_demo_db
@@ -75,6 +76,10 @@ def build_outputs(tmp: Path) -> list[list[str]]:
         store_exports(conn, account, [(export.name, parse_export(export))],
                       datetime(2026, 10, 2))  # fmt: skip
     conn.commit()
+    from lookahead import categorizer_v2
+
+    for setting in turn_on:
+        categorizer_v2.set_option(conn, setting, True)
     _label_from_answer_key(conn, "synthetic-A", "A")
     settings = Settings(threshold=0.5, synthetic_months=0)
     model, _ = train(conn, "synthetic-A", settings)
@@ -100,6 +105,21 @@ def test_everything_off_matches_the_snapshot_taken_before_v2(tmp_path: Path) -> 
     assert {r[0] for r in want} == {"demo", "new"}
     assert any(r[0] == "new" and r[6] == "model" for r in want)  # the new-merchant route ran
     assert got == want
+
+
+@pytest.mark.slow
+def test_directory_on_changes_only_flagged_new_merchant_rows(tmp_path: Path) -> None:
+    from lookahead import categorizer_v2
+
+    got = build_outputs(tmp_path, turn_on=(categorizer_v2.DIRECTORY,))
+    want = read_snapshot()
+    assert len(got) == len(want)
+    changed = [(g, w) for g, w in zip(got, want, strict=True) if g != w]
+    assert changed  # some of B's and C's new merchants are directory chains
+    for g, w in changed:
+        assert g[0] == "new" and w[6] == "model" and w[8] == "1"
+        assert g[6] == "directory" and g[8] == "1"
+        assert g[:3] == w[:3] and g[9] == w[9]  # same row, same confidence
 
 
 if __name__ == "__main__":

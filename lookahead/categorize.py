@@ -281,6 +281,7 @@ def categorize(
         model_file = model_dir / f"categorizer_{account}_{day}.joblib"
         joblib.dump(model, model_file)
     df = predict(conn, account, model)
+    df = categorizer_v2.apply_directory(df, categorizer_v2.load_options(conn))  # off: unchanged
     # pandas shows a missing category as NaN; the database and comparisons want None
     df["category"] = df["category"].astype("object").where(df["category"].notna(), None)
     df["merchant"] = df["merchant"].astype("object").where(df["merchant"].notna(), None)
@@ -358,6 +359,8 @@ def main(argv: list[str] | None = None) -> int:
           f"({settings.synthetic_months} months)")  # fmt: skip
     for source in SOURCES:
         print(f"  {source}: {s.by_source.get(source, 0)}")
+    for source in sorted(set(s.by_source) - set(SOURCES)):  # categorizer v2, only when on
+        print(f"  {source}: {s.by_source[source]}")
     if from_llm is not None:
         print(f"  of the model's rows, now from saved LLM answers (fallback is on): {from_llm}")
     print(f"flagged (worth a look, never blocking): {s.flagged}")
