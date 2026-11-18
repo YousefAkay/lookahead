@@ -83,11 +83,20 @@ def test_a_draft_rule_is_refused(repo: Path) -> None:
     assert not status.ok and "draft" in status.reason
 
 
-def test_the_repositorys_rule_is_not_in_force_yet() -> None:
-    assert not h.adopt_rule_status(h.DEFAULT_ADOPT_RULE).ok
-    draft = ROOT / "docs" / "specs" / "2026-11-18-categorizer-v2-adopt-rule-DRAFT.md"
-    if draft.exists():
-        assert not h.adopt_rule_status(draft).ok
+def test_the_repositorys_rule_is_final_and_states_the_codes_numbers() -> None:
+    text = (ROOT / h.DEFAULT_ADOPT_RULE).read_text(encoding="utf-8")
+    assert "DRAFT" not in text and "not yet in force" not in text.casefold()
+    assert not (ROOT / "docs" / "specs" / "2026-11-18-categorizer-v2-adopt-rule-DRAFT.md").exists()
+    # the numbers in code are the rule's numbers
+    assert (h.A_MAX_ROWS, h.A_PER_MERCHANT, h.A_MIN_ROWS) == (150, 3, 100)
+    assert (h.K_ROWS, h.K_MIN_ROWS, h.GUARD_EXTRA_WRONG) == (60, 40, 1)
+    assert (h.MIN_GAIN, h.BOOTSTRAP_RESAMPLES, h.SELECTION_SEED) == (0.03, 2000, 0)
+    assert h.BLIND_SINCE == date(2026, 10, 1) and h.LEAKAGE_AT == 0.95
+    for phrase in ("up to 150 rows", "at most 3 rows per merchant", "fewer than 100 rows",
+                   "60 rows", "fewer than 40 group K rows", "at least 3 points", "2,000 draws",
+                   "seed (0)", "at most 1 more group K row wrong", "2026-10-01", "95%",
+                   "(c) is adopted only if (b) passes too"):  # fmt: skip
+        assert phrase in text, phrase
 
 
 # --- Labels, candidates, bootstrap ---
@@ -741,3 +750,67 @@ def test_labelling_waits_for_the_committed_rule(
                    "--labels", str(labels)])  # fmt: skip
     assert code == 2 and "The rule comes first" in capsys.readouterr().out
     assert not labels.exists()  # nothing frozen
+
+
+# --- My answers of 2026-11-18: (c) needs (b), K minimum, skipped rows left out ---
+
+
+def test_c_is_not_adopted_when_b_fails_even_if_c_passes_on_b() -> None:
+    blind = _blind(a_merchants=75, k_rows=60)
+    # (b) +1 point on (a): fails; (c) +30 points on (b), guard fine: passes on its own only
+    b, c = h.compare(_results(blind, {"current": (60, 50), "cleaner+directory": (62, 50),
+                                      "+RAG": (107, 50)}), blind)  # fmt: skip
+    assert not b.passes
+    assert c.gain_ok and c.guard_ok and not c.base_passes and not c.passes
+
+
+def test_scoring_refuses_fewer_than_40_labelled_group_k_rows(
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    copy, labels = _unlabelled_new_rows(db, tmp_path, ("test_a", "test_b"))
+    _true_sets(copy, labels)
+    rows = pd.read_csv(labels, dtype=str, keep_default_na=False)
+    k = rows.index[rows["set"] == "K"]
+    assert len(k) >= h.K_MIN_ROWS
+    rows.loc[k[h.K_MIN_ROWS - 1 :], "category"] = ""  # skipped while labelling: 39 left
+    rows.to_csv(labels, index=False)
+    monkeypatch.setattr(h, "A_MIN_ROWS", 1)
+    code = h.main(["score", "--db", str(copy), "--labels", str(labels),
+                   "--choice", str(tmp_path / "none.json"),
+                   "--adopt-rule", str(_committed_rule(repo))])  # fmt: skip
+    out = capsys.readouterr().out
+    assert code == 2 and "only 39 labelled group K rows" in out
+    assert h.ledger_entries(h.DEFAULT_LEDGER)[-1]["status"] == "refused"
+
+
+def test_the_draw_leaves_out_rows_i_skipped_or_labelled_in_the_app(
+    db: Path, tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3
+
+    from lookahead.labels import label_row
+
+    copy, _ = _unlabelled_new_rows(db, tmp_path, ("test_a", "test_b"))
+    from lookahead.db import connect_readonly
+
+    ro = connect_readonly(copy)
+    candidates = set(h.categorizer_features(ro, "scotia-chequing")["fingerprint"])
+    ro.close()
+    conn = sqlite3.connect(copy)
+    decided = {r[0] for r in conn.execute("SELECT fingerprint FROM category_labels")}
+    fresh = sorted(candidates - decided)  # rows the draw could pick
+    assert len(fresh) >= 20
+    with conn:
+        for fp in fresh[:20]:
+            label_row(conn, "scotia-chequing", fp, None)  # "Skip / don't know"
+    conn.close()
+    _committed_rule(repo)
+    monkeypatch.setattr(h, "BLIND_SINCE", date(2025, 10, 1))
+    monkeypatch.setattr(h, "A_MIN_ROWS", 1)
+    monkeypatch.setattr(h, "A_MAX_ROWS", 10_000)  # draw every A row, so a miss would show
+    monkeypatch.setattr(h, "K_ROWS", 10_000)
+    out = tmp_path / "data" / "private" / "eval" / "candidates.csv"
+    assert h.main(["candidates", "--db", str(copy), "--out", str(out)]) == 0
+    written = set(pd.read_csv(out, dtype=str)["fingerprint"])
+    assert written and not written & set(fresh[:20])

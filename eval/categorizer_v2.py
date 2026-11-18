@@ -28,8 +28,9 @@ Rules, in code:
   each with the guard on group K (at most 1 more row wrong than (a)).
 - `candidates` and `label` refuse until the adopt rule is committed. The draw is logged in
   the ledger and refused a second time, whatever the output path.
-- It refuses to score with fewer than 100 labelled group A rows, or when a group A merchant
-  has training labels by the time of scoring.
+- (c) passes only if (b) passes too. The draw leaves out rows I labelled or skipped in the app.
+- It refuses to score with fewer than 100 labelled group A rows or 40 labelled group K rows,
+  or when a group A merchant has training labels by the time of scoring.
 - Only docs/specs/2026-11-18-categorizer-v2-adopt-rule.md is accepted as the adopt rule.
 - Every variant run is appended to the one ledger (DEFAULT_LEDGER, in data/private/; there is
   no option to point at another), and so is every refused run.
@@ -79,6 +80,7 @@ A_MAX_ROWS = 150  # group A, new merchants: at most this many rows
 A_PER_MERCHANT = 3  # ... and at most this many rows of one merchant
 A_MIN_ROWS = 100  # fewer rows for group A: nothing is selected or scored; wait for more data
 K_ROWS = 60  # group K, known merchants: rows for the guard
+K_MIN_ROWS = 40  # fewer labelled group K rows: the guard tests too little, nothing is scored
 MIN_GAIN = 0.03  # a variant must beat its base by at least 3 points on group A
 GUARD_EXTRA_WRONG = 1  # on group K, at most 1 more row wrong than (a)
 # (b) is compared with (a), and (c) with (b): RAG must earn its place on top of (b)
@@ -224,6 +226,17 @@ def categorizer_features(conn, account: str) -> pd.DataFrame:  # type: ignore[no
     df["bank_type"] = [by_id[i].txn_type for i in df["row_id"]]
     df["text"] = [by_id[i].text for i in df["row_id"]]
     return df
+
+
+def decided_fingerprints(conn, account: str) -> set[str]:  # type: ignore[no-untyped-def]
+    """Rows whose current label-review decision is a category or "Skip / don't know": they
+    are never drawn for the blind set (a skipped row is one I already found hard)."""
+    from lookahead.labels import current_labels
+
+    try:
+        return set(current_labels(conn, account))
+    except Exception:  # no labels table: nothing was decided
+        return set()
 
 
 def holdout_fingerprints(conn) -> set[str]:  # type: ignore[no-untyped-def]
@@ -444,6 +457,7 @@ class Comparison:
     low: float  # the bootstrap's 2.5th percentile of the gain
     k_n: int
     extra_wrong: int  # rows of group K wrong under `variant` minus wrong under (a)
+    base_passes: bool = True  # (c) is adopted only if (b), its base, passes too
 
     @property
     def gain_ok(self) -> bool:
@@ -455,12 +469,13 @@ class Comparison:
 
     @property
     def passes(self) -> bool:
-        return self.a_n > 0 and self.gain_ok and self.guard_ok
+        return self.a_n > 0 and self.gain_ok and self.guard_ok and self.base_passes
 
 
 def compare(results: dict[str, VariantResult], blind: pd.DataFrame) -> list[Comparison]:
     """(b) against (a) and (c) against (b) on group A (merchant-level paired bootstrap), each
-    with the guard on group K against (a). Only the pairs that were both run."""
+    with the guard on group K against (a). Only the pairs that were both run. (c) passes only
+    if (b) passes too: (c) contains (b)."""
     truth = blind["truth"].to_numpy()
     in_a, in_k = (blind["set"] == "A").to_numpy(), (blind["set"] == "K").to_numpy()
     groups = blind["group"].to_numpy()
@@ -469,6 +484,7 @@ def compare(results: dict[str, VariantResult], blind: pd.DataFrame) -> list[Comp
         return np.array(results[variant].categories, dtype=object) == truth
 
     out: list[Comparison] = []
+    passed: dict[str, bool] = {"current": True}  # (a) is the starting point
     for variant, base in COMPARISONS:
         if variant not in results or base not in results or "current" not in results:
             continue
@@ -477,7 +493,10 @@ def compare(results: dict[str, VariantResult], blind: pd.DataFrame) -> list[Comp
             gain, low = paired_bootstrap(right(base)[in_a], right(variant)[in_a],
                                          list(groups[in_a]))  # fmt: skip
         extra = int((~right(variant)[in_k]).sum() - (~right("current")[in_k]).sum())
-        out.append(Comparison(variant, base, int(in_a.sum()), gain, low, int(in_k.sum()), extra))
+        c = Comparison(variant, base, int(in_a.sum()), gain, low, int(in_k.sum()), extra,
+                       base_passes=passed.get(base, False))  # fmt: skip
+        passed[variant] = c.passes
+        out.append(c)
     return out
 
 
@@ -523,11 +542,13 @@ def score(
                   f"above 0; n = {c.a_n}, merchants resampled); guard, group K: "
                   f"{c.extra_wrong:+d} rows wrong against current (at most "
                   f"{GUARD_EXTRA_WRONG:+d}; n = {c.k_n}); passes: "
-                  f"{'yes' if c.passes else 'no'}")  # fmt: skip
+                  f"{'yes' if c.passes else 'no'}"
+                  f"{'' if c.base_passes else f' ({c.base} did not pass)'}")  # fmt: skip
             if record is not None:
                 record({"comparison": f"{c.variant} vs {c.base}", "dry_run": False,
                         "a_n": c.a_n, "gain": c.gain, "bootstrap_low": c.low, "k_n": c.k_n,
-                        "k_extra_wrong": c.extra_wrong, "passes": c.passes})  # fmt: skip
+                        "k_extra_wrong": c.extra_wrong, "base_passes": c.base_passes,
+                        "passes": c.passes})  # fmt: skip
     if dry_run:
         print(DRY_RUN)
     return results
@@ -631,6 +652,14 @@ def score_my_data(args: argparse.Namespace) -> int:
         return refuse(
             f"only {a_rows} labelled group A rows can be scored; at least {A_MIN_ROWS} are "
             "needed. Wait for more data.",
+            selection_key=key,
+        )
+    k_rows = int((split.blind["set"] == "K").sum())
+    if k_rows < K_MIN_ROWS:
+        conn.close()
+        return refuse(
+            f"only {k_rows} labelled group K rows can be scored; the guard needs at least "
+            f"{K_MIN_ROWS}. Label more of them (skipped rows do not count).",
             selection_key=key,
         )
     extra = synthetic_examples(settings.synthetic_months) if settings.synthetic_months else None
@@ -851,7 +880,7 @@ def write_candidates(args: argparse.Namespace) -> int:
     mine = training_rows(conn, args.account)
     groups = set(mine["group"]) if not mine.empty else set()
     labelled = set(mine["fingerprint"]) if not mine.empty else set()
-    excluded = holdout_fingerprints(conn) | labelled
+    excluded = holdout_fingerprints(conn) | labelled | decided_fingerprints(conn, args.account)
     conn.close()
     try:
         picked = select_blind_rows(features, groups, excluded, BLIND_SINCE)
