@@ -147,7 +147,9 @@ message it names which words of the script's own public AI-tool list matched.
   appears in the report; a planted private file's contents are never read; an email is masked;
   an AI-tool commit on a side branch is found; a path is told apart as "at the tip" or "history
   only".
-- Run on this repository, it writes `logs/scrub-report-<date>.md` and prints only counts.
+- Run on this repository, it writes `logs/scrub-report-<date>.md` (generic rules only) and prints
+  only counts. With my patterns, `tools/scrub_patterns.py --mine` writes
+  `data/private/scrub/scrub-report-<date>.md` (since the second round).
 - Yousef reads the report locally. The scrub itself is planned in a later session: a rewrite
   on a fresh clone pushed to a new empty repository (no force-push; the second round), created
   only after his go.

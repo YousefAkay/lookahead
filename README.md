@@ -128,6 +128,7 @@ flowchart LR
     J --> L[Forecast page]
     K --> L
     M --> L
+    M --> P[Home page]
     D --> N[Scenario calculator: rent, daily spend, income]
     E --> N
     N --> O[Scenario page]
