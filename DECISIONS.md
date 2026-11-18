@@ -2183,6 +2183,13 @@ Categorizer and merchant-matching accuracy on my labelled rows may be public, as
 - **Checks on the new clone:** every old wording is found 0 times in every commit; the scrub scan with the old wordings as my `phrase:` patterns finds 0 paths; the tip's files equal today's tip except the files that leave; the full suite passes.
 - **Lost:** fixing the wording at the tip only (older commits would still show it); a mapping table of old and new ids.
 
+### 2026-11-18: Persona C's settings replaced with made-up values
+- **Decision.** Every setting of the demo persona C is now made up: the opening balance, rent, bill and subscription, tuition amounts and dates, the family memos before each term, the top-up rule (threshold, delays, amounts, rounding, gaps), the posting-day rule, the quiet month, the spending profile and its merchants and weights, and the returned e-Transfer. The story stays: a student funded by family credit memos, with tuition each term. The C tests now check C against its own made-up profile.
+- **What it changes.** Only C's synthetic export and answer key and its Time Machine snapshot (`synthetic-C`). A and B are byte-identical, their snapshots too. The 30 mix-v2 personas use none of C's code; the forecast identity check on the 20 development personas is identical at 800 of 800 origins (every field). Results recorded before this stay as recorded (the forecaster's results use mix-v2 personas only).
+- **Categorizer.** Its synthetic training rows come from A, B and C, so the next `python -m lookahead.categorize` run trains a slightly different model. The recorded categorizer results stay as recorded and are not rescored.
+- **Known, not fixed:** the planted identical pair can be picked on the day after the export date and drop out of the export (the double charge cannot: its pick leaves the last day out). One of C's made-up café weights was set so its pair stays inside the window; fixing the pick would change the mix-v2 personas, so it waits.
+- **Bug fixed on the way:** the Time Machine's evidence lines read a big event's group name, which a saved step never has (`saved_evidence` leaves it out), so a saved step with a big event stopped the page. It now says "big event" (test). The Forecast page reads stored alert episodes, which always have the name.
+
 ## Known issues
 
 - 2026-10-19: after a price change, a card-cluster habit I confirmed is not placed until the new amount has enough payments to be detected on its own. The old cluster is just stopped, so for a few weeks nothing is placed for that habit. It was the same before the identity fix. Not fixed.

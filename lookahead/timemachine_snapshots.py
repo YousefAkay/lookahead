@@ -250,7 +250,8 @@ def evidence_lines(step: dict[str, Any]) -> list[str]:
                         if k in counts)  # fmt: skip
     lines.append(f"Placed payments: {wording or 'none'}.")
     for big in ev["big_events"]:
-        lines.append(f"Set aside, not forecast: {big['group'] or 'big event'}, {big['kind']}, "
+        # a saved step has no group name (saved_evidence leaves it out)
+        lines.append(f"Set aside, not forecast: {big.get('group') or 'big event'}, {big['kind']}, "
                      f"{_day(big['day'])}, {_dollars(big['cents'])}.")  # fmt: skip
     lines.append(f"Everyday spending about {_dollars(ev['spending_per_day_cents'])} a day "
                  f"({ev['method']}). Rule: {ev['rule']}.")  # fmt: skip

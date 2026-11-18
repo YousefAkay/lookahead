@@ -90,6 +90,16 @@ def test_evidence_lines_say_what_stands_behind_an_alert() -> None:
     assert "Placed payments: 2 detected." in text
 
 
+def test_a_saved_big_event_without_a_group_name_still_renders() -> None:
+    # saved_evidence leaves the group name out; a saved step must still show its evidence
+    step = _step(condition=True, chance=0.6)
+    step["alert"]["evidence"]["big_events"] = [
+        {"kind": "large deposit", "day": "2026-03-09", "cents": 250_000}
+    ]
+    lines = evidence_lines(step)
+    assert "Set aside, not forecast: big event, large deposit, Mar 9, 2026, $2,500.00." in lines
+
+
 def test_history_never_shows_days_after_the_date_and_realized_starts_at_it() -> None:
     balances = {D0 + timedelta(days=k): 100 * k for k in range(-80, 40)}
     history = history_frame(balances, D0)
