@@ -271,7 +271,13 @@ def calculator_chart(
         by_day = dict(zip(mine.days, mine.balances, strict=True))  # type: ignore[attr-defined]
         figure.add_scatter(x=[below], y=[by_day[below] / 100], mode="markers", meta="first_below",
                            name="First day below the buffer", marker={"size": 10})  # fmt: skip
-    figure.update_layout(title=title, yaxis_title="balance ($)")
+    # The app's chart template has a 16 px top margin and no legend: that clips the title and
+    # hides which line is which. Room on top for the title, then the line names in a row under it.
+    figure.update_layout(
+        title={"text": title, "x": 0, "xanchor": "left", "y": 0.98, "yanchor": "top"},
+        yaxis_title="balance ($)", margin={"t": 72}, showlegend=True,
+        legend={"orientation": "h", "x": 0, "xanchor": "left", "y": 1.02, "yanchor": "bottom"},
+    )  # fmt: skip
     return figure
 
 

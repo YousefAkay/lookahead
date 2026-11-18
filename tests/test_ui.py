@@ -127,6 +127,25 @@ def test_balance_chart_is_a_step_line() -> None:
     assert figure.data[0].line.shape == "hv"
 
 
+def test_scenario_chart_shows_its_title_and_names_both_lines() -> None:
+    from types import SimpleNamespace
+
+    from lookahead.ui import calculator_chart
+
+    days = [date(2026, 10, 2), date(2026, 10, 3)]
+    now = SimpleNamespace(days=days, balances=[90_000, 80_000], first_below=None)
+    mine = SimpleNamespace(days=days, balances=[70_000, 40_000], first_below=None)
+    figure = calculator_chart(date(2026, 10, 1), 100_000, now, mine, 50_000, title="Balance")
+    full = figure.layout
+    # The app's template (16 px on top, no legend) would clip the title and hide the line names;
+    # the figure's own layout wins over a template, so the chart sets both itself.
+    assert full.title.text == "Balance"
+    assert full.margin.t >= 60
+    assert full.showlegend is True
+    assert full.legend.orientation == "h"
+    assert [t.name for t in figure.data] == ["As things are now", "My scenario"]
+
+
 def test_blank_bank_text_shows_a_dash() -> None:
     blank = sample()
     blank.loc[1, "text"] = " "  # service charges and ABM withdrawals have a single space
