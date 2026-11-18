@@ -6,8 +6,8 @@ branches). The report gives counts, file paths, commit ids and ref names only: i
 amount, a matched line, a pattern or an email.
 
 This file holds generic rules only. Personal patterns (names, amounts, e-Transfer names,
-merchants, exact wordings) are read from a file given with --patterns, which is never opened
-unless that option is given:
+merchants, exact wordings) and the extra whole files that leave the history (`leave:` lines) are
+read from a file given with --patterns, which is never opened unless that option is given:
 
     python -m tools.scrub_scan                                  # generic rules only
     python -m tools.scrub_scan --patterns data/private/scrub_patterns.txt   # mine, run by me
@@ -31,12 +31,8 @@ from pathlib import Path
 from lookahead.generator.descriptions import _TEMPLATES
 
 OLD_REPORT = "docs/prepublic-scrub-report.md"
-# Whole files that leave every commit (my decisions, 2026-11-17), with the reason shown.
-LEAVE_WHOLE = {
-    OLD_REPORT: "the old scrub report (it quotes amounts)",
-    "docs/HANDOFF.md": "a local planning document",
-    "docs/results/history_scan.md": "an older scan's index",
-}
+# Every other whole file that leaves the history is a `leave:` line of my private patterns file.
+LEAVE = "leave"
 DEMO_DBS = "data/demo/timemachine/"
 SYNTHETIC = "data/synthetic/persona_"
 CATEGORIES = ("name", "address", "etransfer", "merchant", "account", "amount", "phrase")
@@ -95,6 +91,7 @@ class Patterns:
 
     text: dict[str, tuple[str, ...]]
     amounts: frozenset[int]
+    leave: frozenset[str] = frozenset()  # paths that leave the history whole
     compiled: dict[str, re.Pattern[str]] = field(default_factory=dict, compare=False)
 
     def __post_init__(self) -> None:
@@ -112,6 +109,7 @@ class Patterns:
     def counts(self) -> dict[str, int]:
         out = {c: len(self.text.get(c, ())) for c in CATEGORIES if c != "amount"}
         out["amount"] = len(self.amounts)
+        out[LEAVE] = len(self.leave)
         return out
 
 
@@ -126,24 +124,28 @@ def load_patterns(path: Path) -> Patterns:
     category, never the pattern itself."""
     text: dict[str, list[str]] = defaultdict(list)
     amounts: set[int] = set()
+    leave: set[str] = set()
     for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         category, sep, value = line.partition(":")
         category, value = category.strip().casefold(), value.strip()
-        if not sep or category not in CATEGORIES:
-            raise ValueError(f"line {n}: the category must be one of {', '.join(CATEGORIES)}")
+        if not sep or category not in (*CATEGORIES, LEAVE):
+            names = ", ".join((*CATEGORIES, LEAVE))
+            raise ValueError(f"line {n}: the category must be one of {names}")
         if not value:
             raise ValueError(f"line {n} ({category}): nothing after the colon")
-        if category == "amount":
+        if category == LEAVE:
+            leave.add(value.strip("/"))  # a repository path, kept as typed
+        elif category == "amount":
             try:
                 amounts.add(abs(to_cents(value)))
             except InvalidOperation:
                 raise ValueError(f"line {n} (amount): not an amount") from None
         else:
             text[category].append(value.casefold())
-    return Patterns({k: tuple(v) for k, v in text.items()}, frozenset(amounts))
+    return Patterns({k: tuple(v) for k, v in text.items()}, frozenset(amounts), frozenset(leave))
 
 
 def never_read(path: str) -> str | None:
@@ -163,13 +165,15 @@ def never_read(path: str) -> str | None:
     return None
 
 
-def must_leave(path: str) -> str | None:
-    """Why a whole file must leave the history (None: it may stay)."""
+def must_leave(path: str, leave: frozenset[str] = frozenset()) -> str | None:
+    """Why a whole file must leave the history (None: it may stay). `leave`: my private list."""
     why = never_read(path)
     if why is not None:
         return why
-    if path in LEAVE_WHOLE:
-        return LEAVE_WHOLE[path]
+    if path == OLD_REPORT:
+        return "the old scrub report (it quotes amounts)"
+    if path in leave:
+        return "on my private leave list"
     if path.casefold().endswith((".db", ".sqlite", ".sqlite3")) and not path.startswith(DEMO_DBS):
         return "a database outside data/demo/timemachine"
     return None
@@ -350,6 +354,7 @@ def scan(repo: Path, tip: str, patterns: Patterns | None, public_email: str | No
                 commits[oid].refs.add(short_ref(ref))
     tip_oid = git(repo, "rev-parse", f"{tip}^{{commit}}").strip()
     tip_files = dict(tree_of(repo, tip_oid))
+    leave = patterns.leave if patterns is not None else frozenset()
 
     reader = BlobReader(repo)
     try:
@@ -374,7 +379,7 @@ def scan(repo: Path, tip: str, patterns: Patterns | None, public_email: str | No
         cache: dict[str, dict[str, set[str]]] = {}
         skipped = 0
         for (path, oid), holders in sorted(where.items()):
-            why = must_leave(path)
+            why = must_leave(path, leave)
             if why is not None:
                 hit = leaving[path]
                 hit.commits |= holders
@@ -435,6 +440,7 @@ def render(
     skipped: int,
     public_email: str | None = None,
 ) -> str:
+    leave = patterns.leave if patterns is not None else frozenset()
     kinds = defaultdict(int)
     for c in commits.values():
         kinds[c.reach] += 1
@@ -564,7 +570,7 @@ def render(
             where = "at the tip" if h.at_tip else "history only"
             ids = ", ".join(f"`{o[:10]}`" for o in sorted(h.commits))
             out.append(
-                f"| `{p}` | {must_leave(p)} | {len(h.commits)} | {where} | "
+                f"| `{p}` | {must_leave(p, leave)} | {len(h.commits)} | {where} | "
                 f"{_reach_of(h.commits, commits)} | {_refs_of(h.commits, commits)} | "
                 f"{ids} |"
             )

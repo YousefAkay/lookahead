@@ -83,7 +83,7 @@ def repo(tmp_path: Path) -> dict[str, str]:
     patterns = tmp_path / "patterns.txt"
     patterns.write_text(
         "# made up\nname: Zorblax Quintworth\namount: 77.10\netransfer: Quintworth\n"
-        "merchant: Glimfood\nphrase: income arrives late\n",
+        "merchant: Glimfood\nphrase: income arrives late\nleave: story.md\n",
         encoding="utf-8",
     )
     return {"repo": str(r), "first": first, "tip": tip, "side": side, "proto": proto,
@@ -158,6 +158,8 @@ def test_files_that_must_leave_the_history_whole_are_listed(repo: dict[str, str]
     whole = run(repo).split("## 8.")[1]
     assert "`docs/prepublic-scrub-report.md`" in whole and repo["first"][:10] in whole
     assert "history only" in whole
+    assert "| `story.md` | on my private leave list |" in whole  # a leave: line of my file
+    assert "`story.md`" not in run(repo, with_patterns=False).split("## 8.")[1]
 
 
 def test_my_patterns_give_counts_per_category_only(repo: dict[str, str]) -> None:
@@ -254,11 +256,20 @@ def test_a_brand_of_several_words_is_mine_when_my_merchant_is_inside_it() -> Non
     assert pats.is_mine("Maxi") and pats.is_mine("Maxi & Cie") and not pats.is_mine("Metro")
 
 
-def test_my_whole_file_removals_are_on_the_must_leave_list() -> None:
-    for path in ("docs/prepublic-scrub-report.md", "docs/HANDOFF.md",
-                 "docs/results/history_scan.md"):  # fmt: skip
-        assert scrub_scan.must_leave(path) is not None, path
-    assert scrub_scan.must_leave("docs/results/other.md") is None
+def test_whole_file_removals_come_from_my_private_leave_lines(tmp_path: Path) -> None:
+    extra = tmp_path / "patterns.txt"
+    extra.write_text("leave: notes/plan.md\nleave: /notes/other.md/\n", encoding="utf-8")
+    leave = scrub_scan.load_patterns(extra).leave
+    assert leave == frozenset({"notes/plan.md", "notes/other.md"})
+    assert scrub_scan.must_leave("notes/plan.md", leave) == "on my private leave list"
+    assert scrub_scan.must_leave("notes/plan.md") is None  # not without my file
+    assert scrub_scan.must_leave("docs/prepublic-scrub-report.md") is not None  # always
+    assert scrub_scan.must_leave("docs/results/other.md", leave) is None
+
+
+def test_the_public_code_names_no_other_whole_file_to_remove() -> None:
+    code = Path(scrub_scan.__file__).read_text(encoding="utf-8")
+    assert "HANDOFF" not in code and "history_scan" not in code
 
 
 def test_formatted_amounts_with_cents_are_counted_apart_from_round_ones() -> None:

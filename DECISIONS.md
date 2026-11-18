@@ -408,7 +408,6 @@ Numbers from my own data are counts and rates only. Personal details are in a pr
 - Counted by hand before confirming anything and before any detector change: 5 regular payments, all bills or subscriptions. This is a case study of one account.
 - The detector found 4 of the 5, with 0 false series. The fifth has only 2 charges so far, so it is below the detector's minimum and was added by hand.
 - My decisions in the log: 5 confirms, 0 rejects, 1 add, 1 continuation link (one subscription under two merchant names), several rent-rule saves.
-- Rent: outgoing e-Transfers, all in the rule; once it was saved, the rule added no payment the series did not already show, because it matched only payments inside its window.
 - Two gaps found by using it: a hand-added series does not pick up its own past charges (shows none), and a series has no name of my own for display.
 - Consequence for the rent rule: matching must not depend on the day (late payers exist). Design change planned next, see the next entry.
 
@@ -2162,6 +2161,7 @@ Categorizer and merchant-matching accuracy on my labelled rows may be public, as
 - **Decision.** I renamed the five small local brands the synthetic generator used (two cafés, two restaurants and an online shop) to made-up names of the same length, and the AI company used as a subscription in one test to a made-up one. Concordia Bookstore and uBreakiFix stay: my school is on my CV, and uBreakiFix is a public chain. The generator's store numbers were already random.
 - **What it changed (checked with `eval/forecast_identity.py`, 20 synthetic development personas, 800 origins).** The generated amounts and dates are identical; only the merchant text changed. 794 of 800 origins are identical. The other 6 (3 origins each of v2-DRENT-03 and v2-TIGHT-02) changed slightly, because those personas' regular café and restaurant purchases form card series whose key holds the name, and each future's random draws are keyed by it. One dip chance moved from 41.8 to 42.8 percent; no alert switched on or off; the point forecast and safe-to-spend are identical everywhere. The demo Time Machine steps are identical (21 of 21 files); only the 7 snapshot databases were regenerated, since they hold the names. Two tests pin the generator byte for byte, and their values were retaken: all 20 development exports and answer keys differ from the old ones by the renamed names only (40 of 40 files identical after the name mapping), and of the 9 pinned forecasts with the recurring fix switched off (not the default), 1 changed (v2-SAL-01, 2026-01-05), the same mechanism.
 - **Categorizer.** 144 of the 661 synthetic training rows have new text, with the same categories, so a categorizer retrained after this change differs slightly. The categorizer holdout result stays as recorded and is not rescored.
+- **Merchant resolution.** `eval/resolution_variants.py` splits the merchants into a development and a test half by sorting their names, then a seeded shuffle. A renamed brand sorts to a different place, so a rerun would put different merchants (including one former development merchant) in the test half, and the variant draws change too. So the merchant-resolution test half cannot be rescored: its recorded result stays as recorded, and any new resolution score needs a new test set.
 - **Recorded results stay as recorded.** Before the final held-out test I rerun the baselines once on the renamed code, so the final comparison is like for like.
 
 ### 2026-11-17: The history scrub goes to a new repository, not a force-push
@@ -2169,6 +2169,11 @@ Categorizer and merchant-matching accuracy on my labelled rows may be public, as
 - **Lost:** a force-push over the existing repository, with a request to GitHub to purge the cached commits. It depends on GitHub support and leaves the old commits readable until they act.
 - **Email.** Every commit, old and new, uses one author and committer address: my gmail address, which is already public and which I keep. The rewrite changes the old yahoo address on every commit to it. No noreply address. The scrub report names the public address and flags any other one.
 - **What the rewrite removes or changes** comes from the scrub scan (`tools/scrub_scan.py`): at least the old scrub report, which quotes amounts, from every commit; then what I decide from its keep, reword or remove list.
+
+### 2026-11-17: The pattern builder asks for --mine; the extra whole-file removals live in my private file
+- **Decision.** A bare run of `python -m tools.scrub_patterns` reads nothing and stops with a message: `--mine` is required. With it, the paths I leave out default to my private folder; a default file that does not exist is skipped by name, and a path I type that does not exist stops the run (a typo must not quietly drop patterns).
+- **Decision.** The public scan code names only one whole file that leaves the history: the old scrub report. Every other whole file to remove is a `leave:` line (one repository path) of my private extras file, so no planning or local file is named in public code.
+- **Lost:** defaults that read my private files on a bare run (one mistyped command reads my bank files), and the removal list written in the scan's code.
 
 ## Known issues
 

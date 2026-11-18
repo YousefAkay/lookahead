@@ -61,7 +61,9 @@ message it names which words of the script's own public AI-tool list matched.
   - the old scrub report: listed with every commit and ref that holds it;
   - cached commits of deleted branches (such as the income prototype): the scan reads every
     commit in this clone, including those only in a reflog and unreachable ones, and says which
-    kind each finding is in. GitHub may still serve old pushed commits by their id after the
+    kind each finding is in. *(Superseded in the second round: there is no force-push. The
+    rewrite goes to a new repository and the old one stays private as `lookahead-archive`, so no
+    purge request is needed.)* GitHub may still serve old pushed commits by their id after the
     force-push; the scrub plan includes asking GitHub to purge them.
 
 ## Added 2026-11-17, second round (Yousef)
@@ -74,7 +76,8 @@ message it names which words of the script's own public AI-tool list matched.
   (`--extra`: name spellings, address, building; categories `name`, `address`, `phrase`), runs
   the scan, writes the report where I say, and prints only how many patterns it built per
   category, the section headings and the section 7 counts. Every path is given on its command
-  line; there is no default. Tests use made-up bank files.
+  line; there is no default. Tests use made-up bank files. *(Superseded in the third round: see
+  below.)*
 - **Text patterns match whole words**, without case; a bare number (no `$`, no cents) that equals
   one of my amounts, as whole cents or whole dollars, is counted apart from formatted amounts.
 - **Email.** My gmail address stays (it is public). `--public-email` shows it as it is; any other
@@ -86,6 +89,15 @@ message it names which words of the script's own public AI-tool list matched.
 - **The scrub plan** is in DECISIONS (2026-11-17): rewrite on a fresh clone, push to a new empty
   repository (only after I approve creating it), rename the old one `lookahead-archive` and keep
   it private.
+
+## Added 2026-11-17, third round (Yousef, after the review)
+
+- **`--mine` is required.** A bare run of the builder reads nothing and stops with a message.
+  With `--mine`, any path I leave out defaults to my private folder (found from any worktree);
+  a default file that does not exist is skipped by name, and a path I type that does not exist
+  stops the run.
+- **Whole files that leave the history** are `leave:` lines of my private extras file (one
+  repository path each). The public code names only the old scrub report.
 
 ## Sections of the report
 
@@ -100,7 +112,8 @@ message it names which words of the script's own public AI-tool list matched.
 6. Brand names in the synthetic persona files, separately.
 7. My personal patterns (only with `--patterns`): counts per category, per path, and the commit
    messages that match (commit ids and categories only).
-8. Files that must leave the history whole: the old scrub report; anything under
+8. Files that must leave the history whole: the old scrub report; the `leave:` paths of my
+   patterns file (only with `--patterns`); anything under
    `data/private`, any `.env`-style file or folder (not `.env.example`), `DECISIONS-private.md`,
    or a database outside `data/demo/timemachine` (private names counted only; contents never
    read).

@@ -1,8 +1,10 @@
 """Build my scrub patterns from my own bank files, then run the scrub scan with them.
 
-Run by me only, on my private files (every path is given on the command line; there is no
-default). It never prints or writes a pattern: it prints how many it built per category, then the
-scan's section headings and the section 7 counts. Spec: docs/specs/2026-11-17-scrub-scan.md.
+Run by me only, on my private files. A bare run reads nothing and stops: --mine is required, and
+it opts in to the default paths in my private folder (any path can be given instead; a path I give
+that does not exist stops the run, a default one that does not exist is skipped by name). It
+never prints or writes a pattern: it prints how many it built per category, then the scan's
+section headings and the section 7 counts. Spec: docs/specs/2026-11-17-scrub-scan.md.
 
 What it builds:
 - etransfer: every e-Transfer counterpart name (the sender on a credit memo; a person's name on a
@@ -11,8 +13,8 @@ What it builds:
 - merchant: every card merchant (to tell brand names from my own shops apart);
 - account: every run of 7 or more digits in the exports' text and file names, and every
   mobile-banking reference;
-and adds the few lines I type myself (--extra: my name spellings, address, building), in the
-format of `tools/scrub_scan.py`.
+and adds the few lines I type myself (--extra: my name spellings, address, building, and the
+`leave:` paths of whole files that leave the history), in the format of `tools/scrub_scan.py`.
 """
 
 import argparse
@@ -137,7 +139,7 @@ def merged(built: Patterns, extra: Patterns | None) -> Patterns:
         k: tuple(sorted({*built.text.get(k, ()), *extra.text.get(k, ())}))
         for k in {*built.text, *extra.text}
     }
-    return Patterns(text, built.amounts | extra.amounts)
+    return Patterns(text, built.amounts | extra.amounts, built.leave | extra.leave)
 
 
 def main_folder(start: Path) -> Path:
@@ -159,23 +161,44 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--exports", type=Path, default=private / "raw")
-    parser.add_argument("--db", type=Path, default=private / "db" / "lookahead.db")
-    parser.add_argument("--allowlist", type=Path, default=private / "pseudonymize_allowlist.txt")
-    parser.add_argument("--extra", type=Path, default=private / "scrub_extra.txt")
+    parser.add_argument(
+        "--mine", action="store_true", help="required: yes, read my private bank files"
+    )
+    parser.add_argument("--exports", type=Path, default=None)
+    parser.add_argument("--db", type=Path, default=None)
+    parser.add_argument("--allowlist", type=Path, default=None)
+    parser.add_argument("--extra", type=Path, default=None)
     parser.add_argument("--repo", type=Path, default=root)
     parser.add_argument("--tip", default="prepublic-prep")
     parser.add_argument("--public-email", default=None, help="default: git config user.email")
     parser.add_argument("--out", type=Path, default=None, help="default: in data/private/scrub")
     args = parser.parse_args(argv)
-    if not args.exports.is_dir():
-        print(f"no exports folder at {args.exports}; nothing was run")
+    if not args.mine:
+        print("this reads my private bank files: add --mine to run it; nothing was read")
         return 2
-    missing = [name for name in ("db", "allowlist", "extra") if not getattr(args, name).exists()]
-    for name in missing:
-        setattr(args, name, None)
-    if missing:
-        print("skipped (not found): " + ", ".join(missing))
+    defaults = {
+        "exports": private / "raw",
+        "db": private / "db" / "lookahead.db",
+        "allowlist": private / "pseudonymize_allowlist.txt",
+        "extra": private / "scrub_extra.txt",
+    }
+    typed_missing = [
+        f"--{name}" for name in defaults if getattr(args, name) and not getattr(args, name).exists()
+    ]
+    if typed_missing:
+        print("not found: " + ", ".join(typed_missing) + "; nothing was run")
+        return 2
+    skipped = []
+    for name, default in defaults.items():
+        if getattr(args, name) is None:
+            setattr(args, name, default if default.exists() else None)
+            if not default.exists():
+                skipped.append(name)
+    if args.exports is None or not args.exports.is_dir():
+        print("no exports folder; nothing was run")
+        return 2
+    if skipped:
+        print("skipped (not found): " + ", ".join(skipped))
     if args.public_email is None:
         email = subprocess.run(
             ["git", "-C", str(args.repo), "config", "user.email"], capture_output=True, text=True

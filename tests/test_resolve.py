@@ -59,7 +59,7 @@ def test_bank_question_mark_matches_an_accent() -> None:
 
 
 def test_question_mark_does_not_hide_other_differences() -> None:
-    r = resolve(names("Caf? Velisaro", "Cafe Olympico"))
+    r = resolve(names("Caf? Velisaro", "Cafe Velysaro"))  # one letter apart besides the "?"
     assert len(r.groups) == 2
 
 

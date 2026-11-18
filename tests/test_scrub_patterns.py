@@ -9,7 +9,8 @@ from datetime import datetime
 from pathlib import Path
 
 from lookahead.db import connect
-from tools.scrub_patterns import build_patterns, out_is_private
+from tools.scrub_patterns import build_patterns, merged, out_is_private
+from tools.scrub_scan import load_patterns
 
 HEADER = '"Filter","Date","Description","Sub-description","Type of Transaction","Amount","Balance"'
 ROWS = [
@@ -84,7 +85,7 @@ def test_the_command_prints_counts_only_and_never_a_value(tmp_path: Path) -> Non
     extra.write_text("address: 99 Quimby Lane\n", encoding="utf-8")
     out = tmp_path / "report.md"
     done = subprocess.run(
-        [sys.executable, "-m", "tools.scrub_patterns", "--exports", str(exports),
+        [sys.executable, "-m", "tools.scrub_patterns", "--mine", "--exports", str(exports),
          "--db", str(database(tmp_path)), "--allowlist", str(allowlist(tmp_path)),
          "--extra", str(extra), "--repo", str(repo), "--tip", "main",
          "--public-email", "me@example.net", "--out", str(out)],
@@ -119,7 +120,42 @@ def test_the_report_path_must_be_ignored_or_outside_the_repository(tmp_path: Pat
     assert not out_is_private(repo, repo / "docs" / "report.md")
 
 
-def test_with_no_arguments_it_finds_my_files_in_the_main_folder_from_a_worktree(
+def test_a_bare_run_reads_nothing_and_asks_for_mine(tmp_path: Path) -> None:
+    done = subprocess.run(
+        [sys.executable, "-m", "tools.scrub_patterns"],
+        capture_output=True, text=True, cwd=Path(__file__).resolve().parents[1],
+    )  # fmt: skip
+    assert done.returncode == 2
+    assert "add --mine" in done.stdout and "nothing was read" in done.stdout
+    assert "patterns built" not in done.stdout and "written" not in done.stdout
+
+
+def test_a_path_i_give_that_does_not_exist_stops_the_run(tmp_path: Path) -> None:
+    exports = tmp_path / "raw"
+    exports.mkdir()
+    export(exports)
+    done = subprocess.run(
+        [sys.executable, "-m", "tools.scrub_patterns", "--mine", "--exports", str(exports),
+         "--extra", str(tmp_path / "typo_extra.txt"), "--out", str(tmp_path / "r.md")],
+        capture_output=True, text=True, cwd=Path(__file__).resolve().parents[1],
+    )  # fmt: skip
+    assert done.returncode == 2
+    assert "not found: --extra" in done.stdout and "nothing was run" in done.stdout
+    assert not (tmp_path / "r.md").exists()
+
+
+def test_leave_lines_of_my_extra_file_reach_the_patterns(tmp_path: Path) -> None:
+    extra = tmp_path / "extra.txt"
+    extra.write_text("name: Velma\nleave: notes/plan.md\n", encoding="utf-8")
+    exports = tmp_path / "raw"
+    exports.mkdir()
+    export(exports)
+    pats = merged(build_patterns(exports, None, None), load_patterns(extra))
+    assert pats.leave == frozenset({"notes/plan.md"})
+    assert pats.counts()["leave"] == 1 and "velma" in pats.text["name"]
+
+
+def test_with_mine_it_finds_my_files_in_the_main_folder_from_a_worktree(
     tmp_path: Path,
 ) -> None:
     main = tmp_path / "main"
@@ -140,7 +176,7 @@ def test_with_no_arguments_it_finds_my_files_in_the_main_folder_from_a_worktree(
                    check=True)  # fmt: skip
     project = Path(__file__).resolve().parents[1]
     done = subprocess.run(
-        [sys.executable, "-m", "tools.scrub_patterns", "--tip", "main"],
+        [sys.executable, "-m", "tools.scrub_patterns", "--mine", "--tip", "main"],
         capture_output=True, text=True, cwd=worktree, env={"PYTHONPATH": str(project),
         "PATH": "/usr/bin:/bin"},
     )  # fmt: skip
