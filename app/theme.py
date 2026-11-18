@@ -192,13 +192,16 @@ def top_bar_html(
         links.append(f'<a href="{href}" target="_self"{current}>{html.escape(label)}</a>')
     if until is None:  # a page that is not about one account's data says so in `until`
         until = f"Data to {fmt_date(data_to)}" if data_to is not None else "No data yet"
+        if is_demo():  # the public demo: no data-date chip (my own data keeps it)
+            until = ""
     return (
         '<header class="la-bar"><div class="la-bar-inner">'
         f'<a href="{html.escape("/" + suffix)}" target="_self" class="la-brand">'
         f"{_MARK}Lookahead</a>"
         f'<nav aria-label="Main" class="la-nav">{"".join(links)}</nav>'
-        f'<div class="la-bar-right"><span class="la-until">{html.escape(until)}</span>'
-        f'<span class="la-source">{html.escape(source)}</span></div></div>'
+        f'<div class="la-bar-right">'
+        + (f'<span class="la-until">{html.escape(until)}</span>' if until else "")
+        + f'<span class="la-source">{html.escape(source)}</span></div></div>'
         f"{section_tabs_html(active, query)}</header>"
     )
 

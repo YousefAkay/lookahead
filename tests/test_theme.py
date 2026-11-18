@@ -543,3 +543,13 @@ def test_the_original_is_grey_and_the_changed_future_is_green_with_a_blue_band()
 
 def test_jump_links_land_below_the_sticky_top_bar() -> None:
     assert "scroll-margin-top" in theme.CSS  # "See why" must not scroll the heading under the bar
+
+
+def test_the_data_date_chip_is_hidden_in_demo_mode_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOOKAHEAD_DEMO", "1")
+    demo = top_bar_html("Forecast", PAGES, date(2026, 10, 1), "Synthetic demo")
+    assert "Data to" not in demo and "la-until" not in demo and "Synthetic demo" in demo
+    monkeypatch.delenv("LOOKAHEAD_DEMO")
+    mine = top_bar_html("Forecast", PAGES, date(2026, 10, 1), "My data")
+    assert "Data to Oct 1, 2026" in mine  # my real data keeps the chip
+    assert "No data yet" in top_bar_html("Forecast", PAGES, None, "My data")
