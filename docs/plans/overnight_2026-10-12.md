@@ -14,7 +14,7 @@ proposals by sender and b) repeated large payments (`lump_proposals`, `outflow_p
 24-month set `v2L`, the "on ahead" definition of caught, and the arms runner. The run does five
 things, in this order:
 
-- **R. Review fixes.** A review of the code as of 9 October (e2bdc20..fd0c5c9) found small and not so
+- **R. Review fixes.** A review of the code as of 9 October (4cd020d..57b0592) found small and not so
   small problems. Each is checked against current `main` first.
 - **1. b) by calendar position.** The proposals run found that "last payment plus the median gap"
   fails for tuition paid in two terms. Pre-register and score "about a year after the payment of

@@ -26,8 +26,8 @@ Two additions from Yousef for this run (recorded in DECISIONS.md):
 
 ## Step 0: state
 
-- Branch `proposals` at 98dbcf9 (lump_stages; lump detection reads saved decisions). It is `main`
-  (53ec868) plus three commits; the forecaster code is the same as on `main` (the diff in
+- Branch `proposals` at 1cd4728 (lump_stages; lump detection reads saved decisions). It is `main`
+  (8457077) plus three commits; the forecaster code is the same as on `main` (the diff in
   `lookahead/forecast` is the added lump functions only).
 - `lump_rows` is in `lookahead/forecast/spending.py` with tests; `eval/lump_senders.py` exists;
   the holiday fix is in `lookahead/forecast/schedule.py` (`later = [d for d in later if d > first]`).

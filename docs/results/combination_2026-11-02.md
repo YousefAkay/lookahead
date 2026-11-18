@@ -1,6 +1,6 @@
 # Experiment 4: online combination with "balance stays"
 
-Made with `python -m eval.combination run`. Rule: 2026-10-17 experiment 4 (e510b1b), readings of 2026-11-02. Nothing here changes a default and nothing is adopted. **Variants counted: 3** ((i) fixed 50/50, (ii) one global weight, (iii) per-account weights); scaling the futures and replacing a share of them were not tried. Condition 12 (my account can only veto) is not judged here. The synthetic sets are never pooled.
+Made with `python -m eval.combination run`. Rule: 2026-10-17 experiment 4 (ed7f16d), readings of 2026-11-02. Nothing here changes a default and nothing is adopted. **Variants counted: 3** ((i) fixed 50/50, (ii) one global weight, (iii) per-account weights); scaling the futures and replacing a share of them were not tried. Condition 12 (my account can only veto) is not judged here. The synthetic sets are never pooled.
 
 ## 12-month set
 

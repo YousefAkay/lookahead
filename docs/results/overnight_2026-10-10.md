@@ -216,7 +216,7 @@ counted, not printed.
 | Possible people's names | 0 | none outside the synthetic lists |
 | Large files (1 MB+) | 0 | clean |
 | AI assistant or vendor mentions | 148 | older DECISIONS.md lines, the optional fallback modules and tests, docs/PLAN.md, requirements-experiments.txt, eval/backtest_real.py's first line, and branch names |
-| Dollar amounts added to DECISIONS.md | 166 lines | 13 lines also talk about my own data; I read those first. Three were added tonight (5798eea, 31671c4, 8c3a224) and their only amount is "$0" |
+| Dollar amounts added to DECISIONS.md | 166 lines | 13 lines also talk about my own data; I read those first. Three were added tonight (eb01fea, 31671c4, 8c3a224) and their only amount is "$0" |
 
 To handle before going public:
 - Older DECISIONS.md lines with amounts from my own data. They are in the history whatever the

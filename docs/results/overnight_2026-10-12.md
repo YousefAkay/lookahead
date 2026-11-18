@@ -8,7 +8,7 @@ DECISIONS.md and committed before the code that computes it runs. This file is u
 every step.
 
 The plan names the branch `overnight-1012`; I named it `overnight-2026-10-12`,
-so that is the branch used (made from `main` at 5ea6835).
+so that is the branch used (made from `main` at 33f8016).
 
 ## Status
 
@@ -25,7 +25,7 @@ so that is the branch used (made from `main` at 5ea6835).
 
 ## Step 0: state
 
-- `main` at 5ea6835. Confirmed present: `DEFAULT_KEEPS` in `lookahead/forecast/spending.py`,
+- `main` at 33f8016. Confirmed present: `DEFAULT_KEEPS` in `lookahead/forecast/spending.py`,
   `ForecastOptions` in `lookahead/forecast/path.py`, `eval/arms.py`, `lookahead/proposals.py`,
   `caught_on_ahead` ("on ahead") in `eval/metrics.py`.
 - `ruff check .` and `ruff format --check .` pass; `pytest -m "not slow"`: 1,801 passed, 2
