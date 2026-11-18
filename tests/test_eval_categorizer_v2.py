@@ -3,6 +3,7 @@ data only. These tests check the plumbing; no number they compute is a result.""
 
 import csv
 import json
+import re
 import shutil
 import subprocess
 from datetime import date
@@ -814,3 +815,57 @@ def test_the_draw_leaves_out_rows_i_skipped_or_labelled_in_the_app(
     assert h.main(["candidates", "--db", str(copy), "--out", str(out)]) == 0
     written = set(pd.read_csv(out, dtype=str)["fingerprint"])
     assert written and not written & set(fresh[:20])
+
+
+# --- After the second review: counts before the draw, the rule pinned to the draw ---
+
+
+def test_count_draws_nothing_and_matches_the_draw(
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    copy, _ = _unlabelled_new_rows(db, tmp_path, ("test_a", "test_b"))
+    monkeypatch.setattr(h, "BLIND_SINCE", date(2025, 10, 1))
+    out = tmp_path / "data" / "private" / "eval" / "candidates.csv"
+    # no adopt rule needed to count, and nothing is written or logged
+    assert h.main(["candidates", "--db", str(copy), "--count"]) == 0
+    printed = capsys.readouterr().out
+    assert "nothing drawn" in printed and not out.exists()
+    assert not h.ledger_entries(h.DEFAULT_LEDGER)
+    a_rows, k_rows = (int(x) for x in re.findall(r"group [AK] (\d+) rows", printed))
+    # the draw, with no row limit, takes exactly what the count announced
+    _committed_rule(repo)
+    monkeypatch.setattr(h, "A_MIN_ROWS", 1)
+    monkeypatch.setattr(h, "A_MAX_ROWS", 10_000)
+    monkeypatch.setattr(h, "K_ROWS", 10_000)
+    assert h.main(["candidates", "--db", str(copy), "--out", str(out)]) == 0
+    written = pd.read_csv(out, dtype=str)
+    assert (written["set"] == "A").sum() == a_rows and (written["set"] == "K").sum() == k_rows
+
+
+def test_scoring_refuses_a_rule_changed_after_the_draw(
+    tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rule = _committed_rule(repo)
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"status": "drawn", "adopt_rule_sha256": "an older rule"})
+    labels = tmp_path / "labels.csv"
+    labels.write_text("fingerprint,set,category\nf1,A,Shopping\n", encoding="utf-8")
+    assert h.main(_score_args(tmp_path, labels, rule)) == 2
+    assert "changed after the draw" in capsys.readouterr().out
+    assert h.ledger_entries(h.DEFAULT_LEDGER)[-1]["status"] == "refused"
+
+
+def test_a_database_error_is_not_taken_for_no_decisions(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sqlite3
+
+    import lookahead.labels
+
+    def broken(*_: object) -> None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(lookahead.labels, "current_labels", broken)
+    with pytest.raises(sqlite3.OperationalError):
+        h.decided_fingerprints(None, "scotia-chequing")
+    conn = sqlite3.connect(":memory:")  # no labels table at all: nothing was decided
+    monkeypatch.undo()
+    assert h.decided_fingerprints(conn, "scotia-chequing") == set()

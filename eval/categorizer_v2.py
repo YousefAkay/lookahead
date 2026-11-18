@@ -26,6 +26,8 @@ Rules, in code:
 - The adopt rule's comparisons, in code (`compare`): (b) against (a) and (c) against (b) on
   group A (gain of at least 3 points and a merchant-level bootstrap 2.5th percentile above 0),
   each with the guard on group K (at most 1 more row wrong than (a)).
+- `candidates --count` prints how many rows could be drawn, and draws nothing.
+- Scoring refuses if the rule changed after the draw.
 - `candidates` and `label` refuse until the adopt rule is committed. The draw is logged in
   the ledger and refused a second time, whatever the output path.
 - (c) passes only if (b) passes too. The draw leaves out rows I labelled or skipped in the app.
@@ -45,6 +47,7 @@ import argparse
 import csv
 import hashlib
 import json
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -235,7 +238,9 @@ def decided_fingerprints(conn, account: str) -> set[str]:  # type: ignore[no-unt
 
     try:
         return set(current_labels(conn, account))
-    except Exception:  # no labels table: nothing was decided
+    except sqlite3.OperationalError as e:  # no labels table: nothing was decided
+        if "no such table" not in str(e):
+            raise
         return set()
 
 
@@ -271,6 +276,27 @@ def _take(rows: pd.DataFrame, n: int, rng: np.random.Generator) -> pd.DataFrame:
     if len(rows) <= n:
         return rows
     return rows.iloc[np.sort(rng.choice(len(rows), size=n, replace=False))]
+
+
+@dataclass(frozen=True)
+class PoolCounts:
+    a_rows: int  # rows that qualify for group A, after the cap of A_PER_MERCHANT
+    a_merchants: int
+    k_rows: int  # rows that qualify for group K
+    k_merchants: int
+
+
+def pool_counts(
+    features: pd.DataFrame, training_groups: set[str], excluded: set[str], since: date
+) -> PoolCounts:
+    """How many rows could be drawn, without drawing: the count before the one-time draw."""
+    pool_a = candidate_blind_rows(features, training_groups, since)
+    pool_a = pool_a[~pool_a["fingerprint"].isin(excluded)] if not pool_a.empty else pool_a
+    per = pool_a.groupby("group").size() if not pool_a.empty else pd.Series(dtype=int)
+    free = features[~features["fingerprint"].isin(excluded)]
+    pool_k = free[(free["posted_date"] >= since) & free["group"].isin(training_groups)]
+    return PoolCounts(int(per.clip(upper=A_PER_MERCHANT).sum()), len(per), len(pool_k),
+                      pool_k["group"].nunique())  # fmt: skip
 
 
 def select_blind_rows(
@@ -603,6 +629,9 @@ def score_my_data(args: argparse.Namespace) -> int:
     status = adopt_rule_status(rule)
     if not status.ok:
         return refuse(f"{status.reason} ({DEFAULT_ADOPT_RULE})")
+    drawn = [e for e in ledger_entries(args.ledger) if e.get("status") == "drawn"]
+    if drawn and drawn[-1].get("adopt_rule_sha256") != status.sha256:
+        return refuse("the adopt rule changed after the draw: the draw's rule is the one in force")
     try:
         labels = load_blind_labels(args.labels)
         selection = selection_fingerprints(args.labels)
@@ -851,13 +880,43 @@ def label_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _draw_inputs(db: Path, account: str) -> tuple[pd.DataFrame, set[str], set[str]]:
+    """The categorizer rows, the merchants with training labels, and the rows never drawn
+    (old holdout, rows with a label, rows I labelled or skipped in the label review)."""
+    from lookahead.db import connect_readonly
+
+    conn = connect_readonly(db)
+    features = categorizer_features(conn, account)
+    mine = training_rows(conn, account)
+    groups = set(mine["group"]) if not mine.empty else set()
+    labelled = set(mine["fingerprint"]) if not mine.empty else set()
+    excluded = holdout_fingerprints(conn) | labelled | decided_fingerprints(conn, account)
+    conn.close()
+    return features, groups, excluded
+
+
+def count_candidates(args: argparse.Namespace) -> int:
+    """Counts only, before the draw: nothing is drawn, written or logged."""
+    features, groups, excluded = _draw_inputs(args.db, args.account)
+    c = pool_counts(features, groups, excluded, BLIND_SINCE)
+    print(f"could be drawn since {BLIND_SINCE} (nothing drawn): group A {c.a_rows} rows after "
+          f"the cap of {A_PER_MERCHANT}, from {c.a_merchants} new merchants (needs at least "
+          f"{A_MIN_ROWS}); group K {c.k_rows} rows from {c.k_merchants} known merchants "
+          f"(the guard needs at least {K_MIN_ROWS} labelled)")  # fmt: skip
+    return 0
+
+
 def write_candidates(args: argparse.Namespace) -> int:
     """Draw the blind selection (groups A and K, seeded) and write it inside data/private/.
     An existing selection file is never overwritten: the draw is made once."""
-    from lookahead.db import connect_readonly
 
     if args.db is None:
         print("--db is required (no default points at private data)")
+        return 2
+    if args.count:
+        return count_candidates(args)
+    if args.out is None:
+        print("--out is required to draw")
         return 2
     if not is_private_path(args.out):
         print("--out must be inside data/private/ (the file names merchants)")
@@ -875,13 +934,7 @@ def write_candidates(args: argparse.Namespace) -> int:
     if any(e.get("status") == "drawn" for e in ledger_entries(DEFAULT_LEDGER)):
         print("refusing: the ledger already has a blind selection drawn. It is never redrawn.")
         return 2
-    conn = connect_readonly(args.db)
-    features = categorizer_features(conn, args.account)
-    mine = training_rows(conn, args.account)
-    groups = set(mine["group"]) if not mine.empty else set()
-    labelled = set(mine["fingerprint"]) if not mine.empty else set()
-    excluded = holdout_fingerprints(conn) | labelled | decided_fingerprints(conn, args.account)
-    conn.close()
+    features, groups, excluded = _draw_inputs(args.db, args.account)
     try:
         picked = select_blind_rows(features, groups, excluded, BLIND_SINCE)
     except ValueError as e:
@@ -924,7 +977,8 @@ def main(argv: list[str] | None = None) -> int:
     c = commands.add_parser("candidates", help="draw the blind selection (groups A and K)")
     c.add_argument("--db", type=Path)
     c.add_argument("--account", default="scotia-chequing")
-    c.add_argument("--out", type=Path, required=True)
+    c.add_argument("--out", type=Path, help="the selection file (data/private/); not with --count")
+    c.add_argument("--count", action="store_true", help="counts only: nothing is drawn")
     lab = commands.add_parser("label", help="label the frozen blind selection (text only)")
     lab.add_argument("--db", type=Path)
     lab.add_argument("--account", default="scotia-chequing")
