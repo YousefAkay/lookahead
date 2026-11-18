@@ -224,7 +224,8 @@ def main(argv: list[str] | None = None) -> int:
         kind = "matched-names" if args.names else "scrub-report"
         args.out = private / "scrub" / f"{kind}-{date.today().isoformat()}.md"
 
-    if not out_is_private(args.repo, args.out):
+    # every folder it could land in must ignore it: the scanned repository and the main folder
+    if not all(out_is_private(folder, args.out) for folder in (args.repo, root)):
         print("--out must be a path git ignores (or outside the repository); nothing was run")
         return 2
     built = build_patterns(args.exports, args.db, args.allowlist)

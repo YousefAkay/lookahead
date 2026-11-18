@@ -142,6 +142,29 @@ def test_with_mine_outside_the_repository_it_stops_without_a_traceback(tmp_path:
     assert "not inside the repository" in done.stdout
 
 
+def test_names_are_never_written_where_the_main_folder_does_not_ignore_them(
+    tmp_path: Path,
+) -> None:
+    main = tmp_path / "main"
+    main.mkdir()
+    subprocess.run(["git", "-C", str(main), "init", "-q", "-b", "main"], check=True)
+    other = tmp_path / "other"  # the scanned repository, elsewhere
+    other.mkdir()
+    subprocess.run(["git", "-C", str(other), "init", "-q", "-b", "main"], check=True)
+    exports = tmp_path / "raw"
+    exports.mkdir()
+    export(exports)
+    project = Path(__file__).resolve().parents[1]
+    done = subprocess.run(
+        [sys.executable, "-m", "tools.scrub_patterns", "--mine", "--names", "--exports",
+         str(exports), "--repo", str(other), "--out", str(main / "notes.md")],
+        capture_output=True, text=True, cwd=main,
+        env={"PYTHONPATH": str(project), "PATH": "/usr/bin:/bin"},
+    )  # fmt: skip
+    assert done.returncode == 2 and "--out must be a path git ignores" in done.stdout
+    assert not (main / "notes.md").exists()
+
+
 def test_a_path_i_give_that_does_not_exist_stops_the_run(tmp_path: Path) -> None:
     exports = tmp_path / "raw"
     exports.mkdir()
