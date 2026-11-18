@@ -3,7 +3,7 @@
 Switched on by the environment variable LOOKAHEAD_DEMO=1 (on Streamlit Community Cloud, a
 root-level secret, which Streamlit makes an environment variable when the server starts). In demo
 mode only the synthetic personas are offered, `.env` is never read, no API key is needed, the
-LLM fallback and CSV import are off, and every page says "Synthetic demo data".
+LLM fallback and CSV import are off, and every page says "Demo with made-up data".
 
 The guard: an audit hook that refuses to open, connect to, list or glob anything inside a
 `data/private` folder. It checks the switch at every event, so it does nothing when demo mode is
@@ -17,7 +17,7 @@ from typing import Any
 
 ENV = "LOOKAHEAD_DEMO"
 ON = ("1", "true", "yes", "on")
-BANNER = "Synthetic demo data"
+BANNER = "Demo with made-up data"
 # A fixed, public, made-up key: in demo mode it stands in for PSEUDONYM_KEY so "Pseudonymize text"
 # keeps working on the synthetic personas without any secret.
 DEMO_KEY = hashlib.sha256(b"lookahead synthetic demo: not a secret").digest()

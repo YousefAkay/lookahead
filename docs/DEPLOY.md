@@ -1,7 +1,7 @@
 # Deploying the public demo (Streamlit Community Cloud)
 
 The public demo is the app in **demo mode**: synthetic personas only, no import, no LLM, no keys,
-a "Synthetic demo data" banner on every page, and a guard that refuses to open anything under
+a "Demo with made-up data" banner on every page, and a guard that refuses to open anything under
 `data/private` (DECISIONS.md, 2026-10-11). Demo mode is switched on by one secret,
 `LOOKAHEAD_DEMO = "1"`. Nothing else needs a secret.
 
@@ -52,7 +52,7 @@ dependencies" pages):
 
 ## Check by eye on the deployed app
 
-- Every page shows the amber **Synthetic demo data** banner under the green bar.
+- Every page shows the amber **Demo with made-up data** banner under the green bar.
 - Settings (top right) offers **Synthetic demo** only; there is no "My data".
 - **Forecast** for synthetic-B: the **Safe to spend** card says "Plenty of room" with the exact
   figure in small print; synthetic-A says "No safe amount: your balance is already below your $200

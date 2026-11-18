@@ -137,7 +137,7 @@ def test_demo_mode_may_be_served_on_any_address(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("LOOKAHEAD_DEMO", "1")
     st_config.set_option("server.address", None)
     at = run(HOME)
-    assert not at.error and "Synthetic demo data" in page_text(at)
+    assert not at.error and "Demo with made-up data" in page_text(at)
 
 
 def test_deploy_button_is_hidden() -> None:

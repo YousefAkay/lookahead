@@ -658,8 +658,8 @@ def demo_banner_html() -> str:
         f'<div class="la-demo-banner" role="note" style="background: {COLORS.amber_bg}; border: '
         f"1px solid {COLORS.amber_border}; color: {COLORS.amber_dark}; border-radius: 10px; "
         f'padding: 8px 14px; margin-top: 10px; font-size: 15px"><strong>{BANNER}</strong> · '
-        "made up by a generator, not anyone's account. Importing bank files, your own data and "
-        "the LLM fallback are switched off in this demo.</div>"
+        "every account and transaction here is generated for the demo. Importing bank files and "
+        "the optional LLM feature are turned off.</div>"
     )
 
 
