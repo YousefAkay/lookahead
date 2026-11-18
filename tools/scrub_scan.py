@@ -404,6 +404,88 @@ def scan(repo: Path, tip: str, patterns: Patterns | None, public_email: str | No
     return render(tip, refs, commits, by_rule, leaving, patterns, skipped, public_email)
 
 
+NAME_CATEGORIES = ("name", "address", "etransfer", "merchant", "account", "phrase")
+
+
+@dataclass
+class NameHits:
+    lines: set[str] = field(default_factory=set)
+    paths: set[str] = field(default_factory=set)
+    messages: set[str] = field(default_factory=set)  # commits whose message holds the name
+    at_tip: bool = False
+
+
+def matched_names(repo: Path, tip: str, patterns: Patterns) -> tuple[str, dict[str, int]]:
+    """Which of my text patterns matched, with counts: a PRIVATE file's contents (it names my
+    merchants and e-Transfer names), and how many distinct names matched per category (safe to
+    print). Same reach as `scan`: every commit, contents of private paths never read."""
+    commits = all_commits(repo)
+    tip_files = dict(tree_of(repo, git(repo, "rev-parse", f"{tip}^{{commit}}").strip()))
+    hits: dict[str, dict[str, NameHits]] = {c: defaultdict(NameHits) for c in NAME_CATEGORIES}
+    regexes = {c: r for c, r in patterns.compiled.items() if c in NAME_CATEGORIES}
+
+    def found(line: str) -> Iterable[tuple[str, str]]:
+        for category, regex in regexes.items():
+            for m in regex.finditer(line):
+                yield category, " ".join(m.group(0).casefold().split())
+
+    reader = BlobReader(repo)
+    try:
+        where: dict[tuple[str, str], bool] = {}  # (path, blob) -> at the tip
+        for oid in commits:
+            _, message = parse_commit(reader.read(oid))
+            for line in message.splitlines():
+                for category, name in found(line):
+                    hits[category][name].messages.add(oid)
+            for path, blob in tree_of(repo, oid):
+                where[(path, blob)] = tip_files.get(path) == blob
+        for (path, blob), at_tip in sorted(where.items()):
+            if never_read(path) is not None:
+                continue
+            data = reader.read(blob)
+            if len(data) > MAX_BYTES or is_binary(path, data):
+                continue
+            for line in data.decode("utf-8", "replace").splitlines():
+                for category, name in found(line):
+                    h = hits[category][name]
+                    h.lines.add(hashlib.sha256(line.strip().encode()).hexdigest())
+                    h.paths.add(path)
+                    h.at_tip = h.at_tip or at_tip
+    finally:
+        reader.close()
+
+    leave = patterns.leave
+    out = [
+        "# Matched names (PRIVATE: never commit, never paste)",
+        "",
+        f"Every commit of this clone; tip `{tip}`. Distinct lines are counted over every version "
+        "of every file. Synthetic = every path is a synthetic persona file; leaving = every path "
+        "leaves the history whole; brand = also a brand name of the synthetic generator.",
+        "",
+    ]
+    for category in NAME_CATEGORIES:
+        names = hits[category]
+        out += [f"## {category} ({len(names)} names matched)", ""]
+        if not names:
+            continue
+        out += [
+            "| Name | Distinct lines | Paths | Commit messages | At the tip | Synthetic only "
+            "| Leaving only | Brand |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for name, h in sorted(names.items(), key=lambda kv: (-len(kv[1].lines), kv[0])):
+            synthetic = bool(h.paths) and all(p.startswith(SYNTHETIC) for p in h.paths)
+            leaving = bool(h.paths) and all(must_leave(p, leave) for p in h.paths)
+            brand = any(b.casefold() == name for b in _TEMPLATES)
+            out.append(
+                f"| {name} | {len(h.lines)} | {len(h.paths)} | {len(h.messages)} | "
+                f"{'yes' if h.at_tip else 'no'} | {'yes' if synthetic else 'no'} | "
+                f"{'yes' if leaving else 'no'} | {'yes' if brand else 'no'} |"
+            )
+        out.append("")
+    return "\n".join(out) + "\n", {c: len(hits[c]) for c in NAME_CATEGORIES}
+
+
 def _reach_of(oids: Iterable[str], commits: dict[str, Commit]) -> str:
     kinds = sorted({commits[o].reach for o in oids})
     return ", ".join(kinds)

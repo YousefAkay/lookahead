@@ -100,6 +100,16 @@ message it names which words of the script's own public AI-tool list matched.
 - **Whole files that leave the history** are `leave:` lines of my private extras file (one
   repository path each). The public code names only the old scrub report.
 
+## Added 2026-11-18, fourth round (Yousef)
+
+- **`--names`** (with `--mine`): instead of the report, the builder writes which of my text
+  patterns matched (name, address, e-Transfer, merchant, account, phrase), each with its distinct
+  lines, paths, commit messages, whether it is at the tip, and whether it is only in synthetic
+  persona files, only in files that leave the history, or also a generator brand. The file goes
+  to `data/private/scrub/matched-names-<date>.md` (a path git must ignore). Only the number of
+  names per category is printed. It lets me check which local names are left; it is never
+  committed or pasted.
+
 ## Sections of the report
 
 1. Commit messages that mention an AI tool: commit ids, the matched words of the public list,

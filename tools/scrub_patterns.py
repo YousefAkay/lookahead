@@ -3,8 +3,12 @@
 Run by me only, on my private files. A bare run reads nothing and stops: --mine is required, and
 it opts in to the default paths in my private folder (any path can be given instead; a path I give
 that does not exist stops the run, a default one that does not exist is skipped by name). It
-never prints or writes a pattern: it prints how many it built per category, then the scan's
-section headings and the section 7 counts. Spec: docs/specs/2026-11-17-scrub-scan.md.
+never prints a pattern: it prints how many it built per category, then the scan's section
+headings and the section 7 counts. Spec: docs/specs/2026-11-17-scrub-scan.md.
+
+With --names it writes, instead of the report, which of my names matched (each with its counts)
+to a private file (git-ignored, under data/private/scrub by default) and prints only how many
+names matched per category. That file is the one place a pattern is written: never commit it.
 
 What it builds:
 - etransfer: every e-Transfer counterpart name (the sender on a credit memo; a person's name on a
@@ -37,7 +41,7 @@ from lookahead.pseudonymize import (
     _normalized,
     load_allowlist,
 )
-from tools.scrub_scan import Patterns, load_patterns, scan
+from tools.scrub_scan import Patterns, load_patterns, matched_names, scan
 
 OVER_CENTS = 10_000  # amounts over $100
 MIN_NAME = 4  # shorter names would match too much
@@ -170,6 +174,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tip", default="prepublic-prep")
     parser.add_argument("--public-email", default=None, help="default: git config user.email")
     parser.add_argument("--out", type=Path, default=None, help="default: in data/private/scrub")
+    parser.add_argument(
+        "--names",
+        action="store_true",
+        help="instead of the report, write which of my names matched (with counts) to a private "
+        "file; only the number of names per category is printed",
+    )
     args = parser.parse_args(argv)
     if not args.mine:
         print("this reads my private bank files: add --mine to run it; nothing was read")
@@ -211,7 +221,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         args.public_email = email.stdout.strip() or None
     if args.out is None:
-        args.out = private / "scrub" / f"scrub-report-{date.today().isoformat()}.md"
+        kind = "matched-names" if args.names else "scrub-report"
+        args.out = private / "scrub" / f"{kind}-{date.today().isoformat()}.md"
 
     if not out_is_private(args.repo, args.out):
         print("--out must be a path git ignores (or outside the repository); nothing was run")
@@ -219,6 +230,13 @@ def main(argv: list[str] | None = None) -> int:
     built = build_patterns(args.exports, args.db, args.allowlist)
     patterns = merged(built, load_patterns(args.extra) if args.extra else None)
     print("patterns built: " + ", ".join(f"{k} {v}" for k, v in patterns.counts().items() if v))
+    if args.names:
+        text, counts = matched_names(args.repo, args.tip, patterns)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(text, encoding="utf-8")
+        print("names matched: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+        print(f"written: {args.out}")
+        return 0
     report = scan(args.repo, args.tip, patterns, args.public_email)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(report, encoding="utf-8")
