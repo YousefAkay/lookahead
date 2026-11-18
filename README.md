@@ -26,7 +26,8 @@ The never-seen merchants are the honest number for a new account. When the model
 flags the row for review instead of guessing, and the confident rows are right 94 to 98% of the
 time. The LLM fallback is off by default; when I turn it on, only the merchant name of a card
 purchase is sent, never an amount, a date or a person's name. The test sets are small: most
-categories have fewer than 10 test rows, and macro-F1 is much lower (69.6% and 49.8%).
+categories have fewer than 10 test rows, and macro-F1 is much lower (69.6% on the 114 rows,
+49.8% on the 48).
 
 ## How I evaluate
 
@@ -108,9 +109,42 @@ the amount is not clearly optimistic, not that it is calibrated.
 Not reported yet: the alert numbers (shortfalls caught, precision, false alerts per 30 days). The
 alert threshold is provisional until the final test.
 
+## How it works
+
+```mermaid
+flowchart LR
+    A[Bank CSV exports] --> B[Import: dedupe, balance check]
+    B --> C[(SQLite on my computer)]
+    C --> D[Flow types and categories]
+    C --> E[Recurring payments]
+    D --> F[Everyday spending and irregular deposits by week]
+    E --> G[Payments placed on their dates]
+    F --> H[500 simulated futures]
+    G --> H
+    H --> I[Range, chance below the buffer, lowest balance]
+    H --> M[Safe to spend]
+    I --> J[Shortfall alert with evidence]
+    I --> K[What-if scenarios]
+    J --> L[Forecast page]
+    K --> L
+    M --> L
+    D --> N[Scenario calculator: rent, daily spend, income]
+    E --> N
+    N --> O[Scenario page]
+```
+
+Big one-time rows (a tuition payment, a large transfer) are kept out of the weekly draw and listed
+on the page instead, so one event is not repeated every week. Big rows that keep coming back at a
+similar size (deposits, and payments seen 6 or more times a year) are drawn as random arrivals
+instead. The Scenario page is a simpler calculator, not the simulation: it adds up rent, everyday
+spending and income day by day to an end date, prefilled from the history, to try out a plan.
+
 ## Run it on the demo data
 
-The demo uses made-up accounts from my generator. No bank data and no keys are needed. Python 3.13:
+The demo uses made-up accounts from my generator. No bank data and no keys are needed. It needs
+Python 3.13 (on macOS, for example `brew install python@3.13`).
+
+On macOS or Linux:
 
 ```bash
 python3.13 -m venv .venv
@@ -119,7 +153,15 @@ pip install -r requirements.txt
 LOOKAHEAD_DEMO=1 streamlit run app/Home.py
 ```
 
-On Windows, activate with `.venv\Scripts\activate` and set `$env:LOOKAHEAD_DEMO = "1"` first.
+On Windows (PowerShell):
+
+```powershell
+py -3.13 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+$env:LOOKAHEAD_DEMO = "1"
+streamlit run app/Home.py
+```
 
 `LOOKAHEAD_DEMO=1` turns on demo mode: synthetic accounts only, no CSV import, no outside calls,
 and code that refuses to open anything under `data/private`. The Time Machine page replays past
