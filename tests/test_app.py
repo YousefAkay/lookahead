@@ -1038,7 +1038,7 @@ def test_a_shortfall_shows_an_alert_with_its_evidence_and_the_provisional_label(
 ) -> None:
     at = alert_page("synthetic-C")
     text = page_text(at)
-    assert "provisional, not yet validated" in text
+    assert "chosen on development data" in text
     assert "Possible shortfall:" in text  # the alert's own sentence
     [episode] = alert_episodes(isolated, "synthetic-C")
     assert episode.status == "open"

@@ -2469,15 +2469,16 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - Nothing is tuned from this: the forecaster is final, and the held-out test reports the same metrics.
 
 ### 2026-11-19: Week 4 leftover (b): the alert threshold re-picked, 35 percent
-- **How:** the 2026-10-10 objective as written: the highest recall "on ahead" with precision of at least 70 percent and at most 0.1 false alerts per 30 days, chosen leave one persona out on the 20 development personas of the 12-month set (726 ordinary origins of 800, 52 shortfall episodes). It used the default records made again from the final forecaster on main.
-  - **Raw chances, not calibrated:** this is my reading. Calibration has been shelved since 2026-10-11, and the app's threshold applies to the raw chance.
-  - **The switch rule is mine:** if a threshold meets both limits, the app switches to it. The 2026-10-17 proposal (a margin of 2 more shortfalls, a 24-month second look) was on hold and is not used.
+- **How:** the objective of 2026-10-10, in its raw-chance form of 2026-10-12 step 3 (214c367): the highest recall "on ahead" with precision of at least 70 percent and at most 0.1 false alerts per 30 days, chosen leave one persona out on the 20 development personas of the 12-month set (726 ordinary origins of 800, 52 shortfall episodes). It used the default records made again from the final forecaster on main.
+  - **Raw chances, not calibrated:** this reading was written with the result, not before it; it waits for my confirmation. Calibration has been shelved since 2026-10-11, and the app's threshold applies to the raw chance.
+  - **The switch rule is mine,** given on 2026-11-19 before the run: if a threshold meets both limits, the app switches to it. The 2026-10-17 proposal (a margin of 2 more shortfalls, a 24-month second look) was never confirmed. **Under it, 20 percent would stay:** 35 percent catches 47 of 52, 20 percent catches 48 of 52.
   - Report: `docs/results/thresholds_raw_2026-11-19.md` (`python -m eval.thresholds_raw`; the 2026-10-12 report is unchanged).
 - **Result:**
   - On all 20 personas the objective picks 35 percent: 47 of 52 caught, precision 76 percent (22/29), 0.041 false alerts per 30 days.
   - Leave one persona out (the folds chose 20 or 35 percent), the held-back personas added up: 47 of 52 caught, precision 73 percent (22/30), 0.047 false per 30 days. Both limits are met.
-  - The old 20 percent (chance only) had precision 69 percent, just under the bar.
+  - The old 20 percent (chance only) had precision 69 percent (22 of 32), just under the bar.
+  - **Two meanings of caught:** 47 of 52 is "on ahead" (an alert is on in the 30 days before the dip, including alerts that opened when the balance was already below the buffer). Counting only alerts that opened before the dip, the same rule catches 25 of 52 (48 percent), on all 20 personas and leave one out.
   - None of the three stop checks holds. The fourth, information only since 2026-10-12, notes that recall rises at 80 to 95 percent; under the stricter reading that keeps it as a stop check, no threshold would be chosen.
-- **The app now alerts above 35 percent.** The median-lowest clause stays but never adds an alert at 35 percent (a median lowest below the buffer means more than half the futures dip). The held-out test uses this threshold, fixed before it.
+- **Not merged until I confirm the raw-chance reading** (the reviewer's blocking point: the switch rule and the reading appear in the same commit as the result). If merged, the app alerts above 35 percent. The median-lowest clause stays but never adds an alert at 35 percent (a median lowest below the buffer means more than half the futures dip). The held-out test uses this threshold, fixed before it.
 - n is small: 52 episodes from the few personas that have any, and origins within a persona overlap.
 
