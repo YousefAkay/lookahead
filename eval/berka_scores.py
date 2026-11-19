@@ -42,12 +42,13 @@ from typing import Any
 
 import numpy as np
 
-from eval.backtest import FUTURES, run_origin_full
+from eval.backtest import FUTURES, LOGIC, run_origin_full
 from eval.baselines import (
     alerts_row,
     balance_series,
     crps_samples,
     dip_share,
+    load_folder,
     random_walk_paths,
 )
 from eval.berka import build_db, dip_line_cents, origin_dates
@@ -143,6 +144,7 @@ def load_records(folder: Path) -> list[Record]:
 
 def check_store(data: Path, folder: Path) -> int:
     """Origins whose recomputed p10, p50, p90 and dip chance equal the saved experiment 3 ones."""
+    load_records(folder)  # development accounts only
     checked = equal = 0
     for path in sorted(folder.glob("*.jsonl")):
         saved = data / "runs" / "exp3" / path.name
@@ -216,17 +218,17 @@ def _pct(x: float | None) -> str:
 
 
 def synthetic_records(long: bool) -> list[Record]:
-    folder = SYNTHETIC / ("long" if long else "12")
-    records = []
-    for path in sorted(folder.glob("*.jsonl")):
-        records += [json.loads(x) for x in path.read_text("utf-8").splitlines() if x]
+    """The 2026-11-19 baselines records: development personas of one set, current logic only."""
+    records = load_folder(SYNTHETIC / ("long" if long else "12"), long)
+    if any(r.get("logic") != LOGIC for r in records):
+        raise ValueError("synthetic records from another forecaster version")
     return records
 
 
-def report(berka_folder: Path) -> str:
+def report(berka_folder: Path, group: str = "primary") -> str:
     columns = [("Synthetic, 12-month set", "personas", synthetic_records(False)),
                ("Synthetic, 24-month set", "personas", synthetic_records(True)),
-               ("Berka, primary development", "accounts", load_records(berka_folder))]  # fmt: skip
+               (f"Berka, {group} development", "accounts", load_records(berka_folder))]  # fmt: skip
     zero = [r for r in columns[2][2] if r.get("zero_estimate")]
     columns.append(("Berka, zero-estimate origins (only)", "accounts", zero))
     s = [(name, unit, summary(recs)) for name, unit, recs in columns]
@@ -242,7 +244,8 @@ def report(berka_folder: Path) -> str:
         "Development data only: nothing held out was opened. Scores are on ordinary origins "
         "(not already below the line) where the random walk is defined; dips caught use all "
         "origins, as the alert engine sees them. Synthetic: the 2026-11-19 baselines rerun. "
-        "Berka amounts are scaled koruna (5 cents per koruna), not dollars, and its line is "
+        "Berka amounts are in scaled units (1 unit = 20 koruna: 5 cents per koruna, shown in "
+        "hundreds of cents), not dollars, and its line is "
         '"fell below one month\'s outflow".',
         "",
         "| | " + " | ".join(name for name, _, _ in s) + " |",
@@ -272,6 +275,8 @@ def report(berka_folder: Path) -> str:
         ),
         row("dips caught, forecast (in-sample threshold)", lambda x: x["alert_f"]),
         row("dips caught, random walk (in-sample threshold)", lambda x: x["alert_r"]),
+        "| (zero-estimate column: its dips caught are computed on non-consecutive origins, "
+        "so episodes are cut or joined; not comparable with the other columns) | | | | |",
         row(
             "lowest-balance bias: mean (mean absolute)",
             lambda x: f"{x['bias']:+,.0f} ({x['abs_bias']:,.0f})",
@@ -306,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         return run(args.data, args.group, args.jobs, folder)
     if args.command == "check-store":
         return check_store(args.data, folder)
-    REPORT.write_text(report(folder), encoding="utf-8")
+    REPORT.write_text(report(folder, args.group), encoding="utf-8")
     print(f"written: {REPORT}")
     return 0
 
