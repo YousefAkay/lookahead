@@ -2323,3 +2323,11 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - Not known: whether the 7 cut-off answers were long JSON or text after it. A rule for RAG must stop when too many answers are refused.
 - **Lost:** rescoring with `--again` (it would decide nothing under the rule and use up the sample); treating "RAG +0.0" as a RAG result.
 - **Next:** a v3 adopt rule testing RAG alone ((a)+RAG vs (a)) on a new split, drafted, not committed.
+
+### 2026-11-19: RAG alone, adopt rule version 3 committed before its harness
+- **The rule** (`docs/specs/2026-11-19-categorizer-rag-adopt-rule-v3.md`, committed alone as 1654555, before any code for it): (a)+RAG against (a), on a new split of the same public set. Version 2's 356 deciding-sample merchants go to training; of the other 716, 286 are test merchants (seed 1). The sample is 600 rows from 275 merchants. The test is the same as version 2's: at least 3 points AND the bootstrap's 2.5th percentile above 0.
+- **My prediction, written before scoring:** (a)+RAG about 80–88% against (a).
+- **The void rule:** a run where RAG gives no category, or where more than 5% of its answers (one per distinct request) are refused as not usable, is void. It stops before any accuracy, is logged with its counts by reason, and its cache is moved aside, so the next run asks every answer again. Version 2's zero would have been void under this rule.
+- **Lost:** reusing version 2's 600 rows (already scored, and I had studied (a)'s errors on them); fresh rows of the same test merchants (the same merchants, 1,436 rows sharing a cleaned name with the 600); a split drawn with v2's permutation (the counts I looked at came from `choice`, so the rule pins `choice`).
+- **Harness** (`eval/categorizer_rag_v3.py`): `split` prints counts only. `score --rag --send` is the one run, with its own cache (`rag_v3.json`) and its own ledger name. Scored once, and the first valid run under this exact rule text decides. `adopt_rule_status` now takes the version's heading, so each harness accepts only its own rule. The split command gives the rule's counts: train 36,993 rows / 786 merchants, test 11,007 / 286, sample 600 / 275, 0 merchants shared, 0 cleaned names shared with version 2's sample.
+

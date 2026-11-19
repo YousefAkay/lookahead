@@ -1029,7 +1029,7 @@ def test_the_first_public_run_decides_and_only_under_this_rule_text() -> None:
 def test_a_rule_without_the_public_run_is_refused(repo: Path) -> None:
     old = _committed_rule(repo, "# Adopt rule, version 1\nIn force.\n")
     status = h.adopt_rule_status(old)
-    assert not status.ok and "not version 2" in status.reason
+    assert not status.ok and "not the version this harness runs" in status.reason
 
 
 def test_a_rule_with_open_questions_is_refused(repo: Path) -> None:

@@ -135,9 +135,10 @@ class RuleStatus:
     sha256: str | None = None
 
 
-def adopt_rule_status(path: Path) -> RuleStatus:
+def adopt_rule_status(path: Path, marker: str = RULE_MARKER) -> RuleStatus:
     """OK only if the file exists, is tracked by git, has no change since its last commit
-    (staged or not), and does not say it is a draft or not yet in force."""
+    (staged or not), does not say it is a draft or not yet in force, and holds `marker`
+    (the heading of the rule version the caller runs)."""
     path = path if path.is_absolute() else ROOT / path
     if not path.exists():
         return RuleStatus(False, "the adopt-rule file does not exist")
@@ -154,8 +155,8 @@ def adopt_rule_status(path: Path) -> RuleStatus:
     text = path.read_text(encoding="utf-8")
     if "DRAFT" in text or "not yet in force" in text.casefold() or "⟨Q" in text:
         return RuleStatus(False, "the adopt rule is still a draft", commit)
-    if RULE_MARKER not in text:
-        return RuleStatus(False, "the adopt rule is not version 2 (no public deciding run)", commit)
+    if marker not in text:
+        return RuleStatus(False, "the adopt rule is not the version this harness runs", commit)
     return RuleStatus(True, "committed and unchanged", commit,
                       hashlib.sha256(text.encode("utf-8")).hexdigest())  # fmt: skip
 
