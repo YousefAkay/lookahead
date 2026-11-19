@@ -208,6 +208,8 @@ def test_the_public_run_scores_once_and_logs_every_comparison(
     plain = ["score", "--folder", str(folder)]
     assert x.main(plain) == 2 and "score --rag --send" in capsys.readouterr().out
     assert x.main([*plain, "--rag"]) == 2  # without --send: refused too
+    refusals = [e for e in h.ledger_entries(h.DEFAULT_LEDGER) if e.get("status") == "refused"]
+    assert len(refusals) == 2 and all(e["run"] == "external" for e in refusals)  # both logged
     capsys.readouterr()
     args = [*plain, "--rag", "--send"]
     assert x.main(args) == 0
@@ -272,3 +274,30 @@ def test_summary_prints_counts_only(
     assert got["rows"] == 240 and got["sample"][0] == 30
     assert got["cleaned_names_in_train_and_sample"] == 0
     assert "MARKET AA" not in out  # no description
+
+
+def test_the_public_rag_path_uses_train_merchants_and_a_private_cache(tmp_path: Path) -> None:
+    from tests.test_rag_categorizer import FakeClient
+
+    class CitingClient(FakeClient):
+        """Answers Restaurants & cafés, citing the first example id of the prompt."""
+
+        def create(self, **request: object):  # type: ignore[no-untyped-def]
+            content = request["messages"][0]["content"]  # type: ignore[index]
+            first = next(line.split(" | ", 1)[0] for line in content.splitlines() if " | " in line)
+            self.answer = json.dumps({"category": "Restaurants & cafés", "cited": [first]})
+            return super().create(**request)
+
+    train = pd.DataFrame({"description": ["[debit] GOLDEN DRAGON #12 AUSTIN",
+                                          "[debit] SAKURA SUSHI 4411"],
+                          "mine": ["Restaurants & cafés", "Restaurants & cafés"]})  # fmt: skip
+    cache = tmp_path / "data" / "private" / "cache" / "rag_external.json"
+    client = CitingClient("")
+    answer = x.rag_answer_function(train, cache, send=True, client=client)
+    assert answer("Golden Dragoon Seattle") == "Restaurants & cafés"
+    assert cache.exists()  # saved at once, under data/private
+    [request] = client.requests
+    prompt = json.dumps(request["messages"])
+    assert "GOLDEN DRAGON" in prompt.upper()  # a train-part merchant is an example
+    # asked again: from the cache, no second call
+    assert answer("Golden Dragoon Seattle") == "Restaurants & cafés" and len(client.requests) == 1
