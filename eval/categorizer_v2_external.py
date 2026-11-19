@@ -4,7 +4,7 @@ no saved setting, no synthetic row from my generator.
 
     python -m eval.categorizer_v2_external fetch     # download the two pinned files, check them
     python -m eval.categorizer_v2_external summary   # counts only: rows, merchants, the sample
-    python -m eval.categorizer_v2_external score [--rag [--send]] [--again]
+    python -m eval.categorizer_v2_external score --rag --send [--again]   # the one scoring
 
 What is pinned (the adopt rule names the same values):
 - the dataset file at its Hugging Face revision, and its sha256;
@@ -414,6 +414,9 @@ def score_command(args: argparse.Namespace) -> int:
     status = h.adopt_rule_status(h.APPROVED_ADOPT_RULE)
     if not status.ok:
         return refuse(f"{status.reason} ({h.DEFAULT_ADOPT_RULE})")
+    if not (args.rag and args.send):
+        return refuse("the one public scoring is `score --rag --send`: all three variants in "
+                      "the same run")  # fmt: skip
     problems = check_files(args.folder)
     if problems:
         return refuse("; ".join(problems))

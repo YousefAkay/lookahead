@@ -202,7 +202,14 @@ def test_the_public_run_scores_once_and_logs_every_comparison(
         h, "adopt_rule_status", lambda _: h.RuleStatus(True, "committed", "abc", "def")
     )
     monkeypatch.setattr(x, "SAMPLE_ROWS", 30)
-    args = ["score", "--folder", str(folder)]
+    asked: list[str] = []
+    monkeypatch.setattr(x, "rag_answer_function",
+                        lambda *_, **__: lambda name: asked.append(name) or None)  # fmt: skip
+    plain = ["score", "--folder", str(folder)]
+    assert x.main(plain) == 2 and "score --rag --send" in capsys.readouterr().out
+    assert x.main([*plain, "--rag"]) == 2  # without --send: refused too
+    capsys.readouterr()
+    args = [*plain, "--rag", "--send"]
     assert x.main(args) == 0
     out = capsys.readouterr().out
     assert "(n = 30" in out and "passes on the public set" in out
@@ -210,8 +217,9 @@ def test_the_public_run_scores_once_and_logs_every_comparison(
         assert word not in out  # no description is printed
     scored = [e for e in h.ledger_entries(h.DEFAULT_LEDGER) if e.get("status") == "scored"]
     assert [e.get("variant") or e.get("comparison") for e in scored] == [
-        "current", "cleaner+directory", "cleaner+directory vs current"]  # fmt: skip
-    assert h.external_verdicts(scored, "def").keys() == {"cleaner+directory"}
+        "current", "cleaner+directory", "+RAG", "cleaner+directory vs current",
+        "+RAG vs cleaner+directory"]  # fmt: skip
+    assert h.external_verdicts(scored, "def").keys() == {"cleaner+directory", "+RAG"}
     assert x.main(args) == 2 and "scored once" in capsys.readouterr().out
     assert x.main([*args, "--again"]) == 0
 

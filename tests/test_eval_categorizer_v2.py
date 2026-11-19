@@ -1035,3 +1035,18 @@ def test_a_rule_without_the_public_run_is_refused(repo: Path) -> None:
 def test_a_rule_with_open_questions_is_refused(repo: Path) -> None:
     rule = _committed_rule(repo, RULE + "\n⟨Q1⟩ still open\n")
     assert not h.adopt_rule_status(rule).ok
+
+
+def test_c_is_adopted_only_if_b_is_adopted() -> None:
+    def v(variant: str, a_extra: int) -> h.Veto:
+        return h.Veto(variant, 18, a_extra, 60, 0)
+
+    passed = {"cleaner+directory": True, "+RAG": True}
+    assert h.adoptions([v("cleaner+directory", 0), v("+RAG", 0)], passed) == {
+        "cleaner+directory": True, "+RAG": True}  # fmt: skip
+    # (b) vetoed on my rows (3 net worse on A), (c) not: (c) is not adopted either
+    assert h.adoptions([v("cleaner+directory", 3), v("+RAG", 0)], passed) == {
+        "cleaner+directory": False, "+RAG": False}  # fmt: skip
+    # (b) failed on the public set: (c) is not adopted
+    assert h.adoptions([v("cleaner+directory", 0), v("+RAG", 0)],
+                       {"cleaner+directory": False, "+RAG": True})["+RAG"] is False  # fmt: skip

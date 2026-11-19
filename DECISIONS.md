@@ -2300,3 +2300,8 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - `summary` prints how many cleaned names the train part and the sample share: 0.
   - The final grouping: 1,072 merchants; train 28,656 rows / 643 merchants; test 19,344 / 429; sample 600 / 356.
   - Disclosed in the rule: my dry run of (a) (68.8%, n = 475 rows, 201 merchants) touched merchants that are now test merchants: 58 of them, 44 in the sample, 10 of its rows are sample rows. Only (a) was run; nothing was tuned from it.
+- **My answers to the three open points (2026-11-18):**
+  - The one public scoring is `score --rag --send`, all three variants in one run. Anything else is refused, so (c) cannot be added later or run with an empty cache.
+  - (c) is adopted only if (b) is adopted (`adoptions`), because (c) contains (b).
+  - The deciding sample stays as drawn. The dry run touched it only through (a)'s accuracy, which cannot favour (b) over (a); it is disclosed in the rule.
+  - Lost: scoring (a) and (b) alone; judging (c) on its own; redrawing from untouched merchants. A different seed after looking would itself be a choice made after looking.

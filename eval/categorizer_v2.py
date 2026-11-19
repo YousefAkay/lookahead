@@ -568,6 +568,15 @@ def veto(results: dict[str, VariantResult], blind: pd.DataFrame) -> list[Veto]:
     ]  # fmt: skip
 
 
+def adoptions(vetoes: Sequence[Veto], public: dict[str, bool]) -> dict[str, bool]:
+    """variant -> adopted: it passed on the public set AND is not vetoed on my rows; (c)
+    contains (b), so (c) is adopted only if (b) is adopted too."""
+    ok = {v.variant: bool(public.get(v.variant)) and v.ok for v in vetoes}
+    if "+RAG" in ok:
+        ok["+RAG"] = ok["+RAG"] and ok.get("cleaner+directory", False)
+    return ok
+
+
 def external_verdicts(
     entries: Sequence[dict[str, object]], rule_sha256: str | None
 ) -> dict[str, bool]:
@@ -625,9 +634,11 @@ def score(
             record(entry)
     if not dry_run:
         decided = external_verdicts(ledger_entries(DEFAULT_LEDGER), rule_sha256)
-        for v in veto(results, blind):
+        vetoes = veto(results, blind)
+        adopted_by = adoptions(vetoes, decided)
+        for v in vetoes:
             public = decided.get(v.variant)
-            adopted = bool(public) and v.ok
+            adopted = adopted_by[v.variant]
             print(f"  veto, {v.variant} vs current on my rows: group A {v.a_extra_wrong:+d} rows "
                   f"wrong (at most {A_VETO_EXTRA_WRONG:+d}; n = {v.a_n}), group K "
                   f"{v.k_extra_wrong:+d} (at most {GUARD_EXTRA_WRONG:+d}; n = {v.k_n}): "
