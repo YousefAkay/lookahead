@@ -81,8 +81,9 @@ def settings_panel(
                 f"category from smarter categories; {done.unsure} unsure, "
                 f"{done.not_taken} answers not usable (still to check)."
             )
-            warning = done.warning()
-            st.session_state["smarter_note"] = f"{warning}. {note}" if warning else note
+            none_usable = (f"Smarter categories gave no usable answer for "
+                           f"{count(done.with_answer, 'name')}. ")  # fmt: skip
+            st.session_state["smarter_note"] = (none_usable if done.warning() else "") + note
         st.rerun()
     if "smarter_note" in st.session_state:
         st.sidebar.info(st.session_state.pop("smarter_note"))

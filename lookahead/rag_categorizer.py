@@ -291,8 +291,8 @@ def silent_warning(asked: int, answered: int, unit: str = "rows") -> str | None:
     """A loud line when RAG was asked about rows and answered none of them (None otherwise):
     that is more likely a broken answer path than a model unsure about everything."""
     if asked and not answered:
-        return (f"WARNING: RAG was asked about {asked} {unit} and answered none; check why its "
-                "answers were not taken before reading this result")  # fmt: skip
+        return (f"WARNING: RAG was asked about {asked} {unit} and answered none (all unsure or "
+                "refused); check the answers' reasons before reading this result")  # fmt: skip
     return None
 
 
