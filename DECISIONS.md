@@ -2381,4 +2381,11 @@ The draft's open points are settled (my decisions with my advisor's input); the 
 - **My prediction, written before scoring:** (a)+RAG about 80–88%. The result, 86.3%, is inside it.
 - **Not adopted yet:** by the rule, RAG is offered in the app (still off by default) only if it is also not vetoed on my real rows: Part 2, the one draw, blind labelling, at most 2 rows net worse on new merchants and at most 1 on known ones.
 - Synthetic, US, public: this says RAG helps the categorizer on an independent benchmark. It says nothing yet about my account.
+- **The veto's scoring mode** (built 2026-11-19, before any draw scoring): `python -m eval.categorizer_v2 score --rule-v4 --rag --send`.
+  - It keeps every check of the v2 veto harness: the logged draw, exactly its rows, scored once, the minimums (A at least 15, K at least 40 labelled), and refusals when blind rows were labelled in the app or became known.
+  - It compares the deployed model with RAG alone (cleaner and directory off) against the deployed model, with my labelled merchants as RAG's examples (the blind rows never among them).
+  - The thresholds are the rule's: A at most 2 rows net worse, K at most 1. Adopted = rule v4's public pass (checked before the run) AND no veto.
+  - The same void rule as the public run applies. Its own cache (`rag_veto_v4.json`, never the app's) starts empty.
+  - The veto is recorded before anything is printed. Crashes are recorded, and a run with uncommitted code is refused.
+  - The v2 variants and v2's adoption line are unchanged, and are not used for this.
 

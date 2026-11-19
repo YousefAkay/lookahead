@@ -78,6 +78,10 @@ DEFAULT_ADOPT_RULE = Path("docs/specs/2026-11-18-categorizer-v2-adopt-rule.md") 
 APPROVED_ADOPT_RULE = ROOT / DEFAULT_ADOPT_RULE  # the only file accepted as the adopt rule
 DEFAULT_RAG_CACHE = Path("data/private/cache/rag_categories.json")
 VARIANTS = ("current", "cleaner+directory", "+RAG")
+RAG_ALONE = "RAG alone"  # rule v4's veto variant: deployed model + RAG; cleaner, directory off
+RAG_VARIANTS = frozenset({"+RAG", RAG_ALONE})
+VETO_V4_RUN = "veto-rag-v4"  # the ledger's name for rule v4's veto runs
+DEFAULT_VETO_V4_CACHE = Path("data/private/cache/rag_veto_v4.json")  # its own, empty at first
 LEAKAGE_AT = 0.95  # any variant above this: check for leakage before reading anything
 BOOTSTRAP_RESAMPLES = 2000
 RULE_MARKER = "## Part 1: the deciding run, on public data only"  # version 2 of the rule
@@ -357,7 +361,7 @@ class VariantResult:
 
     def rag_note(self) -> dict[str, object]:
         """For the ledger: what RAG was asked and answered, and the warning if it was silent."""
-        if self.variant != "+RAG":
+        if self.variant not in RAG_VARIANTS:
             return {}
         return {"rag_asked": self.rag_asked, "rag_answered": self.rag_answered,
                 "rag_warning": silent_warning(self.rag_asked, self.rag_answered)}  # fmt: skip
@@ -379,9 +383,9 @@ def fit_model(
 
 
 def variant_options(variant: str) -> v2.Options:
-    """(a) has everything off; (b) and (c) have the cleaner and the directory with exact and
-    alias matches only: the directory's similarity matching is not part of this test."""
-    on = variant != "current"
+    """(a) and rule v4's "RAG alone" have everything off; (b) and (c) have the cleaner and the
+    directory with exact and alias matches only (no similarity matching)."""
+    on = variant not in ("current", RAG_ALONE)
     return v2.Options(cleaner=on, directory=on, directory_similar=False)
 
 
@@ -407,7 +411,7 @@ def run_variant(
     categories: list[str | None] = list(table["category"])
     sources = list(table["source"])
     asked = 0
-    if variant == "+RAG":
+    if variant in RAG_VARIANTS:
         if rag_answer is None:
             raise ValueError("the RAG variant needs an answer function")
         for i, (flagged, source) in enumerate(zip(table["flagged"], sources, strict=True)):
@@ -682,13 +686,73 @@ def score(
     return results
 
 
+def score_rag_veto(
+    split: Split, settings: Settings, extra: pd.DataFrame | None,
+    rag_answer: Callable[[pd.Series], str | None], reasons: dict[str, str],
+    record: Callable[[dict[str, object]], None], on_void: Callable[[], None] = lambda: None,
+) -> bool | None:  # fmt: skip
+    """Rule v4's veto: the deployed model with RAG alone against the deployed model, on my
+    blind rows. None for a void run (the same void rule as the public run). The veto is
+    recorded before anything is shown. Returns whether RAG is adopted."""
+    from eval import categorizer_rag_v4 as rag_rule
+
+    blind = split.blind
+    base = run_variant("current", blind, split.train_x, split.train_y, settings, extra)
+    with_rag = run_variant(RAG_ALONE, blind, split.train_x, split.train_y, settings, extra,
+                           rag_answer)  # fmt: skip
+    log = rag_rule.AnswerLog(dict(reasons))
+    note = {"rows_asked": with_rag.rag_asked, "rows_answered": with_rag.rag_answered,
+            "answers": len(log.reasons), "answer_reasons": log.counts()}  # fmt: skip
+    print(
+        f"RAG: asked about {with_rag.rag_asked} of my blind rows, gave a category for "
+        f"{with_rag.rag_answered}; {len(log.reasons)} answers by reason {log.counts()}"
+    )
+    void = rag_rule.void_reason(with_rag.rag_asked, with_rag.rag_answered, log)
+    if void:
+        print(f"VOID RUN: {void}. Nothing scored; this run does not count.")
+        record({"status": "void", "reason": void, **note})
+        on_void()
+        return None
+    results = {"current": base, RAG_ALONE: with_rag}
+    [v] = veto(results, blind)
+    in_a = (blind["set"] == "A").to_numpy()
+    truth = blind["truth"].to_numpy()
+    right = {name: np.array(r.categories, dtype=object) == truth for name, r in results.items()}
+    adopted = v.ok  # the public pass is checked before this run starts
+    record({"status": "scored", "veto": RAG_ALONE, "a_n": v.a_n, "k_n": v.k_n,
+            "a_extra_wrong": v.a_extra_wrong, "k_extra_wrong": v.k_extra_wrong,
+            "veto_ok": v.ok, "public_passes": True, "adopted": adopted, **note,
+            **{f"{g}_correct_{'rag' if n == RAG_ALONE else 'a'}": int(r[m].sum())
+               for n, r in right.items() for g, m in (("a", in_a), ("k", ~in_a))}})  # fmt: skip
+    for name, r in right.items():
+        print(f"variant {name}: group A {int(r[in_a].sum())} of {int(in_a.sum())} right, "
+              f"group K {int(r[~in_a].sum())} of {int((~in_a).sum())} right")  # fmt: skip
+        for group, mask in (("A", in_a), ("K", ~in_a)):
+            if mask.sum() and r[mask].mean() > LEAKAGE_AT:
+                print(f"  group {group} above {LEAKAGE_AT:.0%}: check for leakage first")
+    print(f"  veto, {RAG_ALONE} vs current on my rows: group A {v.a_extra_wrong:+d} rows wrong "
+          f"(at most {A_VETO_EXTRA_WRONG:+d}; n = {v.a_n}), group K {v.k_extra_wrong:+d} (at "
+          f"most {GUARD_EXTRA_WRONG:+d}; n = {v.k_n}): {'no veto' if v.ok else 'VETO'}; passed "
+          f"on the public set: yes; adopted: {'yes' if adopted else 'no'}")  # fmt: skip
+    return adopted
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _rag_answer_function(  # type: ignore[no-untyped-def]
-    conn, account: str, key: bytes, cache: Path, send: bool, client, blind=frozenset()
+    conn,
+    account: str,
+    key: bytes,
+    cache: Path,
+    send: bool,
+    client,
+    blind=frozenset(),
+    reasons: dict[str, str] | None = None,
 ):
+    """RAG with my labelled merchants as examples (the blind rows never among them).
+    `reasons`, if given, collects each answer's reason by request (for the void rule)."""
     import lookahead.llm_categorizer as llm
     from lookahead import rag_categorizer as rag
 
@@ -699,8 +763,13 @@ def _rag_answer_function(  # type: ignore[no-untyped-def]
         name = llm.sendable_name(row["bank_type"], row["text"], key)
         if not name:
             return None
-        got, _ = rag.categorize_one(rag.retrieve(name, index), cache, client, send)
-        return None if got is None else got.category
+        retrieved = rag.retrieve(name, index)
+        got, _ = rag.categorize_one(retrieved, cache, client, send)
+        if got is None:
+            return None
+        if reasons is not None:
+            reasons[rag.request_key(rag.request_for(retrieved))] = got.reason
+        return got.category
 
     return answer
 
@@ -725,6 +794,13 @@ def score_my_data(args: argparse.Namespace) -> int:
     for flag in ("db", "labels", "choice"):
         if getattr(args, flag) is None:
             return refuse(f"--{flag} is required (no default points at private data)")
+    if args.rule_v4:
+        if not (args.rag and args.send):
+            return refuse("rule v4's veto is one run with `--rule-v4 --rag --send`")
+        if args.rag_cache == DEFAULT_RAG_CACHE:
+            args.rag_cache = DEFAULT_VETO_V4_CACHE  # its own cache, never the app's
+        if not is_private_path(args.rag_cache):
+            return refuse("the RAG cache must be inside data/private/")
     rule = args.adopt_rule if args.adopt_rule.is_absolute() else ROOT / args.adopt_rule
     if rule.resolve() != APPROVED_ADOPT_RULE.resolve():
         return refuse(f"only {DEFAULT_ADOPT_RULE} is accepted as the adopt rule")
@@ -800,7 +876,7 @@ def score_my_data(args: argparse.Namespace) -> int:
     extra = synthetic_examples(settings.synthetic_months) if settings.synthetic_months else None
     variants = list(VARIANTS[:2])
     rag_answer = None
-    if args.rag:
+    if args.rag and not args.rule_v4:  # rule v4 builds its own RAG, below
         from lookahead.pseudonymize import pseudonym_key
 
         variants.append("+RAG")
@@ -809,19 +885,73 @@ def score_my_data(args: argparse.Namespace) -> int:
                                           frozenset(labels))  # fmt: skip
 
     def record(entry: dict[str, object]) -> None:
-        add_to_ledger(args.ledger, {**entry, "at": now, "status": "scored",
+        add_to_ledger(args.ledger, {"at": now, "status": "scored",
                                     "selection_key": key, "selection": selection,
                                     "labels_sha256": labels_hash,
                                     "adopt_rule_commit": status.commit,
                                     "adopt_rule_sha256": status.sha256, "again": args.again,
-                                    "send": bool(args.rag and args.send)})  # fmt: skip
+                                    "send": bool(args.rag and args.send), **entry})  # fmt: skip
 
+    if args.rule_v4:
+        return _score_rule_v4(args, conn, split, settings, extra, labels, record, refuse, now)
     print(f"Categorizer v2 on the blind set: account {args.account}; adopt rule at commit "
           f"{(status.commit or '')[:10]}")  # fmt: skip
     score(split, settings, extra, variants, rag_answer, dry_run=False, record=record,
           rule_sha256=status.sha256)  # fmt: skip
     conn.close()
     return 0
+
+
+def _score_rule_v4(  # type: ignore[no-untyped-def]
+    args, conn, split: Split, settings: Settings, extra: pd.DataFrame | None,
+    labels: dict[str, str], record, refuse, now: str,
+) -> int:  # fmt: skip
+    """Rule v4's veto run, after every check of `score_my_data` (draw, labels, minimums)."""
+    from eval import categorizer_rag_v4 as rag_rule
+    from lookahead.pseudonymize import pseudonym_key
+
+    v4 = adopt_rule_status(rag_rule.RULE, rag_rule.RULE_MARKER)
+    entries = ledger_entries(args.ledger)
+    if not v4.ok:
+        conn.close()
+        return refuse(f"RAG adopt rule version 4: {v4.reason}")
+    if rag_rule.verdict(entries, v4.sha256) is not True:
+        conn.close()
+        return refuse("RAG did not pass rule version 4's public run: there is nothing to veto")
+    head, changed = rag_rule.code_state()
+    if changed:
+        conn.close()
+        return refuse("tracked files have uncommitted changes (or git cannot tell)")
+    runs = [e for e in entries if e.get("run") == VETO_V4_RUN and e.get("status") != "refused"]
+    after_crash = bool(runs) and runs[-1].get("status") == "crashed"
+    if args.rag_cache.exists() and not (after_crash or args.again):
+        conn.close()
+        return refuse(f"the veto's RAG cache must start empty: {args.rag_cache.name} exists")
+
+    def record_v4(entry: dict[str, object]) -> None:
+        record({"run": VETO_V4_RUN, "rag_rule_commit": v4.commit,
+                "rag_rule_sha256": v4.sha256, "code_commit": head, **entry})  # fmt: skip
+
+    def on_void() -> None:
+        moved = rag_rule.move_cache_aside(args.rag_cache, now)
+        if moved is not None:
+            print(f"the cache was moved aside ({moved.name}): the next run asks every answer again")
+
+    print(f"RAG adopt rule v4, the veto on my blind rows: account {args.account}; rule at "
+          f"commit {(v4.commit or '')[:10]}")  # fmt: skip
+    reasons: dict[str, str] = {}
+    try:
+        rag_answer = _rag_answer_function(conn, args.account, pseudonym_key(args.env),
+                                          args.rag_cache, True, None, frozenset(labels),
+                                          reasons)  # fmt: skip
+        result = score_rag_veto(split, settings, extra, rag_answer, reasons, record_v4, on_void)
+    except BaseException as e:  # Ctrl-C too; the error type only (a message may quote a name)
+        record_v4({"status": "crashed", "reason": type(e).__name__})
+        print(f"the run stopped ({type(e).__name__}); recorded in the ledger as crashed")
+        raise
+    finally:
+        conn.close()
+    return 3 if result is None else 0
 
 
 def synthetic_split(tmp: Path) -> tuple[Split, Settings]:
@@ -1093,6 +1223,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--rag-cache", type=Path, default=DEFAULT_RAG_CACHE)
     s.add_argument("--env", type=Path, default=Path(".env"))
     s.add_argument("--again", action="store_true", help="score the same labels again")
+    s.add_argument(
+        "--rule-v4",
+        action="store_true",
+        help="RAG adopt rule v4's veto: the deployed model + RAG alone vs the model",
+    )
     c = commands.add_parser("candidates", help="draw the blind selection (groups A and K)")
     c.add_argument("--db", type=Path)
     c.add_argument("--account", default="scotia-chequing")

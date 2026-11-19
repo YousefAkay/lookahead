@@ -1079,3 +1079,141 @@ def test_the_draw_opens_only_when_rag_passed(passes: bool) -> None:
                                        "comparison": rag_rule.COMPARISON, "passes": passes,
                                        "adopt_rule_sha256": sha})  # fmt: skip
     assert REAL_RAG_PASSED() is passes
+
+
+# --- RAG adopt rule v4's veto: the deployed model + RAG alone against the deployed model ---
+
+
+def _veto_split(sets: list[str], truth: list[str]) -> h.Split:
+    blind = pd.DataFrame(
+        {"set": sets, "truth": truth, "group": [f"m{i}" for i in range(len(sets))]}
+    )
+    return h.Split(blind, pd.DataFrame(), [], 0, 0, 0)
+
+
+def _fake_variants(monkeypatch: pytest.MonkeyPatch, base: list[str], rag: list[str],
+                   asked: int, answered: int) -> None:  # fmt: skip
+    def run(variant, blind, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if variant == "current":
+            return h.VariantResult(variant, base, ["model"] * len(base))
+        sources = ["RAG"] * answered + ["model"] * (len(rag) - answered)
+        return h.VariantResult(variant, rag, sources, asked)
+
+    monkeypatch.setattr(h, "run_variant", run)
+
+
+def test_the_v4_veto_is_void_when_rag_answers_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_variants(monkeypatch, ["Shopping"] * 3, ["Shopping"] * 3, asked=3, answered=0)
+    entries: list[dict[str, object]] = []
+    voided: list[bool] = []
+    split = _veto_split(["A", "A", "K"], ["Shopping", "Groceries", "Shopping"])
+    got = h.score_rag_veto(split, None, None, lambda row: None, {"k1": "not JSON"},  # type: ignore[arg-type]
+                           entries.append, lambda: voided.append(True))  # fmt: skip
+    out = capsys.readouterr().out
+    assert got is None and voided and "VOID RUN" in out and "variant" not in out
+    assert [e["status"] for e in entries] == ["void"]
+
+
+@pytest.mark.parametrize(
+    ("rag", "adopted"),
+    [
+        (["Groceries", "Groceries", "Shopping", "Shopping"], True),  # A one better, K same
+        (["Shopping", "Shopping", "Groceries", "Groceries"], False),  # K two worse: VETO
+    ],
+)
+def test_the_v4_veto_thresholds(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], rag: list[str],
+    adopted: bool,
+) -> None:  # fmt: skip
+    base = ["Shopping", "Shopping", "Shopping", "Shopping"]
+    _fake_variants(monkeypatch, base, rag, asked=4, answered=4)
+    entries: list[dict[str, object]] = []
+    split = _veto_split(["A", "A", "K", "K"], ["Groceries", "Shopping", "Shopping", "Shopping"])
+    got = h.score_rag_veto(split, None, None, lambda row: "x", {"k": "ok"}, entries.append)  # type: ignore[arg-type]
+    assert got is adopted
+    [entry] = entries
+    assert entry["status"] == "scored" and entry["adopted"] is adopted
+    assert entry["veto_ok"] is adopted and entry["veto"] == h.RAG_ALONE
+    assert ("no veto" if adopted else "VETO") in capsys.readouterr().out
+
+
+def test_the_v4_veto_is_recorded_before_anything_is_shown(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_variants(monkeypatch, ["Shopping"] * 2, ["Groceries"] * 2, asked=2, answered=2)
+
+    def broken(entry: dict[str, object]) -> None:
+        raise OSError("disk")
+
+    split = _veto_split(["A", "K"], ["Groceries", "Shopping"])
+    with pytest.raises(OSError):
+        h.score_rag_veto(split, None, None, lambda row: "x", {"k": "ok"}, broken)  # type: ignore[arg-type]
+    out = capsys.readouterr().out
+    assert "variant" not in out and "veto," not in out
+
+
+def test_rule_v4_needs_rag_and_send(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    labels = tmp_path / "labels.csv"
+    args = ["score", "--db", str(tmp_path / "x.db"), "--labels", str(labels),
+            "--choice", str(tmp_path / "c.json"), "--rule-v4", "--rag"]  # fmt: skip
+    assert h.main(args) == 2 and "--rule-v4 --rag --send" in capsys.readouterr().out
+    assert h.ledger_entries(h.DEFAULT_LEDGER)[-1]["status"] == "refused"
+
+
+@pytest.mark.slow
+def test_draw_label_then_the_v4_veto_goes_through(
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    import lookahead.pseudonymize
+    from eval import categorizer_rag_v4 as rag_rule
+    from lookahead import rag_categorizer as rag
+    from lookahead.db import connect_readonly
+    from lookahead.labels import current_labels
+
+    conn = connect_readonly(db)
+    truth = {f: lab.category for f, lab in current_labels(conn, "scotia-chequing").items()}
+    conn.close()
+    copy, _ = _unlabelled_new_rows(db, tmp_path, ("test_a", "test_b"))
+    monkeypatch.setattr(h, "BLIND_SINCE", date(2025, 10, 1))
+    monkeypatch.setattr(h, "A_MIN_ROWS", 1)
+    monkeypatch.setattr(h, "K_MIN_ROWS", 0)
+    rule = _committed_rule(repo)
+    _public_run_scored()
+    selection = tmp_path / "data" / "private" / "eval" / "candidates.csv"
+    assert h.main(["candidates", "--db", str(copy), "--out", str(selection)]) == 0
+    labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
+    h.freeze_selection(selection, labels)
+    rows = pd.read_csv(labels, dtype=str, keep_default_na=False)
+    rows["category"] = [truth.get(f) or "" for f in rows["fingerprint"]]
+    rows.to_csv(labels, index=False)
+    choice = tmp_path / "choice.json"
+    choice.write_text(json.dumps({"params": {"model__C": 1.0}, "flag_threshold": 0.99,
+                                  "synthetic_months": 0}), encoding="utf-8")  # fmt: skip
+    cache = tmp_path / "data" / "private" / "cache" / "rag_veto_v4.json"
+    run = ["score", "--db", str(copy), "--labels", str(labels), "--choice", str(choice),
+           "--adopt-rule", str(rule), "--rule-v4", "--rag", "--send",
+           "--rag-cache", str(cache)]  # fmt: skip
+    monkeypatch.setattr(lookahead.pseudonymize, "pseudonym_key", lambda env: b"k" * 32)
+    monkeypatch.setattr(rag_rule, "code_state", lambda: ("abc123", False))
+
+    def fake_one(retrieved, cache_path, client=None, send=False):  # type: ignore[no-untyped-def]
+        return rag.Answer("Shopping", ("ex-a",), "ok", "{}", rag.MODEL, 1, 1, 0.1), True
+
+    monkeypatch.setattr(rag, "categorize_one", fake_one)
+    # no public pass under rule v4 yet: refused, nothing scored
+    assert h.main(run) == 2 and "nothing to veto" in capsys.readouterr().out
+    sha = h.adopt_rule_status(rag_rule.RULE, rag_rule.RULE_MARKER).sha256
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": rag_rule.RUN, "status": "scored",
+                                       "comparison": rag_rule.COMPARISON, "passes": True,
+                                       "adopt_rule_sha256": sha})  # fmt: skip
+    code = h.main(run)
+    out = capsys.readouterr().out
+    assert code == 0, out
+    last = h.ledger_entries(h.DEFAULT_LEDGER)[-1]
+    assert last["run"] == h.VETO_V4_RUN and last["code_commit"] == "abc123"
+    assert "adopted: " in out and last["veto"] == h.RAG_ALONE and last["rows_asked"] > 0
+    assert set(last["answer_reasons"]) == {"ok"}  # one entry per distinct request
+    assert h.main([*run]) == 2  # a selection is scored once
