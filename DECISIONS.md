@@ -2343,4 +2343,7 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - Ctrl-C and errors while the data loads are recorded as crashed.
   - Refusals record the code commit too, and git that cannot tell counts as uncommitted.
   - A test shows the draw opens on a v3 pass and stays shut on a fail.
+- **After the second FAIL (one blocking point), safety only; the rule text is unchanged:**
+  - The comparison is now recorded before any accuracy is printed. Before this, a crash between the printed accuracies and the recorded comparison would have shown the result without spending the scoring.
+  - "Already scored" now means any recorded v3 comparison, whatever the sample or rule text. Changing either after scoring therefore cannot open a second deciding run: the verdict stays the first one, or none.
 

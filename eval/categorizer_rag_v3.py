@@ -16,6 +16,10 @@ sample is at most 3 rows per test merchant, then 600 rows, with one new `default
 A void run (RAG answered no row, or more than 5% of its answers were refused as not usable)
 stops before any accuracy is computed, is logged with its counts by reason, and does not count
 as the scoring. Its cache file is moved aside, so the next run asks every answer again.
+
+The comparison is recorded before any accuracy is shown, so a run that has shown a result
+has always spent the scoring. One run at a time: two started together could both pass the
+"already scored" check.
 """
 
 import argparse
@@ -228,6 +232,13 @@ def score(
     truth = [x.same(c) for c in s.sample["mine"]]
     a = np.array([p == t for p, t in zip(preds.a, truth, strict=True)])
     c = np.array([p == t for p, t in zip(preds.with_rag, truth, strict=True)])
+    gain, low = h.paired_bootstrap(a, c, list(s.sample["merchant"]))
+    passes = gain >= MIN_GAIN - 1e-9 and low > 0
+    # The comparison is recorded BEFORE anything is shown: once an accuracy is visible, the
+    # scoring is spent (a crash before this point shows nothing, so a re-run is fair).
+    record({"status": "scored", "comparison": COMPARISON, "a_n": len(a), "gain": gain,
+            "bootstrap_low": low, "passes": passes, "a_correct": int(a.sum()),
+            "rag_correct": int(c.sum()), **rag_note})  # fmt: skip
     for name, right in (("(a)", a), ("(a)+RAG", c)):
         print(f"variant {name}: accuracy {right.mean():6.1%} (n = {len(right)}; "
               f"{int(right.sum())} right)")  # fmt: skip
@@ -235,14 +246,10 @@ def score(
             print(f"  above {h.LEAKAGE_AT:.0%}: check for leakage before reading anything")
         record({"status": "scored", "variant": name, "a_n": len(right),
                 "a_correct": int(right.sum()), **rag_note})  # fmt: skip
-    gain, low = h.paired_bootstrap(a, c, list(s.sample["merchant"]))
-    passes = gain >= MIN_GAIN - 1e-9 and low > 0
     print(f"  {COMPARISON}: {gain * 100:+.1f} points (needs {MIN_GAIN * 100:+.0f}), bootstrap "
           f"2.5th percentile {low * 100:+.1f} (needs above 0; n = {len(a)} rows, "
           f"{s.sample['merchant'].nunique()} merchants resampled); passes on the public set: "
           f"{'yes' if passes else 'no'}")  # fmt: skip
-    record({"status": "scored", "comparison": COMPARISON, "a_n": len(a), "gain": gain,
-            "bootstrap_low": low, "passes": passes})  # fmt: skip
     print("  if it passes, RAG still needs the veto on my real rows before the app offers it")
     return passes
 
@@ -287,10 +294,10 @@ def score_command(args: argparse.Namespace) -> int:
                                  "reason": type(e).__name__, "code_commit": head})  # fmt: skip
         raise
     key = sample_key(s.sample)
-    # scored = a comparison was recorded (a run that crashed before it decided nothing)
+    # scored = a comparison was recorded, for any sample and any rule text: this rule has one
+    # public scoring (a run that crashed before recording it showed nothing and decided nothing)
     earlier = [e for e in h.ledger_entries(ledger) if e.get("run") == RUN
-               and e.get("status") == "scored" and e.get("comparison")
-               and e.get("selection_key") == key]  # fmt: skip
+               and e.get("status") == "scored" and e.get("comparison")]  # fmt: skip
     if earlier and not args.again:
         return refuse("the sample was already scored: it is scored once. --again scores it "
                       "again, is recorded, and decides nothing.")  # fmt: skip

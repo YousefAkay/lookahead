@@ -119,8 +119,9 @@ def test_a_valid_run_records_both_variants_and_the_comparison() -> None:
     result, entries, voided = _run("Restaurants & cafés", _log(ok=1))
     assert not voided and isinstance(result, bool)
     assert [e.get("variant") or e.get("comparison") for e in entries] == [
-        "(a)", "(a)+RAG", r.COMPARISON]  # fmt: skip
-    assert entries[0]["a_correct"] == 2 and entries[1]["a_correct"] == 3
+        r.COMPARISON, "(a)", "(a)+RAG"]  # fmt: skip
+    assert entries[0]["a_correct"] == 2 and entries[0]["rag_correct"] == 3
+    assert entries[1]["a_correct"] == 2 and entries[2]["a_correct"] == 3
 
 
 def test_move_cache_aside_keeps_the_answers_and_empties_the_path(tmp_path: Path) -> None:
@@ -354,3 +355,45 @@ def test_git_that_cannot_tell_counts_as_uncommitted(monkeypatch: pytest.MonkeyPa
     failed = subprocess.CompletedProcess(["git"], 128, "", "not a repository")
     monkeypatch.setattr(h, "_git", lambda args, cwd: failed)
     assert REAL_CODE_STATE() == ("", True)
+
+
+def test_nothing_is_shown_before_the_comparison_is_recorded(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def broken(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("bootstrap")
+
+    monkeypatch.setattr(h, "paired_bootstrap", broken)
+    with pytest.raises(RuntimeError):
+        _run("Restaurants & cafés", _log(ok=1))
+    assert "accuracy" not in capsys.readouterr().out.replace("No accuracy computed", "")
+
+
+def test_a_crash_after_the_comparison_still_spends_the_scoring(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _scoring_ready(monkeypatch)
+    real_add = h.add_to_ledger
+
+    def add_then_fail_on_variants(path, entry):  # type: ignore[no-untyped-def]
+        if entry.get("variant"):
+            raise OSError("disk")
+        real_add(path, entry)
+
+    monkeypatch.setattr(h, "add_to_ledger", add_then_fail_on_variants)
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    with pytest.raises(OSError):
+        r.main(["score", "--rag", "--send", "--rag-cache", str(cache)])
+    monkeypatch.setattr(h, "add_to_ledger", real_add)
+    assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 2  # spent
+    assert r.verdict(_ledger(), "rule-sha") is not None
+
+
+def test_a_comparison_for_another_sample_also_counts_as_scored(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _scoring_ready(monkeypatch)
+    other = {"run": r.RUN, "status": "scored", "comparison": r.COMPARISON, "selection_key": "x"}
+    h.add_to_ledger(h.DEFAULT_LEDGER, other)
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 2
