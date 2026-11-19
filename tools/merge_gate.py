@@ -1,27 +1,36 @@
 """The merge gate: nothing lands on `main` without a full-suite pass on that exact commit.
 
-Two halves:
-- `python -m tools.merge_gate run` runs the full suite (pytest) in the current folder. Only if
-  pytest's own exit code is 0, the worktree has no uncommitted tracked change, and HEAD did not
-  move during the run, it writes a pass marker named after the tested commit
-  (`logs/suite-pass/<sha>` in the main folder). The log ends with `PYTEST_EXIT=<code>`.
-- `gate_reason(command, cwd)` is called by a Claude Code hook before every shell command. It
-  refuses a command that would move or push `main` (`git merge` while on main,
-  `git fetch . X:main`, `git push ... main`) unless the commit about to land has a pass marker,
-  or every change after a marked ancestor is a Markdown file (DECISIONS, README, specs).
+- `python -m tools.merge_gate run` runs the full suite in the current folder. Only if pytest's
+  own exit code is 0, the worktree has no uncommitted or untracked (non-ignored) file, and HEAD
+  did not move, it writes a pass marker `logs/suite-pass/<sha>` (main folder) naming its log,
+  which ends with `PYTEST_EXIT=<code>`.
+- `python -m tools.merge_gate install` copies this file into the shared `.git/hooks/` and adds a
+  check to `pre-push`, so the gate does not change with the branch that is checked out.
+- `pre_push(remote, lines)`: git's own pre-push hook. Every push whose destination is
+  `refs/heads/main` needs a pass for the pushed commit, whatever the command form or client.
+- `gate_reason(command, cwd)`: a Claude Code hook calls it before every shell command. It refuses
+  a merge or pull into main without a pass, a merge chained after `cd`/`switch`/`checkout`, a
+  `fetch X:main`, a push to main without a pass, and any command that touches the markers.
 
-The hook sees the command before it runs, so `pytest ... && git merge ...` in one line is refused:
-its marker cannot exist yet.
+A pass also covers a later commit when everything changed after the marked one is in
+`DOC_ONLY` (Markdown no code or test reads). Renames are listed as a delete plus an add.
 """
 
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
-GIT = re.compile(r"(?:^|[\s;&|(])git\s+((?:-C\s+\S+\s+)?)(merge|push|fetch)\b([^;&|\n]*)")
+DOC_ONLY = re.compile(r"^(DECISIONS\.md|README\.md|docs/HANDOFF\.md|docs/results/[^/]+\.md)$")
+SHA = re.compile(r"^[0-9a-f]{40}$")
+GIT = re.compile(r"(?:^|[\s;&|(`])git((?:\s+(?:-C|-c)\s+\S+)*)\s+(merge|pull|push|fetch)(?![-\w])"
+                 r"([^;&|\n`]*)")  # fmt: skip
+MOVES = re.compile(r"(?:^|[\s;&|(])(cd|pushd)\s|git\s+(?:-C\s+\S+\s+)?(switch|checkout)\b")
+MAIN_REFS = {"main", "refs/heads/main"}
 
 
 def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -49,74 +58,96 @@ def _branch(cwd: Path) -> str:
     return _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd).stdout.strip()
 
 
+def _valid_marker(marker: Path) -> bool:
+    """A marker counts only if it names a full sha and its log ends with PYTEST_EXIT=0."""
+    if not SHA.match(marker.name):
+        return False
+    log = marker.parent.parent / marker.read_text(encoding="utf-8").split()[-1]
+    if not log.is_file():
+        return False
+    lines = log.read_text(encoding="utf-8").rstrip().splitlines()
+    return bool(lines) and lines[-1] == "PYTEST_EXIT=0"
+
+
 def passed(sha: str, cwd: Path) -> bool:
-    """A pass marker for this commit, or for an ancestor with only Markdown changed since."""
+    """A valid pass for this commit, or for an ancestor with only DOC_ONLY files changed since."""
     folder = marker_dir(cwd)
-    if (folder / sha).exists():
-        return True
-    for marker in folder.glob("*") if folder.exists() else []:
+    if not folder.is_dir():
+        return False
+    for marker in folder.iterdir():
+        if not _valid_marker(marker):
+            continue
+        if marker.name == sha:
+            return True
         if _git(["merge-base", "--is-ancestor", marker.name, sha], cwd).returncode != 0:
             continue
-        changed = _git(["diff", "--name-only", marker.name, sha], cwd)
+        changed = _git(["diff", "--no-renames", "--name-only", marker.name, sha], cwd)
         names = [n for n in changed.stdout.splitlines() if n]
-        if changed.returncode == 0 and all(n.endswith(".md") for n in names):
+        if changed.returncode == 0 and all(DOC_ONLY.match(n) for n in names):
             return True
     return False
 
 
-def landing_commits(command: str, cwd: Path) -> list[str] | None:
-    """The commits a command would put on main, or None when it cannot tell (refused)."""
-    out: list[str] = []
-    for m in GIT.finditer(command):
-        where = cwd
-        if m.group(1):
-            where = (cwd / shlex.split(m.group(1))[1]).resolve()
-        verb = m.group(2)
-        try:
-            args = [a for a in shlex.split(m.group(3)) if not a.startswith("-")]
-        except ValueError:
-            return None
-        if verb == "merge":
-            if _branch(where) != "main" or not args:
-                continue
-            sha = _sha(args[-1], where)
-            if sha is None:
-                return None
-            out.append(sha)
-        elif verb == "fetch":
-            for spec in args:
-                if spec.lstrip("+").endswith(":main") or spec.endswith(":refs/heads/main"):
-                    sha = _sha(spec.lstrip("+").split(":")[0], where)
-                    if sha is None:
-                        return None
-                    out.append(sha)
-        else:  # push
-            specs = args[1:] if args else []
-            mains = [s for s in specs if s == "main" or s.endswith(":main")]
-            if not specs and _branch(where) == "main":
-                mains = ["main"]
-            if "--all" in m.group(3) or "--mirror" in m.group(3):
-                mains = ["main"]
-            for spec in mains:
-                sha = _sha(spec.split(":")[0] or "main", where)
-                if sha is None:
-                    return None
-                out.append(sha)
-    return out
+def _refuse(sha: str) -> str:
+    return (f"merge gate: commit {sha[:10]} has no full-suite pass. Run `python -m "
+            "tools.merge_gate run` on it first (pytest must exit 0), then merge in its own "
+            "command.")  # fmt: skip
 
 
 def gate_reason(command: str, cwd: Path) -> str | None:
     """Why the command must not run, or None."""
-    if not GIT.search(command):
+    if "suite-pass" in command and "tools.merge_gate run" not in command:
+        return "merge gate: the pass markers are written only by `python -m tools.merge_gate run`"
+    found = list(GIT.finditer(command))
+    if not found:
         return None
-    commits = landing_commits(command, cwd)
-    if commits is None:
-        return "merge gate: cannot tell which commit would land on main; run it on its own"
-    for sha in commits:
-        if not passed(sha, cwd):
-            return (f"merge gate: commit {sha[:10]} has no full-suite pass. Run "
-                    "`python -m tools.merge_gate run` on it first (pytest must exit 0); a merge "
-                    "never follows the suite in the same command.")  # fmt: skip
+    for m in found:
+        verb, tail = m.group(2), m.group(3)
+        where = cwd
+        opts = m.group(1).split()
+        if "-C" in opts:
+            where = (cwd / opts[opts.index("-C") + 1]).resolve()
+        if verb in ("merge", "pull") and MOVES.search(command[: m.start()]):
+            return "merge gate: run a merge or pull on its own, not after cd/switch/checkout"
+        try:
+            args = [a for a in shlex.split(tail) if not a.startswith("-")]
+        except ValueError:
+            return "merge gate: cannot read this git command; run it on its own, simply quoted"
+        if verb in ("merge", "pull"):
+            if _branch(where) != "main":
+                continue
+            refs = args if verb == "merge" else args[1:]
+            if verb == "pull" or not refs:
+                return f"merge gate: no `git {verb}` into main; merge a tested branch instead"
+            for ref in refs:
+                sha = _sha(ref, where)
+                if sha is None:
+                    return f"merge gate: cannot resolve {ref!r}; run the merge on its own"
+                if not passed(sha, where):
+                    return _refuse(sha)
+        elif verb == "fetch":
+            for spec in args[1:]:
+                src, _, dst = spec.lstrip("+").partition(":")
+                if dst in MAIN_REFS:
+                    if args[0] != ".":
+                        return "merge gate: main is updated only from a local tested commit"
+                    sha = _sha(src, where)
+                    if sha is None or not passed(sha, where):
+                        return _refuse(sha or src)
+        # pushes are checked by git's own pre-push hook, which sees every form exactly
+    return None
+
+
+def pre_push(remote: str, lines: Iterable[str], cwd: Path) -> str | None:
+    """git pre-push: refuse a push to refs/heads/main of a commit without a pass."""
+    for line in lines:
+        parts = line.split()
+        if len(parts) != 4:
+            continue
+        _, local_sha, remote_ref, _ = parts
+        if remote_ref == "refs/heads/main" and set(local_sha) != {"0"}:
+            if not passed(local_sha, cwd):
+                return _refuse(local_sha)
     return None
 
 
@@ -124,15 +155,16 @@ def run(cwd: Path) -> int:
     """The full suite, gated on pytest's own exit code."""
 
     def dirty() -> bool:
-        return bool(_git(["status", "--porcelain", "--untracked-files=no"], cwd).stdout.strip())
+        return bool(_git(["status", "--porcelain", "--untracked-files=normal"], cwd).stdout.strip())
 
     head = _sha("HEAD", cwd)
     if head is None or dirty():
-        print("merge gate: commit or stash tracked changes first (the marker names a commit)")
+        print("merge gate: commit (or remove) every changed and untracked file first: the "
+              "marker names a commit, and the suite must test exactly that commit")  # fmt: skip
         return 2
     logs = main_folder(cwd) / "logs"
     logs.mkdir(exist_ok=True)
-    log = logs / f"suite-{head[:10]}-{datetime.now():%Y%m%d-%H%M}.log"
+    log = logs / f"suite-{head[:10]}-{datetime.now():%Y%m%d-%H%M%S}.log"
     with log.open("w", encoding="utf-8") as f:
         proc = subprocess.Popen([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
                                 cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -143,19 +175,63 @@ def run(cwd: Path) -> int:
             f.write(line)
         code = proc.wait()
         f.write(f"PYTEST_EXIT={code}\n")
-    if code == 0 and not dirty() and _sha("HEAD", cwd) == head:
-        folder = marker_dir(cwd)
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / head).write_text(f"{datetime.now().isoformat(timespec='seconds')} {log.name}\n",
-                                   encoding="utf-8")  # fmt: skip
-        print(f"merge gate: PASS, commit {head[:10]} may land on main (log {log.name})")
-    else:
+    if code != 0:
         print(f"merge gate: NO PASS (pytest exit {code}); nothing may land (log {log.name})")
-    return code
+        return code
+    if dirty() or _sha("HEAD", cwd) != head:
+        print(f"merge gate: NO PASS (the worktree changed during the run; log {log.name})")
+        return 3
+    folder = marker_dir(cwd)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / head).write_text(f"{datetime.now().isoformat(timespec='seconds')} {log.name}\n",
+                               encoding="utf-8")  # fmt: skip
+    print(f"merge gate: PASS, commit {head[:10]} may land on main (log {log.name})")
+    return 0
+
+
+PRE_PUSH = """#!/bin/sh
+# Written by `python -m tools.merge_gate install`. Each check reads its own copy of git's input
+# and any refusal stops the push.
+common="$(git rev-parse --path-format=absolute --git-common-dir)"
+input="$(cat)"
+printf '%s\\n' "$input" | "$common/../.venv/bin/python" "$common/hooks/merge_gate.py" \\
+  pre-push "$@" || exit 1
+if [ -f "$common/hooks/pre-push-history" ]; then
+  printf '%s\\n' "$input" | sh "$common/hooks/pre-push-history" "$@" || exit 1
+fi
+exit 0
+"""
+
+
+def install(cwd: Path) -> int:
+    """Copy this file into the shared hooks folder and make pre-push call it. An existing
+    pre-push that is not ours is kept, unchanged, as pre-push-history and still runs."""
+    common = _git(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd)
+    hooks = Path(common.stdout.strip()) / "hooks"
+    shutil.copyfile(Path(__file__), hooks / "merge_gate.py")
+    pre_push_file, history = hooks / "pre-push", hooks / "pre-push-history"
+    if pre_push_file.exists() and "merge_gate.py" not in pre_push_file.read_text("utf-8"):
+        if history.exists():
+            print("merge gate: pre-push-history already exists; nothing changed")
+            return 2
+        pre_push_file.rename(history)
+    pre_push_file.write_text(PRE_PUSH, encoding="utf-8")
+    pre_push_file.chmod(0o755)
+    print(f"merge gate: installed in {hooks}")
+    return 0
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] != ["run"]:
-        print(__doc__)
-        sys.exit(2)
-    sys.exit(run(Path.cwd()))
+    command = sys.argv[1:2]
+    if command == ["run"]:
+        sys.exit(run(Path.cwd()))
+    if command == ["install"]:
+        sys.exit(install(Path.cwd()))
+    if command == ["pre-push"]:
+        reason = pre_push(sys.argv[2] if len(sys.argv) > 2 else "", sys.stdin, Path.cwd())
+        if reason:
+            print(reason, file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+    print(__doc__)
+    sys.exit(2)
