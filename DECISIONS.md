@@ -2425,11 +2425,11 @@ The draft's open points are settled (my decisions with my advisor's input); the 
 
 ### 2026-11-19: Week 4 leftover (a): the baselines rerun on the renamed generator code
 - **Why:** five local brands in the generator were renamed on 2026-11-17, so the final comparison has to be on the same code. The forecaster itself did not change (logic version 3, as in the 2026-10-17 run).
-- **Run:** `python -m eval.baselines --tag 2026-11-19 --set both --jobs 4` (20 development personas per set, 40 weekly origins, 500 futures, seed 42), about 4 minutes for both sets. Report: `docs/results/baselines_2026-11-19.md`, compared with the 2026-10-17 run's records (`--reference`).
+- **Run:** `python -m eval.baselines --tag 2026-11-19 --set both --jobs 4` (20 development personas per set, 40 weekly origins, 500 futures, seed 42), about 4 minutes for both sets. Report: `python -m eval.baselines --tag 2026-11-19 --report --reference ../lookahead-runs/data/backtest/exp1` (the 2026-10-17 run's records), written to `docs/results/baselines_2026-11-19.md`.
 - **What moved:**
-  - 12-month set: 794 of 800 origins are identical (the rename check expected exactly 6 to change). The only number that moved: DRENT's dip Brier, 0.0667 to 0.0666 (n = 102 origins, 23 dips), so its skill went from +70.4% to +70.5% against "balance stays" and from -2.1% to -2.0% against the random walk.
-  - 24-month set: 799 of 800 origins identical, and no number in the report moved.
-  - Every CRPS, coverage and dips-caught figure is unchanged.
-- **Conclusion:** the default stands as measured. With my decision of 2026-11-19 (the current default is final once this rerun confirms it), the forecaster is final.
+  - 12-month set: 794 of 800 origins are identical. The 6 that changed are 3 at v2-DRENT-03 and 3 at v2-TIGHT-02, the same personas as the 2026-11-17 rename check. The only number that moved: DRENT's dip Brier, 0.0667 to 0.0666 (n = 102 origins, 23 dips), so its skill went from +70.4% to +70.5% against "balance stays" and from -2.1% to -2.0% against the random walk.
+  - 24-month set: 799 of 800 origins identical. The one change is at v2L-SAL-03; the rename check covered the 12-month set only, and I did not trace it further. No number in the report moved.
+  - Every CRPS, Brier (except the one above), threshold and dips-caught figure is unchanged. This report has no coverage figure.
+- **Conclusion:** the default stands as measured. With my decision of 2026-11-19 (the current default is final once this rerun confirms it), the forecaster is final. Experiments 5 and 6 are stopped and were never run.
 - Found while doing this: the main folder's copy of the default records (`data/backtest/keeps-coming-with-own/full`) is from logic version 2, which is stale. The current records live in the `lookahead-runs` worktree. No result used the stale copy.
 

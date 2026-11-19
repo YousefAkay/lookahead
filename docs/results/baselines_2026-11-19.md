@@ -1,6 +1,6 @@
 # Experiment 1: baselines and scores (synthetic, development personas)
 
-Made with `python -m eval.baselines --tag 2026-11-19 --report`. Method in DECISIONS.md (2026-10-17). 20 development personas per set (never pooled), 40 weekly origins, 500 futures, seed 42, the default forecaster. The random walk uses the 365 days before each origin and only windows that ended on or before it. Nothing is adopted from this report; it fixes what the later experiments are scored against.
+Made with `python -m eval.baselines --tag 2026-11-19 --reference ../lookahead-runs/data/backtest/exp1 --report`. Method in DECISIONS.md (2026-10-17). 20 development personas per set (never pooled), 40 weekly origins, 500 futures, seed 42, the default forecaster. The random walk uses the 365 days before each origin and only windows that ended on or before it. Nothing is adopted from this report; it fixes what the later experiments are scored against.
 
 ## 12-month set
 

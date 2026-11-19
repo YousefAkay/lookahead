@@ -204,12 +204,15 @@ def test_a_tagged_rerun_keeps_its_own_records_and_report(monkeypatch: pytest.Mon
     assert baselines.TAG_ARG == " --tag 2026-11-19"
     with pytest.raises(ValueError):
         baselines.use_tag("../x")
+    with pytest.raises(ValueError):
+        baselines.use_tag("2026-10-17")  # never overwrite the original report
 
 
-def test_an_earlier_run_is_read_as_the_reference(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_an_earlier_run_is_read_as_the_reference(tmp_path: Path) -> None:
     import json
 
     from eval import baselines
+    from lookahead.generator.archetypes import ALL_HELD_OUT
 
     with pytest.raises(ValueError, match="no records"):
         baselines.load_folder(tmp_path, long=False)
@@ -218,3 +221,9 @@ def test_an_earlier_run_is_read_as_the_reference(tmp_path) -> None:  # type: ign
     assert baselines.load_folder(tmp_path, long=False) == [record]
     with pytest.raises(AssertionError):
         baselines.load_folder(tmp_path, long=True)  # a 12-month persona is not the long set
+    held = tmp_path / "held"
+    held.mkdir()
+    pid = sorted(ALL_HELD_OUT)[0]
+    (held / f"{pid}.jsonl").write_text(json.dumps({"persona": pid}) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        baselines.load_folder(held, long=pid.startswith("v2L-"))  # held-out: refused

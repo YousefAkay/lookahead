@@ -460,6 +460,8 @@ def use_tag(tag: str) -> None:
     global OUT, REPORT, TAG_ARG
     if not tag.replace("-", "").isalnum():
         raise ValueError("--tag: letters, digits and dashes only")
+    if tag == "2026-10-17":
+        raise ValueError("--tag 2026-10-17 is the original run: pick another tag")
     OUT = Path(f"data/backtest/exp1-{tag}")
     REPORT = Path(f"docs/results/baselines_{tag}.md")
     TAG_ARG = f" --tag {tag}"
@@ -491,8 +493,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.tag:
         use_tag(args.tag)
     if args.reference is not None:
-        global REFERENCE
+        global REFERENCE, TAG_ARG
         REFERENCE = args.reference
+        TAG_ARG += f" --reference {args.reference}"
     if args.report:
         REPORT.write_text(report(), encoding="utf-8")
         print(f"written: {REPORT}")
