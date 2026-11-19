@@ -35,7 +35,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def run(path: Path) -> AppTest:
-    at = AppTest.from_file(str(path), default_timeout=60).run()
+    at = AppTest.from_file(str(path), default_timeout=300).run()
     assert not at.exception, at.exception
     return at
 
@@ -123,7 +123,7 @@ def test_app_is_only_reachable_from_this_computer() -> None:
     assert config["browser"]["gatherUsageStats"] is False
     for address in ("0.0.0.0", None, "192.168.1.20"):
         st_config.set_option("server.address", address)
-        at = AppTest.from_file(str(HOME), default_timeout=60).run()
+        at = AppTest.from_file(str(HOME), default_timeout=300).run()
         assert any("runs on this computer only" in str(e.value) for e in at.error), address
         assert "Where things stand" not in page_text(at)  # stopped before any data
     st_config.set_option("server.address", "localhost")
@@ -366,7 +366,7 @@ def test_llm_fallback_is_off_by_default_and_sends_only_on_click(
     client = FakeClient("Entertainment")
     monkeypatch.setattr(llm, "make_client", lambda *_: client)
 
-    at = AppTest.from_file(str(TO_CHECK), default_timeout=60).run()
+    at = AppTest.from_file(str(TO_CHECK), default_timeout=300).run()
     at.sidebar.radio[0].set_value("My data").run()
     assert not at.exception, at.exception
     toggle = at.toggle(key="llm_fallback")

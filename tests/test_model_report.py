@@ -108,7 +108,7 @@ def test_the_page_without_real_results_says_run_locally(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # fmt: skip
     monkeypatch.setenv("LOOKAHEAD_REAL_BACKTEST", str(tmp_path / "missing"))
-    at = AppTest.from_file(str(PAGE), default_timeout=60).run()
+    at = AppTest.from_file(str(PAGE), default_timeout=300).run()
     assert not at.exception, at.exception
     frames = [df.value for df in at.dataframe]
     forecast = next(f for f in frames if "Synthetic, held out" in f.columns)
@@ -126,7 +126,7 @@ def test_the_page_reads_real_results_at_runtime(
     real_like: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # fmt: skip
     monkeypatch.setenv("LOOKAHEAD_REAL_BACKTEST", str(real_like))
-    at = AppTest.from_file(str(PAGE), default_timeout=60).run()
+    at = AppTest.from_file(str(PAGE), default_timeout=300).run()
     assert not at.exception, at.exception
     forecast = next(df.value for df in at.dataframe if "Real" in df.value.columns)
     assert "run locally" not in set(forecast["Real"])

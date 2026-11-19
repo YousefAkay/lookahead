@@ -2433,3 +2433,11 @@ The draft's open points are settled (my decisions with my advisor's input); the 
 - **Conclusion:** the default stands as measured. With my decision of 2026-11-19 (the current default is final once this rerun confirms it), the forecaster is final. Experiments 5 and 6 are stopped and were never run.
 - Found while doing this: the main folder's copy of the default records (`data/backtest/keeps-coming-with-own/full`) is from logic version 2, which is stale. The current records live in the `lookahead-runs` worktree. No result used the stale copy.
 
+### 2026-11-19: The merge gate (after a merge on a red suite)
+- **What happened:** the baselines-rerun merge (0c6ffad) ran in the same command as the full suite, piped through `tee` and `tail`. Those exit 0 whatever pytest does, so the merge and push went through with 1 failed test of 2,840. The failure was a Streamlit page test that timed out at 60 s under the load of the full run (it passed alone in 8 s). A clean full suite on main then passed (2,840, pytest exit 0).
+- **Now mechanical:**
+  - `python -m tools.merge_gate run` runs the full suite and reads pytest's own exit code. Only on exit 0, with no uncommitted tracked change and HEAD unchanged, it writes a pass marker named after the tested commit (`logs/suite-pass/<sha>`, not committed). Its log ends with `PYTEST_EXIT=<code>`.
+  - A Claude Code hook refuses any command that moves or pushes `main` (`git merge` while on main, `git fetch . X:main`, `git push ... main`) unless the commit about to land has a marker, or only Markdown files changed after a marked ancestor. The hook sees the command before it runs, so a merge chained after the suite in one line is refused.
+  - /ship uses the gate.
+- **Page tests:** the Streamlit page tests' ceiling goes from 60 s (120 s for navigation) to 300 s, as one demo test already had. A ceiling only stops a hung test; it does not slow a passing one.
+

@@ -120,7 +120,7 @@ def text_of(at: AppTest) -> str:
 @pytest.mark.slow
 @pytest.mark.parametrize("page", [p for p in APP_PAGES if p.url_path], ids=lambda p: p.url_path)
 def test_the_router_opens_every_page(isolated: Path, page) -> None:  # type: ignore[no-untyped-def]
-    at = AppTest.from_file(str(ROUTER), default_timeout=120).run()
+    at = AppTest.from_file(str(ROUTER), default_timeout=300).run()
     assert not at.exception, at.exception
     at.switch_page(page.file).run()
     assert not at.exception, at.exception
@@ -188,14 +188,14 @@ def test_home_shows_needs_a_look_without_running_the_forecast(
         raise AssertionError("Home must not run the forecast")
 
     monkeypatch.setattr(forecast_path, "build_forecast", no_forecast)
-    at = AppTest.from_file(str(ROUTER), default_timeout=120).run()
+    at = AppTest.from_file(str(ROUTER), default_timeout=300).run()
     assert not at.exception, at.exception
     assert "Nothing needs a look" in text_of(at)
     account = at.sidebar.selectbox[0].value
     conn = connect(isolated / "demo.db")
     add_alerts(conn, account)
     conn.close()
-    at = AppTest.from_file(str(ROUTER), default_timeout=120).run()
+    at = AppTest.from_file(str(ROUTER), default_timeout=300).run()
     assert not at.exception, at.exception
     text = text_of(at)
     assert "Needs a look" in text and "1 recurring alert open" in text
@@ -207,7 +207,7 @@ def test_home_shows_needs_a_look_without_running_the_forecast(
 
 @pytest.mark.slow
 def test_the_demo_click_path_works(isolated: Path) -> None:
-    at = AppTest.from_file(str(ROUTER), default_timeout=120).run()
+    at = AppTest.from_file(str(ROUTER), default_timeout=300).run()
     at.sidebar.selectbox[0].set_value("synthetic-C").run()
     assert not at.exception, at.exception
     assert "synthetic-C" in text_of(at)
