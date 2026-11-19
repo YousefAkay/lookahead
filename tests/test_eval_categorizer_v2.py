@@ -1030,3 +1030,8 @@ def test_a_rule_without_the_public_run_is_refused(repo: Path) -> None:
     old = _committed_rule(repo, "# Adopt rule, version 1\nIn force.\n")
     status = h.adopt_rule_status(old)
     assert not status.ok and "not version 2" in status.reason
+
+
+def test_a_rule_with_open_questions_is_refused(repo: Path) -> None:
+    rule = _committed_rule(repo, RULE + "\n⟨Q1⟩ still open\n")
+    assert not h.adopt_rule_status(rule).ok

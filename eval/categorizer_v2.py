@@ -151,7 +151,7 @@ def adopt_rule_status(path: Path) -> RuleStatus:
     if _git(["diff", "--quiet", commit, "--", path.name], folder).returncode != 0:
         return RuleStatus(False, "the adopt-rule file differs from its commit", commit)
     text = path.read_text(encoding="utf-8")
-    if "DRAFT" in text or "not yet in force" in text.casefold():
+    if "DRAFT" in text or "not yet in force" in text.casefold() or "⟨Q" in text:
         return RuleStatus(False, "the adopt rule is still a draft", commit)
     if RULE_MARKER not in text:
         return RuleStatus(False, "the adopt rule is not version 2 (no public deciding run)", commit)
