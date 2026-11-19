@@ -2409,7 +2409,7 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - The deployed model + RAG got A 10 of 18 and K 54 of 60.
   - So A was 2 rows better and K 0 rows worse. The limits were at most 2 worse on A and at most 1 on K: no veto.
 - **RAG on my rows:** asked about 17 blind rows, it gave a category for 9. Of 14 answers: 8 ok, 4 unsure, 2 unsure with no citation, 0 refused. The run was valid under the void rule, and it was tested (rows asked > 0).
-- **One label corrected before scoring:** with `relabel`, I changed one blind label, Rent & housing to Phone, internet & utilities (my home internet bill). I chose the wrong category while labelling and noticed it myself. I had not seen the app's category or any prediction for that row. The ledger records the correction with the labels file's hashes before and after. An earlier note of mine named the wrong first category; the ledger has the right one.
+- **One label corrected before scoring:** with `relabel`, one blind label corrected (Rent & housing -> Phone, internet & utilities). I chose the wrong category while labelling and noticed it myself. I had not seen the app's category or any prediction for that row. The ledger records the correction with the labels file's hashes before and after. An earlier note of mine named the wrong first category; the ledger has the right one.
 - **Adopted:** rule v4's public run passed (75.8% to 86.3%, n = 600 rows, 275 merchants) and there is no veto, so RAG is adopted.
   - In the app it is the "Smarter categories for new merchants" setup question. It is off until I say yes, and nothing is sent until I click send.
   - Only merchant names (mine and public chains) and category labels are sent.
