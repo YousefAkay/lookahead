@@ -326,7 +326,8 @@ def test_applied_separates_unsure_from_refused_answers_and_warns() -> None:
 
 def test_the_longest_valid_answer_fits_the_token_limit() -> None:
     """Every id of a full prompt cited, the longest category, inside a code fence: it must fit
-    MAX_TOKENS even counting one token per character (a token is never less than one)."""
+    MAX_TOKENS even counting one token per character (the answer is ASCII: json.dumps escapes
+    anything else). It holds for the default retrieval sizes, which every caller uses."""
     examples = [rag.Example(f"NAME {i}", "Groceries", "label") for i in range(rag.TOP_EXAMPLES)]
     directory = [rag.Example(f"CHAIN {i}", "Shopping", "directory", f"d{i}")
                  for i in range(rag.TOP_DIRECTORY)]  # fmt: skip
