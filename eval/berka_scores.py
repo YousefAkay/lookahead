@@ -227,6 +227,8 @@ def report(berka_folder: Path) -> str:
     columns = [("Synthetic, 12-month set", "personas", synthetic_records(False)),
                ("Synthetic, 24-month set", "personas", synthetic_records(True)),
                ("Berka, primary development", "accounts", load_records(berka_folder))]  # fmt: skip
+    zero = [r for r in columns[2][2] if r.get("zero_estimate")]
+    columns.append(("Berka, zero-estimate origins (only)", "accounts", zero))
     s = [(name, unit, summary(recs)) for name, unit, recs in columns]
 
     def row(label: str, fn: Any) -> str:
@@ -275,6 +277,10 @@ def report(berka_folder: Path) -> str:
             lambda x: f"{x['bias']:+,.0f} ({x['abs_bias']:,.0f})",
         ),
         "",
+        "All numbers are pooled over origins, so larger balances weigh more in CRPS and bias "
+        "(the 2026-11-19 baselines report gives the synthetic per-archetype averages). The "
+        "zero-estimate column is the origins where the forecast's everyday spending was zero, "
+        "reported apart as committed on 2026-10-17; it can only veto, never decide. "
         "CRPS and bias are in dollars for the synthetic sets and in scaled units for Berka; "
         "compare skills, coverage, Brier and dips across datasets, not amounts. A positive bias "
         "means the forecast's median lowest balance was above the realized lowest (too "

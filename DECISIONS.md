@@ -2450,3 +2450,21 @@ The draft's open points are settled (my decisions with my advisor's input); the 
 - **Why v2L-SAL-03 moved (1 of 800 origins in the 24-month rerun):** at origin 2026-01-26 the balance and the realized outcome are identical, and only a few quantiles changed: p90 on day 1 by about $8, and days 18-21 by under $10. The persona's rows in the 13 weeks before the origin have the same dates and amounts under the old and the new generator (141 rows each). The only difference is the renamed café ("Olimpico" became "Velisaro"). That café is a detected recurring card series at that origin (4 rows), and the forecaster seeds each scheduled item's random stream with its series key, which holds the merchant name (`simulate._stream(seed, future, "item", series_key, ...)`). So the rename changed one random stream: a different sample from the same distribution, with no change in behaviour. The 6 moved 12-month origins (v2-DRENT-03 and v2-TIGHT-02) are the renames the 2026-11-17 check found.
 - **Stale records moved aside:** 12 record folders in the main folder's `data/backtest` were from forecaster logic version 2 (the current code is 3). I moved them, unchanged, to `data/backtest-stale-logic-2/`, and no records with another version are left in `data/backtest`. Every script that reads saved records through `load_records` already refuses another version (that is how the stale copy was found), and the held-out run will read only records it writes itself. The current default records for the alert-threshold re-pick will be made again from the code on main.
 
+### 2026-11-19: Berka development scored with the full metric set (before the held-out test)
+- **What:** `python -m eval.berka_scores run` recomputed the final default forecaster at every origin of the 200 primary development accounts (40 weekly origins, 500 futures). For each origin it added "balance stays" and the random walk from the account's own past (windows ending on or before the origin). Then `report` scored Berka and the two synthetic sets with one shared `summary`, the same metrics the held-out test will use. Report: `docs/results/scores_development_2026-11-19.md`.
+- **Check:** all 8,000 recomputed origins equal the experiment 3 records (p10, p50, p90, dip chance, realized), and the default's experiment 3 Berka numbers are reproduced (coverage 75.3% at day 30, 57.0% over all days; Brier 0.0772; dips caught 123/283 at 0.75).
+- **Development results** (pooled over scored origins; skills are 1 - forecast score / baseline score). Columns: synthetic 12-month (n = 726 origins, 20 personas), synthetic 24-month (717, 20), Berka (7,135 origins, 200 accounts):
+  - CRPS skill vs "balance stays", mean of 30 days: +28.3% / +33.6% / +27.8%. On day 30: +16.9% / +22.9% / +10.7%.
+  - CRPS skill vs the random walk, mean of 30 days: +10.0% / +9.2% / +3.0%. On day 30: -4.2% / -11.4% / -20.5%.
+  - 80% band coverage, day 30: 49.0% / 58.7% / 75.3%. All 30 days: 58.9% / 63.1% / 57.0%.
+  - Brier skill of the dip chance vs stays: +65.2% / +80.2% / +32.7%. Vs the walk: +23.0% / +43.0% / -5.9%.
+  - Dips caught at the 70% precision bar (in-sample threshold): 47/52 / 45/51 / 123/283.
+  - Lowest-balance bias (median lowest future minus realized lowest; dollars for synthetic, scaled koruna for Berka): +708 / +625 / +136.
+- **Zero-estimate stratum** (Berka origins with zero everyday spending forecast; it can only veto): 466 scored origins in 81 accounts. Skill vs stays +25.4%, vs the walk +0.4%. Coverage 44.2% at day 30. Bias +277.
+- **Berka-specific problems, now known before the held-out run:**
+  - At day 30 the random walk beats the forecast on Berka (-20.5%), more than on the synthetic sets (-4.2%, -11.4%).
+  - The dip chance is worse than the walk's on Berka (Brier -5.9%), while it is better on both synthetic sets.
+  - Fewer of Berka's dips are caught (123 of 283).
+  - The band is too narrow everywhere over the 30 days (57-63% against 80%).
+  - Nothing is tuned from this: the forecaster is final, and the held-out test reports the same metrics.
+
