@@ -13,6 +13,8 @@ from eval import categorizer_v2 as h
 from eval import categorizer_v2_external as x
 from lookahead.categorizer import Prediction
 
+REAL_CODE_STATE = r.code_state  # before the autouse fixture replaces it
+
 
 @pytest.fixture(autouse=True)
 def _safe_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -194,6 +196,7 @@ def test_the_sample_is_scored_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     monkeypatch.setattr(x, "check_files", lambda folder: [])
     monkeypatch.setattr(r, "load_split", lambda folder: split)
     h.add_to_ledger(h.DEFAULT_LEDGER, {"run": r.RUN, "status": "scored",
+                                       "comparison": r.COMPARISON,
                                        "selection_key": r.sample_key(SAMPLE)})  # fmt: skip
     cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
     assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 2
@@ -237,7 +240,7 @@ def test_the_first_valid_run_decides() -> None:
         {"run": r.RUN, "status": "void", "adopt_rule_sha256": "s3"},
         comparison(False, sha="other"),  # another rule text
         comparison(True),  # the first valid run
-        comparison(False),  # a later --again: recorded, decides nothing
+        {**comparison(False), "again": True},  # a later --again: recorded, decides nothing
     ]
     assert r.verdict(entries, "s3") is True
     assert r.verdict(entries, None) is None and r.verdict([], "s3") is None
@@ -274,6 +277,80 @@ def test_an_again_run_never_decides() -> None:
     assert r.verdict(entries, "s3") is None
 
 
-def test_the_v2_harness_does_not_take_the_v3_rule_file() -> None:
+def test_each_harness_has_its_own_rule_file() -> None:
     assert r.RULE.resolve() != h.APPROVED_ADOPT_RULE.resolve()
     assert h.adopt_rule_status(h.APPROVED_ADOPT_RULE, r.RULE_MARKER).ok is False
+
+
+def _scoring_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    _ok_rule(monkeypatch)
+    monkeypatch.setattr(x, "check_files", lambda folder: [])
+    monkeypatch.setattr(r, "load_split", lambda folder: r.Split(SAMPLE, SAMPLE, SAMPLE, SAMPLE))
+    monkeypatch.setattr(r, "split_counts", lambda s: {"train": 0, "test": 0, "sample": 0})
+    monkeypatch.setattr(x, "train_variant", lambda variant, rows: _Model())
+
+    def answering(train, path, send, client=None):  # type: ignore[no-untyped-def]
+        return (lambda name: "Restaurants & cafés"), _log(ok=1)
+
+    monkeypatch.setattr(r, "rag_answer_function", answering)
+
+
+def test_again_is_refused_before_a_first_scoring(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _scoring_ready(monkeypatch)
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    assert r.main(["score", "--rag", "--send", "--again", "--rag-cache", str(cache)]) == 2
+    [entry] = _ledger()
+    assert entry["status"] == "refused" and "--again" in str(entry["reason"])
+    assert entry["code_commit"] == "abc123"
+
+
+def test_the_first_scoring_decides_and_again_does_not_change_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _scoring_ready(monkeypatch)
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 0
+    first = r.verdict(_ledger(), "rule-sha")
+    assert first is not None
+    monkeypatch.setattr(
+        r,
+        "rag_answer_function",
+        lambda train, path, send, client=None: ((lambda n: "Shopping"), _log(ok=1)),
+    )
+    assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 2  # scored once
+    assert r.main(["score", "--rag", "--send", "--again", "--rag-cache", str(cache)]) == 0
+    assert r.verdict(_ledger(), "rule-sha") == first
+    assert _ledger()[-1]["again"] is True
+
+
+def test_a_run_that_crashed_before_its_comparison_does_not_block_scoring(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _scoring_ready(monkeypatch)
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": r.RUN, "status": "scored", "variant": "(a)",
+                                       "selection_key": r.sample_key(SAMPLE)})  # fmt: skip
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 0
+
+
+def test_a_ctrl_c_is_recorded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _scoring_ready(monkeypatch)
+
+    def interrupted(variant, rows):  # type: ignore[no-untyped-def]
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(x, "train_variant", interrupted)
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    with pytest.raises(KeyboardInterrupt):
+        r.main(["score", "--rag", "--send", "--rag-cache", str(cache)])
+    assert _ledger()[-1]["status"] == "crashed"
+
+
+def test_git_that_cannot_tell_counts_as_uncommitted(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    failed = subprocess.CompletedProcess(["git"], 128, "", "not a repository")
+    monkeypatch.setattr(h, "_git", lambda args, cwd: failed)
+    assert REAL_CODE_STATE() == ("", True)

@@ -249,19 +249,22 @@ def score(
 
 def code_state() -> tuple[str, bool]:
     """(the commit the harness runs from, whether tracked files have uncommitted changes)."""
-    head = h._git(["rev-parse", "HEAD"], ROOT).stdout.strip()
-    changed = bool(h._git(["status", "--porcelain", "--untracked-files=no"], ROOT).stdout.strip())
-    return head, changed
+    head = h._git(["rev-parse", "HEAD"], ROOT)
+    state = h._git(["status", "--porcelain", "--untracked-files=no"], ROOT)
+    if head.returncode or state.returncode:
+        return "", True  # git cannot tell: treated as not committed
+    return head.stdout.strip(), bool(state.stdout.strip())
 
 
 def score_command(args: argparse.Namespace) -> int:
     ledger = h.DEFAULT_LEDGER
     now = datetime.now().isoformat(timespec="seconds")
+    head, changed = code_state()
 
     def refuse(reason: str) -> int:
         print(f"refusing to score: {reason}")
         h.add_to_ledger(ledger, {"at": now, "run": RUN, "status": "refused", "reason": reason,
-                                 "again": args.again})  # fmt: skip
+                                 "again": args.again, "code_commit": head})  # fmt: skip
         return 2
 
     status = h.adopt_rule_status(RULE, RULE_MARKER)
@@ -269,21 +272,31 @@ def score_command(args: argparse.Namespace) -> int:
         return refuse(f"{status.reason} ({RULE.relative_to(ROOT)})")
     if not (args.rag and args.send):
         return refuse("the one scoring is `score --rag --send`")
-    head, changed = code_state()
     if changed:
-        return refuse("tracked files have uncommitted changes: the code that runs is committed")
+        return refuse("tracked files have uncommitted changes (or git cannot tell): the code "
+                      "that runs is committed")  # fmt: skip
     if not is_private_path(args.rag_cache):
         return refuse("the RAG cache must be inside data/private/")
     problems = x.check_files(args.folder)
     if problems:
         return refuse("; ".join(problems))
-    s = load_split(args.folder)
+    try:
+        s = load_split(args.folder)
+    except BaseException as e:
+        h.add_to_ledger(ledger, {"at": now, "run": RUN, "status": "crashed",
+                                 "reason": type(e).__name__, "code_commit": head})  # fmt: skip
+        raise
     key = sample_key(s.sample)
+    # scored = a comparison was recorded (a run that crashed before it decided nothing)
     earlier = [e for e in h.ledger_entries(ledger) if e.get("run") == RUN
-               and e.get("status") == "scored" and e.get("selection_key") == key]  # fmt: skip
+               and e.get("status") == "scored" and e.get("comparison")
+               and e.get("selection_key") == key]  # fmt: skip
     if earlier and not args.again:
         return refuse("the sample was already scored: it is scored once. --again scores it "
                       "again, is recorded, and decides nothing.")  # fmt: skip
+    if args.again and not earlier:
+        return refuse("--again is only for a second scoring: the first scoring is the one "
+                      "that decides, run without it")  # fmt: skip
 
     def record(entry: dict[str, object]) -> None:
         h.add_to_ledger(ledger, {"at": now, "run": RUN, "selection_key": key,
@@ -300,14 +313,14 @@ def score_command(args: argparse.Namespace) -> int:
 
     print(f"Categorizer RAG v3, deciding run on the public set; adopt rule at commit "
           f"{(status.commit or '')[:10]}")  # fmt: skip
-    counts = split_counts(s)
-    print(f"split: train {counts['train']}, test {counts['test']}, sample {counts['sample']} "
-          "(rows, merchants)")  # fmt: skip
     try:
+        counts = split_counts(s)
+        print(f"split: train {counts['train']}, test {counts['test']}, sample "
+              f"{counts['sample']} (rows, merchants)")  # fmt: skip
         model = x.train_variant("current", s.train)
         rag_answer, log = rag_answer_function(s.train, args.rag_cache, send=True)
         result = score(s, model, rag_answer, log, record, on_void)
-    except Exception as e:  # the kind of error only: a message may quote a name
+    except BaseException as e:  # Ctrl-C too; the kind of error only: a message may quote a name
         record({"status": "crashed", "reason": type(e).__name__})
         print(f"the run stopped ({type(e).__name__}); recorded in the ledger as crashed")
         raise

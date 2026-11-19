@@ -1067,3 +1067,15 @@ def test_the_draw_waits_for_rag_v3s_public_run(
     code = h.main(["candidates", "--db", str(db), "--out", str(out)])
     assert code == 2 and "version 3" in capsys.readouterr().out and not out.exists()
     assert not any(e.get("status") == "drawn" for e in h.ledger_entries(h.DEFAULT_LEDGER))
+
+
+@pytest.mark.parametrize("passes", [True, False])
+def test_the_draw_opens_only_when_rag_v3_passed(passes: bool) -> None:
+    from eval import categorizer_rag_v3 as v3
+
+    assert REAL_RAG_V3_PASSED() is False  # nothing scored yet
+    sha = h.adopt_rule_status(v3.RULE, v3.RULE_MARKER).sha256  # the committed v3 rule
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": v3.RUN, "status": "scored",
+                                       "comparison": v3.COMPARISON, "passes": passes,
+                                       "adopt_rule_sha256": sha})  # fmt: skip
+    assert REAL_RAG_V3_PASSED() is passes

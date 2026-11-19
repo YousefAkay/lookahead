@@ -2337,4 +2337,10 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - An `--again` run never decides.
   - The shared-names count uses the cleaner's match form (still 0).
   - Not changed: the 95% line prints and does not stop the run (stopping to look is my step, as in version 2).
+- **After the reviewer's FAIL (one blocking point), safety only; the rule text is unchanged:**
+  - `--again` is refused before a first scoring. Otherwise a first run with `--again` would decide nothing and block every later run.
+  - "Already scored" means a comparison was recorded, so a run that crashed before it decided nothing.
+  - Ctrl-C and errors while the data loads are recorded as crashed.
+  - Refusals record the code commit too, and git that cannot tell counts as uncommitted.
+  - A test shows the draw opens on a v3 pass and stays shut on a fail.
 
