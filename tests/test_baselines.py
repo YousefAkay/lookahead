@@ -204,3 +204,17 @@ def test_a_tagged_rerun_keeps_its_own_records_and_report(monkeypatch: pytest.Mon
     assert baselines.TAG_ARG == " --tag 2026-11-19"
     with pytest.raises(ValueError):
         baselines.use_tag("../x")
+
+
+def test_an_earlier_run_is_read_as_the_reference(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    import json
+
+    from eval import baselines
+
+    with pytest.raises(ValueError, match="no records"):
+        baselines.load_folder(tmp_path, long=False)
+    record = {"persona": "v2-DHOME-01", "origin": "2025-01-06", "p10": 1}
+    (tmp_path / "v2-DHOME-01.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    assert baselines.load_folder(tmp_path, long=False) == [record]
+    with pytest.raises(AssertionError):
+        baselines.load_folder(tmp_path, long=True)  # a 12-month persona is not the long set

@@ -58,6 +58,7 @@ from lookahead.generator.archetypes import assert_development_only, development_
 OUT = Path("data/backtest/exp1")
 REPORT = Path("docs/results/baselines_2026-10-17.md")
 TAG_ARG = ""  # " --tag X" for a later rerun (in the report's first line)
+REFERENCE: Path | None = None  # an earlier baselines run (folders 12/ and long/) to compare with
 QUANTILES = tuple(k / 100 for k in range(5, 100, 5))  # 5, 10, ..., 95 percent
 LOOKBACK_DAYS = 365
 MIN_WINDOWS = 20  # fewer windows than this: no random walk for the origin
@@ -213,6 +214,22 @@ def load(long: bool) -> list[Record]:
     return records
 
 
+def reference_name() -> str:
+    return "the saved default (arm 0)" if REFERENCE is None else "the earlier baselines run"
+
+
+def load_folder(folder: Path, long: bool) -> list[Record]:
+    """An earlier baselines run's records (development only, one set), to compare with."""
+    records = []
+    for path in sorted(folder.glob("*.jsonl")):
+        records += [json.loads(x) for x in path.read_text("utf-8").splitlines() if x]
+    if not records:
+        raise ValueError(f"no records in {folder}")
+    assert_development_only(sorted({r["persona"] for r in records}))
+    assert all(is_long(r["persona"]) == long for r in records)
+    return records
+
+
 def usable(records: list[Record]) -> list[Record]:
     """Ordinary origins (not already in shortfall) where the random walk is defined."""
     return [r for r in records if not r["in_shortfall_at_origin"] and r["walk"] is not None]
@@ -322,7 +339,7 @@ def section(title: str, records: list[Record], reference: list[Record]) -> list[
     out += [
         f"Origins: {len(records)}; ordinary (not already below the buffer): {len(ordinary)}; "
         f"with a random walk (at least {MIN_WINDOWS} windows): {len(rows)}. All scores below "
-        f"are on those {len(rows)}. This rerun equals the saved default (arm 0) at "
+        f"are on those {len(rows)}. This rerun equals {reference_name()} at "
         f"{same} of {len(records)} records (p10, p50, p90, dip chance, realized).",
         "",
     ]
@@ -430,7 +447,10 @@ def report() -> str:
     ]
     for long, title in ((False, "12-month set"), (True, "24-month set")):
         records = load(long)
-        reference = load_records(current_default_dir(long))
+        if REFERENCE is None:
+            reference = load_records(current_default_dir(long))
+        else:
+            reference = load_folder(REFERENCE / ("long" if long else "12"), long)
         lines += section(title, records, reference)
     return "\n".join(lines) + "\n"
 
@@ -457,6 +477,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--report", action="store_true")
     parser.add_argument(
+        "--reference",
+        type=Path,
+        default=None,
+        help="with --report: an earlier baselines run (folders 12/ and long/) to compare with",
+    )
+    parser.add_argument(
         "--tag",
         default=None,
         help="a rerun: records in data/backtest/exp1-TAG, report baselines_TAG.md",
@@ -464,6 +490,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.tag:
         use_tag(args.tag)
+    if args.reference is not None:
+        global REFERENCE
+        REFERENCE = args.reference
     if args.report:
         REPORT.write_text(report(), encoding="utf-8")
         print(f"written: {REPORT}")
