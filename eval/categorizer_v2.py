@@ -617,6 +617,11 @@ def external_verdicts(
     return out
 
 
+def v2_has_something_to_veto(entries: Sequence[dict[str, object]], rule_sha256: str | None) -> bool:
+    """Whether any variant passed rule v2's public run (v2 mode vetoes only those)."""
+    return any(external_verdicts(entries, rule_sha256).values())
+
+
 def rag_passed() -> bool:
     """Whether RAG passed the public run of adopt rule version 4. The one draw of my rows is
     that rule's veto (version 2 adopted nothing), so it waits for this."""
@@ -804,14 +809,18 @@ def score_my_data(args: argparse.Namespace) -> int:
             return refuse(f"--{flag} is required (no default points at private data)")
     if args.rule_v4:
         if not (args.rag and args.send):
-            return refuse("rule v4's veto is one run with `--rule-v4 --rag --send`")
+            return refuse("rule v4's veto is one run with `--rule-v4 --rag --send`",
+                          run=VETO_V4_RUN)  # fmt: skip
         if args.rag_cache == DEFAULT_RAG_CACHE:
             args.rag_cache = DEFAULT_VETO_V4_CACHE  # its own cache, never the app's
         apps = {(main_folder() / DEFAULT_RAG_CACHE).resolve(), DEFAULT_RAG_CACHE.resolve()}
         if args.rag_cache.resolve() in apps:
             return refuse("rule v4's veto never uses the app's RAG cache", run=VETO_V4_RUN)
         if not is_private_path(args.rag_cache):
-            return refuse("the RAG cache must be inside data/private/")
+            return refuse("the RAG cache must be inside data/private/", run=VETO_V4_RUN)
+        gate = _rule_v4_gate(args)
+        if isinstance(gate, str):
+            return refuse(gate, run=VETO_V4_RUN)
     rule = args.adopt_rule if args.adopt_rule.is_absolute() else ROOT / args.adopt_rule
     if rule.resolve() != APPROVED_ADOPT_RULE.resolve():
         return refuse(f"only {DEFAULT_ADOPT_RULE} is accepted as the adopt rule")
@@ -823,6 +832,12 @@ def score_my_data(args: argparse.Namespace) -> int:
         return refuse("the ledger has no draw: the blind rows come from `candidates` only")
     if drawn[-1].get("adopt_rule_sha256") != status.sha256:
         return refuse("the adopt rule changed after the draw: the draw's rule is the one in force")
+    if not args.rule_v4 and not v2_has_something_to_veto(ledger_entries(args.ledger),
+                                                         status.sha256):  # fmt: skip
+        return refuse(
+            "nothing passed rule v2's public run, so v2 mode has nothing to veto. The "
+            "one draw is RAG rule v4's veto: score it with --rule-v4 --rag --send"
+        )
     try:
         labels = load_blind_labels(args.labels)
         selection = selection_fingerprints(args.labels)
@@ -904,7 +919,7 @@ def score_my_data(args: argparse.Namespace) -> int:
                                     "send": bool(args.rag and args.send), **entry})  # fmt: skip
 
     if args.rule_v4:
-        return _score_rule_v4(args, conn, split, settings, extra, selection, record, refuse, now)
+        return _score_rule_v4(args, conn, split, settings, extra, selection, record, gate, now)
     print(f"Categorizer v2 on the blind set: account {args.account}; adopt rule at commit "
           f"{(status.commit or '')[:10]}")  # fmt: skip
     score(split, settings, extra, variants, rag_answer, dry_run=False, record=record,
@@ -913,37 +928,41 @@ def score_my_data(args: argparse.Namespace) -> int:
     return 0
 
 
+def _rule_v4_gate(args: argparse.Namespace) -> str | tuple[RuleStatus, str]:
+    """Rule v4's checks that need only the ledger and git, run before anything private is
+    read: the refusal reason, or (the rule's status, the code commit)."""
+    from eval import categorizer_rag_v4 as rag_rule
+
+    v4 = adopt_rule_status(rag_rule.RULE, rag_rule.RULE_MARKER)
+    entries = ledger_entries(args.ledger)
+    if not v4.ok:
+        return f"RAG adopt rule version 4: {v4.reason}"
+    if rag_rule.verdict(entries, v4.sha256) is not True:
+        return "RAG did not pass rule version 4's public run: there is nothing to veto"
+    head, changed = rag_rule.code_state()
+    if changed:
+        return "tracked files have uncommitted changes (or git cannot tell)"
+    scored = [e for e in entries if e.get("run") == VETO_V4_RUN
+              and e.get("status") == "scored" and e.get("veto")]  # fmt: skip
+    if args.again and not scored:
+        return "--again is only for a second scoring: the first veto run decides"
+    runs = [e for e in entries if e.get("run") == VETO_V4_RUN and e.get("status") != "refused"]
+    after_crash = bool(runs) and runs[-1].get("status") == "crashed"
+    if args.rag_cache.exists() and not (after_crash or args.again):
+        return f"the veto's RAG cache must start empty: {args.rag_cache.name} exists"
+    return v4, head
+
+
 def _score_rule_v4(  # type: ignore[no-untyped-def]
     args, conn, split: Split, settings: Settings, extra: pd.DataFrame | None,
-    blind_rows: Sequence[str], record, refuse, now: str,
+    blind_rows: Sequence[str], record, gate: tuple[RuleStatus, str], now: str,
 ) -> int:  # fmt: skip
     """Rule v4's veto run, after every check of `score_my_data` (draw, labels, minimums).
     `blind_rows` is the whole drawn selection: none of it is ever a RAG example."""
     from eval import categorizer_rag_v4 as rag_rule
     from lookahead.pseudonymize import pseudonym_key
 
-    v4 = adopt_rule_status(rag_rule.RULE, rag_rule.RULE_MARKER)
-    entries = ledger_entries(args.ledger)
-
-    def refuse_v4(reason: str) -> int:
-        conn.close()
-        return refuse(reason, run=VETO_V4_RUN)
-
-    if not v4.ok:
-        return refuse_v4(f"RAG adopt rule version 4: {v4.reason}")
-    if rag_rule.verdict(entries, v4.sha256) is not True:
-        return refuse_v4("RAG did not pass rule version 4's public run: there is nothing to veto")
-    head, changed = rag_rule.code_state()
-    if changed:
-        return refuse_v4("tracked files have uncommitted changes (or git cannot tell)")
-    scored = [e for e in entries if e.get("run") == VETO_V4_RUN
-              and e.get("status") == "scored" and e.get("veto")]  # fmt: skip
-    if args.again and not scored:
-        return refuse_v4("--again is only for a second scoring: the first veto run decides")
-    runs = [e for e in entries if e.get("run") == VETO_V4_RUN and e.get("status") != "refused"]
-    after_crash = bool(runs) and runs[-1].get("status") == "crashed"
-    if args.rag_cache.exists() and not (after_crash or args.again):
-        return refuse_v4(f"the veto's RAG cache must start empty: {args.rag_cache.name} exists")
+    v4, head = gate
 
     def record_v4(entry: dict[str, object]) -> None:
         record({"run": VETO_V4_RUN, "rag_rule_commit": v4.commit,

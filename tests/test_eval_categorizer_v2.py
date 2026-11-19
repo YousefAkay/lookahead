@@ -16,6 +16,7 @@ import pytest
 from eval import categorizer_v2 as h
 
 REAL_RAG_PASSED = h.rag_passed  # before any test replaces it
+REAL_V2_HAS_SOMETHING_TO_VETO = h.v2_has_something_to_veto
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -83,6 +84,8 @@ def _safe_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(h, "APPROVED_ADOPT_RULE", tmp_path / "repo" / "rule.md")
     # the one draw also waits for RAG's public run (rule v4); draw tests open that gate
     monkeypatch.setattr(h, "rag_passed", lambda: True)
+    # v2 mode refuses when nothing passed v2's public run; tests of scoring open that gate
+    monkeypatch.setattr(h, "v2_has_something_to_veto", lambda entries, sha: True)
 
 
 # --- The adopt rule ---
@@ -1159,7 +1162,8 @@ def test_rule_v4_needs_rag_and_send(tmp_path: Path, capsys: pytest.CaptureFixtur
     args = ["score", "--db", str(tmp_path / "x.db"), "--labels", str(labels),
             "--choice", str(tmp_path / "c.json"), "--rule-v4", "--rag"]  # fmt: skip
     assert h.main(args) == 2 and "--rule-v4 --rag --send" in capsys.readouterr().out
-    assert h.ledger_entries(h.DEFAULT_LEDGER)[-1]["status"] == "refused"
+    last = h.ledger_entries(h.DEFAULT_LEDGER)[-1]
+    assert last["status"] == "refused" and last["run"] == h.VETO_V4_RUN
 
 
 @pytest.mark.slow
@@ -1271,3 +1275,22 @@ def test_rule_v4_never_uses_the_apps_cache(
     assert h.main(args) == 2 and "app's RAG cache" in capsys.readouterr().out
     assert h.ledger_entries(h.DEFAULT_LEDGER)[-1]["run"] == h.VETO_V4_RUN
     assert h.DEFAULT_VETO_V4_CACHE.is_absolute()
+
+
+def test_v2_mode_refuses_when_nothing_passed_v2s_public_run(
+    tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """The one draw is rule v4's veto: a plain v2 scoring must never use it up."""
+    monkeypatch.setattr(h, "v2_has_something_to_veto", REAL_V2_HAS_SOMETHING_TO_VETO)
+    rule = _committed_rule(repo)
+    labels = tmp_path / "labels.csv"
+    labels.write_text("fingerprint,set,category\nf1,A,Shopping\n", encoding="utf-8")
+    _log_draw(labels, rule)
+    sha = h.adopt_rule_status(rule).sha256
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": "external", "status": "scored",
+                                       "comparison": "cleaner+directory vs current",
+                                       "passes": False, "adopt_rule_sha256": sha})  # fmt: skip
+    assert h.main(_score_args(tmp_path, labels, rule)) == 2
+    assert "nothing to veto" in capsys.readouterr().out
+    assert not h.scored_fingerprints(h.ledger_entries(h.DEFAULT_LEDGER))  # draw unused
