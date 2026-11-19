@@ -69,6 +69,7 @@ from lookahead.categorize import Settings, load_settings, training_rows
 from lookahead.categorizer import HybridCategorizer, examples
 from lookahead.flows import Txn
 from lookahead.merchants import is_private_path
+from lookahead.rag_categorizer import silent_warning
 from lookahead.resolve import load_user_decisions
 from lookahead.taxonomy import CATEGORIES
 
@@ -347,6 +348,18 @@ class VariantResult:
     variant: str
     categories: list[str | None]  # per blind row, in order
     sources: list[str]
+    rag_asked: int = 0  # rows RAG was asked about (flagged, not answered by the directory)
+
+    @property
+    def rag_answered(self) -> int:
+        return self.sources.count("RAG")
+
+    def rag_note(self) -> dict[str, object]:
+        """For the ledger: what RAG was asked and answered, and the warning if it was silent."""
+        if self.variant != "+RAG":
+            return {}
+        return {"rag_asked": self.rag_asked, "rag_answered": self.rag_answered,
+                "rag_warning": silent_warning(self.rag_asked, self.rag_answered)}  # fmt: skip
 
 
 def fit_model(
@@ -392,15 +405,17 @@ def run_variant(
     table = v2.apply_directory(table, options)
     categories: list[str | None] = list(table["category"])
     sources = list(table["source"])
+    asked = 0
     if variant == "+RAG":
         if rag_answer is None:
             raise ValueError("the RAG variant needs an answer function")
         for i, (flagged, source) in enumerate(zip(table["flagged"], sources, strict=True)):
             if flagged and source == "model":
+                asked += 1
                 got = rag_answer(blind.iloc[i])
                 if got is not None:
                     categories[i], sources[i] = got, "RAG"
-    return VariantResult(variant, categories, sources)
+    return VariantResult(variant, categories, sources, asked)
 
 
 def paired_bootstrap(
@@ -619,9 +634,11 @@ def score(
         results[variant] = result
         by_source = pd.Series(result.sources).value_counts().to_dict()
         print(f"variant {variant}: rows {len(blind)}, by source {dict(sorted(by_source.items()))}")
+        if warning := result.rag_note().get("rag_warning"):
+            print(f"  {warning}")
         correct = np.array([c == t for c, t in zip(result.categories, blind["truth"],
                                                    strict=True)])  # fmt: skip
-        entry = {"variant": variant, "rows": len(blind), "dry_run": dry_run}
+        entry = {"variant": variant, "rows": len(blind), "dry_run": dry_run, **result.rag_note()}
         if not dry_run:
             a, k = correct[in_a], correct[~in_a]
             print(_accuracy_line("group A, new-merchant rows", a))

@@ -76,10 +76,13 @@ def settings_panel(
         except Exception as e:  # the kind of error only: a message may quote a name
             st.session_state["smarter_note"] = f"Stopped: {type(e).__name__}. Nothing lost."
         else:
-            st.session_state["smarter_note"] = (
+            note = (
                 f"Sent {count(done.sent, 'name')}; {count(done.rows, 'row')} now with a "
-                f"category from smarter categories; {done.unsure} unsure (still to check)."
+                f"category from smarter categories; {done.unsure} unsure, "
+                f"{done.not_taken} answers not usable (still to check)."
             )
+            warning = done.warning()
+            st.session_state["smarter_note"] = f"{warning}. {note}" if warning else note
         st.rerun()
     if "smarter_note" in st.session_state:
         st.sidebar.info(st.session_state.pop("smarter_note"))

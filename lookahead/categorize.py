@@ -352,12 +352,13 @@ def main(argv: list[str] | None = None) -> int:
             from_llm = llm_fallback.apply(conn, args.account, pseudonym_key(args.env)).rows
         except PseudonymKeyError:
             print("LLM fallback is on but PSEUDONYM_KEY is missing: saved answers not applied")
-    from_rag = None
+    from_rag = rag_warning = None
     if categorizer_v2.load_options(conn).rag:  # categorizer v2, opt-in: saved answers only
         from lookahead import rag_categorizer
 
         try:
-            from_rag = rag_categorizer.apply(conn, args.account, pseudonym_key(args.env)).rows
+            applied = rag_categorizer.apply(conn, args.account, pseudonym_key(args.env))
+            from_rag, rag_warning = applied.rows, applied.warning()
         except PseudonymKeyError:
             print("RAG categories are on but PSEUDONYM_KEY is missing: saved answers not applied")
     conn.close()
@@ -373,6 +374,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  of the model's rows, now from saved LLM answers (fallback is on): {from_llm}")
     if from_rag is not None:
         print(f"  of the flagged new-merchant rows, now from saved RAG answers: {from_rag}")
+    if rag_warning:
+        print(f"  {rag_warning}")
     print(f"flagged (worth a look, never blocking): {s.flagged}")
     if s.changed is not None:
         print(f"rows whose category changed since the last run: {s.changed} "

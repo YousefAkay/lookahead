@@ -174,7 +174,8 @@ def test_a_valid_answer_with_citations_is_taken() -> None:
     [
         ('{"category": null, "cited": []}', "unsure"),
         ("Groceries", "not JSON"),
-        ('```json\n{"category": "Groceries", "cited": ["ex-a"]}\n```', "not JSON"),
+        ('Here: ```json\n{"category": "Groceries", "cited": ["ex-a"]}\n```', "not JSON"),
+        ('```json\n{"category": "Groceries", "cited": ["ex-a"]}\n``` thanks', "not JSON"),
         ('{"category": "groceries", "cited": ["ex-a"]}', "not one of the categories"),
         ('{"category": "Coffee", "cited": ["ex-a"]}', "not one of the categories"),
         ('{"category": "Groceries", "cited": []}', "no citation"),
@@ -278,3 +279,46 @@ def test_apply_sends_only_allowed_fields_and_marks_rows(db: Path, tmp_path: Path
     sources = {r[0] for r in conn.execute("SELECT source FROM category_predictions")}
     assert "RAG" in sources
     conn.close()
+
+
+# --- Code fences (found after the public scoring of 2026-11-18) ---
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '```json\n{"category": "Groceries", "cited": ["ex-a"]}\n```',
+        '```\n{"category": "Groceries", "cited": ["ex-a"]}\n```',
+        '  ```JSON \n{"category": "Groceries", "cited": ["ex-a"]}```\n',
+    ],
+)
+def test_a_code_fence_around_the_whole_answer_is_removed(raw: str) -> None:
+    assert rag.parse_answer(raw, IDS) == rag.Decision("Groceries", ("ex-a",), "ok")
+
+
+def test_a_fenced_answer_from_the_client_gives_a_category(tmp_path: Path) -> None:
+    client = FakeClient('```json\n{"category": "Restaurants & cafés", "cited": ["ex-a"]}\n```')
+    cache = tmp_path / "data" / "private" / "rag.json"
+    answer, asked = rag.categorize_one(_retrieved(), cache, client, send=True)
+    assert asked and answer is not None and answer.category == "Restaurants & cafés"
+
+
+def test_a_fenced_unsure_answer_stays_unsure() -> None:
+    d = rag.parse_answer('```json\n{"category": null, "cited": []}\n```', IDS)
+    assert d.category is None and d.reason == "unsure"
+
+
+def test_the_warning_is_loud_only_when_asked_and_nothing_answered() -> None:
+    assert rag.silent_warning(0, 0) is None
+    assert rag.silent_warning(5, 1) is None
+    warning = rag.silent_warning(347, 0)
+    assert warning is not None and warning.startswith("WARNING") and "347 rows" in warning
+
+
+def test_applied_separates_unsure_from_refused_answers_and_warns() -> None:
+    all_refused = rag.Applied(names=4, sent=4, rows=0, unsure=1, not_taken=3, with_answer=4)
+    assert all_refused.warning() is not None and "4 names" in (all_refused.warning() or "")
+    some = rag.Applied(names=4, sent=4, rows=2, unsure=1, not_taken=1, with_answer=4)
+    assert some.warning() is None
+    nothing_asked = rag.Applied(names=4, sent=0, rows=0, unsure=0, not_taken=0, with_answer=0)
+    assert nothing_asked.warning() is None

@@ -308,15 +308,17 @@ def predict(
     )
     table = v2.apply_directory(table, h.variant_options(variant))
     categories, sources = list(table["category"]), list(table["source"])
+    asked = 0
     if variant == "+RAG":
         if rag_answer is None:
             raise ValueError("the RAG variant needs an answer function")
         for i, (flagged, source) in enumerate(zip(table["flagged"], sources, strict=True)):
             if flagged and source == "model":
+                asked += 1
                 got = rag_answer(looked_up[i])
                 if got is not None:
                     categories[i], sources[i] = got, "RAG"
-    return h.VariantResult(variant, categories, sources)
+    return h.VariantResult(variant, categories, sources, asked)
 
 
 def rag_answer_function(
@@ -376,17 +378,20 @@ def score_variants(
             model = train_variant(variant, prepared.train)
             model_b = model if variant == "cleaner+directory" else model_b
         got = predict(variant, model, sample, rag_answer)
-        got = h.VariantResult(variant, [same(c) for c in got.categories], got.sources)
+        got = h.VariantResult(variant, [same(c) for c in got.categories], got.sources,
+                              got.rag_asked)  # fmt: skip
         results[variant] = got
         right = np.array([c == t for c, t in zip(got.categories, truth, strict=True)])
         by_source = pd.Series(got.sources).value_counts().to_dict()
         print(f"variant {variant}: accuracy {right.mean():6.1%} (n = {len(right)}); by source "
               f"{dict(sorted(by_source.items()))}")  # fmt: skip
+        if warning := got.rag_note().get("rag_warning"):
+            print(f"  {warning}")
         if right.mean() > h.LEAKAGE_AT:
             print(f"  above {h.LEAKAGE_AT:.0%}: check for leakage before reading anything")
         if record is not None:
             record({"run": "external", "variant": variant, "a_n": len(right),
-                    "a_correct": int(right.sum())})  # fmt: skip
+                    "a_correct": int(right.sum()), **got.rag_note()})  # fmt: skip
     comparisons = h.compare(results, blind)
     for c in comparisons:
         print(f"  {c.variant} vs {c.base}: {c.gain * 100:+.1f} points (needs "

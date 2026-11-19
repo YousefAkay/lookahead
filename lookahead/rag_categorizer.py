@@ -25,6 +25,7 @@ whole request, so the same question is never asked twice. Nothing is sent by ret
 import hashlib
 import json
 import math
+import re
 import sqlite3
 import string
 import time
@@ -248,12 +249,26 @@ class Decision:
     reason: str  # "ok", or why the answer was not taken
 
 
+# One code fence around the whole answer ("```json ... ```"), as Haiku often writes even when
+# asked for bare JSON. Found after the public scoring of 2026-11-18, where no answer was taken.
+_FENCE = re.compile(r"\A```[A-Za-z]*[ \t]*\n(.*?)\n?```\Z", re.DOTALL)
+
+
+def strip_fence(raw: str) -> str:
+    """The answer without one code fence wrapping all of it; anything else is left as is
+    (text before or after a fence stays, so it is still not JSON)."""
+    text = raw.strip()
+    match = _FENCE.match(text)
+    return match.group(1).strip() if match else text
+
+
 def parse_answer(raw: str, allowed_ids: Iterable[str]) -> Decision:
-    """Strict: one JSON object with exactly "category" and "cited"; a category written
-    exactly as in the list; at least one citation, all of them ids from this prompt."""
+    """Strict: one JSON object with exactly "category" and "cited" (a code fence around all
+    of it is removed first); a category written exactly as in the list; at least one
+    citation, all of them ids from this prompt."""
     allowed = set(allowed_ids)
     try:
-        data = json.loads(raw.strip())
+        data = json.loads(strip_fence(raw))
     except (json.JSONDecodeError, TypeError):
         return Decision(None, (), "not JSON")
     if not isinstance(data, dict) or set(data) != {"category", "cited"}:
@@ -270,6 +285,15 @@ def parse_answer(raw: str, allowed_ids: Iterable[str]) -> Decision:
     if len(set(cited)) != len(cited) or not set(cited) <= allowed:
         return Decision(None, (), "unknown or repeated citation")
     return Decision(category, tuple(cited), "ok")
+
+
+def silent_warning(asked: int, answered: int, unit: str = "rows") -> str | None:
+    """A loud line when RAG was asked about rows and answered none of them (None otherwise):
+    that is more likely a broken answer path than a model unsure about everything."""
+    if asked and not answered:
+        return (f"WARNING: RAG was asked about {asked} {unit} and answered none; check why its "
+                "answers were not taken before reading this result")  # fmt: skip
+    return None
 
 
 @dataclass(frozen=True)
@@ -375,7 +399,14 @@ class Applied:
     names: int  # distinct new-merchant names that may be sent
     sent: int  # calls made now
     rows: int  # rows that now show a RAG category
-    unsure: int  # names whose answer was not taken (they stay flagged)
+    unsure: int  # names Haiku said it was unsure about (they stay flagged)
+    not_taken: int = 0  # names whose answer was refused: not JSON, no citation... (flagged)
+    with_answer: int = 0  # names with an answer, saved or new
+
+    def warning(self) -> str | None:
+        """Loud when names have answers (saved or new) and none of them gave a category."""
+        answered = self.with_answer - self.unsure - self.not_taken
+        return silent_warning(self.with_answer, answered, "names")
 
 
 def apply(
@@ -391,15 +422,19 @@ def apply(
         raise RuntimeError("the RAG categorizer is off")
     rows = candidates(conn, account, key)  # flagged new merchants, sendable names only
     index = LabelledIndex(labelled_pairs(conn, account, key))
-    sent = unsure = 0
+    sent = unsure = not_taken = with_answer = 0
     updates = []
     for name, fingerprints in sorted(rows.items()):
         answer, asked = categorize_one(retrieve(name, index, directory), cache, client, send)
         sent += asked
         if answer is None:
             continue
+        with_answer += 1
         if answer.category is None:
-            unsure += 1
+            if answer.reason == "unsure":
+                unsure += 1
+            else:
+                not_taken += 1
             continue
         updates += [(answer.category, SOURCE, DETAIL, f) for f in fingerprints]
     with conn:
@@ -408,4 +443,4 @@ def apply(
             " WHERE fingerprint = ?",
             updates,
         )
-    return Applied(len(rows), sent, len(updates), unsure)
+    return Applied(len(rows), sent, len(updates), unsure, not_taken, with_answer)

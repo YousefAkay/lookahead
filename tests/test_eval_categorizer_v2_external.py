@@ -301,3 +301,33 @@ def test_the_public_rag_path_uses_train_merchants_and_a_private_cache(tmp_path: 
     assert "GOLDEN DRAGON" in prompt.upper()  # a train-part merchant is an example
     # asked again: from the cache, no second call
     assert answer("Golden Dragoon Seattle") == "Restaurants & cafés" and len(client.requests) == 1
+
+
+def test_rag_asked_but_never_answering_is_counted_and_warned() -> None:
+    sample = pd.DataFrame({"description": ["[debit] Golden Dragon #12", "[debit] Sakura 4"],
+                           "merchant": ["K1", "K2"]})  # fmt: skip
+    c = x.predict("+RAG", _Flagged(), sample, lambda name: None)
+    assert c.rag_asked == 2 and c.rag_answered == 0
+    note = c.rag_note()
+    assert note["rag_asked"] == 2 and note["rag_answered"] == 0
+    assert str(note["rag_warning"]).startswith("WARNING")
+    answered = x.predict("+RAG", _Flagged(), sample, lambda name: "Groceries")
+    assert answered.rag_note()["rag_warning"] is None
+    assert x.predict("current", _Flagged(), sample).rag_note() == {}  # not a RAG variant
+
+
+def test_score_variants_prints_and_logs_a_silent_rag(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sample = pd.DataFrame({"description": ["[debit] Golden Dragon #12", "[debit] Sakura 4"],
+                           "merchant": ["K1", "K2"],
+                           "mine": ["Shopping", "Groceries"]})  # fmt: skip
+    train = pd.DataFrame({"description": ["[debit] X"], "merchant": ["T"], "mine": ["Shopping"]})
+    monkeypatch.setattr(x, "train_variant", lambda variant, rows: _Flagged())
+    entries: list[dict[str, object]] = []
+    x.score_variants(x.Prepared(train, sample), ["current", "cleaner+directory", "+RAG"],
+                     lambda name: None, entries.append)  # fmt: skip
+    assert "WARNING: RAG was asked about 2 rows and answered none" in capsys.readouterr().out
+    [rag_entry] = [e for e in entries if e.get("variant") == "+RAG"]
+    assert rag_entry["rag_asked"] == 2 and rag_entry["rag_answered"] == 0
+    assert str(rag_entry["rag_warning"]).startswith("WARNING")
