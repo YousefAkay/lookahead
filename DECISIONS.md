@@ -2401,4 +2401,5 @@ The draft's open points are settled (my decisions with my advisor's input); the 
     - Every v4 refusal carries the run name.
 - **`relabel`** (added 2026-11-19, before any veto scoring): it corrects one blind label of mine. It shows only the rows I gave the wrong category, as merchant text with no prediction, saves the right category at once, and records `relabelled` in the ledger (from, to, count 1, before scoring, my own slip). It refuses once the selection has been scored.
   - After the reviewer's PASS: only one correction per selection (a second `relabel` is refused). The ledger entry also records the labels file's sha256 before and after, and the ledger is checked as private before anything changes.
+  - **My reading of the open case (2026-11-19, before the veto run):** if RAG is asked about no row of my blind set, the veto run is "not tested" and RAG is never adopted from it. It still counts as the scoring, because the same model on the same rows would ask about none again. The code enforces it.
 

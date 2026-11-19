@@ -729,12 +729,19 @@ def score_rag_veto(
     in_a = (blind["set"] == "A").to_numpy()
     truth = blind["truth"].to_numpy()
     right = {name: np.array(r.categories, dtype=object) == truth for name, r in results.items()}
-    adopted = v.ok and not again  # the public pass is checked before this run starts
-    decision = ("an --again run decides nothing" if again
-                else f"adopted: {'yes' if adopted else 'no'}")  # fmt: skip
+    # My reading (2026-11-19): RAG asked about no row means "not tested", never adopted. It
+    # still counts as the scoring: the same model on the same rows would ask about none again.
+    tested = with_rag.rag_asked > 0
+    adopted = v.ok and tested and not again  # the public pass is checked before this starts
+    if again:
+        decision = "an --again run decides nothing"
+    elif not tested:
+        decision = "not tested (RAG was asked about no row); adopted: no"
+    else:
+        decision = f"adopted: {'yes' if adopted else 'no'}"
     record({"status": "scored", "veto": RAG_ALONE, "a_n": v.a_n, "k_n": v.k_n,
             "a_extra_wrong": v.a_extra_wrong, "k_extra_wrong": v.k_extra_wrong,
-            "veto_ok": v.ok, "public_passes": True, "adopted": adopted, **note,
+            "veto_ok": v.ok, "public_passes": True, "adopted": adopted, "tested": tested, **note,
             **{f"{g}_correct_{'rag' if n == RAG_ALONE else 'a'}": int(r[m].sum())
                for n, r in right.items() for g, m in (("a", in_a), ("k", ~in_a))}})  # fmt: skip
     for name, r in right.items():

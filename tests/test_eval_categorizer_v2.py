@@ -1261,8 +1261,14 @@ def test_the_v4_veto_warns_when_rag_is_asked_about_no_row(
 ) -> None:
     _fake_variants(monkeypatch, ["Shopping"] * 2, ["Shopping"] * 2, asked=0, answered=0)
     split = _veto_split(["A", "K"], ["Shopping", "Shopping"])
-    h.score_rag_veto(split, None, None, lambda row: None, {}, lambda e: None)  # type: ignore[arg-type]
-    assert "RAG was asked about none" in capsys.readouterr().out
+    entries: list[dict[str, object]] = []
+    got = h.score_rag_veto(split, None, None, lambda row: None, {}, entries.append)  # type: ignore[arg-type]
+    out = capsys.readouterr().out
+    assert "RAG was asked about none" in out and "not tested" in out and "adopted: no" in out
+    assert got is False  # never adopted, even with no row worse
+    [entry] = entries
+    assert entry["status"] == "scored" and entry["tested"] is False and entry["adopted"] is False
+    assert entry["veto_ok"] is True
 
 
 def test_rule_v4_never_uses_the_apps_cache(
