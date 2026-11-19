@@ -1,8 +1,10 @@
-"""Shortfall alerts (3c): a provisional rule, episodes, evidence and suppression.
+"""Shortfall alerts (3c): the rule, episodes, evidence and suppression.
 
-The rule is provisional, not yet validated: alert when the chance of dipping below the safety
-buffer is above 20 percent, or the median lowest balance is below the buffer. The week 4 backtest
-replaces it with a threshold chosen on validation periods only.
+The rule: alert when the chance of dipping below the safety buffer is above 35 percent (chosen on
+2026-11-19 on the 20 development personas, leave one persona out: 47 of 52 shortfalls caught
+ahead, precision 73 percent, 0.047 false alerts per 30 days; DECISIONS). The clause "or the
+median lowest balance is below the buffer" is kept; at 35 percent it never adds an alert, since
+a median lowest below the buffer means more than half the futures dip.
 
 An episode is a run of alerts about the same predicted low: while a new look at the forecast
 still has its low within SAME_LOW_DAYS of the open episode's low, it belongs to that episode. A
@@ -28,8 +30,8 @@ from typing import Any
 from lookahead.forecast.path import Forecast
 from lookahead.forecast.simulate import Simulation
 
-PROVISIONAL = "provisional, not yet validated"
-PROBABILITY_THRESHOLD = 0.20  # alert when the chance of dipping below the buffer is above this
+PROVISIONAL = "chosen on development data"
+PROBABILITY_THRESHOLD = 0.35  # alert when the chance of dipping below the buffer is above this
 BANDS = (0.20, 0.50, 0.80)  # a probability crossing one of these is a material change
 MATERIAL_LOW_CENTS = 10_000  # the low moving by this much (a $100 step) is a material change
 DATE_SHIFT_DAYS = 3  # the low coming this many days earlier or later is a material change

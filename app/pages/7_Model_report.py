@@ -143,8 +143,8 @@ with st.container(border=True, key="card-forecast"):
 with st.container(border=True, key="card-alerts"):
     st.markdown(
         '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
-        f"<h2>Shortfall alerts</h2>{tag_html('provisional rule', 'neutral')}</div>"
-        '<p class="la-note">The rule the app uses today: alert when more than 20% of futures dip '
+        f"<h2>Shortfall alerts</h2>{tag_html('rule chosen 2026-11-19', 'neutral')}</div>"
+        '<p class="la-note">The rule the app uses today: alert when more than 35% of futures dip '
         "below the buffer, or the middle future's lowest balance does. A dip counts as caught if "
         "an alert opened in the 30 days before it.</p>",
         unsafe_allow_html=True,

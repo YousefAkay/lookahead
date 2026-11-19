@@ -78,16 +78,17 @@ def conn(tmp_path: Path) -> sqlite3.Connection:
     return connect(tmp_path / "a.db")
 
 
-# --- The provisional rule ---
+# --- The rule (35 percent, chosen 2026-11-19) ---
 
 
-def test_the_rule_is_provisional_and_says_so() -> None:
-    assert PROVISIONAL == "provisional, not yet validated"
+def test_the_rule_says_where_it_was_chosen() -> None:
+    assert PROVISIONAL == "chosen on development data"
 
 
-def test_alert_when_the_chance_is_above_twenty_percent() -> None:
-    assert should_alert(simulation(date(2026, 10, 2), date(2026, 10, 9), 90000, 0.21), BUFFER)
-    assert not should_alert(simulation(date(2026, 10, 2), date(2026, 10, 9), 90000, 0.20), BUFFER)
+def test_alert_when_the_chance_is_above_thirty_five_percent() -> None:
+    assert should_alert(simulation(date(2026, 10, 2), date(2026, 10, 9), 90000, 0.36), BUFFER)
+    assert not should_alert(simulation(date(2026, 10, 2), date(2026, 10, 9), 90000, 0.35), BUFFER)
+    assert not should_alert(simulation(date(2026, 10, 2), date(2026, 10, 9), 90000, 0.21), BUFFER)
     assert not should_alert(simulation(date(2026, 10, 2), date(2026, 10, 9), 90000, 0.0), BUFFER)
 
 

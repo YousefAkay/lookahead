@@ -285,9 +285,9 @@ with st.container(border=True, key="card-alerts"):
     st.markdown(
         '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
         f"<h2>Shortfall alerts</h2>{tag_html(PROVISIONAL, 'neutral')}</div>"
-        '<p class="la-note">The rule is a placeholder until the week 4 backtest replaces it: alert '
-        "when the chance of dipping below your buffer is above 20%, or the middle future's lowest "
-        "balance is below it. Alerts follow the weekday average.</p>",
+        '<p class="la-note">The rule, chosen on made-up development accounts: alert when the '
+        "chance of dipping below your buffer is above 35%, or the middle future's lowest balance "
+        "is below it. Alerts follow the weekday average.</p>",
         unsafe_allow_html=True,
     )
     if current is not None and current.status == "open" and snapshot is not None:
