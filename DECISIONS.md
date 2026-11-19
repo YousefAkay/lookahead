@@ -2409,11 +2409,17 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - The deployed model + RAG got A 10 of 18 and K 54 of 60.
   - So A was 2 rows better and K 0 rows worse. The limits were at most 2 worse on A and at most 1 on K: no veto.
 - **RAG on my rows:** asked about 17 blind rows, it gave a category for 9. Of 14 answers: 8 ok, 4 unsure, 2 unsure with no citation, 0 refused. The run was valid under the void rule, and it was tested (rows asked > 0).
-- **One label corrected before scoring:** with `relabel`, I changed one blind label, Rent & housing to Phone, internet & utilities (my home internet bill). I chose the wrong category while labelling and noticed it myself. I had not seen the app's category or any prediction for that row. The ledger records the correction with the labels file's hashes before and after. My earlier message named the wrong first category (Subscriptions); the ledger has the right one.
+- **One label corrected before scoring:** with `relabel`, I changed one blind label, Rent & housing to Phone, internet & utilities (my home internet bill). I chose the wrong category while labelling and noticed it myself. I had not seen the app's category or any prediction for that row. The ledger records the correction with the labels file's hashes before and after. An earlier note of mine named the wrong first category; the ledger has the right one.
 - **Adopted:** rule v4's public run passed (75.8% to 86.3%, n = 600 rows, 275 merchants) and there is no veto, so RAG is adopted.
   - In the app it is the "Smarter categories for new merchants" setup question. It is off until I say yes, and nothing is sent until I click send.
-  - Only merchant names and my category labels are sent.
+  - Only merchant names (mine and public chains) and category labels are sent.
   - It is the variant tested: my model, plus RAG on the new merchants it flags, with my labelled merchants and the closest directory chains as examples. The cleaner and the directory stay off.
 - **What this does and does not show:** on my account, n = 18 new-merchant rows is too few to measure a gain. The veto only shows that RAG did not make my categories worse. The gain is measured on the public benchmark.
 - **Still rejected:** the cleaner + chain directory (version 2's public run: 74.3% against 75.2%, n = 600 rows, 356 merchants).
+- **Leak check after the result** (asked for by the reviewer; public data only; nothing re-scored or changed):
+  - The frozen merchant key sometimes gives one practice two keys ("DR. SMITH DERMATOLOGY" and "SMITH DERMATOLOGY"; "THE HABIT BURGER" and "HABIT BURGER"), so a few merchants sit in both parts.
+  - 91 of the 600 sample rows (63 of 275 test merchants) have a train-part name at similarity 0.8 or more, and 88 of those 91 share the row's category.
+  - Bound, from (a) retrained on the same train part (it reproduced 455 of 600): (a) already got 90 of those 91 rows right, and only 8 of them were flagged for RAG. So at most 1 row (about 0.2 points) of the +10.5 can come from near-duplicates.
+  - On the other 509 rows, (a) got 365 right.
+  - The result stands. The README now says the split is not perfect.
 
