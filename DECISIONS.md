@@ -2305,3 +2305,4 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - (c) is adopted only if (b) is adopted (`adoptions`), because (c) contains (b).
   - The deciding sample stays as drawn. The dry run touched it only through (a)'s accuracy, which cannot favour (b) over (a); it is disclosed in the rule.
   - Lost: scoring (a) and (b) alone; judging (c) on its own; redrawing from untouched merchants. A different seed after looking would itself be a choice made after looking.
+- **Merged into main (2026-11-18)** as a fast-forward, after the full suite (2,755 passed) and the reviewer's PASS on every commit. The rule's version 2 commit (8254126) comes before any public scoring or draw. Nothing scored, drawn or labelled yet.
