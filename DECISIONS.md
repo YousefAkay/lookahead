@@ -2371,3 +2371,14 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - The harness is now `eval/categorizer_rag_v4.py`, with its own ledger name (`external-rag-v4`) and its own cache (`rag_v4.json`), which must start empty (an existing file is refused, except right after a crashed v4 run or for an `--again` run).
   - The one draw of my rows now waits for version 4's pass.
 
+### 2026-11-19: RAG v4, public run: passes (adoption waits for the veto on my rows)
+- **The result** (rule version 4, 96746b5; the one valid public run, after version 2's parser bug and version 3's void run). On the deciding sample, n = 600 rows from 275 test merchants, trained on 36,993 rows from 786 train merchants:
+  - (a) 75.8% (455 right).
+  - (a)+RAG 86.3% (518 right).
+  - Gain +10.5 points, merchant-level bootstrap 2.5th percentile +7.0 (2,000 draws, 275 merchants resampled).
+  - Passes on the public set. Nothing was above 95%.
+- **RAG's answers:** asked about 323 rows, it gave a category for 258. Of 302 answers: 245 ok, 10 unsure, 1 unsure with more than one object, 46 unsure with no citation, 0 refused. The run was valid under the 5% void rule.
+- **My prediction, written before scoring:** (a)+RAG about 80–88%. The result, 86.3%, is inside it.
+- **Not adopted yet:** by the rule, RAG is offered in the app (still off by default) only if it is also not vetoed on my real rows: Part 2, the one draw, blind labelling, at most 2 rows net worse on new merchants and at most 1 on known ones.
+- Synthetic, US, public: this says RAG helps the categorizer on an independent benchmark. It says nothing yet about my account.
+
