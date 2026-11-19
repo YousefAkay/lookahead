@@ -2388,4 +2388,11 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - The same void rule as the public run applies. Its own cache (`rag_veto_v4.json`, never the app's) starts empty.
   - The veto is recorded before anything is printed. Crashes are recorded, and a run with uncommitted code is refused.
   - The v2 variants and v2's adoption line are unchanged, and are not used for this.
+  - **After the reviewer's PASS, safety only:**
+    - `--again` is refused before a first veto run, and an `--again` run prints and records that it decides nothing.
+    - The app's RAG cache is refused even when given by its full path, and the veto's own cache is fixed in the main folder.
+    - The whole drawn selection, not only its labelled rows, is kept out of RAG's examples.
+    - Refusals carry the run name.
+    - A loud line appears when the deployed model flags no new-merchant row, so RAG is asked about none.
+    - Open for my reading before the run: whether a run where RAG was asked about no row counts as "no veto". As coded, it prints the warning and the veto line.
 

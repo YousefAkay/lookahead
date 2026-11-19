@@ -1209,6 +1209,8 @@ def test_draw_label_then_the_v4_veto_goes_through(
     h.add_to_ledger(h.DEFAULT_LEDGER, {"run": rag_rule.RUN, "status": "scored",
                                        "comparison": rag_rule.COMPARISON, "passes": True,
                                        "adopt_rule_sha256": sha})  # fmt: skip
+    assert h.main([*run, "--again"]) == 2  # no --again before a first veto run
+    assert "the first veto run decides" in capsys.readouterr().out
     code = h.main(run)
     out = capsys.readouterr().out
     assert code == 0, out
@@ -1217,3 +1219,55 @@ def test_draw_label_then_the_v4_veto_goes_through(
     assert "adopted: " in out and last["veto"] == h.RAG_ALONE and last["rows_asked"] > 0
     assert set(last["answer_reasons"]) == {"ok"}  # one entry per distinct request
     assert h.main([*run]) == 2  # a selection is scored once
+    assert "already scored" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("a_worse", "k_worse", "ok"),
+    [(2, 0, True), (3, 0, False), (0, 1, True), (0, 2, False)],
+)
+def test_the_v4_veto_boundaries(a_worse: int, k_worse: int, ok: bool) -> None:
+    sets = ["A"] * 5 + ["K"] * 5
+    truth = ["Groceries"] * 10
+    worse = [i < a_worse for i in range(5)] + [i < k_worse for i in range(5)]
+    results = {
+        "current": h.VariantResult("current", truth, ["model"] * 10),
+        h.RAG_ALONE: h.VariantResult(
+            h.RAG_ALONE, ["Shopping" if w else "Groceries" for w in worse], ["RAG"] * 10, 10
+        ),  # fmt: skip
+    }
+    [v] = h.veto(results, _veto_split(sets, truth).blind)
+    assert (v.a_extra_wrong, v.k_extra_wrong, v.ok) == (a_worse, k_worse, ok)
+
+
+def test_an_again_veto_decides_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_variants(monkeypatch, ["Shopping"] * 2, ["Shopping"] * 2, asked=2, answered=2)
+    entries: list[dict[str, object]] = []
+    split = _veto_split(["A", "K"], ["Shopping", "Shopping"])
+    got = h.score_rag_veto(split, None, None, lambda row: "x", {"k": "ok"}, entries.append,  # type: ignore[arg-type]
+                           again=True)  # fmt: skip
+    assert got is False and entries[0]["adopted"] is False
+    assert "decides nothing" in capsys.readouterr().out
+
+
+def test_the_v4_veto_warns_when_rag_is_asked_about_no_row(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_variants(monkeypatch, ["Shopping"] * 2, ["Shopping"] * 2, asked=0, answered=0)
+    split = _veto_split(["A", "K"], ["Shopping", "Shopping"])
+    h.score_rag_veto(split, None, None, lambda row: None, {}, lambda e: None)  # type: ignore[arg-type]
+    assert "RAG was asked about none" in capsys.readouterr().out
+
+
+def test_rule_v4_never_uses_the_apps_cache(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    app_cache = h.main_folder() / h.DEFAULT_RAG_CACHE
+    args = ["score", "--db", str(tmp_path / "x.db"), "--labels", str(tmp_path / "l.csv"),
+            "--choice", str(tmp_path / "c.json"), "--rule-v4", "--rag", "--send",
+            "--rag-cache", str(app_cache)]  # fmt: skip
+    assert h.main(args) == 2 and "app's RAG cache" in capsys.readouterr().out
+    assert h.ledger_entries(h.DEFAULT_LEDGER)[-1]["run"] == h.VETO_V4_RUN
+    assert h.DEFAULT_VETO_V4_CACHE.is_absolute()

@@ -81,7 +81,6 @@ VARIANTS = ("current", "cleaner+directory", "+RAG")
 RAG_ALONE = "RAG alone"  # rule v4's veto variant: deployed model + RAG; cleaner, directory off
 RAG_VARIANTS = frozenset({"+RAG", RAG_ALONE})
 VETO_V4_RUN = "veto-rag-v4"  # the ledger's name for rule v4's veto runs
-DEFAULT_VETO_V4_CACHE = Path("data/private/cache/rag_veto_v4.json")  # its own, empty at first
 LEAKAGE_AT = 0.95  # any variant above this: check for leakage before reading anything
 BOOTSTRAP_RESAMPLES = 2000
 RULE_MARKER = "## Part 1: the deciding run, on public data only"  # version 2 of the rule
@@ -122,6 +121,8 @@ def default_ledger() -> Path:
 
 
 DEFAULT_LEDGER = default_ledger()
+# rule v4's veto: its own RAG cache, empty at first, in the main folder (never the app's)
+DEFAULT_VETO_V4_CACHE = main_folder() / "data" / "private" / "cache" / "rag_veto_v4.json"
 
 
 def ledger_is_private(path: Path) -> bool:
@@ -690,10 +691,12 @@ def score_rag_veto(
     split: Split, settings: Settings, extra: pd.DataFrame | None,
     rag_answer: Callable[[pd.Series], str | None], reasons: dict[str, str],
     record: Callable[[dict[str, object]], None], on_void: Callable[[], None] = lambda: None,
+    again: bool = False,
 ) -> bool | None:  # fmt: skip
     """Rule v4's veto: the deployed model with RAG alone against the deployed model, on my
     blind rows. None for a void run (the same void rule as the public run). The veto is
-    recorded before anything is shown. Returns whether RAG is adopted."""
+    recorded before anything is shown. Returns whether RAG is adopted (an --again run
+    decides nothing)."""
     from eval import categorizer_rag_v4 as rag_rule
 
     blind = split.blind
@@ -707,6 +710,9 @@ def score_rag_veto(
         f"RAG: asked about {with_rag.rag_asked} of my blind rows, gave a category for "
         f"{with_rag.rag_answered}; {len(log.reasons)} answers by reason {log.counts()}"
     )
+    if with_rag.rag_asked == 0:
+        print("  WARNING: the deployed model flagged no new-merchant row, so RAG was asked about "
+              "none: this run cannot show what RAG does on my rows")  # fmt: skip
     void = rag_rule.void_reason(with_rag.rag_asked, with_rag.rag_answered, log)
     if void:
         print(f"VOID RUN: {void}. Nothing scored; this run does not count.")
@@ -718,7 +724,9 @@ def score_rag_veto(
     in_a = (blind["set"] == "A").to_numpy()
     truth = blind["truth"].to_numpy()
     right = {name: np.array(r.categories, dtype=object) == truth for name, r in results.items()}
-    adopted = v.ok  # the public pass is checked before this run starts
+    adopted = v.ok and not again  # the public pass is checked before this run starts
+    decision = ("an --again run decides nothing" if again
+                else f"adopted: {'yes' if adopted else 'no'}")  # fmt: skip
     record({"status": "scored", "veto": RAG_ALONE, "a_n": v.a_n, "k_n": v.k_n,
             "a_extra_wrong": v.a_extra_wrong, "k_extra_wrong": v.k_extra_wrong,
             "veto_ok": v.ok, "public_passes": True, "adopted": adopted, **note,
@@ -733,7 +741,7 @@ def score_rag_veto(
     print(f"  veto, {RAG_ALONE} vs current on my rows: group A {v.a_extra_wrong:+d} rows wrong "
           f"(at most {A_VETO_EXTRA_WRONG:+d}; n = {v.a_n}), group K {v.k_extra_wrong:+d} (at "
           f"most {GUARD_EXTRA_WRONG:+d}; n = {v.k_n}): {'no veto' if v.ok else 'VETO'}; passed "
-          f"on the public set: yes; adopted: {'yes' if adopted else 'no'}")  # fmt: skip
+          f"on the public set: yes; {decision}")  # fmt: skip
     return adopted
 
 
@@ -799,6 +807,9 @@ def score_my_data(args: argparse.Namespace) -> int:
             return refuse("rule v4's veto is one run with `--rule-v4 --rag --send`")
         if args.rag_cache == DEFAULT_RAG_CACHE:
             args.rag_cache = DEFAULT_VETO_V4_CACHE  # its own cache, never the app's
+        apps = {(main_folder() / DEFAULT_RAG_CACHE).resolve(), DEFAULT_RAG_CACHE.resolve()}
+        if args.rag_cache.resolve() in apps:
+            return refuse("rule v4's veto never uses the app's RAG cache", run=VETO_V4_RUN)
         if not is_private_path(args.rag_cache):
             return refuse("the RAG cache must be inside data/private/")
     rule = args.adopt_rule if args.adopt_rule.is_absolute() else ROOT / args.adopt_rule
@@ -893,7 +904,7 @@ def score_my_data(args: argparse.Namespace) -> int:
                                     "send": bool(args.rag and args.send), **entry})  # fmt: skip
 
     if args.rule_v4:
-        return _score_rule_v4(args, conn, split, settings, extra, labels, record, refuse, now)
+        return _score_rule_v4(args, conn, split, settings, extra, selection, record, refuse, now)
     print(f"Categorizer v2 on the blind set: account {args.account}; adopt rule at commit "
           f"{(status.commit or '')[:10]}")  # fmt: skip
     score(split, settings, extra, variants, rag_answer, dry_run=False, record=record,
@@ -904,29 +915,35 @@ def score_my_data(args: argparse.Namespace) -> int:
 
 def _score_rule_v4(  # type: ignore[no-untyped-def]
     args, conn, split: Split, settings: Settings, extra: pd.DataFrame | None,
-    labels: dict[str, str], record, refuse, now: str,
+    blind_rows: Sequence[str], record, refuse, now: str,
 ) -> int:  # fmt: skip
-    """Rule v4's veto run, after every check of `score_my_data` (draw, labels, minimums)."""
+    """Rule v4's veto run, after every check of `score_my_data` (draw, labels, minimums).
+    `blind_rows` is the whole drawn selection: none of it is ever a RAG example."""
     from eval import categorizer_rag_v4 as rag_rule
     from lookahead.pseudonymize import pseudonym_key
 
     v4 = adopt_rule_status(rag_rule.RULE, rag_rule.RULE_MARKER)
     entries = ledger_entries(args.ledger)
+
+    def refuse_v4(reason: str) -> int:
+        conn.close()
+        return refuse(reason, run=VETO_V4_RUN)
+
     if not v4.ok:
-        conn.close()
-        return refuse(f"RAG adopt rule version 4: {v4.reason}")
+        return refuse_v4(f"RAG adopt rule version 4: {v4.reason}")
     if rag_rule.verdict(entries, v4.sha256) is not True:
-        conn.close()
-        return refuse("RAG did not pass rule version 4's public run: there is nothing to veto")
+        return refuse_v4("RAG did not pass rule version 4's public run: there is nothing to veto")
     head, changed = rag_rule.code_state()
     if changed:
-        conn.close()
-        return refuse("tracked files have uncommitted changes (or git cannot tell)")
+        return refuse_v4("tracked files have uncommitted changes (or git cannot tell)")
+    scored = [e for e in entries if e.get("run") == VETO_V4_RUN
+              and e.get("status") == "scored" and e.get("veto")]  # fmt: skip
+    if args.again and not scored:
+        return refuse_v4("--again is only for a second scoring: the first veto run decides")
     runs = [e for e in entries if e.get("run") == VETO_V4_RUN and e.get("status") != "refused"]
     after_crash = bool(runs) and runs[-1].get("status") == "crashed"
     if args.rag_cache.exists() and not (after_crash or args.again):
-        conn.close()
-        return refuse(f"the veto's RAG cache must start empty: {args.rag_cache.name} exists")
+        return refuse_v4(f"the veto's RAG cache must start empty: {args.rag_cache.name} exists")
 
     def record_v4(entry: dict[str, object]) -> None:
         record({"run": VETO_V4_RUN, "rag_rule_commit": v4.commit,
@@ -942,9 +959,10 @@ def _score_rule_v4(  # type: ignore[no-untyped-def]
     reasons: dict[str, str] = {}
     try:
         rag_answer = _rag_answer_function(conn, args.account, pseudonym_key(args.env),
-                                          args.rag_cache, True, None, frozenset(labels),
+                                          args.rag_cache, True, None, frozenset(blind_rows),
                                           reasons)  # fmt: skip
-        result = score_rag_veto(split, settings, extra, rag_answer, reasons, record_v4, on_void)
+        result = score_rag_veto(split, settings, extra, rag_answer, reasons, record_v4, on_void,
+                                args.again)  # fmt: skip
     except BaseException as e:  # Ctrl-C too; the error type only (a message may quote a name)
         record_v4({"status": "crashed", "reason": type(e).__name__})
         print(f"the run stopped ({type(e).__name__}); recorded in the ledger as crashed")
