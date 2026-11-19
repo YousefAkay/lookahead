@@ -2347,3 +2347,27 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - The comparison is now recorded before any accuracy is printed. Before this, a crash between the printed accuracies and the recorded comparison would have shown the result without spending the scoring.
   - "Already scored" now means any recorded v3 comparison, whatever the sample or rule text. Changing either after scoring therefore cannot open a second deciding run: the verdict stays the first one, or none.
 
+### 2026-11-19: RAG v3's one run was void; adopt rule version 4 (two parser changes)
+- **The void run** (version 3, 1654555; the void rule worked as designed). It stopped before any accuracy, and no label was looked at.
+  - RAG was asked about 323 rows and gave a category for 257.
+  - Of 302 answers, 244 were usable and 58 refused (19%, the limit is 5%): 45 "no citation" and 13 "not JSON".
+  - Its cache was moved aside, as the rule says.
+- **Diagnosis** (my counts on the moved-aside cache, plus 10 raw replies, 5 per reason; no labels: I chose not to run the label match, so the change was decided without knowing whether those answers were right):
+  - All 45 "no citation" answers were a category with `"cited": []`: Haiku answering from its own knowledge.
+  - All 13 "not JSON" answers were a fenced `{"category": null, ...}` followed by an explanation. One reply had two JSON objects ("Travel", then null).
+  - The largest answer was 137 tokens, and 0 hit the limit.
+- **Won: version 4** (`docs/specs/2026-11-19-categorizer-rag-adopt-rule-v4.md`, committed alone), with two parser changes only; everything else is as in version 3, prompt included.
+  - (1) One JSON object with text around it, inside or outside a fence, is read from that object. More than one object is "unsure" if at least one has the answer shape (exactly "category" and "cited"); otherwise it is refused.
+  - (2) A category with no citation is "unsure", and the row keeps (a)'s guess. RAG must cite its evidence; answering from Haiku's own knowledge is the separate LLM fallback.
+  - My prediction stays: 80–88%.
+- **Lost:**
+  - Changing the prompt to forbid explanations (that changes what is measured).
+  - Treating a no-citation category as RAG's answer (that measures Haiku's own knowledge, not retrieval).
+  - Reading the first of several objects (in the one two-object reply, the first was a category it then took back).
+  - Looking at whether the no-citation answers were right before choosing (choosing after seeing the result).
+- **Code:**
+  - The app's RAG uses the same parser.
+  - A saved reply is now always read again with today's parser. This replaces the 2026-11-19 note that saved answers keep their old verdict. Version 2 is closed, so nothing changes there.
+  - The harness is now `eval/categorizer_rag_v4.py`, with its own ledger name (`external-rag-v4`) and its own cache (`rag_v4.json`), which must start empty (an existing file is refused, unless a v4 run crashed).
+  - The one draw of my rows now waits for version 4's pass.
+

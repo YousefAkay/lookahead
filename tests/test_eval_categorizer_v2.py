@@ -15,7 +15,7 @@ import pytest
 
 from eval import categorizer_v2 as h
 
-REAL_RAG_V3_PASSED = h.rag_v3_passed  # before any test replaces it
+REAL_RAG_PASSED = h.rag_passed  # before any test replaces it
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,8 +81,8 @@ def _safe_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     approved adopt-rule path is the test repository's rule."""
     monkeypatch.setattr(h, "DEFAULT_LEDGER", tmp_path / "data" / "private" / "ledger.jsonl")
     monkeypatch.setattr(h, "APPROVED_ADOPT_RULE", tmp_path / "repo" / "rule.md")
-    # the one draw also waits for RAG v3's public run; tests of the draw itself open that gate
-    monkeypatch.setattr(h, "rag_v3_passed", lambda: True)
+    # the one draw also waits for RAG's public run (rule v4); draw tests open that gate
+    monkeypatch.setattr(h, "rag_passed", lambda: True)
 
 
 # --- The adopt rule ---
@@ -1056,26 +1056,26 @@ def test_c_is_adopted_only_if_b_is_adopted() -> None:
                        {"cleaner+directory": False, "+RAG": True})["+RAG"] is False  # fmt: skip
 
 
-def test_the_draw_waits_for_rag_v3s_public_run(
+def test_the_draw_waits_for_rags_public_run(
     db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:  # fmt: skip
-    monkeypatch.setattr(h, "rag_v3_passed", REAL_RAG_V3_PASSED)
+    monkeypatch.setattr(h, "rag_passed", REAL_RAG_PASSED)
     _committed_rule(repo)
     _public_run_scored()
     out = tmp_path / "data" / "private" / "blind.csv"
     code = h.main(["candidates", "--db", str(db), "--out", str(out)])
-    assert code == 2 and "version 3" in capsys.readouterr().out and not out.exists()
+    assert code == 2 and "version 4" in capsys.readouterr().out and not out.exists()
     assert not any(e.get("status") == "drawn" for e in h.ledger_entries(h.DEFAULT_LEDGER))
 
 
 @pytest.mark.parametrize("passes", [True, False])
-def test_the_draw_opens_only_when_rag_v3_passed(passes: bool) -> None:
-    from eval import categorizer_rag_v3 as v3
+def test_the_draw_opens_only_when_rag_passed(passes: bool) -> None:
+    from eval import categorizer_rag_v4 as rag_rule
 
-    assert REAL_RAG_V3_PASSED() is False  # nothing scored yet
-    sha = h.adopt_rule_status(v3.RULE, v3.RULE_MARKER).sha256  # the committed v3 rule
-    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": v3.RUN, "status": "scored",
-                                       "comparison": v3.COMPARISON, "passes": passes,
+    assert REAL_RAG_PASSED() is False  # nothing scored yet
+    sha = h.adopt_rule_status(rag_rule.RULE, rag_rule.RULE_MARKER).sha256  # the committed v4 rule
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": rag_rule.RUN, "status": "scored",
+                                       "comparison": rag_rule.COMPARISON, "passes": passes,
                                        "adopt_rule_sha256": sha})  # fmt: skip
-    assert REAL_RAG_V3_PASSED() is passes
+    assert REAL_RAG_PASSED() is passes

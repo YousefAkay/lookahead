@@ -1,10 +1,12 @@
-"""Categorizer RAG, adopt rule version 3: does RAG improve today's categorizer? (a) against
-(a)+RAG on a new split of the public DoDataThings v2 set. The rule is
-docs/specs/2026-11-19-categorizer-rag-adopt-rule-v3.md; this file runs it.
+"""Categorizer RAG, adopt rule version 4 (replacing version 3, whose one run was void): does
+RAG improve today's categorizer? (a) against (a)+RAG on a new split of the public DoDataThings
+v2 set. The rule is docs/specs/2026-11-19-categorizer-rag-adopt-rule-v4.md; this file runs it.
+Version 4 changes only how answers are read (`lookahead.rag_categorizer.parse_answer`, shared
+with the app).
 
-    python -m eval.categorizer_rag_v3 split                  # counts only: the new split
-    python -m eval.categorizer_rag_v3 score --rag --send     # the one scoring
-    python -m eval.categorizer_rag_v3 score --rag --send --again   # recorded, decides nothing
+    python -m eval.categorizer_rag_v4 split                  # counts only: the new split
+    python -m eval.categorizer_rag_v4 score --rag --send     # the one scoring
+    python -m eval.categorizer_rag_v4 score --rag --send --again   # recorded, decides nothing
 
 Everything public comes from `eval.categorizer_v2_external`: the pinned files, the merchant
 key, the category table, the row order and `_take`. Nothing of mine is used.
@@ -40,11 +42,13 @@ from lookahead.merchant_clean import clean_merchant
 from lookahead.merchants import is_private_path
 
 ROOT = Path(__file__).resolve().parents[1]
-RULE = ROOT / "docs" / "specs" / "2026-11-19-categorizer-rag-adopt-rule-v3.md"
-RULE_MARKER = "# Categorizer RAG, adopt rule version 3"
-RUN = "external-rag-v3"  # the ledger's name for these runs
+RULE = ROOT / "docs" / "specs" / "2026-11-19-categorizer-rag-adopt-rule-v4.md"
+RULE_MARKER = "# Categorizer RAG, adopt rule version 4"
+RUN = "external-rag-v4"  # the ledger's name for these runs (version 3's were "external-rag-v3")
 COMPARISON = "(a)+RAG vs (a)"
-DEFAULT_RAG_CACHE = ROOT / "data" / "private" / "cache" / "rag_v3.json"  # its own file
+DEFAULT_RAG_CACHE = (
+    ROOT / "data" / "private" / "cache" / "rag_v4.json"
+)  # its own file, empty at first
 
 # The rule's numbers.
 SPLIT_SEED = 1
@@ -54,7 +58,6 @@ SAMPLE_ROWS = 600
 SAMPLE_PER_MERCHANT = 3
 MIN_GAIN = 0.03
 MAX_REFUSED_SHARE = 0.05  # of the answers (one per distinct request): above this, void
-USABLE_REASONS = frozenset({"ok", "unsure"})
 
 
 # --- The split ---
@@ -110,6 +113,15 @@ def split_counts(s: Split) -> dict[str, object]:
 # --- RAG, with every answer's reason kept ---
 
 
+def usable(reason: str) -> bool:
+    """A usable answer: a category ("ok") or any kind of "unsure" (the row keeps (a)'s guess).
+    Everything else (not JSON, not the expected object, not a category, unknown citation) is
+    refused, and counts toward the void rule."""
+    from lookahead.rag_categorizer import is_unsure
+
+    return reason == "ok" or is_unsure(reason)
+
+
 @dataclass
 class AnswerLog:
     reasons: dict[str, str]  # request key -> reason ("ok", "unsure", "not JSON", ...)
@@ -118,7 +130,7 @@ class AnswerLog:
         return dict(sorted(Counter(self.reasons.values()).items()))
 
     def refused(self) -> int:
-        return sum(r not in USABLE_REASONS for r in self.reasons.values())
+        return sum(not usable(r) for r in self.reasons.values())
 
 
 def rag_answer_function(
@@ -186,7 +198,7 @@ def predict(
 
 
 def sample_key(s: pd.DataFrame) -> str:
-    return "external-rag-v3:" + hashlib.sha256("\n".join(s["description"]).encode()).hexdigest()
+    return "external-rag-v4:" + hashlib.sha256("\n".join(s["description"]).encode()).hexdigest()
 
 
 def verdict(entries: list[dict[str, object]], rule_sha256: str | None) -> bool | None:
@@ -284,6 +296,11 @@ def score_command(args: argparse.Namespace) -> int:
                       "that runs is committed")  # fmt: skip
     if not is_private_path(args.rag_cache):
         return refuse("the RAG cache must be inside data/private/")
+    crashed_before = any(e.get("run") == RUN and e.get("status") == "crashed"
+                         for e in h.ledger_entries(ledger))  # fmt: skip
+    if args.rag_cache.exists() and not crashed_before:
+        return refuse("the RAG cache must start empty (every answer asked again): "
+                      f"{args.rag_cache.name} already exists")  # fmt: skip
     problems = x.check_files(args.folder)
     if problems:
         return refuse("; ".join(problems))
@@ -318,7 +335,7 @@ def score_command(args: argparse.Namespace) -> int:
         if moved is not None:
             print(f"the cache was moved aside ({moved.name}): the next run asks every answer again")
 
-    print(f"Categorizer RAG v3, deciding run on the public set; adopt rule at commit "
+    print(f"Categorizer RAG v4, deciding run on the public set; adopt rule at commit "
           f"{(status.commit or '')[:10]}")  # fmt: skip
     try:
         counts = split_counts(s)
@@ -344,7 +361,7 @@ def split_command(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m eval.categorizer_rag_v3")
+    parser = argparse.ArgumentParser(prog="python -m eval.categorizer_rag_v4")
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("split", "score"):
         c = commands.add_parser(name)

@@ -31,7 +31,7 @@ import string
 import time
 from collections import Counter
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import lookahead.llm_categorizer as llm
@@ -263,26 +263,86 @@ def strip_fence(raw: str) -> str:
     return match.group(1).strip() if match else text
 
 
+UNSURE = "unsure"  # the model said so: {"category": null, "cited": []}
+UNSURE_SEVERAL = "unsure: more than one answer"  # two or more JSON objects in one reply
+UNSURE_NO_CITATION = "unsure: no citation"  # a category without evidence: not RAG's answer
+NONE_AN_ANSWER = "several objects, none an answer"  # refused
+ANSWER_KEYS = frozenset({"category", "cited"})  # the answer shape
+
+
+def is_unsure(reason: str) -> bool:
+    """An answer with no category that is still a usable answer (not a broken one)."""
+    return reason == UNSURE or reason.startswith(UNSURE + ":")
+
+
+def json_objects(text: str) -> list[object]:
+    """Every outermost {...} in the text that parses as JSON, in order. Strings inside are
+    respected, so a brace in a name does not count. A {...} that is not JSON, or a { that is
+    never closed, is not an object: the search goes on from the next {, so a valid object
+    inside or after it still counts."""
+    found: list[object] = []
+    start = text.find("{")
+    while start >= 0:
+        depth, in_string, escaped, end = 0, False, False, -1
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+            elif ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        try:
+            if end < 0:
+                raise json.JSONDecodeError("unclosed", text, start)
+            found.append(json.loads(text[start:end]))
+        except json.JSONDecodeError:
+            start = text.find("{", start + 1)
+            continue
+        start = text.find("{", end)
+    return found
+
+
 def parse_answer(raw: str, allowed_ids: Iterable[str]) -> Decision:
-    """Strict: one JSON object with exactly "category" and "cited" (a code fence around all
-    of it is removed first); a category written exactly as in the list; at least one
-    citation, all of them ids from this prompt."""
+    """One JSON object with exactly "category" and "cited"; a category written exactly as in
+    the list; citations that are ids from this prompt.
+    - A code fence around all of it is removed first.
+    - Text around one JSON object (inside or outside a fence) is ignored; a reply with more
+      than one JSON object is "unsure" if one of them has the answer shape, else refused
+      (adopt rule version 4).
+    - A category with an empty citation list is "unsure": RAG must cite its evidence."""
     allowed = set(allowed_ids)
     try:
         data = json.loads(strip_fence(raw))
     except (json.JSONDecodeError, TypeError):
-        return Decision(None, (), "not JSON")
-    if not isinstance(data, dict) or set(data) != {"category", "cited"}:
+        objects = json_objects(raw) if isinstance(raw, str) else []
+        if not objects:
+            return Decision(None, (), "not JSON")
+        if len(objects) > 1:
+            shaped = any(isinstance(o, dict) and set(o) == ANSWER_KEYS for o in objects)
+            return Decision(None, (), UNSURE_SEVERAL if shaped else NONE_AN_ANSWER)
+        data = objects[0]
+    if not isinstance(data, dict) or set(data) != ANSWER_KEYS:
         return Decision(None, (), "not the expected object")
     category, cited = data["category"], data["cited"]
     if not isinstance(cited, list) or not all(isinstance(c, str) for c in cited):
         return Decision(None, (), "citations are not a list of ids")
     if category is None:
-        return Decision(None, (), "unsure")
+        return Decision(None, (), UNSURE)
     if not isinstance(category, str) or category not in CATEGORIES:
         return Decision(None, (), "not one of the categories")
     if not cited:
-        return Decision(None, (), "no citation")
+        return Decision(None, (), UNSURE_NO_CITATION)
     if len(set(cited)) != len(cited) or not set(cited) <= allowed:
         return Decision(None, (), "unknown or repeated citation")
     return Decision(category, tuple(cited), "ok")
@@ -315,14 +375,18 @@ def request_key(request: dict[str, object]) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def request_ids(request: dict[str, object]) -> list[str]:
+    """The example and directory ids this request showed the model."""
+    content = request["messages"][0]["content"]  # type: ignore[index]
+    return [line.split(" | ", 1)[0] for line in content.splitlines() if " | " in line]
+
+
 def ask(client: object, request: dict[str, object]) -> Answer:
     start = time.perf_counter()
     response = client.messages.create(**request)  # type: ignore[attr-defined]
     latency = time.perf_counter() - start
     raw = "".join(b.text for b in response.content if b.type == "text")
-    content = request["messages"][0]["content"]  # type: ignore[index]
-    ids = [line.split(" | ", 1)[0] for line in content.splitlines() if " | " in line]
-    d = parse_answer(raw, ids)
+    d = parse_answer(raw, request_ids(request))
     return Answer(d.category, d.cited, d.reason, raw, MODEL, response.usage.input_tokens,
                   response.usage.output_tokens, round(latency, 3))  # fmt: skip
 
@@ -358,8 +422,10 @@ def categorize_one(
     request = request_for(retrieved)
     key = request_key(request)
     cached = load_cache(cache_path)
-    if key in cached:
-        return cached[key], False
+    if key in cached:  # read again with today's parser: a saved reply never keeps an old verdict
+        saved = cached[key]
+        d = parse_answer(saved.raw, request_ids(request))
+        return replace(saved, category=d.category, cited=d.cited, reason=d.reason), False
     if not send:
         return None, False
     from lookahead.demo_mode import is_demo
@@ -401,7 +467,7 @@ class Applied:
     sent: int  # calls made now
     rows: int  # rows that now show a RAG category
     unsure: int  # names Haiku said it was unsure about (they stay flagged)
-    not_taken: int = 0  # names whose answer was refused: not JSON, no citation... (flagged)
+    not_taken: int = 0  # names whose answer was refused: not JSON, a bad citation... (flagged)
     with_answer: int = 0  # names with an answer, saved or new
 
     def warning(self) -> str | None:
@@ -432,7 +498,7 @@ def apply(
             continue
         with_answer += 1
         if answer.category is None:
-            if answer.reason == "unsure":
+            if is_unsure(answer.reason):
                 unsure += 1
             else:
                 not_taken += 1

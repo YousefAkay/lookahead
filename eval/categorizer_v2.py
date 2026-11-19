@@ -612,13 +612,13 @@ def external_verdicts(
     return out
 
 
-def rag_v3_passed() -> bool:
-    """Whether RAG passed the public run of adopt rule version 3. The one draw of my rows is
+def rag_passed() -> bool:
+    """Whether RAG passed the public run of adopt rule version 4. The one draw of my rows is
     that rule's veto (version 2 adopted nothing), so it waits for this."""
-    from eval import categorizer_rag_v3 as v3
+    from eval import categorizer_rag_v4 as rag_rule
 
-    status = adopt_rule_status(v3.RULE, v3.RULE_MARKER)
-    return status.ok and v3.verdict(ledger_entries(DEFAULT_LEDGER), status.sha256) is True
+    status = adopt_rule_status(rag_rule.RULE, rag_rule.RULE_MARKER)
+    return status.ok and rag_rule.verdict(ledger_entries(DEFAULT_LEDGER), status.sha256) is True
 
 
 def score(
@@ -1044,9 +1044,9 @@ def write_candidates(args: argparse.Namespace) -> int:
             "rows are drawn last, right before the veto."
         )
         return 2
-    if not rag_v3_passed():
+    if not rag_passed():
         print(
-            "refusing: the one draw of my rows is the veto of adopt rule version 3 (RAG alone). "
+            "refusing: the one draw of my rows is the veto of adopt rule version 4 (RAG alone). "
             "It waits until RAG passes that rule's public run."
         )
         return 2

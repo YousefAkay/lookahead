@@ -1,4 +1,4 @@
-"""Adopt rule version 3 (RAG alone, on a new public split): the split's pinned counts, which
+"""Adopt rule version 4 (RAG alone, on a new public split): the split's pinned counts, which
 rows RAG is asked about, the void rule, scored once, first valid run decides. Fake models and
 clients only; no network. The pinned-count test runs only where the public files are."""
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from eval import categorizer_rag_v3 as r
+from eval import categorizer_rag_v4 as r
 from eval import categorizer_v2 as h
 from eval import categorizer_v2_external as x
 from lookahead.categorizer import Prediction
@@ -125,13 +125,13 @@ def test_a_valid_run_records_both_variants_and_the_comparison() -> None:
 
 
 def test_move_cache_aside_keeps_the_answers_and_empties_the_path(tmp_path: Path) -> None:
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     assert r.move_cache_aside(cache, "2026-11-19T10:00:00") is None
     cache.parent.mkdir(parents=True)
     cache.write_text("{}", encoding="utf-8")
     moved = r.move_cache_aside(cache, "2026-11-19T10:00:00")
     assert moved is not None and moved.exists() and not cache.exists()
-    assert moved.name == "rag_v3.void-2026-11-19T100000.json"
+    assert moved.name == "rag_v4.void-2026-11-19T100000.json"
 
 
 # --- RAG answers and their reasons ---
@@ -151,7 +151,7 @@ def test_answer_reasons_are_logged_once_per_request(tmp_path: Path) -> None:
 
     train = pd.DataFrame({"description": ["[debit] SAFEWAY 1", "[debit] KROGER 2"],
                           "mine": ["Groceries", "Groceries"]})  # fmt: skip
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     answer, log = r.rag_answer_function(train, cache, send=True, client=Citing(""))
     assert answer("SAFEWAYY") == "Groceries" and answer("SAFEWAYY") == "Groceries"
     assert log.counts() == {"ok": 1}  # a fenced answer is usable; asked twice, logged once
@@ -199,7 +199,7 @@ def test_the_sample_is_scored_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     h.add_to_ledger(h.DEFAULT_LEDGER, {"run": r.RUN, "status": "scored",
                                        "comparison": r.COMPARISON,
                                        "selection_key": r.sample_key(SAMPLE)})  # fmt: skip
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 2
     assert "scored once" in str(_ledger()[-1]["reason"])
 
@@ -213,9 +213,7 @@ def test_a_void_run_does_not_block_the_next_one(
     monkeypatch.setattr(r, "load_split", lambda folder: split)
     monkeypatch.setattr(r, "split_counts", lambda s: {"train": 0, "test": 0, "sample": 0})
     monkeypatch.setattr(x, "train_variant", lambda variant, rows: _Model())
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
-    cache.parent.mkdir(parents=True)
-    cache.write_text("{}", encoding="utf-8")
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
 
     def silent(train, path, send, client=None):  # type: ignore[no-untyped-def]
         return (lambda name: None), _log(not_JSON=1)
@@ -264,7 +262,7 @@ def test_a_crashed_run_is_recorded(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         raise TimeoutError("network")
 
     monkeypatch.setattr(x, "train_variant", boom)
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     with pytest.raises(TimeoutError):
         r.main(["score", "--rag", "--send", "--rag-cache", str(cache)])
     last = _ledger()[-1]
@@ -300,7 +298,7 @@ def test_again_is_refused_before_a_first_scoring(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _scoring_ready(monkeypatch)
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     assert r.main(["score", "--rag", "--send", "--again", "--rag-cache", str(cache)]) == 2
     [entry] = _ledger()
     assert entry["status"] == "refused" and "--again" in str(entry["reason"])
@@ -311,7 +309,7 @@ def test_the_first_scoring_decides_and_again_does_not_change_it(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _scoring_ready(monkeypatch)
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 0
     first = r.verdict(_ledger(), "rule-sha")
     assert first is not None
@@ -332,7 +330,7 @@ def test_a_run_that_crashed_before_its_comparison_does_not_block_scoring(
     _scoring_ready(monkeypatch)
     h.add_to_ledger(h.DEFAULT_LEDGER, {"run": r.RUN, "status": "scored", "variant": "(a)",
                                        "selection_key": r.sample_key(SAMPLE)})  # fmt: skip
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 0
 
 
@@ -343,7 +341,7 @@ def test_a_ctrl_c_is_recorded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
         raise KeyboardInterrupt
 
     monkeypatch.setattr(x, "train_variant", interrupted)
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     with pytest.raises(KeyboardInterrupt):
         r.main(["score", "--rag", "--send", "--rag-cache", str(cache)])
     assert _ledger()[-1]["status"] == "crashed"
@@ -381,7 +379,7 @@ def test_a_crash_after_the_comparison_still_spends_the_scoring(
         real_add(path, entry)
 
     monkeypatch.setattr(h, "add_to_ledger", add_then_fail_on_variants)
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     with pytest.raises(OSError):
         r.main(["score", "--rag", "--send", "--rag-cache", str(cache)])
     monkeypatch.setattr(h, "add_to_ledger", real_add)
@@ -395,5 +393,34 @@ def test_a_comparison_for_another_sample_also_counts_as_scored(
     _scoring_ready(monkeypatch)
     other = {"run": r.RUN, "status": "scored", "comparison": r.COMPARISON, "selection_key": "x"}
     h.add_to_ledger(h.DEFAULT_LEDGER, other)
-    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
     assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 2
+
+
+def test_version_4_usable_answers_include_every_kind_of_unsure() -> None:
+    from lookahead import rag_categorizer as rag
+
+    assert r.usable("ok") and r.usable(rag.UNSURE)
+    assert r.usable(rag.UNSURE_SEVERAL) and r.usable(rag.UNSURE_NO_CITATION)
+    assert not r.usable("not JSON") and not r.usable("unknown or repeated citation")
+    assert not r.usable(rag.NONE_AN_ANSWER)
+    log = r.AnswerLog({"k1": "ok", "k2": rag.UNSURE_NO_CITATION, "k3": rag.UNSURE_SEVERAL})
+    assert log.refused() == 0 and r.void_reason(3, 1, log) is None
+
+
+def test_the_version_3_rule_is_not_this_harness_rule() -> None:
+    v3 = r.RULE.with_name("2026-11-19-categorizer-rag-adopt-rule-v3.md")
+    assert v3.exists() and r.RULE != v3
+    assert h.adopt_rule_status(v3, r.RULE_MARKER).ok is False
+
+
+def test_the_cache_must_start_empty(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _scoring_ready(monkeypatch)
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
+    cache.parent.mkdir(parents=True)
+    cache.write_text("{}", encoding="utf-8")
+    assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 2
+    assert "start empty" in str(_ledger()[-1]["reason"])
+    # after a crashed run, its saved answers may be used (the same rule, the same parser)
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": r.RUN, "status": "crashed"})
+    assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 0

@@ -174,11 +174,12 @@ def test_a_valid_answer_with_citations_is_taken() -> None:
     [
         ('{"category": null, "cited": []}', "unsure"),
         ("Groceries", "not JSON"),
-        ('Here: ```json\n{"category": "Groceries", "cited": ["ex-a"]}\n```', "not JSON"),
-        ('```json\n{"category": "Groceries", "cited": ["ex-a"]}\n``` thanks', "not JSON"),
+        ('{"category": "Groceries", "cited": ["ex-a"', "not JSON"),  # cut off: no object
+        ("Groceries {store} near me", "not JSON"),  # braces, but no JSON object
         ('{"category": "groceries", "cited": ["ex-a"]}', "not one of the categories"),
         ('{"category": "Coffee", "cited": ["ex-a"]}', "not one of the categories"),
-        ('{"category": "Groceries", "cited": []}', "no citation"),
+        ('{"category": "Groceries", "cited": []}', rag.UNSURE_NO_CITATION),
+        ('{"category": "Coffee", "cited": []}', "not one of the categories"),
         ('{"category": "Groceries", "cited": ["ex-q"]}', "unknown or repeated citation"),
         ('{"category": "Groceries", "cited": ["ex-a", "ex-a"]}', "unknown or repeated citation"),
         ('{"category": "Groceries", "cited": "ex-a"}', "citations are not a list of ids"),
@@ -338,3 +339,98 @@ def test_the_longest_valid_answer_fits_the_token_limit() -> None:
     assert len(answer) <= rag.MAX_TOKENS
     request = rag.build_request(merchant="CAFE", examples=examples, directory=directory)
     assert request["max_tokens"] == rag.MAX_TOKENS
+
+
+# --- Adopt rule version 4: text around one answer, several answers, no citation ---
+
+FENCED_NULL = '```json\n{"category": null, "cited": []}\n```'
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        'Here: ```json\n{"category": "Groceries", "cited": ["ex-a"]}\n```',  # text before a fence
+        '```json\n{"category": "Groceries", "cited": ["ex-a"]}\n``` thanks',  # text after
+        'Looking at ex-a: {"category": "Groceries", "cited": ["ex-a"]}',  # no fence
+        '```json\nAnswer: {"category": "Groceries", "cited": ["ex-a"]}\n```',  # text inside
+        '{"category": "Groceries", "cited": ["ex-a"]}\nex-a {a grocer} is closest.',  # not JSON
+    ],
+)
+def test_one_json_object_with_text_around_it_is_read_from_the_object(raw: str) -> None:
+    assert rag.parse_answer(raw, IDS) == rag.Decision("Groceries", ("ex-a",), "ok")
+
+
+def test_a_fenced_null_with_an_explanation_is_unsure() -> None:
+    raw = FENCED_NULL + "\nThe name does not match any example closely enough."
+    assert rag.parse_answer(raw, IDS) == rag.Decision(None, (), rag.UNSURE)
+
+
+def test_two_json_objects_are_unsure() -> None:
+    raw = '```json\n{"category": "Travel", "cited": []}\n```\nOn reflection:\n' + FENCED_NULL
+    assert rag.parse_answer(raw, IDS) == rag.Decision(None, (), rag.UNSURE_SEVERAL)
+    two_valid = (
+        '{"category": "Groceries", "cited": ["ex-a"]} {"category": "Shopping", "cited": ["ex-b"]}'
+    )
+    assert rag.parse_answer(two_valid, IDS).reason == rag.UNSURE_SEVERAL
+
+
+def test_a_category_with_no_citation_is_unsure_even_with_text_around() -> None:
+    raw = '```json\n{"category": "Groceries", "cited": []}\n```\nI know this chain.'
+    assert rag.parse_answer(raw, IDS) == rag.Decision(None, (), rag.UNSURE_NO_CITATION)
+
+
+def test_one_object_with_text_still_gets_every_other_check() -> None:
+    assert rag.parse_answer('Sure: {"category": "Groceries", "cited": ["ex-q"]}', IDS).reason == (
+        "unknown or repeated citation"
+    )
+    assert rag.parse_answer('Sure: {"category": "Groceries"}', IDS).reason == (
+        "not the expected object"
+    )
+
+
+def test_json_objects_respect_braces_inside_strings() -> None:
+    text = 'x {"category": "A}B", "cited": ["ex-a"]} y {not json} z {"a": {"b": 1}}'
+    assert rag.json_objects(text) == [{"category": "A}B", "cited": ["ex-a"]}, {"a": {"b": 1}}]
+    assert rag.json_objects('{"a": "unclosed') == []
+
+
+def test_every_kind_of_unsure_is_unsure_and_nothing_else_is() -> None:
+    assert all(rag.is_unsure(r) for r in (rag.UNSURE, rag.UNSURE_SEVERAL, rag.UNSURE_NO_CITATION))
+    assert not any(rag.is_unsure(r) for r in ("ok", "not JSON", "unsure-ish", "no citation"))
+
+
+def test_an_invalid_or_unclosed_brace_does_not_hide_an_object() -> None:
+    nested = ('{note {"category": "Shopping", "cited": ["ex-b"]}} '
+              '{"category": "Groceries", "cited": ["ex-a"]}')  # fmt: skip
+    assert rag.parse_answer(nested, IDS).reason == rag.UNSURE_SEVERAL  # two objects
+    unclosed = 'I would say {maybe. {"category": "Groceries", "cited": ["ex-a"]}'
+    assert rag.parse_answer(unclosed, IDS) == rag.Decision("Groceries", ("ex-a",), "ok")
+
+
+def test_an_escaped_quote_inside_a_string_is_handled() -> None:
+    raw = 'Note: {"category": "Groceries", "cited": ["ex-a"], "x": 1}'
+    assert rag.json_objects(r'a {"k": "say \"}\" here"} b') == [{"k": 'say "}" here'}]
+    assert rag.parse_answer(raw, IDS).reason == "not the expected object"
+
+
+def test_several_objects_none_an_answer_are_refused() -> None:
+    assert rag.parse_answer('{"a": 1} then {"b": 2}', IDS).reason == rag.NONE_AN_ANSWER
+    almost = '{"category": "Groceries"} and {"cited": ["ex-a"]}'  # neither has both keys
+    assert rag.parse_answer(almost, IDS).reason == rag.NONE_AN_ANSWER
+    assert not rag.is_unsure(rag.NONE_AN_ANSWER)
+
+
+def test_several_objects_one_with_the_answer_shape_are_unsure() -> None:
+    raw = '{"note": "x"} then {"category": null, "cited": []}'
+    assert rag.parse_answer(raw, IDS).reason == rag.UNSURE_SEVERAL
+
+
+def test_a_saved_reply_is_read_again_with_todays_parser(tmp_path: Path) -> None:
+    cache = tmp_path / "data" / "private" / "rag.json"
+    old = rag.Answer(None, (), "not JSON",
+                     '```json\n{"category": null, "cited": []}\n```\nNo close example.',
+                     rag.MODEL, 1, 1, 0.1)  # fmt: skip
+    request = rag.request_for(_retrieved())
+    rag.save_cache(cache, {rag.request_key(request): old})
+    answer, asked = rag.categorize_one(_retrieved(), cache, FakeClient("never"), send=True)
+    assert not asked and answer is not None and answer.reason == rag.UNSURE
