@@ -18,6 +18,8 @@ from what happened, in cents: lower is better, and for a single value it is the 
     python -m eval.baselines --set 12 --jobs 2    # the 20 development personas, resumable
     python -m eval.baselines --set long --jobs 2
     python -m eval.baselines --report             # writes docs/results/baselines_2026-10-17.md
+    python -m eval.baselines --tag 2026-11-19 --jobs 4   # a later rerun, in its own folder
+    python -m eval.baselines --tag 2026-11-19 --report   # docs/results/baselines_2026-11-19.md
 
 Records go to data/backtest/exp1/<set>/ (not committed). Held-out personas are refused.
 """
@@ -55,6 +57,7 @@ from lookahead.generator.archetypes import assert_development_only, development_
 
 OUT = Path("data/backtest/exp1")
 REPORT = Path("docs/results/baselines_2026-10-17.md")
+TAG_ARG = ""  # " --tag X" for a later rerun (in the report's first line)
 QUANTILES = tuple(k / 100 for k in range(5, 100, 5))  # 5, 10, ..., 95 percent
 LOOKBACK_DAYS = 365
 MIN_WINDOWS = 20  # fewer windows than this: no random walk for the origin
@@ -417,7 +420,8 @@ def report() -> str:
     lines = [
         "# Experiment 1: baselines and scores (synthetic, development personas)",
         "",
-        "Made with `python -m eval.baselines --report`. Method in DECISIONS.md (2026-10-17). "
+        f"Made with `python -m eval.baselines{TAG_ARG} --report`. Method in DECISIONS.md "
+        "(2026-10-17). "
         "20 development personas per set (never pooled), 40 weekly origins, 500 futures, "
         "seed 42, the default forecaster. The random walk uses the 365 days before each "
         "origin and only windows that ended on or before it. Nothing is adopted from this "
@@ -431,6 +435,16 @@ def report() -> str:
     return "\n".join(lines) + "\n"
 
 
+def use_tag(tag: str) -> None:
+    """A later rerun keeps its own records and report; the 2026-10-17 ones are never touched."""
+    global OUT, REPORT, TAG_ARG
+    if not tag.replace("-", "").isalnum():
+        raise ValueError("--tag: letters, digits and dashes only")
+    OUT = Path(f"data/backtest/exp1-{tag}")
+    REPORT = Path(f"docs/results/baselines_{tag}.md")
+    TAG_ARG = f" --tag {tag}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m eval.baselines",
@@ -442,7 +456,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--report", action="store_true")
+    parser.add_argument(
+        "--tag",
+        default=None,
+        help="a rerun: records in data/backtest/exp1-TAG, report baselines_TAG.md",
+    )
     args = parser.parse_args(argv)
+    if args.tag:
+        use_tag(args.tag)
     if args.report:
         REPORT.write_text(report(), encoding="utf-8")
         print(f"written: {REPORT}")

@@ -189,3 +189,18 @@ def test_the_alert_pool_keeps_origins_already_in_shortfall() -> None:
     ]
     assert alert_pool(rows) == rows[:2]  # the engine needs the run through a shortfall
     assert MIN_DIPS >= 2  # a skill from a single dip would be a ratio of noise
+
+
+def test_a_tagged_rerun_keeps_its_own_records_and_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pathlib import Path
+
+    from eval import baselines
+
+    for name in ("OUT", "REPORT", "TAG_ARG"):
+        monkeypatch.setattr(baselines, name, getattr(baselines, name))
+    baselines.use_tag("2026-11-19")
+    assert baselines.OUT == Path("data/backtest/exp1-2026-11-19")
+    assert baselines.REPORT == Path("docs/results/baselines_2026-11-19.md")
+    assert baselines.TAG_ARG == " --tag 2026-11-19"
+    with pytest.raises(ValueError):
+        baselines.use_tag("../x")
