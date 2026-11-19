@@ -2399,4 +2399,5 @@ The draft's open points are settled (my decisions with my advisor's input); the 
     - Plain v2-mode scoring now refuses, because nothing passed v2's public run. Otherwise it could use up the one draw, which is rule v4's veto.
     - Rule v4's ledger-only checks (rule, public pass, uncommitted code, `--again`, empty cache) now run before my database or labels are read.
     - Every v4 refusal carries the run name.
+- **`relabel`** (added 2026-11-19, before any veto scoring): it corrects one blind label of mine. It shows only the rows I gave the wrong category, as merchant text with no prediction, saves the right category at once, and records `relabelled` in the ledger (from, to, count 1, before scoring, my own slip). It refuses once the selection has been scored.
 

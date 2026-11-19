@@ -1118,6 +1118,81 @@ def label_session(
     return Session(done, skipped, left)
 
 
+def relabel_session(
+    texts: dict[str, str], labels: Path, wrong: str, ask: Callable[[str], str],
+    show: Callable[[str], None] = print,
+) -> tuple[str, str] | None:  # fmt: skip
+    """Correct ONE label of mine: walk the rows labelled `wrong`, showing the merchant text
+    only, until I say "y"; then ask the right category number and save it at once. Returns
+    (old, new), or None when nothing was changed. Shows no prediction."""
+    rows = _read_labels_file(labels)
+    todo = [r for r in rows if r["category"] == wrong]
+    show(f"{len(todo)} rows labelled {wrong!r}. Categories: "
+         + "; ".join(f"{i} {c}" for i, c in enumerate(CATEGORIES, 1)))  # fmt: skip
+    for n, row in enumerate(todo, 1):
+        answer = ""
+        while answer not in ("y", "n", "q"):
+            answer = ask(f"[{n} of {len(todo)}] {texts[row['fingerprint']].strip()}\n"
+                         "is this the row to correct? y / n / q: ").strip().casefold()  # fmt: skip
+        if answer == "q":
+            break
+        if answer == "n":
+            continue
+        while True:
+            number = ask("the right category number: ").strip()
+            if number.isdigit() and 1 <= int(number) <= len(CATEGORIES):
+                break
+            show("not a category number")
+        new = CATEGORIES[int(number) - 1]
+        if new == wrong:
+            show("the same category: nothing changed")
+            return None
+        row["category"] = new
+        _write_labels_file(labels, rows)
+        show(f"saved: one label corrected, {wrong} -> {new}")
+        return wrong, new
+    show("nothing changed")
+    return None
+
+
+def relabel_command(args: argparse.Namespace) -> int:
+    """`relabel`: correct one blind label of mine before scoring, recorded in the ledger."""
+    from lookahead.db import connect_readonly
+
+    for flag in ("db", "labels", "wrong"):
+        if getattr(args, flag) is None:
+            print(f"--{flag} is required (no default points at private data)")
+            return 2
+    if not is_private_path(args.labels):
+        print("--labels must be inside data/private/ (it names merchants)")
+        return 2
+    if args.wrong not in CATEGORIES:
+        print("--wrong must be a category written exactly as in the list")
+        return 2
+    selection = selection_fingerprints(args.labels)
+    if scored_fingerprints(ledger_entries(DEFAULT_LEDGER)) & set(selection):
+        print("refusing: this selection was already scored. A label is never changed after it.")
+        return 2
+    conn = connect_readonly(args.db)
+    texts = {fp: text for fp, text in conn.execute(
+        "SELECT fingerprint, sub_description FROM transactions WHERE account = ?",
+        (args.account,))}  # fmt: skip
+    conn.close()
+    if any(fp not in texts for fp in selection):
+        print("refusing: some rows of the labels file are not in the database")
+        return 2
+    changed = relabel_session(texts, args.labels, args.wrong, input)
+    if changed is not None:
+        add_to_ledger(DEFAULT_LEDGER, {
+            "at": datetime.now().isoformat(timespec="seconds"), "status": "relabelled",
+            "selection_key": selection_key(selection), "labels_corrected": 1,
+            "from": changed[0], "to": changed[1], "before_scoring": True,
+            "reason": "my own slip while labelling, corrected before any scoring and "
+                      "without seeing any prediction",
+        })  # fmt: skip
+    return 0
+
+
 def label_command(args: argparse.Namespace) -> int:
     from lookahead.db import connect_readonly
 
@@ -1275,9 +1350,16 @@ def main(argv: list[str] | None = None) -> int:
     lab.add_argument("--account", default="scotia-chequing")
     lab.add_argument("--selection", type=Path, help="the candidates file (data/private/)")
     lab.add_argument("--labels", type=Path, help="my labels file (data/private/)")
+    fix = commands.add_parser("relabel", help="correct one blind label of mine, before scoring")
+    fix.add_argument("--db", type=Path)
+    fix.add_argument("--account", default="scotia-chequing")
+    fix.add_argument("--labels", type=Path, help="my labels file (data/private/)")
+    fix.add_argument("--wrong", help="the category I gave by mistake, exactly as in the list")
     args = parser.parse_args(argv)
     if args.command == "label":
         return label_command(args)
+    if args.command == "relabel":
+        return relabel_command(args)
     if args.command == "candidates":
         return write_candidates(args)
     if args.synthetic:

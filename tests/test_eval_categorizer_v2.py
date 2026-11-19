@@ -1294,3 +1294,68 @@ def test_v2_mode_refuses_when_nothing_passed_v2s_public_run(
     assert h.main(_score_args(tmp_path, labels, rule)) == 2
     assert "nothing to veto" in capsys.readouterr().out
     assert not h.scored_fingerprints(h.ledger_entries(h.DEFAULT_LEDGER))  # draw unused
+
+
+# --- Correcting one blind label of mine before scoring (`relabel`) ---
+
+
+def _labels(tmp_path: Path) -> Path:
+    labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
+    labels.parent.mkdir(parents=True, exist_ok=True)
+    labels.write_text("fingerprint,set,category\nf1,A,Subscriptions\nf2,K,Subscriptions\n"
+                      "f3,K,Groceries\n", encoding="utf-8")  # fmt: skip
+    return labels
+
+
+def test_relabel_corrects_the_row_i_pick_and_nothing_else(tmp_path: Path) -> None:
+    labels = _labels(tmp_path)
+    answers = iter(["n", "y", "7"])
+    shown: list[str] = []
+    texts = {"f1": "SPOTIFY", "f2": "MY ISP", "f3": "IGA"}
+    got = h.relabel_session(texts, labels, "Subscriptions", lambda prompt: next(answers),
+                            shown.append)  # fmt: skip
+    assert got == ("Subscriptions", h.CATEGORIES[6])
+    rows = {r["fingerprint"]: r["category"] for r in h._read_labels_file(labels)}
+    assert rows == {"f1": "Subscriptions", "f2": h.CATEGORIES[6], "f3": "Groceries"}
+    assert not any("IGA" in line for line in shown)  # only rows with the wrong label are shown
+
+
+SAME = str(h.CATEGORIES.index("Subscriptions") + 1)
+
+
+@pytest.mark.parametrize("answers", [["q"], ["n", "n"], ["y", SAME]])
+def test_relabel_changes_nothing_on_q_on_no_or_on_the_same_category(
+    tmp_path: Path, answers: list[str]
+) -> None:
+    labels = _labels(tmp_path)
+    before = labels.read_text(encoding="utf-8")
+    it = iter(answers)
+    got = h.relabel_session({"f1": "A", "f2": "B", "f3": "C"}, labels, "Subscriptions",
+                            lambda prompt: next(it), lambda line: None)  # fmt: skip
+    assert got is None and labels.read_text(encoding="utf-8") == before
+
+
+def test_relabel_records_the_correction_and_refuses_after_scoring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sqlite3
+
+    labels = _labels(tmp_path)
+    db = tmp_path / "x.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE transactions (fingerprint TEXT, account TEXT, sub_description TEXT)")
+    conn.executemany("INSERT INTO transactions VALUES (?, 'scotia-chequing', ?)",
+                     [("f1", "A"), ("f2", "B"), ("f3", "C")])  # fmt: skip
+    conn.commit()
+    conn.close()
+    answers = iter(["y", "7"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    run = ["relabel", "--db", str(db), "--labels", str(labels), "--wrong", "Subscriptions"]
+    assert h.main(run) == 0
+    [entry] = h.ledger_entries(h.DEFAULT_LEDGER)
+    assert entry["status"] == "relabelled" and entry["labels_corrected"] == 1
+    assert entry["to"] == h.CATEGORIES[6] and entry["before_scoring"] is True
+    assert "fingerprint" not in entry and "f1" not in json.dumps(entry)
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"status": "scored", "selection": ["f1", "f2", "f3"]})
+    assert h.main(run) == 2 and "already scored" in capsys.readouterr().out
+    assert h.main([*run[:-1], "Subscription"]) == 2  # not a category exactly
