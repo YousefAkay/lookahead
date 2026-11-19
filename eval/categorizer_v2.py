@@ -79,6 +79,7 @@ DEFAULT_RAG_CACHE = Path("data/private/cache/rag_categories.json")
 VARIANTS = ("current", "cleaner+directory", "+RAG")
 LEAKAGE_AT = 0.95  # any variant above this: check for leakage before reading anything
 BOOTSTRAP_RESAMPLES = 2000
+RULE_MARKER = "## Part 1: the deciding run, on public data only"  # version 2 of the rule
 DRY_RUN = "dry run, not a result"
 # The adopt rule's numbers (docs/specs/2026-11-18-categorizer-v2-adopt-rule.md).
 SELECTION_SEED = 0  # fixed: the blind selection is drawn once and never redrawn
@@ -152,6 +153,8 @@ def adopt_rule_status(path: Path) -> RuleStatus:
     text = path.read_text(encoding="utf-8")
     if "DRAFT" in text or "not yet in force" in text.casefold():
         return RuleStatus(False, "the adopt rule is still a draft", commit)
+    if RULE_MARKER not in text:
+        return RuleStatus(False, "the adopt rule is not version 2 (no public deciding run)", commit)
     return RuleStatus(True, "committed and unchanged", commit,
                       hashlib.sha256(text.encode("utf-8")).hexdigest())  # fmt: skip
 
@@ -565,12 +568,22 @@ def veto(results: dict[str, VariantResult], blind: pd.DataFrame) -> list[Veto]:
     ]  # fmt: skip
 
 
-def external_verdicts(entries: Sequence[dict[str, object]]) -> dict[str, bool]:
-    """variant -> whether it passed on the public set, from the latest scored public run."""
+def external_verdicts(
+    entries: Sequence[dict[str, object]], rule_sha256: str | None
+) -> dict[str, bool]:
+    """variant -> whether it passed on the public set, from the FIRST scored public run under
+    this exact rule text: a later `--again` run is recorded but decides nothing, and a run
+    under another rule text counts for nothing."""
     out: dict[str, bool] = {}
     for e in entries:
-        if e.get("run") == "external" and e.get("status") == "scored" and "comparison" in e:
-            out[str(e["comparison"]).split(" vs ")[0]] = bool(e.get("passes"))
+        if (
+            e.get("run") == "external"
+            and e.get("status") == "scored"
+            and "comparison" in e
+            and rule_sha256 is not None
+            and e.get("adopt_rule_sha256") == rule_sha256
+        ):
+            out.setdefault(str(e["comparison"]).split(" vs ")[0], bool(e.get("passes")))
     return out
 
 
@@ -578,6 +591,7 @@ def score(
     split: Split, settings: Settings, extra: pd.DataFrame | None, variants: Sequence[str],
     rag_answer: Callable[[pd.Series], str | None] | None, dry_run: bool,
     record: Callable[[dict[str, object]], None] | None = None,
+    rule_sha256: str | None = None,
 ) -> dict[str, VariantResult]:  # fmt: skip
     """Run each variant on the blind rows, then the adopt rule's comparisons. A dry run prints
     counts only."""
@@ -610,7 +624,7 @@ def score(
         if record is not None:
             record(entry)
     if not dry_run:
-        decided = external_verdicts(ledger_entries(DEFAULT_LEDGER))
+        decided = external_verdicts(ledger_entries(DEFAULT_LEDGER), rule_sha256)
         for v in veto(results, blind):
             public = decided.get(v.variant)
             adopted = bool(public) and v.ok
@@ -766,7 +780,8 @@ def score_my_data(args: argparse.Namespace) -> int:
 
     print(f"Categorizer v2 on the blind set: account {args.account}; adopt rule at commit "
           f"{(status.commit or '')[:10]}")  # fmt: skip
-    score(split, settings, extra, variants, rag_answer, dry_run=False, record=record)
+    score(split, settings, extra, variants, rag_answer, dry_run=False, record=record,
+          rule_sha256=status.sha256)  # fmt: skip
     conn.close()
     return 0
 
@@ -985,10 +1000,10 @@ def write_candidates(args: argparse.Namespace) -> int:
     if not ledger_is_private(DEFAULT_LEDGER):
         print("the ledger must be inside data/private/ (nothing drawn)")
         return 2
-    if not external_verdicts(ledger_entries(DEFAULT_LEDGER)):
+    if not external_verdicts(ledger_entries(DEFAULT_LEDGER), status.sha256):
         print(
-            "refusing: the public deciding run comes first. My rows are drawn last, right "
-            "before the veto."
+            "refusing: the public deciding run comes first, under this exact rule text. My "
+            "rows are drawn last, right before the veto."
         )
         return 2
     if any(e.get("status") == "drawn" for e in ledger_entries(DEFAULT_LEDGER)):

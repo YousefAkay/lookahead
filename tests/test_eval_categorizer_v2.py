@@ -33,7 +33,7 @@ def repo(tmp_path: Path) -> Path:
     return r
 
 
-RULE = "# Adopt rule\nIn force since my approval.\n"
+RULE = f"# Adopt rule\nIn force since my approval.\n\n{h.RULE_MARKER}\n"
 
 
 def _log_draw(labels: Path, rule: Path) -> None:
@@ -47,9 +47,10 @@ def _log_draw(labels: Path, rule: Path) -> None:
 
 def _public_run_scored() -> None:
     """The ledger entry of a scored public deciding run: my rows are drawn only after it."""
+    sha = h.adopt_rule_status(h.APPROVED_ADOPT_RULE).sha256  # the committed test rule
     h.add_to_ledger(h.DEFAULT_LEDGER, {"run": "external", "status": "scored",
                                        "comparison": "cleaner+directory vs current",
-                                       "passes": True})  # fmt: skip
+                                       "passes": True, "adopt_rule_sha256": sha})  # fmt: skip
 
 
 def _runs(ledger: Path) -> list[dict[str, object]]:
@@ -123,7 +124,7 @@ def test_the_repositorys_rule_is_final_and_states_the_codes_numbers() -> None:
     assert h.BLIND_SINCE == date(2026, 10, 1) and h.LEAKAGE_AT == 0.95
     for phrase in ("version 2", "up to 150 rows", "at most 3 per merchant", "at least 15 group A",
                    "60 unlabelled rows", "at least 40 labelled group K", "at least 3 points",
-                   "2,000 draws", "seed 0", "at most 2 rows net worse", "at most 1 more row wrong",
+                   "2,000 draws", "seed 0", "at most 2 rows net worse", "at most 1 row net worse",
                    "2026-10-01", "95%", "(c) passes only if (b) passes too",
                    "passes Part 1 AND is not vetoed", "600 rows",
                    "40% of the merchants"):  # fmt: skip
@@ -1008,13 +1009,24 @@ def test_the_veto_counts_rows_wrong_beyond_a_per_group() -> None:
     assert k_bad[0].k_extra_wrong == 2 and not k_bad[0].ok  # (c) is checked against (a) too
 
 
-def test_adoption_needs_the_public_pass_and_no_veto() -> None:
+def test_the_first_public_run_decides_and_only_under_this_rule_text() -> None:
+    def run(comparison: str, passes: bool, sha: str = "v2", status: str = "scored") -> dict:
+        return {"run": "external", "status": status, "comparison": comparison,
+                "passes": passes, "adopt_rule_sha256": sha}  # fmt: skip
+
     entries = [
-        {"run": "external", "status": "scored", "comparison": "cleaner+directory vs current",
-         "passes": True},
-        {"run": "external", "status": "scored", "comparison": "+RAG vs cleaner+directory",
-         "passes": False},
-        {"run": "external", "status": "refused", "comparison": "+RAG vs cleaner+directory",
-         "passes": True},  # a refused run decides nothing
-    ]  # fmt: skip
-    assert h.external_verdicts(entries) == {"cleaner+directory": True, "+RAG": False}
+        run("cleaner+directory vs current", False),
+        run("+RAG vs cleaner+directory", False),
+        run("cleaner+directory vs current", True),  # a later --again run: recorded, not deciding
+        run("+RAG vs cleaner+directory", True, status="refused"),  # a refusal decides nothing
+        run("+RAG vs cleaner+directory", True, sha="v3"),  # scored under another rule text
+    ]
+    assert h.external_verdicts(entries, "v2") == {"cleaner+directory": False, "+RAG": False}
+    assert h.external_verdicts(entries, "v3") == {"+RAG": True}
+    assert h.external_verdicts(entries, None) == {}
+
+
+def test_a_rule_without_the_public_run_is_refused(repo: Path) -> None:
+    old = _committed_rule(repo, "# Adopt rule, version 1\nIn force.\n")
+    status = h.adopt_rule_status(old)
+    assert not status.ok and "not version 2" in status.reason

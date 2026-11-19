@@ -2278,7 +2278,7 @@ The draft's open points are settled (my decisions with my advisor's input); the 
 - **Why:** version 1 (dfb1fc6) needed at least 100 new-merchant rows of mine. My count (`candidates --count`, nothing drawn) gave 18 rows from 16 new merchants since 2026-10-01, and 76 known-merchant rows. At that pace, 100 would take months. My account is too small to decide v2, and by my rules my real data should only veto. Version 1 was never used: nothing drawn, labelled or scored.
 - **Searched for real public data first:** no public set of real, labelled bank descriptions is usable. A 259k "real" set has an undocumented origin and holds customers' names; a 4.5M set mixes unnamed real sources with synthetic rows (gated, 10 coarse categories); MoneyData (CC BY 4.0, about 6,500 real rows) has bank transaction types, not spending categories. Nothing Canadian or French.
 - **Lost: synthetic new merchants from my own generator.** It would grade itself: my generator has 28 merchants, 22 of them are directory chains, and the directory agrees with the generator's label on all 485 of those rows (625 synthetic training rows). The directory's 0.60 threshold was also chosen on the generator's other merchants.
-- **Won: DoDataThings v2** (synthetic, US, MIT): an independent author, with no merchant chosen with my code in mind. It allows a 600-row deciding sample, so a true gain of about 4 points is detectable instead of 8 to 10. Everything in the deciding run is public: split by merchant (40% to test, seed 0), (a), (b) and (c) trained, tuned and given RAG examples from the train part only; my labels, my settings and my generator's rows are not used.
+- **Won: DoDataThings v2** (synthetic, US, MIT): an independent author, with no merchant chosen with my code in mind. It allows a 600-row deciding sample, so a true gain of about 4 points is detectable instead of 8 to 10 with version 1's 150 rows (power check: 150 rows in 75 merchants, 200 trials). Everything in the deciding run is public: split by merchant (40% to test, seed 0), (a), (b) and (c) trained, tuned and given RAG examples from the train part only; my labels, my settings and my generator's rows are not used.
 - **Found while checking the download** (counts only; the deciding sample has not been scored):
   - The file has no merchant column and no amounts. The merchant key is rebuilt from the generator's own name list, read as text (5 frozen steps; squashed, glued and truncated spellings included after a first version put one chain in both parts).
   - The only public version of that list is dated after the dataset; 10 of its 1,008 names never occur.
@@ -2292,3 +2292,11 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - My rows are drawn last, after the public run is scored, so newer months count.
   - Adopted = passes on the public set AND no veto.
 - **Lost:** a merchant-name grouping without the generator list (less exact, and more shared keys between the two parts); keeping Transfer, Income and Fees (that would grade the model on rows it never sees in the app).
+- **After the reviewer's FAIL (two blocking points), before the rule is committed:**
+  - The first scored public run under this exact rule text decides. A later `--again` run is recorded but decides nothing, and a run under another rule text counts for nothing; the draw gate and the "adopted" line use only those entries.
+  - The harness refuses a rule without the version 2 heading, so version 1 cannot come back by a revert.
+  - A category missing from the mapping stops the run; the RAG cache path is absolute.
+  - 2-letter chain names (BP) count as merchants: before this, BP fell back to keys like "BP HIK" and sat in both parts.
+  - `summary` prints how many cleaned names the train part and the sample share: 0.
+  - The final grouping: 1,072 merchants; train 28,656 rows / 643 merchants; test 19,344 / 429; sample 600 / 356.
+  - Disclosed in the rule: my dry run of (a) (68.8%, n = 475 rows, 201 merchants) touched merchants that are now test merchants: 58 of them, 44 in the sample, 10 of its rows are sample rows. Only (a) was run; nothing was tuned from it.

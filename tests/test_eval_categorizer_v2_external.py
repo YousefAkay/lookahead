@@ -27,6 +27,7 @@ const merchants = {
     chains: ["TRADER JOE'S", "WHOLE FOODS", "SAFEWAY"],
   },
   shopping: { online: ["AMAZON", "TARGET", "EXPRESS"] },
+  gas: ["BP", "76"],
 };
 const EMPLOYER_NAMES = ["ACME CORP"];
 """
@@ -61,6 +62,7 @@ def test_generator_names_leave_out_cities_and_people() -> None:
         ("[debit] AMZN MKTP US*AB12CD34", "AMAZON", "alias"),
         ("[debit] PAYPAL INST XFER STARBUCKS WEB ID: X", "STARBUCKS", "name"),  # wrapper skipped
         ("[debit] SQ *FRUIT STAND #12", "FRUIT STAND", "first two words"),
+        ("[debit] BP*GZA9NLYVA2N5 BP GZA", "BP", "name"),  # a 2-letter chain is one merchant
         ("[debit] PAYPAL INST XFER TRADER JOE'SWEB ID: P", "TRADER JOE'S", "squashed name"),
         ("[debit] DR HARRIS PEDIATRICS", "DR HARRIS", "first two words"),
     ],
@@ -209,7 +211,7 @@ def test_the_public_run_scores_once_and_logs_every_comparison(
     scored = [e for e in h.ledger_entries(h.DEFAULT_LEDGER) if e.get("status") == "scored"]
     assert [e.get("variant") or e.get("comparison") for e in scored] == [
         "current", "cleaner+directory", "cleaner+directory vs current"]  # fmt: skip
-    assert h.external_verdicts(scored).keys() == {"cleaner+directory"}
+    assert h.external_verdicts(scored, "def").keys() == {"cleaner+directory"}
     assert x.main(args) == 2 and "scored once" in capsys.readouterr().out
     assert x.main([*args, "--again"]) == 0
 
@@ -221,3 +223,44 @@ def test_the_pins_are_the_values_in_the_rule() -> None:
     assert (x.TEST_SHARE, x.SPLIT_SEED, x.SAMPLE_ROWS, x.SAMPLE_PER_MERCHANT) == (0.4, 0, 600, 3)
     assert json.dumps(x.MAPPING, sort_keys=True)  # serializable: written in the rule's table
     assert np.isclose(h.MIN_GAIN, 0.03)
+
+
+def test_an_unknown_category_stops_the_run(tmp_path: Path, keys: x.MerchantKeys) -> None:
+    path = tmp_path / "set.csv"
+    path.write_text('description,category\n"[debit] TARGET",Pets\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="not in the mapping"):
+        x.load_rows(path, keys)
+
+
+def test_fetch_deletes_a_file_with_the_wrong_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Response:
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"not the pinned file"
+
+    monkeypatch.setattr(x.urllib.request, "urlopen", lambda *_, **__: Response())
+    assert x.fetch(tmp_path) == 2
+    assert "wrong sha256, deleted" in capsys.readouterr().out
+    assert not (tmp_path / x.DATASET_FILE).exists()
+
+
+def test_summary_prints_counts_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _tiny_set(tmp_path)
+    for name, path in (("DATASET_SHA256", x.DATASET_FILE), ("GENERATOR_SHA256", x.GENERATOR_FILE)):
+        monkeypatch.setattr(x, name, hashlib.sha256((tmp_path / path).read_bytes()).hexdigest())
+    monkeypatch.setattr(x, "SAMPLE_ROWS", 30)
+    assert x.main(["summary", "--folder", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    got = json.loads(out)
+    assert got["rows"] == 240 and got["sample"][0] == 30
+    assert got["cleaned_names_in_train_and_sample"] == 0
+    assert "MARKET AA" not in out  # no description

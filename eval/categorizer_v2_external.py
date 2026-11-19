@@ -62,7 +62,7 @@ GENERATOR_URL = (
     f"https://raw.githubusercontent.com/wnstnb/foliome/{GENERATOR_COMMIT}/scripts/{GENERATOR_FILE}"
 )
 GENERATOR_SHA256 = "d380e4bbdd0d34ecee025f029ca713ae75577d4eb46a0eed0aa7f82fd5d3f547"
-DEFAULT_RAG_CACHE = Path("data/private/cache/rag_external.json")  # the RAG cache must be private
+DEFAULT_RAG_CACHE = ROOT / "data" / "private" / "cache" / "rag_external.json"  # must be private
 
 # Their category -> mine. None: dropped (no category of mine, or decided by my bank rules,
 # not by the model: Transfers, Income, Fees come from Scotiabank transaction types).
@@ -168,7 +168,7 @@ class MerchantKeys:
     """The frozen merchant key of a description (module docstring, steps 1 to 5)."""
 
     def __init__(self, names: Sequence[str]) -> None:
-        keep = {_norm(n) for n in names if len(_norm(n)) >= 3 and _norm(n) not in NOT_MERCHANTS}
+        keep = {_norm(n) for n in names if len(_norm(n)) >= 2 and _norm(n) not in NOT_MERCHANTS}
         ordered = sorted(keep, key=lambda n: (-len(n), n))
         self.words = [(n, re.compile(r"(?<![A-Z0-9])" + re.escape(n) + r"(?![A-Z0-9])"))
                       for n in ordered]  # fmt: skip
@@ -213,12 +213,15 @@ def load_rows(csv_path: Path, keys: MerchantKeys) -> pd.DataFrame:
     """Every row with its category, my category (None: dropped) and its merchant key."""
     with csv_path.open(encoding="utf-8", newline="") as f:
         rows = list(csv.DictReader(f))
+    unknown = {r["category"] for r in rows} - set(MAPPING)
+    if unknown:
+        raise ValueError(f"categories not in the mapping: {sorted(unknown)}")
     found = [keys.key(r["description"]) for r in rows]
     return pd.DataFrame(
         {
             "description": [r["description"] for r in rows],
             "theirs": [r["category"] for r in rows],
-            "mine": [MAPPING.get(r["category"]) for r in rows],
+            "mine": [MAPPING[r["category"]] for r in rows],
             "merchant": [k for k, _ in found],
             "how": [how for _, how in found],
         }
@@ -460,6 +463,10 @@ def summary_command(args: argparse.Namespace) -> int:
         "test": [len(test), int(test["merchant"].nunique())],
         "sample": [len(sample), int(sample["merchant"].nunique())],
         "sample_per_category": sample["mine"].value_counts().to_dict(),
+        "cleaned_names_in_train_and_sample": len(
+            {clean_merchant(body(d)).key for d in train["description"]}
+            & {clean_merchant(body(d)).key for d in sample["description"]}
+        ),
     }, indent=1, ensure_ascii=False))  # fmt: skip
     return 0
 
