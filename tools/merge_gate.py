@@ -8,7 +8,7 @@
   check to `pre-push`, so the gate does not change with the branch that is checked out.
 - `pre_push(remote, lines)`: git's own pre-push hook. Every push whose destination is
   `refs/heads/main` needs a pass for the pushed commit, whatever the command form or client.
-- `gate_reason(command, cwd)`: a Claude Code hook calls it before every shell command. It refuses
+- `gate_reason(command, cwd)`: a local command hook calls it before every shell command. It refuses
   a merge or pull into main without a pass, a merge chained after `cd`/`switch`/`checkout`, a
   `fetch X:main`, a push to main without a pass, and any command that touches the markers.
 
@@ -31,6 +31,20 @@ GIT = re.compile(r"(?:^|[\s;&|(`])git((?:\s+(?:-C|-c)\s+\S+)*)\s+(merge|pull|pus
                  r"([^;&|\n`]*)")  # fmt: skip
 MOVES = re.compile(r"(?:^|[\s;&|(])(cd|pushd)\s|git\s+(?:-C\s+\S+\s+)?(switch|checkout)\b")
 MAIN_REFS = {"main", "refs/heads/main"}
+WRITES = re.compile(r">|\b(touch|rm|mv|cp|tee|ln|chmod|install|truncate|dd)\b")
+VALUE_OPTS = {
+    "-m",
+    "-F",
+    "-s",
+    "-X",
+    "--message",
+    "--file",
+    "--strategy",
+    "--strategy-option",
+    "-S",
+    "--gpg-sign",
+}
+NO_REF = {"--abort", "--continue", "--quit"}
 
 
 def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -96,7 +110,7 @@ def _refuse(sha: str) -> str:
 
 def gate_reason(command: str, cwd: Path) -> str | None:
     """Why the command must not run, or None."""
-    if "suite-pass" in command and "tools.merge_gate run" not in command:
+    if "suite-pass" in command and WRITES.search(command):
         return "merge gate: the pass markers are written only by `python -m tools.merge_gate run`"
     found = list(GIT.finditer(command))
     if not found:
@@ -107,15 +121,32 @@ def gate_reason(command: str, cwd: Path) -> str | None:
         opts = m.group(1).split()
         if "-C" in opts:
             where = (cwd / opts[opts.index("-C") + 1]).resolve()
+        if verb == "push":
+            if "--no-verify" in tail or "hookspath" in m.group(1).lower():
+                return "merge gate: a push never skips git's hooks (--no-verify, core.hooksPath)"
+            continue  # every other push is checked by git's own pre-push hook
         if verb in ("merge", "pull") and MOVES.search(command[: m.start()]):
-            return "merge gate: run a merge or pull on its own, not after cd/switch/checkout"
+            return ("merge gate: run a merge or pull on its own, not after cd/switch/checkout "
+                    "(use `git -C <folder> merge ...`)")  # fmt: skip
+        if verb in ("merge", "pull") and _branch(where) != "main":
+            continue
         try:
-            args = [a for a in shlex.split(tail) if not a.startswith("-")]
+            tokens = shlex.split(tail)
         except ValueError:
-            return "merge gate: cannot read this git command; run it on its own, simply quoted"
-        if verb in ("merge", "pull"):
-            if _branch(where) != "main":
+            if verb == "fetch" and ":main" not in tail and "heads/main" not in tail:
                 continue
+            return "merge gate: cannot read this git command; run it on its own, simply quoted"
+        if verb == "merge" and NO_REF & set(tokens):
+            continue  # --abort / --continue / --quit move main to nothing new
+        args, skip = [], False
+        for tok in tokens:
+            if skip:
+                skip = False
+            elif tok in VALUE_OPTS:
+                skip = True
+            elif not tok.startswith("-"):
+                args.append(tok)
+        if verb in ("merge", "pull"):
             refs = args if verb == "merge" else args[1:]
             if verb == "pull" or not refs:
                 return f"merge gate: no `git {verb}` into main; merge a tested branch instead"
@@ -134,7 +165,6 @@ def gate_reason(command: str, cwd: Path) -> str | None:
                     sha = _sha(src, where)
                     if sha is None or not passed(sha, where):
                         return _refuse(sha or src)
-        # pushes are checked by git's own pre-push hook, which sees every form exactly
     return None
 
 

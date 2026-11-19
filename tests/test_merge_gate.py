@@ -1,6 +1,7 @@
 """The merge gate: main moves only to a commit with a full-suite pass (or docs after one)."""
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -48,7 +49,7 @@ def _mark(repo: Path, ref: str, exit_line: str = "PYTEST_EXIT=0") -> None:
     (logs / "suite-pass" / sha).write_text(f"2026-11-19T00:00:00 suite-{sha[:10]}.log\n")
 
 
-# --- Local moves of main (the Claude Code hook) ---
+# --- Local moves of main (the command hook) ---
 
 
 def test_a_merge_without_a_pass_is_refused_and_allowed_after_one(repo: Path) -> None:
@@ -93,7 +94,24 @@ def test_reading_commands_and_other_branches_pass(repo: Path) -> None:
 
 def test_the_markers_are_only_written_by_the_gate(repo: Path) -> None:
     assert g.gate_reason("touch logs/suite-pass/abc", repo) is not None
+    assert g.gate_reason("true tools.merge_gate run; echo x > logs/suite-pass/abc", repo)
+    assert g.gate_reason("ls logs/suite-pass", repo) is None  # reading is fine
     assert g.gate_reason("python -m tools.merge_gate run", repo) is None
+
+
+def test_a_push_never_skips_the_hooks(repo: Path) -> None:
+    assert g.gate_reason("git push --no-verify origin HEAD:main", repo) is not None
+    assert g.gate_reason("git -c core.hooksPath=/x push origin main", repo) is not None
+    assert g.gate_reason("git push origin feature", repo) is None
+
+
+def test_normal_merge_forms_are_read_correctly(repo: Path) -> None:
+    assert g.gate_reason("git merge --abort", repo) is None
+    _mark(repo, "feature")
+    assert g.gate_reason('git merge --no-ff -m "Merge feature" feature', repo) is None
+    _git(repo, "switch", "-q", "feature")
+    assert g.gate_reason('git commit -m "it\'s git push day"', repo) is None
+    assert g.gate_reason("git merge it's", repo) is None  # not on main: nothing moves
 
 
 def test_an_unknown_ref_is_refused(repo: Path) -> None:
@@ -143,13 +161,17 @@ def test_a_real_push_goes_through_the_installed_hook(repo: Path, tmp_path: Path)
     (hooks / "pre-push").chmod(0o755)
     venv = repo / ".venv" / "bin"
     venv.mkdir(parents=True)
-    (venv / "python").symlink_to(Path(__file__).resolve().parents[1] / ".venv/bin/python")
+    (venv / "python").symlink_to(sys.executable)  # works from a worktree too
     assert g.install(repo) == 0
     assert (hooks / "pre-push-history").exists()
     refused = _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main", check=False)
     assert refused.returncode != 0 and "merge gate" in refused.stderr
     _mark(repo, "main")
     assert _git(repo, "push", "-q", "origin", "main", check=False).returncode == 0
+    (hooks / "pre-push-history").write_text("#!/bin/sh\ncat > /dev/null\nexit 1\n")
+    _commit(repo, "DECISIONS.md", "docs after the pass\n")  # covered by the pass
+    blocked = _git(repo, "push", "-q", "origin", "main", check=False)
+    assert blocked.returncode != 0  # the older hook still refuses after the gate passed
 
 
 # --- The run ---
