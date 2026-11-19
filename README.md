@@ -29,6 +29,31 @@ purchase is sent, never an amount, a date or a person's name. The test sets are 
 categories have fewer than 10 test rows, and macro-F1 is much lower (69.6% on the 114 rows,
 49.8% on the 48).
 
+### Smarter categories for new merchants (RAG)
+
+When the model is unsure about a merchant it has never seen, it can ask Haiku 4.5 for the
+category. The model is shown only similar merchants I have already labelled and the closest entries
+from a public list of chains, and its answer must cite one of them. It is off by default; only
+merchant names and category labels are sent.
+
+I tested it on a public synthetic benchmark,
+[DoDataThings "US Bank Transaction Categories v2"](https://huggingface.co/datasets/DoDataThings/us-bank-transaction-categories-v2)
+(MIT), split by merchant so that every test merchant is unseen. The adopt rule was committed
+before scoring.
+
+| Unseen merchants, public benchmark | n | Accuracy |
+|---|---|---|
+| My categorizer alone | 600 rows (275 merchants) | 75.8% |
+| With RAG | 600 rows (275 merchants) | 86.3% |
+
+On my own account it then passed a no-harm check: it was no worse on 18 rows of new merchants
+and 60 rows of known ones. That is too few rows to measure a gain on my data. It took three
+attempts to get one valid run: in the first, a bug refused every answer, and the second was void
+by its own rule. Both are recorded in [DECISIONS.md](DECISIONS.md).
+
+Rejected: cleaning merchant names and looking them up in a list of Canadian chains. On the same
+benchmark it scored 74.3% against 75.2% without it (600 rows, 356 merchants), so it stays off.
+
 ## How I evaluate
 
 - **Rules written first.** Before each experiment I write down what I will measure and the rule

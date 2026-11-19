@@ -2403,3 +2403,17 @@ The draft's open points are settled (my decisions with my advisor's input); the 
   - After the reviewer's PASS: only one correction per selection (a second `relabel` is refused). The ledger entry also records the labels file's sha256 before and after, and the ledger is checked as private before anything changes.
   - **My reading of the open case (2026-11-19, before the veto run):** if RAG is asked about no row of my blind set, the veto run is "not tested" and RAG is never adopted from it. It still counts as the scoring, because the same model on the same rows would ask about none again. The code enforces it.
 
+### 2026-11-19: RAG adopted (rule v4): public pass and no veto on my rows
+- **The veto** (Part 2, the one draw, run once with `score --rule-v4 --rag --send`; blind labels, 78 rows: 18 in group A, new merchants; 60 in group K, known merchants):
+  - The deployed model alone got A 8 of 18 right and K 54 of 60.
+  - The deployed model + RAG got A 10 of 18 and K 54 of 60.
+  - So A was 2 rows better and K 0 rows worse. The limits were at most 2 worse on A and at most 1 on K: no veto.
+- **RAG on my rows:** asked about 17 blind rows, it gave a category for 9. Of 14 answers: 8 ok, 4 unsure, 2 unsure with no citation, 0 refused. The run was valid under the void rule, and it was tested (rows asked > 0).
+- **One label corrected before scoring:** with `relabel`, I changed one blind label, Rent & housing to Phone, internet & utilities (my home internet bill). I chose the wrong category while labelling and noticed it myself. I had not seen the app's category or any prediction for that row. The ledger records the correction with the labels file's hashes before and after. My earlier message named the wrong first category (Subscriptions); the ledger has the right one.
+- **Adopted:** rule v4's public run passed (75.8% to 86.3%, n = 600 rows, 275 merchants) and there is no veto, so RAG is adopted.
+  - In the app it is the "Smarter categories for new merchants" setup question. It is off until I say yes, and nothing is sent until I click send.
+  - Only merchant names and my category labels are sent.
+  - It is the variant tested: my model, plus RAG on the new merchants it flags, with my labelled merchants and the closest directory chains as examples. The cleaner and the directory stay off.
+- **What this does and does not show:** on my account, n = 18 new-merchant rows is too few to measure a gain. The veto only shows that RAG did not make my categories worse. The gain is measured on the public benchmark.
+- **Still rejected:** the cleaner + chain directory (version 2's public run: 74.3% against 75.2%, n = 600 rows, 356 merchants).
+
