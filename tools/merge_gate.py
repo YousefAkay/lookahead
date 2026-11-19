@@ -27,10 +27,13 @@ from pathlib import Path
 
 DOC_ONLY = re.compile(r"^(DECISIONS\.md|README\.md|docs/HANDOFF\.md|docs/results/[^/]+\.md)$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
-GIT = re.compile(r"(?:^|[\s;&|(`])git((?:\s+(?:-C|-c)\s+\S+)*)\s+(merge|pull|push|fetch)(?![-\w])"
-                 r"([^;&|\n`]*)")  # fmt: skip
+GIT = re.compile(
+    r"(?:^|[\s;&|(`])(?:\S*/)?git((?:\s+(?:-C|-c)\s+\S+|\s+--[\w-]+(?:=\S+)?)*)\s+"
+    r"(merge|pull|push|fetch)(?![-\w])([^;&|\n`]*)"
+)
 MOVES = re.compile(r"(?:^|[\s;&|(])(cd|pushd)\s|git\s+(?:-C\s+\S+\s+)?(switch|checkout)\b")
-MAIN_REFS = {"main", "refs/heads/main"}
+MAIN_REFS = {"main", "heads/main", "refs/heads/main"}
+READS = re.compile(r"^\s*(ls|cat|test|stat|head|tail|wc|file)\b")
 WRITES = re.compile(r">|\b(touch|rm|mv|cp|tee|ln|chmod|install|truncate|dd)\b")
 VALUE_OPTS = {
     "-m",
@@ -41,8 +44,6 @@ VALUE_OPTS = {
     "--file",
     "--strategy",
     "--strategy-option",
-    "-S",
-    "--gpg-sign",
 }
 NO_REF = {"--abort", "--continue", "--quit"}
 
@@ -110,8 +111,10 @@ def _refuse(sha: str) -> str:
 
 def gate_reason(command: str, cwd: Path) -> str | None:
     """Why the command must not run, or None."""
-    if "suite-pass" in command and WRITES.search(command):
+    if "suite-pass" in command and (WRITES.search(command) or not READS.match(command)):
         return "merge gate: the pass markers are written only by `python -m tools.merge_gate run`"
+    if "hookspath" in command.lower():
+        return "merge gate: git's hooks path is never changed (it would skip the pre-push check)"
     found = list(GIT.finditer(command))
     if not found:
         return None
@@ -122,7 +125,7 @@ def gate_reason(command: str, cwd: Path) -> str | None:
         if "-C" in opts:
             where = (cwd / opts[opts.index("-C") + 1]).resolve()
         if verb == "push":
-            if "--no-verify" in tail or "hookspath" in m.group(1).lower():
+            if re.search(r"(?:^|\s)--no-v", tail):
                 return "merge gate: a push never skips git's hooks (--no-verify, core.hooksPath)"
             continue  # every other push is checked by git's own pre-push hook
         if verb in ("merge", "pull") and MOVES.search(command[: m.start()]):

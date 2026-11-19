@@ -103,6 +103,22 @@ def test_a_push_never_skips_the_hooks(repo: Path) -> None:
     assert g.gate_reason("git push --no-verify origin HEAD:main", repo) is not None
     assert g.gate_reason("git -c core.hooksPath=/x push origin main", repo) is not None
     assert g.gate_reason("git push origin feature", repo) is None
+    assert g.gate_reason("git --no-pager push --no-veri origin HEAD:main", repo) is not None
+    assert g.gate_reason("git config core.hooksPath /x", repo) is not None
+    assert g.gate_reason("GIT_CONFIG_KEY_0=core.hooksPath git push origin main", repo)
+
+
+def test_marker_writes_from_any_program_are_refused(repo: Path) -> None:
+    cmd = "python -c \"open('logs/suite-pass/x', 'w')\""
+    assert g.gate_reason(cmd, repo) is not None
+    assert g.gate_reason("sed -i s/1/0/ logs/suite-pass/x", repo) is not None
+    assert g.gate_reason("cat logs/suite-pass/x", repo) is None
+
+
+def test_sign_does_not_hide_a_branch_and_heads_main_is_main(repo: Path) -> None:
+    _mark(repo, "main")
+    assert g.gate_reason("git merge -S feature main", repo) is not None  # feature untested
+    assert g.gate_reason("git fetch . feature:heads/main", repo) is not None
 
 
 def test_normal_merge_forms_are_read_correctly(repo: Path) -> None:
@@ -172,6 +188,7 @@ def test_a_real_push_goes_through_the_installed_hook(repo: Path, tmp_path: Path)
     _commit(repo, "DECISIONS.md", "docs after the pass\n")  # covered by the pass
     blocked = _git(repo, "push", "-q", "origin", "main", check=False)
     assert blocked.returncode != 0  # the older hook still refuses after the gate passed
+    assert "merge gate" not in blocked.stderr  # it was the older hook, not the gate
 
 
 # --- The run ---
