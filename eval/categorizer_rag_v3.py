@@ -91,8 +91,8 @@ def load_split(folder: Path = x.EXTERNAL_DIR) -> Split:
 
 def split_counts(s: Split) -> dict[str, object]:
     """Counts only: no description, no accuracy."""
-    names = {clean_merchant(x.body(d)).name for d in s.sample["description"]}
-    old_names = {clean_merchant(x.body(d)).name for d in s.old_sample["description"]}
+    names = {clean_merchant(x.body(d)).key for d in s.sample["description"]}  # match form
+    old_names = {clean_merchant(x.body(d)).key for d in s.old_sample["description"]}
     return {
         "train": [len(s.train), int(s.train["merchant"].nunique())],
         "test": [len(s.test), int(s.test["merchant"].nunique())],
@@ -186,12 +186,13 @@ def sample_key(s: pd.DataFrame) -> str:
 
 
 def verdict(entries: list[dict[str, object]], rule_sha256: str | None) -> bool | None:
-    """The deciding verdict: the first scored comparison under this exact rule text (later
-    --again runs, refused and void runs decide nothing). None if not scored yet."""
+    """The deciding verdict: the first scored comparison under this exact rule text that is
+    not an --again run (--again, refused, void and crashed runs decide nothing). None if not
+    scored yet."""
     if rule_sha256 is None:
         return None
     for e in entries:
-        deciding = e.get("run") == RUN and e.get("status") == "scored"
+        deciding = e.get("run") == RUN and e.get("status") == "scored" and not e.get("again")
         if deciding and e.get("comparison") and e.get("adopt_rule_sha256") == rule_sha256:
             return bool(e.get("passes"))
     return None
@@ -246,6 +247,13 @@ def score(
     return passes
 
 
+def code_state() -> tuple[str, bool]:
+    """(the commit the harness runs from, whether tracked files have uncommitted changes)."""
+    head = h._git(["rev-parse", "HEAD"], ROOT).stdout.strip()
+    changed = bool(h._git(["status", "--porcelain", "--untracked-files=no"], ROOT).stdout.strip())
+    return head, changed
+
+
 def score_command(args: argparse.Namespace) -> int:
     ledger = h.DEFAULT_LEDGER
     now = datetime.now().isoformat(timespec="seconds")
@@ -261,6 +269,9 @@ def score_command(args: argparse.Namespace) -> int:
         return refuse(f"{status.reason} ({RULE.relative_to(ROOT)})")
     if not (args.rag and args.send):
         return refuse("the one scoring is `score --rag --send`")
+    head, changed = code_state()
+    if changed:
+        return refuse("tracked files have uncommitted changes: the code that runs is committed")
     if not is_private_path(args.rag_cache):
         return refuse("the RAG cache must be inside data/private/")
     problems = x.check_files(args.folder)
@@ -280,7 +291,7 @@ def score_command(args: argparse.Namespace) -> int:
                                  "generator_sha256": x.GENERATOR_SHA256,
                                  "adopt_rule_commit": status.commit,
                                  "adopt_rule_sha256": status.sha256, "again": args.again,
-                                 "send": True, **entry})  # fmt: skip
+                                 "code_commit": head, "send": True, **entry})  # fmt: skip
 
     def on_void() -> None:
         moved = move_cache_aside(args.rag_cache, now)
@@ -292,9 +303,14 @@ def score_command(args: argparse.Namespace) -> int:
     counts = split_counts(s)
     print(f"split: train {counts['train']}, test {counts['test']}, sample {counts['sample']} "
           "(rows, merchants)")  # fmt: skip
-    model = x.train_variant("current", s.train)
-    rag_answer, log = rag_answer_function(s.train, args.rag_cache, send=True)
-    result = score(s, model, rag_answer, log, record, on_void)
+    try:
+        model = x.train_variant("current", s.train)
+        rag_answer, log = rag_answer_function(s.train, args.rag_cache, send=True)
+        result = score(s, model, rag_answer, log, record, on_void)
+    except Exception as e:  # the kind of error only: a message may quote a name
+        record({"status": "crashed", "reason": type(e).__name__})
+        print(f"the run stopped ({type(e).__name__}); recorded in the ledger as crashed")
+        raise
     return 3 if result is None else 0
 
 

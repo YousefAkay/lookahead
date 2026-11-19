@@ -612,6 +612,15 @@ def external_verdicts(
     return out
 
 
+def rag_v3_passed() -> bool:
+    """Whether RAG passed the public run of adopt rule version 3. The one draw of my rows is
+    that rule's veto (version 2 adopted nothing), so it waits for this."""
+    from eval import categorizer_rag_v3 as v3
+
+    status = adopt_rule_status(v3.RULE, v3.RULE_MARKER)
+    return status.ok and v3.verdict(ledger_entries(DEFAULT_LEDGER), status.sha256) is True
+
+
 def score(
     split: Split, settings: Settings, extra: pd.DataFrame | None, variants: Sequence[str],
     rag_answer: Callable[[pd.Series], str | None] | None, dry_run: bool,
@@ -1033,6 +1042,12 @@ def write_candidates(args: argparse.Namespace) -> int:
         print(
             "refusing: the public deciding run comes first, under this exact rule text. My "
             "rows are drawn last, right before the veto."
+        )
+        return 2
+    if not rag_v3_passed():
+        print(
+            "refusing: the one draw of my rows is the veto of adopt rule version 3 (RAG alone). "
+            "It waits until RAG passes that rule's public run."
         )
         return 2
     if any(e.get("status") == "drawn" for e in ledger_entries(DEFAULT_LEDGER)):

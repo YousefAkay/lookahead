@@ -2329,5 +2329,12 @@ The draft's open points are settled (my decisions with my advisor's input); the 
 - **My prediction, written before scoring:** (a)+RAG about 80–88% against (a).
 - **The void rule:** a run where RAG gives no category, or where more than 5% of its answers (one per distinct request) are refused as not usable, is void. It stops before any accuracy, is logged with its counts by reason, and its cache is moved aside, so the next run asks every answer again. Version 2's zero would have been void under this rule.
 - **Lost:** reusing version 2's 600 rows (already scored, and I had studied (a)'s errors on them); fresh rows of the same test merchants (the same merchants, 1,436 rows sharing a cleaned name with the 600); a split drawn with v2's permutation (the counts I looked at came from `choice`, so the rule pins `choice`).
-- **Harness** (`eval/categorizer_rag_v3.py`): `split` prints counts only. `score --rag --send` is the one run, with its own cache (`rag_v3.json`) and its own ledger name. Scored once, and the first valid run under this exact rule text decides. `adopt_rule_status` now takes the version's heading, so each harness accepts only its own rule. The split command gives the rule's counts: train 36,993 rows / 786 merchants, test 11,007 / 286, sample 600 / 275, 0 merchants shared, 0 cleaned names shared with version 2's sample.
+- **Harness** (`eval/categorizer_rag_v3.py`): `split` prints counts only. `score --rag --send` is the one run, with its own cache (`rag_v3.json`) and its own ledger name. Scored once, and the first valid run under this exact rule text decides. `adopt_rule_status` now takes the version's heading; each harness also accepts only its own rule file by path (the v2 heading occurs in the v3 text, so for v2 the path is what keeps them apart). The split command gives the rule's counts: train 36,993 rows / 786 merchants, test 11,007 / 286, sample 600 / 275, 0 merchants shared, 0 cleaned names shared with version 2's sample.
+- **After the reviewer's PASS, safety only; the rule text is unchanged:**
+  - The one draw of my rows (`candidates`) was still open under version 2's gate. It now also waits until RAG passes version 3's public run, because that draw is version 3's veto.
+  - A crashed run is recorded (`crashed`, with the error type only).
+  - A run with uncommitted changes to tracked files is refused, and every entry records the commit the code ran from.
+  - An `--again` run never decides.
+  - The shared-names count uses the cleaner's match form (still 0).
+  - Not changed: the 95% line prints and does not stop the run (stopping to look is my step, as in version 2).
 

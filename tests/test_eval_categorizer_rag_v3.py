@@ -17,6 +17,7 @@ from lookahead.categorizer import Prediction
 @pytest.fixture(autouse=True)
 def _safe_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(h, "DEFAULT_LEDGER", tmp_path / "data" / "private" / "ledger.jsonl")
+    monkeypatch.setattr(r, "code_state", lambda: ("abc123", False))  # a clean tree
 
 
 def _ledger() -> list[dict[str, object]]:
@@ -240,3 +241,39 @@ def test_the_first_valid_run_decides() -> None:
     ]
     assert r.verdict(entries, "s3") is True
     assert r.verdict(entries, None) is None and r.verdict([], "s3") is None
+
+
+def test_uncommitted_code_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    _ok_rule(monkeypatch)
+    monkeypatch.setattr(r, "code_state", lambda: ("abc123", True))
+    assert r.main(["score", "--rag", "--send"]) == 2
+    assert "uncommitted" in str(_ledger()[-1]["reason"])
+
+
+def test_a_crashed_run_is_recorded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _ok_rule(monkeypatch)
+    monkeypatch.setattr(x, "check_files", lambda folder: [])
+    monkeypatch.setattr(r, "load_split", lambda folder: r.Split(SAMPLE, SAMPLE, SAMPLE, SAMPLE))
+    monkeypatch.setattr(r, "split_counts", lambda s: {"train": 0, "test": 0, "sample": 0})
+
+    def boom(variant, rows):  # type: ignore[no-untyped-def]
+        raise TimeoutError("network")
+
+    monkeypatch.setattr(x, "train_variant", boom)
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v3.json"
+    with pytest.raises(TimeoutError):
+        r.main(["score", "--rag", "--send", "--rag-cache", str(cache)])
+    last = _ledger()[-1]
+    assert last["status"] == "crashed" and last["reason"] == "TimeoutError"
+    assert last["code_commit"] == "abc123"
+
+
+def test_an_again_run_never_decides() -> None:
+    entries = [{"run": r.RUN, "status": "scored", "comparison": r.COMPARISON, "passes": True,
+                "adopt_rule_sha256": "s3", "again": True}]  # fmt: skip
+    assert r.verdict(entries, "s3") is None
+
+
+def test_the_v2_harness_does_not_take_the_v3_rule_file() -> None:
+    assert r.RULE.resolve() != h.APPROVED_ADOPT_RULE.resolve()
+    assert h.adopt_rule_status(h.APPROVED_ADOPT_RULE, r.RULE_MARKER).ok is False
