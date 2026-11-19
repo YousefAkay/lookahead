@@ -424,3 +424,21 @@ def test_the_cache_must_start_empty(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     # after a crashed run, its saved answers may be used (the same rule, the same parser)
     h.add_to_ledger(h.DEFAULT_LEDGER, {"run": r.RUN, "status": "crashed"})
     assert r.main(["score", "--rag", "--send", "--rag-cache", str(cache)]) == 0
+
+
+def test_the_cache_exceptions_are_narrow(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _scoring_ready(monkeypatch)
+    cache = tmp_path / "data" / "private" / "cache" / "rag_v4.json"
+    cache.parent.mkdir(parents=True)
+    cache.write_text("{}", encoding="utf-8")
+    run = ["score", "--rag", "--send", "--rag-cache", str(cache)]
+    # an old crash followed by a void run: the cache must start empty again
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": r.RUN, "status": "crashed"})
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": r.RUN, "status": "void"})
+    assert r.main(run) == 2 and "start empty" in str(_ledger()[-1]["reason"])
+    # a refusal after a crash does not hide the crash
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": r.RUN, "status": "crashed"})
+    assert r.main(["score", "--rag", "--rag-cache", str(cache)]) == 2  # no --send: refused
+    assert r.main(run) == 0  # right after the crash: allowed
+    # after the real scoring the cache exists; --again may still run
+    assert r.main([*run, "--again"]) == 0 and _ledger()[-1]["again"] is True

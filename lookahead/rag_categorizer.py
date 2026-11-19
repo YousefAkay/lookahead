@@ -13,9 +13,11 @@ name must also pass `llm_categorizer.sendable_name` (card rows only, no person, 
 number), and the prompt holds no digit that is not inside one of those names (example ids
 are letters only).
 
-The answer must be strict JSON: {"category": <one of the 17, or null>, "cited": [ids]}.
-Anything else, an unknown category or id, or no citation, is no answer: the row keeps the
-model's category and stays flagged for "To check".
+The answer is one JSON object: {"category": <one of the 17, or null>, "cited": [ids]}
+(adopt rule version 4). Text around that one object is ignored; several objects are "unsure"
+if one has that shape, else refused. A category with no citation is "unsure". An unknown
+category or id, or anything else, is refused. Either way the row keeps the model's category
+and stays flagged for "To check".
 
 The client is injected (tests use a fake). The real one is `llm_categorizer.make_client`,
 with the same pinned model and temperature 0; answers are cached in data/private/ by the
@@ -257,7 +259,7 @@ _FENCE = re.compile(r"\A```[A-Za-z]*[ \t]*\n(.*?)\n?```\Z", re.DOTALL)
 
 def strip_fence(raw: str) -> str:
     """The answer without one code fence wrapping all of it; anything else is left as is
-    (text before or after a fence stays, so it is still not JSON)."""
+    (`parse_answer` then looks for the JSON object inside the text)."""
     text = raw.strip()
     match = _FENCE.match(text)
     return match.group(1).strip() if match else text

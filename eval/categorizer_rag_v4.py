@@ -115,8 +115,9 @@ def split_counts(s: Split) -> dict[str, object]:
 
 def usable(reason: str) -> bool:
     """A usable answer: a category ("ok") or any kind of "unsure" (the row keeps (a)'s guess).
-    Everything else (not JSON, not the expected object, not a category, unknown citation) is
-    refused, and counts toward the void rule."""
+    Everything else is refused and counts toward the void rule: not JSON, several objects none
+    of them an answer, not the expected object, citations not a list of ids, not one of the
+    categories, an unknown or repeated citation."""
     from lookahead.rag_categorizer import is_unsure
 
     return reason == "ok" or is_unsure(reason)
@@ -296,9 +297,12 @@ def score_command(args: argparse.Namespace) -> int:
                       "that runs is committed")  # fmt: skip
     if not is_private_path(args.rag_cache):
         return refuse("the RAG cache must be inside data/private/")
-    crashed_before = any(e.get("run") == RUN and e.get("status") == "crashed"
-                         for e in h.ledger_entries(ledger))  # fmt: skip
-    if args.rag_cache.exists() and not crashed_before:
+    # The cache starts empty. Two exceptions: right after a crashed v4 run (its saved answers
+    # come from this rule and parser), and an --again run (a second scoring decides nothing).
+    runs = [e for e in h.ledger_entries(ledger)
+            if e.get("run") == RUN and e.get("status") != "refused"]  # fmt: skip
+    after_crash = bool(runs) and runs[-1].get("status") == "crashed"
+    if args.rag_cache.exists() and not (after_crash or args.again):
         return refuse("the RAG cache must start empty (every answer asked again): "
                       f"{args.rag_cache.name} already exists")  # fmt: skip
     problems = x.check_files(args.folder)

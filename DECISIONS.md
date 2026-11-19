@@ -2359,7 +2359,7 @@ The draft's open points are settled (my decisions with my advisor's input); the 
 - **Won: version 4** (`docs/specs/2026-11-19-categorizer-rag-adopt-rule-v4.md`, committed alone), with two parser changes only; everything else is as in version 3, prompt included.
   - (1) One JSON object with text around it, inside or outside a fence, is read from that object. More than one object is "unsure" if at least one has the answer shape (exactly "category" and "cited"); otherwise it is refused.
   - (2) A category with no citation is "unsure", and the row keeps (a)'s guess. RAG must cite its evidence; answering from Haiku's own knowledge is the separate LLM fallback.
-  - My prediction stays: 80–88%.
+  - My prediction stays: (a)+RAG about 80–88% on the deciding sample (n = 600 rows, 275 merchants).
 - **Lost:**
   - Changing the prompt to forbid explanations (that changes what is measured).
   - Treating a no-citation category as RAG's answer (that measures Haiku's own knowledge, not retrieval).
@@ -2368,6 +2368,6 @@ The draft's open points are settled (my decisions with my advisor's input); the 
 - **Code:**
   - The app's RAG uses the same parser.
   - A saved reply is now always read again with today's parser. This replaces the 2026-11-19 note that saved answers keep their old verdict. Version 2 is closed, so nothing changes there.
-  - The harness is now `eval/categorizer_rag_v4.py`, with its own ledger name (`external-rag-v4`) and its own cache (`rag_v4.json`), which must start empty (an existing file is refused, unless a v4 run crashed).
+  - The harness is now `eval/categorizer_rag_v4.py`, with its own ledger name (`external-rag-v4`) and its own cache (`rag_v4.json`), which must start empty (an existing file is refused, except right after a crashed v4 run or for an `--again` run).
   - The one draw of my rows now waits for version 4's pass.
 

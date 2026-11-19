@@ -434,3 +434,21 @@ def test_a_saved_reply_is_read_again_with_todays_parser(tmp_path: Path) -> None:
     rag.save_cache(cache, {rag.request_key(request): old})
     answer, asked = rag.categorize_one(_retrieved(), cache, FakeClient("never"), send=True)
     assert not asked and answer is not None and answer.reason == rag.UNSURE
+
+
+@pytest.mark.parametrize(
+    ("raw", "reason", "category"),
+    [
+        ('Sure: {"category": "Groceries", "cited": ["ex-a"]}', "ok", "Groceries"),  # now taken
+        ('{"a": 1} {"b": 2}', rag.NONE_AN_ANSWER, None),  # still refused
+    ],
+)
+def test_a_saved_reply_gets_todays_verdict_both_ways(
+    tmp_path: Path, raw: str, reason: str, category: str | None
+) -> None:
+    cache = tmp_path / "data" / "private" / "rag.json"
+    old = rag.Answer(None, (), "not JSON", raw, rag.MODEL, 1, 1, 0.1)
+    rag.save_cache(cache, {rag.request_key(rag.request_for(_retrieved())): old})
+    answer, asked = rag.categorize_one(_retrieved(), cache, FakeClient("never"), send=True)
+    assert not asked and answer is not None
+    assert (answer.reason, answer.category) == (reason, category)
