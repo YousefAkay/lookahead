@@ -1166,12 +1166,23 @@ def relabel_command(args: argparse.Namespace) -> int:
     if not is_private_path(args.labels):
         print("--labels must be inside data/private/ (it names merchants)")
         return 2
+    if not ledger_is_private(DEFAULT_LEDGER):
+        print("the ledger must be inside data/private/ (nothing changed)")
+        return 2
+    if not args.db.is_file():
+        print(f"refusing: no database at {args.db}")
+        return 2
     if args.wrong not in CATEGORIES:
         print("--wrong must be a category written exactly as in the list")
         return 2
     selection = selection_fingerprints(args.labels)
-    if scored_fingerprints(ledger_entries(DEFAULT_LEDGER)) & set(selection):
+    entries = ledger_entries(DEFAULT_LEDGER)
+    if scored_fingerprints(entries) & set(selection):
         print("refusing: this selection was already scored. A label is never changed after it.")
+        return 2
+    key = selection_key(selection)
+    if any(e.get("status") == "relabelled" and e.get("selection_key") == key for e in entries):
+        print("refusing: one label of this selection was already corrected; only one is allowed")
         return 2
     conn = connect_readonly(args.db)
     texts = {fp: text for fp, text in conn.execute(
@@ -1181,11 +1192,13 @@ def relabel_command(args: argparse.Namespace) -> int:
     if any(fp not in texts for fp in selection):
         print("refusing: some rows of the labels file are not in the database")
         return 2
+    before = _sha256(args.labels)
     changed = relabel_session(texts, args.labels, args.wrong, input)
     if changed is not None:
         add_to_ledger(DEFAULT_LEDGER, {
             "at": datetime.now().isoformat(timespec="seconds"), "status": "relabelled",
-            "selection_key": selection_key(selection), "labels_corrected": 1,
+            "selection_key": key, "labels_corrected": 1,
+            "labels_sha256_before": before, "labels_sha256_after": _sha256(args.labels),
             "from": changed[0], "to": changed[1], "before_scoring": True,
             "reason": "my own slip while labelling, corrected before any scoring and "
                       "without seeing any prediction",

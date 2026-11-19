@@ -1310,14 +1310,22 @@ def _labels(tmp_path: Path) -> Path:
 def test_relabel_corrects_the_row_i_pick_and_nothing_else(tmp_path: Path) -> None:
     labels = _labels(tmp_path)
     answers = iter(["n", "y", "7"])
-    shown: list[str] = []
+    prompts: list[str] = []
+
+    def ask(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
     texts = {"f1": "SPOTIFY", "f2": "MY ISP", "f3": "IGA"}
-    got = h.relabel_session(texts, labels, "Subscriptions", lambda prompt: next(answers),
-                            shown.append)  # fmt: skip
+    got = h.relabel_session(texts, labels, "Subscriptions", ask, lambda line: None)
     assert got == ("Subscriptions", h.CATEGORIES[6])
     rows = {r["fingerprint"]: r["category"] for r in h._read_labels_file(labels)}
     assert rows == {"f1": "Subscriptions", "f2": h.CATEGORIES[6], "f3": "Groceries"}
-    assert not any("IGA" in line for line in shown)  # only rows with the wrong label are shown
+    asked = "\n".join(prompts)
+    assert "SPOTIFY" in asked and "MY ISP" in asked and "IGA" not in asked  # wrong label only
+    sets = {r["fingerprint"]: r["set"] for r in h._read_labels_file(labels)}
+    assert sets == {"f1": "A", "f2": "K", "f3": "K"}  # the drawn rows and groups are kept
+    assert h.selection_fingerprints(labels) == ["f1", "f2", "f3"]
 
 
 SAME = str(h.CATEGORIES.index("Subscriptions") + 1)
@@ -1356,6 +1364,9 @@ def test_relabel_records_the_correction_and_refuses_after_scoring(
     assert entry["status"] == "relabelled" and entry["labels_corrected"] == 1
     assert entry["to"] == h.CATEGORIES[6] and entry["before_scoring"] is True
     assert "fingerprint" not in entry and "f1" not in json.dumps(entry)
+    assert entry["labels_sha256_before"] != entry["labels_sha256_after"]
+    assert h.main(run) == 2 and "only one is allowed" in capsys.readouterr().out
+    assert not h.scored_fingerprints(h.ledger_entries(h.DEFAULT_LEDGER))
     h.add_to_ledger(h.DEFAULT_LEDGER, {"status": "scored", "selection": ["f1", "f2", "f3"]})
     assert h.main(run) == 2 and "already scored" in capsys.readouterr().out
     assert h.main([*run[:-1], "Subscription"]) == 2  # not a category exactly

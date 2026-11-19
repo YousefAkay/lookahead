@@ -2400,4 +2400,5 @@ The draft's open points are settled (my decisions with my advisor's input); the 
     - Rule v4's ledger-only checks (rule, public pass, uncommitted code, `--again`, empty cache) now run before my database or labels are read.
     - Every v4 refusal carries the run name.
 - **`relabel`** (added 2026-11-19, before any veto scoring): it corrects one blind label of mine. It shows only the rows I gave the wrong category, as merchant text with no prediction, saves the right category at once, and records `relabelled` in the ledger (from, to, count 1, before scoring, my own slip). It refuses once the selection has been scored.
+  - After the reviewer's PASS: only one correction per selection (a second `relabel` is refused). The ledger entry also records the labels file's sha256 before and after, and the ledger is checked as private before anything changes.
 
