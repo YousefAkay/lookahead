@@ -1,10 +1,12 @@
-"""Categorizer v2 evaluation harness. BUILT, NOT RUN on anything real.
+"""Categorizer v2 evaluation harness, Part 2 of the adopt rule (version 2): the VETO on my
+real rows. BUILT, NOT RUN on anything real. The deciding run is on public data
+(eval/categorizer_v2_external.py, Part 1); my rows are drawn only after it is scored.
 
-Later I run it once on a fresh blind set drawn at random with a fixed seed, from October 2026
-on, and labelled by me after v2 is built: group A, up to 150 rows of new merchants (at most 3
-per merchant; at least 100 must qualify), and group K, 60 rows of merchants with training
-labels, for the guard. It compares three variants:
-    (a) "current":            today's model;
+The veto set is drawn once at random with a fixed seed, from October 2026 on, and labelled by
+me: group A, up to 150 rows of new merchants (at most 3 per merchant; at least 15), and group
+K, 60 rows of merchants with training labels (at least 40 labelled). The variants are what I
+would switch on in the app:
+    (a) "current":            my app's model as deployed (my labels, my settings, synthetic rows);
     (b) "cleaner+directory":  (a) with the merchant-text cleaner and the chain directory (exact
                               and alias matches only; similarity matching stays off);
     (c) "+RAG":               (b) with the RAG categorizer on its flagged new merchants (opt-in:
@@ -23,16 +25,17 @@ Rules, in code:
 - It refuses any row from the old, used holdout (Test A, Test B) and any row the model could
   train on.
 - It prints counts and accuracy with n only, never row text.
-- The adopt rule's comparisons, in code (`compare`): (b) against (a) and (c) against (b) on
-  group A (gain of at least 3 points and a merchant-level bootstrap 2.5th percentile above 0),
-  each with the guard on group K (at most 1 more row wrong than (a)).
+- The veto (`veto`): (b) and (c), each against (a), at most 2 rows net worse on group A and
+  at most 1 more row wrong on group K. "Adopted" needs the public pass (`external_verdicts`,
+  from the ledger) and no veto. `compare` (the public run's comparisons) lives here too.
+- `candidates` refuses until the public deciding run is scored.
 - `candidates --count` prints how many rows could be drawn, and draws nothing.
 - Scoring refuses without a logged draw, if the labels file does not hold exactly the drawn
   rows, or if the rule changed after the draw.
 - `candidates` and `label` refuse until the adopt rule is committed. The draw is logged in
   the ledger and refused a second time, whatever the output path.
-- (c) passes only if (b) passes too. The draw leaves out rows I labelled or skipped in the app.
-- It refuses to score with fewer than 100 labelled group A rows or 40 labelled group K rows,
+- The draw leaves out rows I labelled or skipped in the app.
+- It refuses to score with fewer than 15 labelled group A rows or 40 labelled group K rows,
   or when a group A merchant has training labels by the time of scoring.
 - Only docs/specs/2026-11-18-categorizer-v2-adopt-rule.md is accepted as the adopt rule.
 - Every variant run is appended to the one ledger (DEFAULT_LEDGER, in data/private/; there is
@@ -82,11 +85,12 @@ SELECTION_SEED = 0  # fixed: the blind selection is drawn once and never redrawn
 BLIND_SINCE = date(2026, 10, 1)  # fixed: both groups are rows from this day on
 A_MAX_ROWS = 150  # group A, new merchants: at most this many rows
 A_PER_MERCHANT = 3  # ... and at most this many rows of one merchant
-A_MIN_ROWS = 100  # fewer rows for group A: nothing is selected or scored; wait for more data
+A_MIN_ROWS = 15  # fewer rows for group A: nothing is drawn or scored (the veto needs rows)
 K_ROWS = 60  # group K, known merchants: rows for the guard
 K_MIN_ROWS = 40  # fewer labelled group K rows: the guard tests too little, nothing is scored
 MIN_GAIN = 0.03  # a variant must beat its base by at least 3 points on group A
-GUARD_EXTRA_WRONG = 1  # on group K, at most 1 more row wrong than (a)
+GUARD_EXTRA_WRONG = 1  # veto on my group K rows: at most 1 more row wrong than (a)
+A_VETO_EXTRA_WRONG = 2  # veto on my group A rows: at most 2 rows net worse than (a)
 # (b) is compared with (a), and (c) with (b): RAG must earn its place on top of (b)
 COMPARISONS = (("cleaner+directory", "current"), ("+RAG", "cleaner+directory"))
 
@@ -529,6 +533,47 @@ def compare(results: dict[str, VariantResult], blind: pd.DataFrame) -> list[Comp
     return out
 
 
+@dataclass(frozen=True)
+class Veto:
+    """A variant against (a) on my real rows: rows it gets wrong beyond (a)'s, per group."""
+
+    variant: str
+    a_n: int
+    a_extra_wrong: int
+    k_n: int
+    k_extra_wrong: int
+
+    @property
+    def ok(self) -> bool:
+        return (self.a_extra_wrong <= A_VETO_EXTRA_WRONG
+                and self.k_extra_wrong <= GUARD_EXTRA_WRONG)  # fmt: skip
+
+
+def veto(results: dict[str, VariantResult], blind: pd.DataFrame) -> list[Veto]:
+    """(b) and (c), each against (a), on my group A and group K rows."""
+    truth = blind["truth"].to_numpy()
+    in_a, in_k = (blind["set"] == "A").to_numpy(), (blind["set"] == "K").to_numpy()
+
+    def wrong(variant: str, mask: np.ndarray) -> int:
+        return int((np.array(results[variant].categories, dtype=object)[mask] != truth[mask]).sum())
+
+    return [
+        Veto(variant, int(in_a.sum()), wrong(variant, in_a) - wrong("current", in_a),
+             int(in_k.sum()), wrong(variant, in_k) - wrong("current", in_k))
+        for variant in results
+        if variant != "current" and "current" in results
+    ]  # fmt: skip
+
+
+def external_verdicts(entries: Sequence[dict[str, object]]) -> dict[str, bool]:
+    """variant -> whether it passed on the public set, from the latest scored public run."""
+    out: dict[str, bool] = {}
+    for e in entries:
+        if e.get("run") == "external" and e.get("status") == "scored" and "comparison" in e:
+            out[str(e["comparison"]).split(" vs ")[0]] = bool(e.get("passes"))
+    return out
+
+
 def score(
     split: Split, settings: Settings, extra: pd.DataFrame | None, variants: Sequence[str],
     rag_answer: Callable[[pd.Series], str | None] | None, dry_run: bool,
@@ -565,19 +610,21 @@ def score(
         if record is not None:
             record(entry)
     if not dry_run:
-        for c in compare(results, blind):
-            print(f"  {c.variant} vs {c.base}, group A: {c.gain * 100:+.1f} points (needs "
-                  f"{MIN_GAIN * 100:+.0f}), bootstrap 2.5th percentile {c.low * 100:+.1f} (needs "
-                  f"above 0; n = {c.a_n}, merchants resampled); guard, group K: "
-                  f"{c.extra_wrong:+d} rows wrong against current (at most "
-                  f"{GUARD_EXTRA_WRONG:+d}; n = {c.k_n}); passes: "
-                  f"{'yes' if c.passes else 'no'}"
-                  f"{'' if c.base_passes else f' ({c.base} did not pass)'}")  # fmt: skip
+        decided = external_verdicts(ledger_entries(DEFAULT_LEDGER))
+        for v in veto(results, blind):
+            public = decided.get(v.variant)
+            adopted = bool(public) and v.ok
+            print(f"  veto, {v.variant} vs current on my rows: group A {v.a_extra_wrong:+d} rows "
+                  f"wrong (at most {A_VETO_EXTRA_WRONG:+d}; n = {v.a_n}), group K "
+                  f"{v.k_extra_wrong:+d} (at most {GUARD_EXTRA_WRONG:+d}; n = {v.k_n}): "
+                  f"{'no veto' if v.ok else 'VETO'}; passed on the public set: "
+                  f"{'yes' if public else 'no' if public is not None else 'not scored'}; "
+                  f"adopted: {'yes' if adopted else 'no'}")  # fmt: skip
             if record is not None:
-                record({"comparison": f"{c.variant} vs {c.base}", "dry_run": False,
-                        "a_n": c.a_n, "gain": c.gain, "bootstrap_low": c.low, "k_n": c.k_n,
-                        "k_extra_wrong": c.extra_wrong, "base_passes": c.base_passes,
-                        "passes": c.passes})  # fmt: skip
+                record({"veto": v.variant, "dry_run": False, "a_n": v.a_n, "k_n": v.k_n,
+                        "a_extra_wrong": v.a_extra_wrong, "k_extra_wrong": v.k_extra_wrong,
+                        "veto_ok": v.ok, "public_passes": public,
+                        "adopted": adopted})  # fmt: skip
     if dry_run:
         print(DRY_RUN)
     return results
@@ -937,6 +984,12 @@ def write_candidates(args: argparse.Namespace) -> int:
         return 2
     if not ledger_is_private(DEFAULT_LEDGER):
         print("the ledger must be inside data/private/ (nothing drawn)")
+        return 2
+    if not external_verdicts(ledger_entries(DEFAULT_LEDGER)):
+        print(
+            "refusing: the public deciding run comes first. My rows are drawn last, right "
+            "before the veto."
+        )
         return 2
     if any(e.get("status") == "drawn" for e in ledger_entries(DEFAULT_LEDGER)):
         print("refusing: the ledger already has a blind selection drawn. It is never redrawn.")

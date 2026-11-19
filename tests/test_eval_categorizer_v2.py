@@ -45,9 +45,17 @@ def _log_draw(labels: Path, rule: Path) -> None:
                                        "adopt_rule_sha256": sha})  # fmt: skip
 
 
+def _public_run_scored() -> None:
+    """The ledger entry of a scored public deciding run: my rows are drawn only after it."""
+    h.add_to_ledger(h.DEFAULT_LEDGER, {"run": "external", "status": "scored",
+                                       "comparison": "cleaner+directory vs current",
+                                       "passes": True})  # fmt: skip
+
+
 def _runs(ledger: Path) -> list[dict[str, object]]:
     """The ledger without its draw entry: the scoring runs and refusals."""
-    return [e for e in h.ledger_entries(ledger) if e.get("status") != "drawn"]
+    return [e for e in h.ledger_entries(ledger)
+            if e.get("status") != "drawn" and e.get("run") != "external"]  # fmt: skip
 
 
 def _rule_and_draw(repo: Path, labels: Path) -> Path:
@@ -108,15 +116,17 @@ def test_the_repositorys_rule_is_final_and_states_the_codes_numbers() -> None:
     text = (ROOT / h.DEFAULT_ADOPT_RULE).read_text(encoding="utf-8")
     assert "DRAFT" not in text and "not yet in force" not in text.casefold()
     assert not (ROOT / "docs" / "specs" / "2026-11-18-categorizer-v2-adopt-rule-DRAFT.md").exists()
-    # the numbers in code are the rule's numbers
-    assert (h.A_MAX_ROWS, h.A_PER_MERCHANT, h.A_MIN_ROWS) == (150, 3, 100)
-    assert (h.K_ROWS, h.K_MIN_ROWS, h.GUARD_EXTRA_WRONG) == (60, 40, 1)
+    # the numbers in code are the rule's numbers (the veto on my rows, and the comparisons)
+    assert (h.A_MAX_ROWS, h.A_PER_MERCHANT, h.A_MIN_ROWS) == (150, 3, 15)
+    assert (h.K_ROWS, h.K_MIN_ROWS, h.GUARD_EXTRA_WRONG, h.A_VETO_EXTRA_WRONG) == (60, 40, 1, 2)
     assert (h.MIN_GAIN, h.BOOTSTRAP_RESAMPLES, h.SELECTION_SEED) == (0.03, 2000, 0)
     assert h.BLIND_SINCE == date(2026, 10, 1) and h.LEAKAGE_AT == 0.95
-    for phrase in ("up to 150 rows", "at most 3 rows per merchant", "fewer than 100 rows",
-                   "60 rows", "fewer than 40 group K rows", "at least 3 points", "2,000 draws",
-                   "seed (0)", "at most 1 more group K row wrong", "2026-10-01", "95%",
-                   "(c) is adopted only if (b) passes too"):  # fmt: skip
+    for phrase in ("version 2", "up to 150 rows", "at most 3 per merchant", "at least 15 group A",
+                   "60 unlabelled rows", "at least 40 labelled group K", "at least 3 points",
+                   "2,000 draws", "seed 0", "at most 2 rows net worse", "at most 1 more row wrong",
+                   "2026-10-01", "95%", "(c) passes only if (b) passes too",
+                   "passes Part 1 AND is not vetoed", "600 rows",
+                   "40% of the merchants"):  # fmt: skip
         assert phrase in text, phrase
 
 
@@ -319,10 +329,10 @@ def test_scoring_prints_n_never_row_text_and_counts_every_variant(
     for text in [*texts, *features["group"]]:
         if text.strip():
             assert text.strip() not in out  # no row text, no merchant name
-    assert "cleaner+directory vs current, group A" in out and "passes: " in out
+    assert "veto, cleaner+directory vs current on my rows" in out and "adopted: " in out
     entries = _runs(ledger)
-    assert [e.get("variant") or e.get("comparison") for e in entries] == [
-        *h.VARIANTS[:2], "cleaner+directory vs current"]  # fmt: skip
+    assert [e.get("variant") or e.get("veto") for e in entries] == [
+        *h.VARIANTS[:2], "cleaner+directory"]  # fmt: skip
     assert all(e["adopt_rule_commit"] and not e["dry_run"] for e in entries)
     # the same labels again: refused, unless --again (which is recorded)
     assert h.main(args) == 2
@@ -585,12 +595,12 @@ def test_the_selection_is_seeded_and_mixes_the_groups() -> None:
     assert list(first["set"]) != sorted(first["set"])
 
 
-def test_fewer_than_100_rows_for_group_a_selects_nothing() -> None:
-    # 40 new merchants with 5 rows each: 200 rows, but only 120 after the cap of 3: enough
-    assert len(h.select_blind_rows(_features(40, 5), KNOWN, set(), SINCE)) > 0
-    # 33 merchants with 5 rows each: 165 rows, 99 after the cap: refused
+def test_fewer_than_15_rows_for_group_a_selects_nothing() -> None:
+    # 5 new merchants with 5 rows each: 25 rows, 15 after the cap of 3: enough
+    assert len(h.select_blind_rows(_features(5, 5), KNOWN, set(), SINCE)) > 0
+    # 4 merchants with 5 rows each: 20 rows, 12 after the cap: refused
     with pytest.raises(ValueError, match="Wait for more data"):
-        h.select_blind_rows(_features(33, 5), KNOWN, set(), SINCE)
+        h.select_blind_rows(_features(4, 5), KNOWN, set(), SINCE)
 
 
 def test_the_candidates_command_never_redraws(
@@ -619,9 +629,11 @@ def test_the_candidates_command_writes_both_groups_once(
     # no committed adopt rule: no draw
     assert h.main(args) == 2 and "rule comes before the draw" in capsys.readouterr().out
     _committed_rule(repo)
+    _public_run_scored()
     monkeypatch.setattr(h, "A_MIN_ROWS", 10_000)  # too few rows: refused, nothing written
     assert h.main(args) == 2 and "Wait for more data" in capsys.readouterr().out
-    assert not out.exists() and not h.ledger_entries(h.DEFAULT_LEDGER)
+    assert not out.exists()
+    assert not [e for e in h.ledger_entries(h.DEFAULT_LEDGER) if e.get("status") == "drawn"]
     monkeypatch.setattr(h, "A_MIN_ROWS", 1)
     assert h.main(args) == 0
     printed = capsys.readouterr().out
@@ -636,7 +648,7 @@ def test_the_candidates_command_writes_both_groups_once(
     holdout = h.holdout_fingerprints(conn)
     conn.close()
     assert labelled and not set(written["fingerprint"]) & (labelled | holdout)
-    [drawn] = h.ledger_entries(h.DEFAULT_LEDGER)
+    [drawn] = [e for e in h.ledger_entries(h.DEFAULT_LEDGER) if e.get("status") == "drawn"]
     assert drawn["status"] == "drawn" and drawn["adopt_rule_commit"]
     assert drawn["a_rows"] == (written["set"] == "A").sum()
     # a second draw is refused, even to another file
@@ -828,6 +840,7 @@ def test_the_draw_leaves_out_rows_i_skipped_or_labelled_in_the_app(
             label_row(conn, "scotia-chequing", fp, None)  # "Skip / don't know"
     conn.close()
     _committed_rule(repo)
+    _public_run_scored()
     monkeypatch.setattr(h, "BLIND_SINCE", date(2025, 10, 1))
     monkeypatch.setattr(h, "A_MIN_ROWS", 1)
     monkeypatch.setattr(h, "A_MAX_ROWS", 10_000)  # draw every A row, so a miss would show
@@ -852,10 +865,11 @@ def test_count_draws_nothing_and_matches_the_draw(
     assert h.main(["candidates", "--db", str(copy), "--count"]) == 0
     printed = capsys.readouterr().out
     assert "nothing drawn" in printed and not out.exists()
-    assert not h.ledger_entries(h.DEFAULT_LEDGER)
+    assert not [e for e in h.ledger_entries(h.DEFAULT_LEDGER) if e.get("status") == "drawn"]
     a_rows, k_rows = (int(x) for x in re.findall(r"group [AK] (\d+) rows", printed))
     # the draw, with no row limit, takes exactly what the count announced
     _committed_rule(repo)
+    _public_run_scored()
     monkeypatch.setattr(h, "A_MIN_ROWS", 1)
     monkeypatch.setattr(h, "A_MAX_ROWS", 10_000)
     monkeypatch.setattr(h, "K_ROWS", 10_000)
@@ -910,6 +924,7 @@ def test_draw_then_label_then_score_goes_through(
     monkeypatch.setattr(h, "BLIND_SINCE", date(2025, 10, 1))
     monkeypatch.setattr(h, "A_MIN_ROWS", 1)
     rule = _committed_rule(repo)
+    _public_run_scored()
     selection = tmp_path / "data" / "private" / "eval" / "candidates.csv"
     assert h.main(["candidates", "--db", str(copy), "--out", str(selection)]) == 0
     labels = tmp_path / "data" / "private" / "eval" / "labels.csv"
@@ -924,7 +939,7 @@ def test_draw_then_label_then_score_goes_through(
                    "--adopt-rule", str(rule)])  # fmt: skip
     out = capsys.readouterr().out
     assert code == 0, out
-    assert "changed after the draw" not in out and "passes: " in out
+    assert "changed after the draw" not in out and "adopted: " in out
 
 
 def test_scoring_refuses_without_a_logged_draw(
@@ -960,3 +975,46 @@ def test_a_database_error_is_not_taken_for_no_holdout() -> None:
     with pytest.raises(sqlite3.OperationalError):
         h.holdout_fingerprints(Broken())
     assert h.holdout_fingerprints(sqlite3.connect(":memory:")) == set()  # no splits table
+
+
+# --- The deciding run moved to the public set (2026-11-18): my rows are a veto, drawn last ---
+
+
+def test_my_rows_are_drawn_only_after_the_public_run(
+    db: Path, tmp_path: Path, repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _committed_rule(repo)
+    out = tmp_path / "data" / "private" / "eval" / "candidates.csv"
+    assert h.main(["candidates", "--db", str(db), "--out", str(out)]) == 2
+    assert "public deciding run comes first" in capsys.readouterr().out and not out.exists()
+
+
+def test_the_veto_counts_rows_wrong_beyond_a_per_group() -> None:
+    blind = pd.DataFrame({"truth": "Shopping", "set": ["A"] * 18 + ["K"] * 76,
+                          "group": [f"m{i}" for i in range(94)]})  # fmt: skip
+
+    def result(variant: str, a_wrong: int, k_wrong: int) -> h.VariantResult:
+        cats = ["Shopping"] * 94
+        for i in [*range(a_wrong), *range(18, 18 + k_wrong)]:
+            cats[i] = "Groceries"
+        return h.VariantResult(variant, cats, ["model"] * 94)
+
+    a = result("current", 3, 5)
+    ok = h.veto({"current": a, "cleaner+directory": result("cleaner+directory", 5, 6)}, blind)
+    assert ok[0].a_extra_wrong == 2 and ok[0].k_extra_wrong == 1 and ok[0].ok
+    a_bad = h.veto({"current": a, "cleaner+directory": result("cleaner+directory", 6, 5)}, blind)
+    assert a_bad[0].a_extra_wrong == 3 and not a_bad[0].ok  # 3 net worse on A: veto
+    k_bad = h.veto({"current": a, "+RAG": result("+RAG", 0, 7)}, blind)
+    assert k_bad[0].k_extra_wrong == 2 and not k_bad[0].ok  # (c) is checked against (a) too
+
+
+def test_adoption_needs_the_public_pass_and_no_veto() -> None:
+    entries = [
+        {"run": "external", "status": "scored", "comparison": "cleaner+directory vs current",
+         "passes": True},
+        {"run": "external", "status": "scored", "comparison": "+RAG vs cleaner+directory",
+         "passes": False},
+        {"run": "external", "status": "refused", "comparison": "+RAG vs cleaner+directory",
+         "passes": True},  # a refused run decides nothing
+    ]  # fmt: skip
+    assert h.external_verdicts(entries) == {"cleaner+directory": True, "+RAG": False}
