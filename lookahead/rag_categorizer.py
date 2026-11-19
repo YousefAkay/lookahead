@@ -42,7 +42,8 @@ from lookahead.taxonomy import CATEGORIES
 
 MODEL = llm.MODEL  # Haiku 4.5, a dated snapshot
 TEMPERATURE = llm.TEMPERATURE  # 0
-MAX_TOKENS = 100  # a category and a few ids
+MAX_TOKENS = 300  # the longest valid answer, fenced, fits even at one token per character
+# (100 cut off 7 of 332 answers in the public scoring of 2026-11-18)
 DEFAULT_CACHE = Path("data/private/cache/rag_categories.json")
 ALLOWED_FIELDS = frozenset({"merchant", "examples", "directory"})
 TOP_EXAMPLES = 8

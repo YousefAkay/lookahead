@@ -322,3 +322,18 @@ def test_applied_separates_unsure_from_refused_answers_and_warns() -> None:
     assert some.warning() is None
     nothing_asked = rag.Applied(names=4, sent=0, rows=0, unsure=0, not_taken=0, with_answer=0)
     assert nothing_asked.warning() is None
+
+
+def test_the_longest_valid_answer_fits_the_token_limit() -> None:
+    """Every id of a full prompt cited, the longest category, inside a code fence: it must fit
+    MAX_TOKENS even counting one token per character (a token is never less than one)."""
+    examples = [rag.Example(f"NAME {i}", "Groceries", "label") for i in range(rag.TOP_EXAMPLES)]
+    directory = [rag.Example(f"CHAIN {i}", "Shopping", "directory", f"d{i}")
+                 for i in range(rag.TOP_DIRECTORY)]  # fmt: skip
+    ids = list(rag.ids_for(examples, directory))
+    longest = max(rag.CATEGORIES, key=len)
+    answer = "```json\n" + json.dumps({"category": longest, "cited": ids}) + "\n```"
+    assert rag.parse_answer(answer, ids).reason == "ok"
+    assert len(answer) <= rag.MAX_TOKENS
+    request = rag.build_request(merchant="CAFE", examples=examples, directory=directory)
+    assert request["max_tokens"] == rag.MAX_TOKENS
