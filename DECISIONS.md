@@ -2394,7 +2394,7 @@ The draft's open points are settled (my decisions with my advisor's input); the 
     - The whole drawn selection, not only its labelled rows, is kept out of RAG's examples.
     - Refusals carry the run name.
     - A loud line appears when the deployed model flags no new-merchant row, so RAG is asked about none.
-    - Open for my reading before the run: whether a run where RAG was asked about no row counts as "no veto". As coded, it prints the warning and the veto line.
+    - Settled before the run (my reading, 2026-11-19, below): a run where RAG was asked about no row is "not tested", never adopted.
   - **After the second review (PASS), safety only:**
     - Plain v2-mode scoring now refuses, because nothing passed v2's public run. Otherwise it could use up the one draw, which is rule v4's veto.
     - Rule v4's ledger-only checks (rule, public pass, uncommitted code, `--again`, empty cache) now run before my database or labels are read.
