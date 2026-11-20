@@ -41,6 +41,7 @@ from lookahead.budgets import (  # noqa: E402
     BIG_ONE_OFF_NOTE,
     OPTIONAL_CATEGORIES,
     STALE_NOTE,
+    addable,
     budget_forecast,
     budget_month,
     category_rows,
@@ -55,7 +56,11 @@ from lookahead.budgets import (  # noqa: E402
     shown_categories,
     waiting_proposals,
 )
-from lookahead.corrections import correct_merchant, correct_row  # noqa: E402
+from lookahead.corrections import (  # noqa: E402
+    correct_merchant,
+    correct_row,
+    merchant_fingerprints,
+)
 from lookahead.db import connect  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
@@ -322,22 +327,29 @@ for s in shown:
                     move = st.form_submit_button("Move")
                 if move and fingerprint is not None and target is not None:
                     merchant = by_fp.loc[fingerprint, "merchant"]
-                    try:
-                        if scope == WHOLE_MERCHANT and isinstance(merchant, str) and merchant:
-                            correct_merchant(conn, account, merchant, target)
-                        else:
-                            correct_row(conn, account, fingerprint, target)
-                    except ValueError as e:
-                        st.error(str(e))
+                    whole = scope == WHOLE_MERCHANT and isinstance(merchant, str) and merchant
+                    if whole and not merchant_fingerprints(conn, account, merchant):
+                        st.warning(  # a whole-merchant move would change nothing: say so
+                            "A rule decides every row of this merchant, so a whole-merchant "
+                            'move cannot change them. Choose "Just this row" instead.'
+                        )
                     else:
-                        st.rerun()
+                        try:
+                            if whole:
+                                correct_merchant(conn, account, merchant, target)
+                            else:
+                                correct_row(conn, account, fingerprint, target)
+                        except ValueError as e:
+                            st.error(str(e))
+                        else:
+                            st.rerun()
                 note("A whole-merchant move skips rows a rule decided and rows you set one by "
                      "one; move those one row at a time.")  # fmt: skip
 
-# --- Add an optional category ---
-available = [c for c in OPTIONAL_CATEGORIES if c not in {s.category for s in shown}]
+# --- Add a category: an optional one, or a default I turned off ---
+available = addable(shown)
 if available:
-    with st.expander("Add a budget for another category"):
+    with st.expander("Add a budget for a category"):
         category = st.selectbox("Category", available, key="bu_add_category")
         proposed = proposals.get(category) if category else None
         if proposed and proposed.limit_cents:

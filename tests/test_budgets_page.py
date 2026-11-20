@@ -176,3 +176,87 @@ def test_a_budget_alert_is_recorded_and_can_be_dismissed(isolated: Path) -> None
     episodes[0].click().run()
     assert not at.exception, at.exception
     assert any(b.label == "Bring it back" for b in at.button)
+
+
+def test_a_turned_off_default_category_can_be_turned_back_on(isolated: Path) -> None:
+    """N2: turning a default category off is never final; the add list offers it again."""
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    button(at, "Looks right, accept all").click().run()
+    category = "Restaurants & cafés"
+    (off,) = [b for b in at.button if b.key == f"bu_turnoff_{category}"]
+    off.click().run()
+    assert not at.exception, at.exception
+    conn = connect(isolated / "demo.db")
+    assert load_limits(conn, account)[category] is None
+    conn.close()
+    assert category in at.selectbox(key="bu_add_category").options
+    at.selectbox(key="bu_add_category").set_value(category).run()
+    at.number_input(key="bu_add_limit").set_value(75.0)
+    button(at, "Add").click().run()
+    assert not at.exception, at.exception
+    conn = connect(isolated / "demo.db")
+    assert load_limits(conn, account)[category] == 7_500
+    conn.close()
+    assert any(b.key == f"bu_turnoff_{category}" for b in at.button)  # its card is back
+
+
+def test_moving_a_whole_merchant_from_the_budget_view(isolated: Path) -> None:
+    """The "All rows of this merchant" path: every row of the merchant that a rule did not decide
+    takes the new category, and leaves the budget's rows."""
+    from lookahead.corrections import merchant_fingerprints
+
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    button(at, "Looks right, accept all").click().run()
+    category = "Restaurants & cafés"
+    rows_box = at.selectbox(key=f"bu_row_{category}")
+    conn = connect(isolated / "demo.db")
+    this_month = conn.execute(  # the rows the card lists (the data ends on 14 September)
+        "SELECT p.fingerprint, p.merchant FROM category_predictions p JOIN transactions t"
+        " ON t.fingerprint = p.fingerprint WHERE t.account = ? AND p.category = ?"
+        " AND t.posted_date >= '2026-09-01' AND p.merchant IS NOT NULL",
+        (account, category),
+    ).fetchall()
+    fingerprint, merchant = next(
+        (f, m) for f, m in this_month if len(merchant_fingerprints(conn, account, m)) > 1
+    )
+    covered = set(merchant_fingerprints(conn, account, merchant))
+    conn.close()
+    before = metric_for(at, category, isolated)
+    rows_box.set_value(fingerprint)
+    at.selectbox(key=f"bu_target_{category}").set_value("Groceries")
+    at.radio(key=f"bu_scope_{category}").set_value("All rows of this merchant")
+    (move,) = [b for b in at.button if b.label == "Move" and category in str(b.form_id)]
+    move.click().run()
+    assert not at.exception, at.exception
+    conn = connect(isolated / "demo.db")
+    after = dict(conn.execute(
+        "SELECT fingerprint, category FROM category_predictions WHERE account = ? AND merchant = ?",
+        (account, merchant),
+    ).fetchall())  # fmt: skip
+    conn.close()
+    assert all(after[f] == "Groceries" for f in covered)
+    assert metric_for(at, category, isolated) < before
+
+
+def test_a_whole_merchant_move_on_a_rule_merchant_says_why(isolated: Path) -> None:
+    """Every Food delivery row of the demo personas is decided by a rule: the whole-merchant move
+    changes nothing, and the page says so instead of doing nothing silently."""
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    button(at, "Looks right, accept all").click().run()
+    category = "Food delivery"
+    conn = connect(isolated / "demo.db")
+    before = conn.execute("SELECT COUNT(*) FROM category_corrections").fetchone()[0]
+    conn.close()
+    at.selectbox(key=f"bu_target_{category}").set_value("Groceries")
+    at.radio(key=f"bu_scope_{category}").set_value("All rows of this merchant")
+    (move,) = [b for b in at.button if b.label == "Move" and category in str(b.form_id)]
+    move.click().run()
+    assert not at.exception, at.exception
+    assert any("A rule decides every row" in str(w.value) for w in at.warning)
+    conn = connect(isolated / "demo.db")
+    assert conn.execute("SELECT COUNT(*) FROM category_corrections").fetchone()[0] == before
+    conn.close()
+    assert account

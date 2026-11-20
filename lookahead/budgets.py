@@ -242,6 +242,13 @@ def shown_categories(
     return out
 
 
+def addable(shown: Sequence[Shown]) -> list[str]:
+    """Categories I can add a budget for: every budgetable one not on the tab, which includes a
+    default category I turned off (so turning one off is never final)."""
+    on_tab = {s.category for s in shown}
+    return [c for c in BUDGETABLE if c not in on_tab]
+
+
 def waiting_proposals(shown: Sequence[Shown]) -> dict[str, int]:
     """What one "Looks right" accepts: every undecided category that has a proposed limit."""
     return {s.category: s.proposal.limit_cents for s in shown
