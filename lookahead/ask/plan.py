@@ -126,7 +126,7 @@ def _need_exactly(model: BaseModel, needed: set[str], every: tuple[str, ...]) ->
 class Amount(Strict):
     """Dollars, or the name of an earlier step whose result is money."""
 
-    dollars: float | None = Field(default=None, gt=0, le=MAX_DOLLARS)
+    dollars: float | None = Field(default=None, ge=0, le=MAX_DOLLARS)
     ref: str | None = Field(default=None, pattern=NAME_PATTERN)
 
     @model_validator(mode="after")

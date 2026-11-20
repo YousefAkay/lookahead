@@ -124,6 +124,19 @@ def day_words(d: Day) -> str:
     return "at the end of this month"
 
 
+def until_words(d: Day | None) -> str:
+    """The end of a window: "by the end of this month", or the forecast's 30 days."""
+    if d is None:
+        return "over the next 30 days"
+    if d.kind == "in_days":
+        return f"within the next {d.n} days"
+    words = day_words(d)
+    for lead in ("on the ", "on ", "at the ", "at "):
+        if words.startswith(lead):
+            return "by " + ("the " if lead.endswith("the ") else "") + words[len(lead) :]
+    return f"by {words}"
+
+
 def _ordinal(n: int) -> str:
     suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     return f"{n}{suffix}"
@@ -190,14 +203,14 @@ def step_words(step: object) -> str:
     if isinstance(step, ListRows):
         return f"List {quoted(step.source)}, {step.order} first, up to {step.limit} rows."
     if isinstance(step, Forecast):
-        until = day_words(step.until) if step.until else "over the next 30 days"
+        until = until_words(step.until)
         if step.measure == "balance_on":
             assert step.on is not None
             return f"Forecast your balance at the end of the day {day_words(step.on)}."
         if step.measure == "lowest":
-            return f"Forecast your lowest balance, up to and {until}."
+            return f"Forecast your lowest balance (the middle future's), {until}."
         below = amount_words(step.below) if step.below else "your safety buffer"
-        return f"Forecast the chance of going below {below}, up to and {until}."
+        return f"Forecast the chance of going below {below} on some day, {until}."
     if isinstance(step, WhatIf):
         changes = "; ".join(_change(c) for c in step.changes)
         return (f"What if you {changes}? Compare your lowest balance and the chance of going "
