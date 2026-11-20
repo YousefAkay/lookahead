@@ -134,6 +134,7 @@ def test_chance_of_a_dip(question: str, below: Any, until: Any) -> None:
     ("question", "op", "extra"),
     [
         ("What's my lowest balance going to be?", "forecast", {"measure": "lowest"}),
+        ("Quel sera mon solde le plus bas ?", "forecast", {"measure": "lowest"}),
         ("How much is safe to spend?", "safe_to_spend", {}),
         ("Combien puis-je dépenser ?", "safe_to_spend", {}),
         ("How am I doing on my shopping budget?", "budget", {"category": "Shopping"}),
