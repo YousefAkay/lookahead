@@ -14,8 +14,10 @@ from lookahead.budgets import (
     BUDGETABLE,
     DEFAULT_CATEGORIES,
     NEVER,
+    OPTIONAL_CATEGORIES,
     CategoryRow,
     Proposal,
+    addable,
     budget_forecast,
     budget_month,
     category_rows,
@@ -26,6 +28,7 @@ from lookahead.budgets import (
     load_limits,
     month_end,
     on_budget,
+    proposals_for,
     propose,
     remove,
     set_limit,
@@ -205,6 +208,8 @@ def test_shown_categories_and_one_looks_right() -> None:
                                            "Cash"]  # fmt: skip
     # One click accepts what is proposed and undecided; Entertainment waits for a typed limit.
     assert waiting_proposals(shown) == {"Restaurants & cafés": 5_000}
+    # Food delivery was turned off: it can be added back, with the optional ones not on the tab.
+    assert addable(shown) == ["Food delivery", *[c for c in OPTIONAL_CATEGORIES if c != "Cash"]]
 
 
 # --- Pace from the futures ---
@@ -460,5 +465,37 @@ def test_the_check_prints_counts_only_and_writes_nothing(
     assert not any(m in out for m in merchants if len(m) > 3)
     assert "Categories with a saved limit: 1" in out
     assert "Pace computed on: saved limits" in out
+    assert "Categories with a pace computed from the futures: 1 of 1" in out
+    assert re.search(r"Categories with a chance of going over above 0: [01] of 1", out)
     assert "at or above as-now in every future on every day: yes" in out
     assert main(["--db", str(db), "--account", "9"]) == 2
+
+
+# --- Rule zero against a database that never had the later rows (reviewer N1) ---
+
+
+@pytest.mark.parametrize("account", ["synthetic-A", "synthetic-C"])
+@pytest.mark.parametrize("as_of", [date(2026, 7, 14), date(2026, 8, 20), date(2026, 9, 9)])
+def test_the_budgets_are_the_same_as_on_a_copy_cut_at_the_data_date(
+    conn: sqlite3.Connection, tmp_path: Path, account: str, as_of: date
+) -> None:
+    """The budget month (pace, chance, likely end, the rows and every future's remaining days)
+    and the proposals as of a date are exactly those of a copy holding only the rows posted up to
+    that date. Each copy has its recurring series stored from its own rows, so a series detected
+    with later rows cannot reach the earlier date either."""
+    from lookahead.recurring_store import refresh
+
+    cut = connect(Path(shutil.copy(tmp_path / "copy.db", tmp_path / "cut.db")))
+    with cut:
+        cut.execute("DELETE FROM transactions WHERE posted_date > ?", (as_of.isoformat(),))
+    refresh(conn, account)
+    refresh(cut, account)
+
+    def everything(c: sqlite3.Connection):  # type: ignore[no-untyped-def]
+        f = budget_forecast(c, account, None, as_of, futures=FUTURES)
+        assert f is not None
+        rows = category_rows(c, account, date(2026, 12, 31))
+        return budget_month(f, rows, ALL_DEFAULTS), proposals_for(c, account, rows, f)
+
+    assert everything(conn) == everything(cut)
+    cut.close()

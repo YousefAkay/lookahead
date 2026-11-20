@@ -70,11 +70,13 @@ def report(conn: sqlite3.Connection, account: str, today: date | None = None) ->
     limits = saved or waiting_proposals(shown)
     basis = "saved limits" if saved else "the proposals (nothing saved yet)"
     month = budget_month(forecast, rows, limits)
-    with_chance = sum(1 for p in month.paces if p.futures > 0)
+    with_pace = sum(1 for p in month.paces if p.futures > 0)
+    above_zero = sum(1 for p in month.paces if p.chance_over > 0)
     lines += [
         f"Pace computed on: {basis}",
-        f"Categories with a chance of going over: {with_chance} of {len(month.paces)} "
+        f"Categories with a pace computed from the futures: {with_pace} of {len(month.paces)} "
         f"({forecast.inputs.futures} futures)",
+        f"Categories with a chance of going over above 0: {above_zero} of {len(month.paces)}",
         f"Categories that would alert on this look: "
         f"{sum(should_alert(p, forecast.start.first_day) for p in month.paces)}",
         f"Categories whose spent so far includes a big one-off: "
