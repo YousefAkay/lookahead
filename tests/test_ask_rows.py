@@ -278,3 +278,51 @@ def test_no_categories_or_no_data_is_said_plainly(tmp_path: Path) -> None:
     assert out.kind == "refused" and "run the categorizer" in out.result.message
     out = run(parse({"steps": [rows(), total()]}), Context(conn, "nobody", TODAY))
     assert out.kind == "refused" and "import a bank export" in out.result.message
+
+
+# --- The rest of the row-block options, worked out by hand (definition of done 1) ---
+
+
+def test_group_by_weekday_lists_every_day_in_order(ctx: Context) -> None:
+    # Money out, transfers left out: Mon 08-03 50.00; Tue 08-25 12.00; Wed 09-02 1,200.00;
+    # Thu 08-20 30.00 + 10-15 9.00; Fri 10-02 1,200.00; Sat 09-05 45.00 + 10-10 25.00;
+    # Sun 09-06 8.00 + 15.00 and 10-04 60.00.
+    out = ask(ctx, rows(), {"op": "group", "name": "g", "source": "r", "by": "weekday"})
+    assert out.result.pairs == (
+        ("Monday", 5000), ("Tuesday", 1200), ("Wednesday", 120000), ("Thursday", 3900),
+        ("Friday", 120000), ("Saturday", 7000), ("Sunday", 8300),
+    )  # fmt: skip
+
+
+def test_group_by_merchant_largest_first(ctx: Context) -> None:
+    out = ask(ctx, rows(period={"kind": "last_month"}),
+              {"op": "group", "name": "g", "source": "r", "by": "merchant"})  # fmt: skip
+    assert out.result.pairs == (
+        ("Lumen Property", 120000), ("Quorvel Market", 4500), ("Velisaro Bakery", 1500),
+        ("Cafe Velisaro", 800),
+    )  # fmt: skip
+
+
+def test_list_smallest_and_earliest(ctx: Context) -> None:
+    out = ask(ctx, rows(), {"op": "list", "name": "l", "source": "r", "order": "smallest",
+                            "limit": 3})  # fmt: skip
+    assert list(out.result.rows["amount_cents"]) == [-800, -900, -1200]
+    out = ask(ctx, rows(), {"op": "list", "name": "l", "source": "r", "order": "earliest",
+                            "limit": 2})  # fmt: skip
+    assert [d.date().isoformat() for d in out.result.rows["date"]] == ["2026-08-03", "2026-08-20"]
+
+
+def test_min_and_top_lowest(ctx: Context) -> None:
+    assert value(ctx, rows(categories=[R]), total(measure="min")) == 800
+    # by category: Rent 2,400.00, Groceries 185.00, Restaurants 44.00, Shopping 25.00
+    out = ask(ctx, rows(), {"op": "group", "name": "g", "source": "r", "by": "category"},
+              {"op": "top", "name": "t", "source": "g", "n": 2, "order": "lowest"})  # fmt: skip
+    assert out.result.pairs == ((S, 2500), (R, 4400))
+
+
+def test_count_by_month(ctx: Context) -> None:
+    out = ask(ctx, rows(categories=[R], period={"kind": "this_year"}),
+              {"op": "group", "name": "g", "source": "r", "by": "month",
+               "measure": "count"})  # fmt: skip
+    assert out.result.pairs == (("2026-08", 1), ("2026-09", 2), ("2026-10", 1))
+    assert out.result.unit == "count"
