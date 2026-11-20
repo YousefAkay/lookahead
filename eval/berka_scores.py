@@ -229,9 +229,7 @@ CORE_ROWS: list[tuple[str, Any]] = [
     ("CRPS skill vs random walk, day 30", lambda x: _pct(x["skill30_r"])),
     (
         "CRPS forecast / stays / walk, mean of 30 days",
-        lambda x: (
-            f"{x['crps_f'] / 100:,.0f} / {x['crps_n'] / 100:,.0f} / {x['crps_r'] / 100:,.0f}"
-        ),
+        lambda x: f"{x['crps_f'] / 100:,.0f} / {x['crps_n'] / 100:,.0f} / {x['crps_r'] / 100:,.0f}",
     ),
     ("80% band coverage, day 30", lambda x: f"{x['coverage30']:.1%}"),
     ("80% band coverage, all 30 days", lambda x: f"{x['coverage_all']:.1%}"),

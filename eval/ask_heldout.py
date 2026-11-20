@@ -32,7 +32,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-FOLDER = Path(__file__).resolve().parents[1] / "data" / "ask_heldout"
+
+def _main_checkout() -> Path:
+    """The main repository folder, also from a worktree: the held-out files live in one place."""
+    from lookahead.ask.llm import main_checkout
+
+    return main_checkout()
+
+
+FOLDER = _main_checkout() / "data" / "ask_heldout"
 YOUSEF = "questions_yousef.txt"
 AGENT = "questions_agent.jsonl"
 GOLD = {"a": "gold_a.jsonl", "b": "gold_b.jsonl"}

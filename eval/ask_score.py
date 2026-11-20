@@ -265,12 +265,16 @@ def llm_planner(send: Send, spend: Spend) -> Planner:
 
     def planner(question: str, ctx: Context) -> dict[str, Any] | None:
         del ctx  # never sent
-        return plan_for(question, send, spend).plan
+        planned = plan_for(question, send, spend)
+        if SHOW_PLANS:
+            print(f"PLAN {question!r}: {json.dumps(planned.plan, ensure_ascii=False)}")
+        return planned.plan
 
     return planner
 
 
 PLANNERS: dict[str, Planner] = {"offline": offline}
+SHOW_PLANS = False
 SPEND_CAP_USD = 5.00  # all LLM development runs together (his cap for step 8, 2026-11-20)
 
 
@@ -290,10 +294,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-ledger", action="store_true")
     parser.add_argument("--variant", default="", help="what changed since the last run")
     parser.add_argument("--limit", type=int, default=0, help="only the first N questions")
+    parser.add_argument("--ids", default="", help="only these question ids (comma-separated)")
+    parser.add_argument(
+        "--show-plans",
+        action="store_true",
+        help="print each produced plan (development questions only)",
+    )
     args = parser.parse_args(argv)
     questions = list(QUESTIONS[: args.limit] if args.limit else QUESTIONS)
+    if args.ids:
+        wanted = set(args.ids.split(","))
+        questions = [q for q in questions if q.id in wanted]
     extra: dict[str, Any] = {}
     stopped = ""
+    global SHOW_PLANS
+    SHOW_PLANS = args.show_plans
     if args.planner == "llm":
         spend = Spend(cap_usd=SPEND_CAP_USD - spent_so_far())
         planner = llm_planner(make_sender(), spend)
