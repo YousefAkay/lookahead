@@ -140,6 +140,17 @@ def _stream(seed: int, future: int, *parts: object) -> random.Random:
     return random.Random("|".join(str(p) for p in (seed, future, *parts)))
 
 
+def week_draws(seed: int, future: int, pool_size: int, weeks: int) -> list[int]:
+    """Which past week of the pool each week ahead of one future takes (its position in
+    `pool_week_starts`, oldest first). Forecast day k takes day k % 7 of week k // 7. The one
+    place the futures' weeks are drawn: the forecast and the budgets both read it, so they
+    share the same mapping, weekday alignment included. An empty pool draws nothing."""
+    if pool_size == 0:
+        return []
+    stream = _stream(seed, future, "weeks")
+    return [stream.choice(range(pool_size)) for _ in range(weeks)]
+
+
 @dataclass(frozen=True)
 class SimulationInputs:
     """Everything `simulate` needs, kept so a scenario can change a part and run it again."""
@@ -224,11 +235,14 @@ def _renewal_arrivals(
 
 
 def run(
-    inputs: SimulationInputs, spending_cut: SpendingCut | None = None, keep_paths: bool = False
+    inputs: SimulationInputs, spending_cut: SpendingCut | None = None, keep_paths: bool = False,
+    future_cuts: Sequence[Sequence[int]] | None = None,
 ) -> Simulation:  # fmt: skip
     """Run the futures for these inputs, optionally with a cut in everyday spending.
     `keep_paths` keeps every future's daily balance (with deposits), for the calibration step;
-    the app does not ask for them."""
+    the app does not ask for them. `future_cuts[f][k]` (cents, used by the budgets' "stay on
+    budget" what-if) is taken off future f's everyday spending on forecast day k; a negative
+    value puts some back. None changes nothing."""
     start, futures, seed = inputs.start, inputs.futures, inputs.seed
     horizon = (start.last_day - start.first_day).days + 1
     days = tuple(start.first_day + timedelta(days=k) for k in range(horizon))
@@ -269,11 +283,10 @@ def run(
                                   inputs.arrivals_in_sizes, horizon)  # fmt: skip
         arrive_out = _arrivals(seed, future, "arrivals-out", inputs.arrivals_out_rate,
                                inputs.arrivals_out_sizes, horizon)  # fmt: skip
-        weeks_stream = _stream(seed, future, "weeks")
         spend_daily: list[int] = []
         dep_daily: list[int] = []
-        for _week in range(weeks):
-            spend, dep = weeks_stream.choice(pool) if pool else ((0,) * BLOCK, (0,) * BLOCK)
+        for i in week_draws(seed, future, len(pool), weeks) if pool else [None] * weeks:
+            spend, dep = pool[i] if i is not None else ((0,) * BLOCK, (0,) * BLOCK)
             spend_daily += spend
             dep_daily += dep
         if inputs.lump_rate > 0 and inputs.lump_sizes:
@@ -289,6 +302,8 @@ def run(
             spend_today = spend_daily[k]
             if spending_cut is not None:
                 spend_today = spending_cut.apply(days[k], spend_today)
+            if future_cuts is not None:
+                spend_today -= future_cuts[future][k]
             spent += spend_today + arrive_out[k]  # a big payment is spending, never cut
             money_in += dep_daily[k] + arrive_in[k]
             base = start.balance_cents + money - spent - fees[k]

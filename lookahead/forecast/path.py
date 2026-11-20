@@ -36,6 +36,7 @@ from lookahead.forecast.spending import (
     BreakdownRow,
     DepositWeek,
     KeepsComing,
+    SpendingRows,
     big_events,
     constant_path,
     deposit_weeks,
@@ -46,6 +47,7 @@ from lookahead.forecast.spending import (
     recent_fee_rate,
     spending_breakdown,
     spending_by_day,
+    spending_rows,
     weekday_average_path,
 )
 from lookahead.forecast.start import HORIZON_DAYS, ForecastStart, forecast_start
@@ -164,6 +166,8 @@ class Forecast:
     first_time_offers: tuple[FirstTimeOffer, ...] = ()
     # Series (a) or (b) chose not to place: (key, "weekly card purchases" or "possibly ended").
     not_placed: tuple[tuple[str, str], ...] = ()
+    # The rows behind the everyday spending (for the budgets); nothing above depends on them.
+    spending_rows: SpendingRows = SpendingRows((), frozenset())
 
     @property
     def large_deposits(self) -> tuple[BigEvent, ...]:
@@ -312,6 +316,7 @@ def build_forecast(
         proposed.offers,
         tuple((s.key, "weekly card purchases" if s.key in card_keys else "possibly ended")
               for s in series if s.key in not_placed and s.active and s.status != "rejected"),
+        spending_rows(txns, flows, in_series, start.data_last_updated),
     )  # fmt: skip
 
 

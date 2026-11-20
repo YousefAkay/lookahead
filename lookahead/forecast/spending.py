@@ -360,6 +360,29 @@ def spending_by_day(
     return dict(daily)
 
 
+@dataclass(frozen=True)
+class SpendingRows:
+    """The rows behind `spending_by_day`, for the budgets: each everyday-spending row as
+    (row id, posted date, cents spent), and the ids of money-out rows in no series that were set
+    aside (big one-time payments and pass-through outflows: counted when spent, never drawn)."""
+
+    kept: tuple[tuple[int, date, int], ...]
+    set_aside: frozenset[int]
+
+
+def spending_rows(
+    txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
+) -> SpendingRows:
+    """The same rows `spending_by_day` adds up, one by one (summed by day they give it exactly)."""
+    kept = _streams(txns, flows, series_rows, as_of).spending
+    kept_ids = {r[0].row_id for r in kept}
+    out = _counted(txns, flows, series_rows, as_of)
+    return SpendingRows(
+        tuple((t.row_id, t.posted_date, cents) for t, _, cents in kept),
+        frozenset(r[0].row_id for r in out if r[2] > 0 and r[0].row_id not in kept_ids),
+    )
+
+
 def deposits_by_day(
     txns: Sequence[Txn], flows: Mapping[int, Flow], series_rows: Collection[int], as_of: date
 ) -> dict[date, int]:
