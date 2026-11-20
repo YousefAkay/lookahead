@@ -50,3 +50,6 @@ logs/
 
 # Ask test set: synthetic persona databases built on demand (python -m eval.ask_personas)
 data/ask_eval/
+
+# Ask held-out questions and gold plans: git-ignored and hook-blocked until the one scored run
+data/ask_heldout/
