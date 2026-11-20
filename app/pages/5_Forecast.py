@@ -47,7 +47,7 @@ from app.theme import (  # noqa: E402
 )
 from lookahead import demo_mode  # noqa: E402
 from lookahead.alerts import (  # noqa: E402
-    PROVISIONAL,
+    RULE_LABEL,
     alert_message,
     dismiss,
     episodes,
@@ -159,7 +159,7 @@ start = forecast.start
 sim = forecast.simulation
 top_bar(bar, "Forecast", start.data_last_updated, source)
 DEFAULT_METHOD = "weekday"
-snapshot = snapshot_of(forecast)  # the provisional alert rule, applied to this forecast
+snapshot = snapshot_of(forecast)  # the alert rule, applied to this forecast
 if method == DEFAULT_METHOD:  # alerts follow the default estimate, not every one I try out
     record_run(conn, account, forecast)
 status = import_status(conn, account)
@@ -284,7 +284,7 @@ st.markdown('<div id="alerts"></div>', unsafe_allow_html=True)
 with st.container(border=True, key="card-alerts"):
     st.markdown(
         '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
-        f"<h2>Shortfall alerts</h2>{tag_html(PROVISIONAL, 'neutral')}</div>"
+        f"<h2>Shortfall alerts</h2>{tag_html(RULE_LABEL, 'neutral')}</div>"
         '<p class="la-note">The rule, chosen on made-up development accounts: alert when the '
         "chance of dipping below your buffer is above 35%, or the middle future's lowest balance "
         "is below it. Alerts follow the weekday average.</p>",

@@ -30,7 +30,7 @@ from typing import Any
 from lookahead.forecast.path import Forecast
 from lookahead.forecast.simulate import Simulation
 
-PROVISIONAL = "chosen on development data"
+RULE_LABEL = "chosen on development data"
 PROBABILITY_THRESHOLD = 0.35  # alert when the chance of dipping below the buffer is above this
 BANDS = (0.20, 0.50, 0.80)  # a probability crossing one of these is a material change
 MATERIAL_LOW_CENTS = 10_000  # the low moving by this much (a $100 step) is a material change
@@ -93,7 +93,7 @@ def band_of(probability: float) -> int:
 
 
 def should_alert(sim: Simulation, buffer_cents: int) -> bool:
-    """The provisional rule."""
+    """The alert rule."""
     return sim.shortfall_probability > PROBABILITY_THRESHOLD or (
         sim.median_lowest_cents < buffer_cents
     )
@@ -187,7 +187,7 @@ def build_evidence(forecast: Forecast) -> dict[str, Any]:
             {"day": e.day.isoformat(), "kind": e.kind, "cents": e.cents, "group": e.group}
             for e in forecast.big_events
         ],
-        "rule": f"{PROVISIONAL}: chance above {PROBABILITY_THRESHOLD:.0%}, or median lowest "
+        "rule": f"{RULE_LABEL}: chance above {PROBABILITY_THRESHOLD:.0%}, or median lowest "
         "balance below the buffer",
         "triggered_by_median": snap is not None and snap.median_lowest_cents < snap.buffer_cents,
     }
@@ -378,7 +378,7 @@ def _day(day: date) -> str:
 
 
 __all__ = [
-    "BANDS", "DATE_SHIFT_DAYS", "MATERIAL_LOW_CENTS", "PROVISIONAL", "SAME_LOW_DAYS", "Episode",
+    "BANDS", "DATE_SHIFT_DAYS", "MATERIAL_LOW_CENTS", "RULE_LABEL", "SAME_LOW_DAYS", "Episode",
     "RunResult", "Snapshot", "active_alert", "alert_message", "band_of", "build_evidence",
     "dismiss", "episodes", "material_change", "record_run", "record_snapshot", "restore",
     "should_alert", "snapshot_of", "worse_after_dismissal",

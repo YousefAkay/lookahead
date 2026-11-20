@@ -168,7 +168,7 @@ alert_col, what_if = st.columns(2, gap="medium")
 with alert_col, st.container(border=True, key="card-alerts"):
     st.markdown(
         '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
-        f"<h2>Alert on this date</h2>{tag_html('provisional rule', 'neutral')}</div>"
+        f"<h2>Alert on this date</h2>{tag_html('rule chosen 2026-11-19', 'neutral')}</div>"
         f'<p style="margin: 0">{safe(view.status)}</p>',
         unsafe_allow_html=True,
     )

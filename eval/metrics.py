@@ -31,7 +31,7 @@ from eval.backtest import (
     read_records,
     split_by_shortfall,
 )
-from lookahead.alerts import Snapshot, episodes, record_snapshot
+from lookahead.alerts import PROBABILITY_THRESHOLD, Snapshot, episodes, record_snapshot
 from lookahead.db import SCHEMA
 from lookahead.generator.archetypes import ALL_HELD_OUT, is_long
 
@@ -39,7 +39,8 @@ HORIZONS = (7, 14, 30)
 BIN_EDGES = 5  # reliability bins: 0-20, 20-40, 40-60, 60-80, 80-100 percent
 BUCKETS = ("under 8 weeks", "8-12 weeks", "12-26 weeks", "26+ weeks")
 GROUPS = ("all", "ordinary", "already in shortfall")
-PROVISIONAL_THRESHOLD = 0.20
+PROVISIONAL_THRESHOLD = 0.20  # the old provisional rule, kept for the earlier studies
+ALERT_THRESHOLD = PROBABILITY_THRESHOLD  # the app's threshold: the default everywhere here
 MERGE_GAP_DAYS = 3  # dips with this many days (or fewer) back above the buffer are one episode
 
 Record = dict[str, Any]
@@ -301,7 +302,7 @@ def caught_on_ahead(
 
 
 def alert_metrics(
-    records: list[Record], threshold: float = PROVISIONAL_THRESHOLD, median_rule: bool = True
+    records: list[Record], threshold: float = ALERT_THRESHOLD, median_rule: bool = True
 ) -> dict[str, Any]:
     """Caught, missed, false alert episodes, lead time, precision, recall and false alerts per 30
     days, over origins not already in shortfall; alerts raised while already in shortfall are
@@ -478,7 +479,7 @@ def _columns(synthetic: list[Record], real: list[Record]) -> list[tuple[str, lis
 
 
 def report_text(
-    synthetic: list[Record], real: list[Record], threshold: float = PROVISIONAL_THRESHOLD,
+    synthetic: list[Record], real: list[Record], threshold: float = ALERT_THRESHOLD,
     median_rule: bool = True,
 ) -> str:  # fmt: skip
     """The summary: forecast metrics for three groups, alerts, and breakdowns, in separate
@@ -492,7 +493,7 @@ def report_text(
                    else f"  {name}: none")  # fmt: skip
     rule = f"chance above {threshold:.0%}" + (", or median lowest balance below the buffer"
                                               if median_rule else "")  # fmt: skip
-    out.append(f"  Alert rule used: {rule} (provisional until the threshold is chosen)")
+    out.append(f"  Alert rule used: {rule}")
     shown = [(n, rows) for n, rows in cols if rows] or [(cols[0][0], [])]
     for group, label in (("all", "All origins"), ("ordinary", "Origins not already in shortfall"),
                          ("already in shortfall", "Origins already in shortfall")):  # fmt: skip
@@ -518,7 +519,7 @@ def report_text(
 
 
 def breakdown_text(
-    name: str, rows: list[Record], threshold: float = PROVISIONAL_THRESHOLD,
+    name: str, rows: list[Record], threshold: float = ALERT_THRESHOLD,
     median_rule: bool = True,
 ) -> list[str]:  # fmt: skip
     """The breakdowns promised in DECISIONS.md (2026-10-09, "Week 4 step 4"): every forecast
@@ -570,7 +571,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dir", type=Path, default=current_default_dir(), help="synthetic results")
     parser.add_argument("--real", type=Path, default=None, help="real results (private folder)")
     parser.add_argument("--no-synthetic", action="store_true")
-    parser.add_argument("--threshold", type=float, default=PROVISIONAL_THRESHOLD)
+    parser.add_argument("--threshold", type=float, default=ALERT_THRESHOLD)
     parser.add_argument("--no-median", action="store_true", help="drop the median-lowest rule")
     parser.add_argument("--final-test", action="store_true", help="allow held-out personas")
     args = parser.parse_args(argv)

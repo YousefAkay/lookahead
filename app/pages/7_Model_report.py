@@ -230,8 +230,8 @@ with st.container(border=True, key="card-threshold"):
                "No threshold meets the aim. ")
             + "Caught goes up with the threshold because at low thresholds one alert stays on "
             "across several dips, and a dip only counts if an alert opened before it. The app "
-            "keeps its provisional rule: this curve rests on the shelved calibration, so the "
-            "threshold will be chosen again on raw chances. Real: run "
+            "rests this curve on the shelved calibration; its threshold (35%) was chosen on "
+            "raw chances on 2026-11-19. Real: run "
             "<code>python -m eval.calibrate apply</code> "
             "locally.</p>",
             unsafe_allow_html=True,
@@ -274,7 +274,8 @@ with st.container(border=True, key="card-limits"):
         "other.</li>"
         "<li>The 80% band covers the real balance about half the time. Widening it fixes that on "
         "average but makes it several times wider, and very wide for calm accounts.</li>"
-        "<li>The alert rule is provisional. The threshold study uses 52 shortfall episodes from 8 "
+        "<li>The alert threshold (35%) was chosen on development personas. The study uses 52 "
+        "shortfall episodes from 8 "
         "personas; that is a small n.</li>"
         "<li>Origins within a persona overlap (30 days ahead, every 7 days), so the number of "
         "independent cases is smaller than the number of origins.</li>"

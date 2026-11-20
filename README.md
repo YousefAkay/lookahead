@@ -127,8 +127,8 @@ origins ([docs/results/berka_sanity_2026-10-17.md](docs/results/berka_sanity_202
 The check flags one problem: the everyday-spending estimate is zero at 512 of 8,000 primary
 origins (6.4%, in 83 of 200 accounts) and 1,178 of 8,000 sensitivity origins (14.7%, in 130 of
 200 accounts), above the 5% the check allows. In the primary group most of them (464 of 512) are
-origins where every payment out belongs to a recurring series. No accuracy on Berka has been
-scored yet.
+origins where every payment out belongs to a recurring series. Development scores, next to
+the synthetic sets: [docs/results/scores_development_2026-11-19.md](docs/results/scores_development_2026-11-19.md).
 
 **Safe to spend.** The largest everyday spending a day that keeps 80% of the futures above the
 buffer until the next expected income. On the 20 development personas (800 origins,
@@ -138,8 +138,13 @@ or below it, 89% of the origins stayed above the buffer (31 of 35 origins, 10 pe
 rule I wrote before running it, the 80% holds near the edge. 35 origins is a small n, so this says
 the amount is not clearly optimistic, not that it is calibrated.
 
-Not reported yet: the alert numbers (shortfalls caught, precision, false alerts per 30 days). The
-alert threshold is provisional until the final test.
+**Alerts.** The app alerts when more than 35% of the futures dip below the buffer. I chose 35%
+on the 20 development personas of the 12-month set (52 shortfall episodes, leave one persona out;
+[docs/results/thresholds_raw_2026-11-19.md](docs/results/thresholds_raw_2026-11-19.md)). Caught,
+counted two ways: an alert was on in the 30 days before 47 of 52 dips, and an alert opened before
+the dip for 25 of 52 (the first count includes alerts that opened when the balance was already
+below the buffer). Precision 73% (22 of 30 alerts), 0.047 false alerts per 30 days. 52 episodes
+from 8 personas is a small n.
 
 ## How it works
 

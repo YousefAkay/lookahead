@@ -1,4 +1,4 @@
-"""Tests for 3c: the shortfall alert (provisional rule), episodes, evidence and suppression.
+"""Tests for 3c: the shortfall alert (its rule), episodes, evidence and suppression.
 Made-up forecasts in a temporary database; nothing here reads real data."""
 
 import sqlite3
@@ -11,7 +11,7 @@ from lookahead.alerts import (
     BANDS,
     DATE_SHIFT_DAYS,
     MATERIAL_LOW_CENTS,
-    PROVISIONAL,
+    RULE_LABEL,
     SAME_LOW_DAYS,
     Snapshot,
     active_alert,
@@ -82,7 +82,7 @@ def conn(tmp_path: Path) -> sqlite3.Connection:
 
 
 def test_the_rule_says_where_it_was_chosen() -> None:
-    assert PROVISIONAL == "chosen on development data"
+    assert RULE_LABEL == "chosen on development data"
 
 
 def test_alert_when_the_chance_is_above_thirty_five_percent() -> None:
