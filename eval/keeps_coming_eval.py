@@ -235,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT_FILE)
     parser.add_argument("--root", type=Path, default=DEFAULT_OUT, help="where the three runs go")
     args = parser.parse_args(argv)
-    personas = select_personas(args.only, False)
+    personas = select_personas(args.only)
     if not args.compare_only:
         run_all(personas, args.work, args.root, args.futures)
     where = folders(args.root)

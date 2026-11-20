@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from eval import berka_scores as b
-from eval.berka_split import held_out_accounts
+from eval.berka_split import load_split
 
 
 def _record(persona: str, realized: list[int], p10: list[int], p90: list[int], *,
@@ -37,6 +37,6 @@ def test_summary_arithmetic() -> None:
 
 
 def test_held_out_accounts_are_refused() -> None:
-    account = sorted(held_out_accounts("primary"))[0]
+    account = int(load_split()["primary_held_out"][0])  # type: ignore[index]
     with pytest.raises(ValueError):
         b.account_records(account, pd.DataFrame(), b.OUT / "never")

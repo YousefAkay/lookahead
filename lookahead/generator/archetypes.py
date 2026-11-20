@@ -113,11 +113,25 @@ def development_ids(long: bool = False) -> list[str]:
     return [pid for pid in (LONG_IDS if long else PERSONA_IDS) if pid not in ALL_HELD_OUT]
 
 
+HARNESS = "eval/held_out.py"  # the only route to held-out data (protocol of 2026-11-19)
+
+
+def called_by_harness() -> bool:
+    """True when the held-out harness is on the call stack (in this process or a worker it
+    started): only then may held-out data be read, forecast or scored."""
+    frame = sys._getframe(1)
+    while frame is not None:
+        if Path(frame.f_code.co_filename).as_posix().endswith(HARNESS):
+            return True
+        frame = frame.f_back
+    return False
+
+
 def assert_development_only(ids: list[str] | tuple[str, ...]) -> None:
     """Tuning code calls this first: a held-out persona (of either set) must never be used to
-    choose anything."""
+    choose anything. Only the held-out harness passes."""
     bad = sorted(set(ids) & ALL_HELD_OUT)
-    if bad:
+    if bad and not called_by_harness():
         raise ValueError(f"held-out personas are never used for tuning: {', '.join(bad)}")
 
 

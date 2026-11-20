@@ -51,7 +51,7 @@ def test_the_development_only_guard_refuses_a_long_held_out_persona() -> None:
     with pytest.raises(ValueError, match="held-out"):
         assert_development_only(["v2L-SAL-01", "v2L-ITIGHT-04"])
     with pytest.raises(ValueError, match="held-out"):
-        select_personas(["v2L-TIGHT-04"], include_held_out=False, long=True)
+        select_personas(["v2L-TIGHT-04"], long=True)
 
 
 def test_the_runner_refuses_a_long_held_out_persona_before_generating_it(tmp_path: Path) -> None:
@@ -61,11 +61,11 @@ def test_the_runner_refuses_a_long_held_out_persona_before_generating_it(tmp_pat
 
 
 def test_the_two_sets_are_never_mixed_in_one_run() -> None:
-    assert select_personas(None, False, long=True) == development_ids(long=True)
+    assert select_personas(None, long=True) == development_ids(long=True)
     with pytest.raises(ValueError, match="never mixed"):
-        select_personas(["v2-SAL-01", "v2L-SAL-01"], include_held_out=False, long=True)
+        select_personas(["v2-SAL-01", "v2L-SAL-01"], long=True)
     with pytest.raises(ValueError, match="never mixed"):
-        select_personas(["v2L-SAL-01"], include_held_out=False, long=False)
+        select_personas(["v2L-SAL-01"], long=False)
 
 
 def test_the_metrics_refuse_to_pool_the_two_sets(tmp_path: Path) -> None:

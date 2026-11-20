@@ -24,6 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 from eval.berka_gate import load, per_account
+from lookahead.generator.archetypes import called_by_harness
 
 SPLIT_FILE = Path("docs/berka_split.json")
 SALT = "berka-split-2026-10-17"
@@ -86,18 +87,21 @@ def development_accounts(group: str = "primary", path: Path = SPLIT_FILE) -> lis
 
 
 def held_out_accounts(group: str = "primary", path: Path = SPLIT_FILE) -> list[int]:
-    """Only for the one final test (no code of the experiments calls this before it)."""
+    """Only for the one final test: refused unless the held-out harness asks."""
+    if not called_by_harness():
+        raise ValueError("held-out Berka accounts are read only by eval/held_out.py")
     ids = load_split(path)[f"{group}_held_out"]
     assert isinstance(ids, list)
     return [int(a) for a in ids]
 
 
 def assert_development_only(ids: list[int], path: Path = SPLIT_FILE) -> None:
-    """Tuning and checking code calls this first: a held-out account is refused."""
+    """Tuning and checking code calls this first: a held-out account is refused (only the
+    held-out harness passes)."""
     split = load_split(path)
     held = {int(a) for k in ("primary_held_out", "sensitivity_held_out") for a in split[k]}  # type: ignore[attr-defined]
     bad = sorted(set(ids) & held)
-    if bad:
+    if bad and not called_by_harness():
         raise ValueError(f"{len(bad)} held-out Berka accounts are not for tuning or checking")
 
 

@@ -17,7 +17,7 @@ from eval.berka import (
     run_account,
     to_cents,
 )
-from eval.berka_split import held_out_accounts
+from eval.berka_split import load_split
 from lookahead.ingest.scotiabank import balance_chain_breaks
 
 START = date(1994, 1, 3)
@@ -131,7 +131,7 @@ def test_a_forecast_does_not_depend_on_rows_after_its_origin(tmp_path: Path) -> 
 
 
 def test_a_held_out_account_cannot_be_run(tmp_path: Path) -> None:
-    held = held_out_accounts("primary")[0]
+    held = int(load_split()["primary_held_out"][0])  # type: ignore[index]
     with pytest.raises(ValueError):
         run_account((held, made_up_account(100, held), tmp_path))
 

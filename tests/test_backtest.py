@@ -26,7 +26,6 @@ from lookahead.db import connect
 from lookahead.generator.archetypes import (
     END,
     HELD_OUT,
-    PERSONA_IDS,
     QUICK_IDS,
     START,
     build_persona,
@@ -93,19 +92,19 @@ def test_origins_can_be_limited_to_a_range_for_real_data() -> None:
 
 
 def test_by_default_only_development_personas_are_run() -> None:
-    chosen = select_personas(None, include_held_out=False)
+    chosen = select_personas(None)
     assert len(chosen) == 20 and not set(chosen) & HELD_OUT
 
 
-def test_a_held_out_persona_needs_the_explicit_flag() -> None:
+def test_a_held_out_persona_is_always_refused() -> None:
     with pytest.raises(ValueError, match="held-out"):
-        select_personas(["v2-TIGHT-04"], include_held_out=False)
-    assert select_personas(["v2-TIGHT-04"], include_held_out=True) == ["v2-TIGHT-04"]
-    assert set(select_personas(None, include_held_out=True)) == set(PERSONA_IDS)
+        select_personas(["v2-TIGHT-04"])
+    with pytest.raises(SystemExit):  # the flag is gone: held-out runs only via eval/held_out.py
+        backtest.main(["--held-out", "--only", "v2-TIGHT-04"])
 
 
 def test_quick_mode_uses_the_three_quick_personas() -> None:
-    assert select_personas(None, include_held_out=False, quick=True) == list(QUICK_IDS)
+    assert select_personas(None, quick=True) == list(QUICK_IDS)
 
 
 # --- Realized balances ---
@@ -285,14 +284,7 @@ def test_the_work_files_are_removed_after_a_persona(tmp_path: Path) -> None:
     assert not list((tmp_path / "work").glob("*.db"))  # one persona at a time, nothing left
 
 
-def test_a_held_out_persona_run_is_labelled_in_its_records(tmp_path: Path) -> None:
-    run_persona("v2-SAL-04", tmp_path / "out", origins()[:1], FUTURES, seed=42,
-                work_dir=tmp_path / "work", allow_held_out=True)  # fmt: skip
-    record = json.loads((tmp_path / "out" / "v2-SAL-04.jsonl").read_text().splitlines()[0])
-    assert record["held_out"] is True
-
-
-def test_the_runner_refuses_a_held_out_persona_unless_told_to(tmp_path: Path) -> None:
+def test_the_runner_refuses_a_held_out_persona(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="held-out"):
         run_persona("v2-SAL-04", tmp_path / "out", origins()[:1], FUTURES, seed=42,
                     work_dir=tmp_path / "work")  # fmt: skip
@@ -457,22 +449,6 @@ def test_the_effective_forecaster_defaults_are_recorded_and_a_changed_default_re
     with pytest.raises(ValueError, match=r"different settings.*recurring_fix") as error:
         run_persona(PID, tmp_path / "out", days, FUTURES, seed=42, work_dir=tmp_path / "work")
     assert "new folder" in str(error.value)  # it says what to do
-
-
-def test_held_out_with_a_development_persona_saves_in_the_development_folder(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:  # fmt: skip
-    monkeypatch.setattr(backtest, "DEFAULT_OUT", tmp_path / "bt")
-    few = backtest.origins()[:2]
-    monkeypatch.setattr(backtest, "origins", lambda: few)  # two origins: this is about folders
-    argv = ["--futures", "20", "--held-out", "--only", PID]
-    assert backtest.main(argv) == 0
-    assert (tmp_path / "bt" / "keeps-coming-with-own" / "full" / f"{PID}.jsonl").exists()
-    assert not (tmp_path / "bt" / "held-out").exists()  # no development record among the held-out
-    assert backtest.main([*argv[:-1], "v2-SAL-04"]) == 0
-    held = tmp_path / "bt" / "held-out" / "keeps-coming-with-own" / "full"
-    assert (held / "v2-SAL-04.jsonl").exists()
-    assert not (held / f"{PID}.jsonl").exists()
 
 
 # --- A settings file left half-written by a stopped run (2026-10-17) ---

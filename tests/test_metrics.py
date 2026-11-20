@@ -452,11 +452,10 @@ def write(out: Path, records: list[dict]) -> None:  # type: ignore[type-arg]
                                               encoding="utf-8")  # fmt: skip
 
 
-def test_loading_refuses_a_held_out_persona_unless_it_is_the_final_test(tmp_path: Path) -> None:
+def test_loading_refuses_a_held_out_persona_always(tmp_path: Path) -> None:
     write(tmp_path, [rec(persona="v2-SAL-01"), rec(persona="v2-SAL-04", held_out=True)])
     with pytest.raises(ValueError, match="held-out"):
         load_records(tmp_path)
-    assert len(load_records(tmp_path, final_test=True)) == 2
 
 
 def test_loading_only_development_records_is_fine(tmp_path: Path) -> None:

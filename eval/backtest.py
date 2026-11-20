@@ -9,7 +9,6 @@ and the throw-away database is deleted before the next persona starts.
 
     python -m eval.backtest --quick                 # 3 personas, 4 origins, 100 futures
     python -m eval.backtest                         # the 20 development personas, all origins
-    python -m eval.backtest --only v2-SAL-04 --held-out   # a held-out persona: say so
     python -m eval.backtest --summary               # counts of what is saved (no amounts)
     python -m eval.backtest --set long              # the 24-month set v2L, data/backtest/long
 
@@ -42,11 +41,9 @@ from lookahead.forecast.path import (
 from lookahead.forecast.spending import DEFAULT_KEEPS, KeepsComing
 from lookahead.forecast.start import forecast_start
 from lookahead.generator.archetypes import (
-    ALL_HELD_OUT,
     END,
-    LONG_IDS,
-    PERSONA_IDS,
     QUICK_IDS,
+    assert_development_only,
     build_persona,
     development_ids,
     is_long,
@@ -108,19 +105,16 @@ def quick_origins() -> list[date]:
 
 
 def select_personas(
-    only: list[str] | None, include_held_out: bool, quick: bool = False, long: bool = False,
+    only: list[str] | None, quick: bool = False, long: bool = False,
 ) -> list[str]:  # fmt: skip
-    """Which personas to run (of the 24-month set if `long`). Held-out ones only when asked
-    for, in the final test."""
+    """Which personas to run (of the 24-month set if `long`). Never held-out ones: the final
+    test runs only through eval/held_out.py."""
     if quick:
         return [pid.replace("v2-", "v2L-", 1) for pid in QUICK_IDS] if long else list(QUICK_IDS)
-    every = list(LONG_IDS if long else PERSONA_IDS)
-    chosen = list(only) if only else (every if include_held_out else development_ids(long))
+    chosen = list(only) if only else development_ids(long)
     if [pid for pid in chosen if is_long(pid) != long]:
         raise ValueError("the 12-month and the 24-month sets are never mixed in one run")
-    held = sorted(set(chosen) & ALL_HELD_OUT)
-    if held and not include_held_out:
-        raise ValueError(f"held-out personas run only with --held-out: {', '.join(held)}")
+    assert_development_only(chosen)
     return chosen
 
 
@@ -336,12 +330,11 @@ def _check_settings(meta_path: Path, settings: dict[str, Any]) -> None:
 
 def run_persona(
     persona_id: str, out_dir: Path, days: list[date], futures: int, seed: int, work_dir: Path,
-    allow_held_out: bool = False, keeps: KeepsComing | None = DEFAULT_KEEPS,
+    keeps: KeepsComing | None = DEFAULT_KEEPS,
 ) -> int:  # fmt: skip
     """Run the origins `days` for one persona, saving each as it is made. Returns how many were
     newly computed (those already saved are skipped, so a stopped run resumes)."""
-    if persona_id in ALL_HELD_OUT and not allow_held_out:
-        raise ValueError(f"held-out personas run only with --held-out: {persona_id}")
+    assert_development_only([persona_id])  # held-out personas: eval/held_out.py only
     persona = build_persona(persona_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     result_path = out_dir / f"{persona_id}.jsonl"
@@ -436,8 +429,6 @@ def main(argv: list[str] | None = None) -> int:
     )  # fmt: skip
     parser.add_argument("--quick", action="store_true", help="3 personas, 4 origins, 100 futures")
     parser.add_argument("--only", nargs="*", default=None, help="persona ids")
-    parser.add_argument("--held-out", action="store_true",
-                        help="include held-out personas (final test only)")  # fmt: skip
     parser.add_argument("--futures", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42, help="seed of the generated histories")
     parser.add_argument("--out", type=Path, default=None)
@@ -452,22 +443,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     long = args.set == "long"
     keeps = KEEPS_NAMES[args.keeps_coming]
-    out = args.out or default_out(long, args.keeps_coming, args.quick, args.held_out)
+    out = args.out or default_out(long, args.keeps_coming, args.quick, False)
     if args.summary:
         print_summary(out)
         return 0
     futures = args.futures or (QUICK_FUTURES if args.quick else FUTURES)
     days = quick_origins() if args.quick else origins()
-    ids = select_personas(args.only, args.held_out, args.quick, long)
+    ids = select_personas(args.only, args.quick, long)
     folders: list[Path] = []
     for n, pid in enumerate(ids, start=1):
-        # --held-out only allows held-out personas; a development persona still saves with the
-        # development records, never under held-out/
-        target = args.out or default_out(long, args.keeps_coming, args.quick, pid in ALL_HELD_OUT)
+        target = out
         if target not in folders:
             folders.append(target)
         work = args.work or target / "work"
-        done = run_persona(pid, target, days, futures, args.seed, work, args.held_out, keeps)
+        done = run_persona(pid, target, days, futures, args.seed, work, keeps)
         print(f"[{n}/{len(ids)}] {pid}: {done} new origins", flush=True)
     for folder in folders or [out]:
         print_summary(folder)

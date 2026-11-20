@@ -217,6 +217,39 @@ def _pct(x: float | None) -> str:
     return "-" if x is None else f"{x:+.1%}"
 
 
+# The rows of the development report that the held-out dry run must reproduce exactly
+# (protocol of 2026-11-19): label and the formatting of one summary_core result.
+CORE_ROWS: list[tuple[str, Any]] = [
+    ("origins (units)", lambda x: f"{x['origins']:,} ({x['units']})"),
+    ("scored origins n (units)", lambda x: f"{x['n']:,} ({x['units_n']})"),
+    ("dips among them", lambda x: f"{x['dips']:,}"),
+    ("CRPS skill vs balance stays, mean of 30 days", lambda x: _pct(x["skill_n"])),
+    ("CRPS skill vs random walk, mean of 30 days", lambda x: _pct(x["skill_r"])),
+    ("CRPS skill vs balance stays, day 30", lambda x: _pct(x["skill30_n"])),
+    ("CRPS skill vs random walk, day 30", lambda x: _pct(x["skill30_r"])),
+    (
+        "CRPS forecast / stays / walk, mean of 30 days",
+        lambda x: (
+            f"{x['crps_f'] / 100:,.0f} / {x['crps_n'] / 100:,.0f} / {x['crps_r'] / 100:,.0f}"
+        ),
+    ),
+    ("80% band coverage, day 30", lambda x: f"{x['coverage30']:.1%}"),
+    ("80% band coverage, all 30 days", lambda x: f"{x['coverage_all']:.1%}"),
+    (
+        "Brier of the dip chance: forecast / stays / walk",
+        lambda x: f"{x['brier_f']:.4f} / {x['brier_n']:.4f} / {x['brier_r']:.4f}",
+    ),
+    (
+        "Brier skill vs stays / vs walk",
+        lambda x: f"{_pct(x['brier_skill_n'])} / {_pct(x['brier_skill_r'])}",
+    ),
+    (
+        "lowest-balance bias: mean (mean absolute)",
+        lambda x: f"{x['bias']:+,.0f} ({x['abs_bias']:,.0f})",
+    ),
+]
+
+
 def synthetic_records(long: bool) -> list[Record]:
     """The 2026-11-19 baselines records: development personas of one set, current logic only."""
     records = load_folder(SYNTHETIC / ("long" if long else "12"), long)
@@ -250,37 +283,12 @@ def report(berka_folder: Path, group: str = "primary") -> str:
         "",
         "| | " + " | ".join(name for name, _, _ in s) + " |",
         "|---|" + "---|" * len(s),
-        row("origins (units)", lambda x: f"{x['origins']:,} ({x['units']})"),
-        row("scored origins n (units)", lambda x: f"{x['n']:,} ({x['units_n']})"),
-        row("dips among them", lambda x: f"{x['dips']:,}"),
-        row("CRPS skill vs balance stays, mean of 30 days", lambda x: _pct(x["skill_n"])),
-        row("CRPS skill vs random walk, mean of 30 days", lambda x: _pct(x["skill_r"])),
-        row("CRPS skill vs balance stays, day 30", lambda x: _pct(x["skill30_n"])),
-        row("CRPS skill vs random walk, day 30", lambda x: _pct(x["skill30_r"])),
-        row(
-            "CRPS forecast / stays / walk, mean of 30 days",
-            lambda x: (
-                f"{x['crps_f'] / 100:,.0f} / {x['crps_n'] / 100:,.0f} / {x['crps_r'] / 100:,.0f}"
-            ),
-        ),
-        row("80% band coverage, day 30", lambda x: f"{x['coverage30']:.1%}"),
-        row("80% band coverage, all 30 days", lambda x: f"{x['coverage_all']:.1%}"),
-        row(
-            "Brier of the dip chance: forecast / stays / walk",
-            lambda x: f"{x['brier_f']:.4f} / {x['brier_n']:.4f} / {x['brier_r']:.4f}",
-        ),
-        row(
-            "Brier skill vs stays / vs walk",
-            lambda x: f"{_pct(x['brier_skill_n'])} / {_pct(x['brier_skill_r'])}",
-        ),
+        *[row(label, fn) for label, fn in CORE_ROWS[:-1]],
         row("dips caught, forecast (in-sample threshold)", lambda x: x["alert_f"]),
         row("dips caught, random walk (in-sample threshold)", lambda x: x["alert_r"]),
         "| (zero-estimate column: its dips caught are computed on non-consecutive origins, "
         "so episodes are cut or joined; not comparable with the other columns) | | | | |",
-        row(
-            "lowest-balance bias: mean (mean absolute)",
-            lambda x: f"{x['bias']:+,.0f} ({x['abs_bias']:,.0f})",
-        ),
+        row(*CORE_ROWS[-1]),
         "",
         "All numbers are pooled over origins, so larger balances weigh more in CRPS and bias "
         "(the 2026-11-19 baselines report gives the synthetic per-archetype averages). The "

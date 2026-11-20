@@ -53,9 +53,9 @@ def _mean(values: list[float]) -> float:
 # --- Loading ---
 
 
-def load_records(out_dir: Path, final_test: bool = False) -> list[Record]:
-    """Every saved record. Refuses results from an older version, and held-out personas unless
-    this is the final test."""
+def load_records(out_dir: Path) -> list[Record]:
+    """Every saved record. Refuses results from an older version, and held-out personas (the
+    final test reads its records only through eval/held_out.py)."""
     records = read_records(out_dir)
 
     def expected(r: Record) -> int | str:
@@ -69,7 +69,7 @@ def load_records(out_dir: Path, final_test: bool = False) -> list[Record]:
         r["persona"] for r in records
         if r.get("held_out") or (r["dataset"] == "synthetic" and r["persona"] in ALL_HELD_OUT)
     })  # fmt: skip
-    if held and not final_test:
+    if held:
         raise ValueError(f"held-out personas are only for the final test: {', '.join(held)}")
     return records
 
@@ -573,9 +573,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-synthetic", action="store_true")
     parser.add_argument("--threshold", type=float, default=ALERT_THRESHOLD)
     parser.add_argument("--no-median", action="store_true", help="drop the median-lowest rule")
-    parser.add_argument("--final-test", action="store_true", help="allow held-out personas")
     args = parser.parse_args(argv)
-    synthetic = [] if args.no_synthetic else load_records(args.dir, args.final_test)
+    synthetic = [] if args.no_synthetic else load_records(args.dir)
     real = load_records(real_results_dir(args.real)) if args.real else []
     print(report_text(synthetic, real, args.threshold, not args.no_median))
     return 0
