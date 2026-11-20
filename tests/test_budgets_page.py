@@ -5,6 +5,7 @@ the stale-data line, budget alerts, and demo mode keeping everything in the sess
 import hashlib
 import html
 import shutil
+import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -522,17 +523,21 @@ def test_a_mixed_whole_merchant_move_on_the_tab(isolated: Path) -> None:
 
 
 def test_a_later_categorizer_run_cannot_split_a_moved_merchant(isolated: Path) -> None:
-    """A row the model had put in the target is locked in by the whole-merchant move: retraining
-    and categorizing again leaves every row of the merchant in the target. Without the move, the
-    same run takes that row back to the model's own category (the split this guards against)."""
+    """The model may put one of a merchant's rows in the target already, and the next run may
+    not learn from my corrections (a holdout merchant is never trained on; here: a model trained
+    before the move). Then only a correction holds a row in place. The old move (corrections
+    only for rows not already in the target) leaves that row to the model, which takes it back:
+    a split. The move locks it in, so the same run keeps every row of the merchant in the target."""
+
     from lookahead.budgets import move_merchant
     from lookahead.categorize import categorize, train
-    from lookahead.corrections import merchant_fingerprints
+    from lookahead.corrections import correct_merchant, merchant_fingerprints
     from lookahead.demo import DEMO_SETTINGS
     from lookahead.views import transactions
 
-    conn = connect(isolated / "demo.db")
     account = "synthetic-A"
+    conn = connect(isolated / "demo.db")
+    model, _ = train(conn, account, DEMO_SETTINGS)  # trained before any move: knows no correction
     present = {r[0] for r in conn.execute(
         "SELECT fingerprint FROM transactions WHERE account = ?", (account,))}  # fmt: skip
     merchants = conn.execute(
@@ -545,27 +550,31 @@ def test_a_later_categorizer_run_cannot_split_a_moved_merchant(isolated: Path) -
         if len(rows := [f for f in merchant_fingerprints(conn, account, m[0]) if f in present]) >= 3
     )  # fmt: skip
     crafted = covered[0]
+    with conn:  # as if the model had put this one row in Groceries already
+        conn.execute("UPDATE category_predictions SET category = 'Groceries'"
+                     " WHERE fingerprint = ?", (crafted,))  # fmt: skip
+    conn.close()
+    old_db = Path(shutil.copy(isolated / "demo.db", isolated / "old.db"))
 
-    def shown() -> dict[str, str]:
-        df = transactions(conn, account)
+    def after_run(db: Path, move) -> dict[str, str]:  # type: ignore[no-untyped-def]
+        c = connect(db)
+        move(c)
+        categorize(c, account, DEMO_SETTINGS, model=model)  # the later run
+        df = transactions(c, account)
+        c.close()
         return dict(zip(df["fingerprint"], df["category"], strict=True))
 
-    def model_says_target() -> None:  # as if the model had put this one row in Groceries
-        with conn:
-            conn.execute("UPDATE category_predictions SET category = 'Groceries'"
-                         " WHERE fingerprint = ?", (crafted,))  # fmt: skip
+    def old_move(c: sqlite3.Connection) -> None:  # the previous version: rows not in the target
+        correct_merchant(
+            c, account, merchant, "Groceries", only=[f for f in covered if f != crafted]
+        )
 
-    def categorize_again() -> None:
-        model, _ = train(conn, account, DEMO_SETTINGS)
-        categorize(conn, account, DEMO_SETTINGS, model=model)
+    def new_move(c: sqlite3.Connection) -> None:
+        result = move_merchant(c, account, merchant, "Groceries")
+        assert result.already_there == 1 and result.moved == len(covered) - 1
 
-    model_says_target()
-    categorize_again()
-    assert shown()[crafted] != "Groceries"  # left alone, the run moves it back: a split
-    model_says_target()
-    result = move_merchant(conn, account, merchant, "Groceries")
-    assert result.already_there == 1 and result.moved == len(covered) - 1
-    categorize_again()
-    after = shown()
-    assert all(after[f] == "Groceries" for f in covered)
-    conn.close()
+    old = after_run(old_db, old_move)
+    assert old[crafted] != "Groceries"  # the old move splits the merchant
+    assert all(old[f] == "Groceries" for f in covered if f != crafted)
+    new = after_run(isolated / "demo.db", new_move)
+    assert all(new[f] == "Groceries" for f in covered)  # the move does not
