@@ -66,7 +66,15 @@ def build(persona_id: str, folder: Path = FOLDER) -> Path:
     conn = connect(tmp)
     keep = [(r, t) for r, t in zip(parsed, truth, strict=True) if r.posted_date <= DATA_END]
     store_exports(conn, ACCOUNT, [(export.name, [r for r, _ in keep])], datetime(2026, 9, 15))
-    by_row = {(r.posted_date.isoformat(), r.amount_cents, r.sub_description): t for r, t in keep}
+    by_row: dict[tuple[str, int, str], dict[str, str]] = {}
+    for r, t in keep:
+        key_of = (r.posted_date.isoformat(), r.amount_cents, r.sub_description)
+        labels = (t["category"], t["flow_type"], t["merchant"])
+        if key_of in by_row and labels != tuple(by_row[key_of][k] for k in
+                                                ("category", "flow_type", "merchant")):  # fmt: skip
+            raise ValueError(f"{persona_id}: two rows alike in date, amount and text are "
+                             "labelled differently in the answer key")  # fmt: skip
+        by_row[key_of] = t
     with conn:
         for fp, day, cents, text in conn.execute(
             "SELECT fingerprint, posted_date, amount_cents, sub_description FROM transactions"
