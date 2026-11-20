@@ -101,24 +101,25 @@ def sheet(persona_id: str, folder: Path = FOLDER) -> str:
     """What a question writer needs: categories with spending, merchants, recurring payments and
     budgets of one persona. Made-up data only."""
     conn = connect(build(persona_id, folder))
-    lines = [f"## {persona_id}", f"Data from {_first(conn)} to {DATA_END}; today is {TODAY}."]
+    lines = [f"## {persona_id}", "", f"Data from {_first(conn)} to {DATA_END}; today is {TODAY}."]
     cats = conn.execute(
         "SELECT category, COUNT(*) FROM category_predictions WHERE category IS NOT NULL"
         " GROUP BY category ORDER BY COUNT(*) DESC"
     ).fetchall()
-    lines.append("Categories: " + ", ".join(f"{c} ({n})" for c, n in cats))
+    lines.append("- Categories: " + ", ".join(f"{c} ({n})" for c, n in cats))
     merchants = conn.execute(
         "SELECT merchant, COUNT(*) FROM category_predictions WHERE merchant IS NOT NULL"
         " GROUP BY merchant ORDER BY COUNT(*) DESC, merchant"
     ).fetchall()
-    lines.append("Merchants: " + ", ".join(f"{m} ({n})" for m, n in merchants))
+    lines.append("- Merchants: " + ", ".join(f"{m} ({n})" for m, n in merchants))
     fc = build_forecast(conn, ACCOUNT, "weekday", None, KEY, futures=0)
     if fc is not None:
         named = sorted({s.name for s in fc.series if s.name and s.active
                         and s.status != "rejected"})  # fmt: skip
-        lines.append("Recurring: " + ", ".join(named))
+        lines.append("- Recurring payments: " + ", ".join(named))
     limits = conn.execute("SELECT category, limit_cents FROM budgets").fetchall()
-    lines.append("Budgets: " + ", ".join(f"{c} ${v / 100:,.0f}" for c, v in limits if v))
+    budgets = ", ".join(f"{c} ${v / 100:,.0f}" for c, v in limits if v)
+    lines.append("- Budgets this month: " + budgets)
     conn.close()
     return "\n".join(lines)
 
@@ -127,12 +128,36 @@ def _first(conn: sqlite3.Connection) -> str:
     return str(conn.execute("SELECT MIN(posted_date) FROM transactions").fetchone()[0])
 
 
+SHEET_HEAD = f"""# Ask: persona sheet for writing held-out questions
+
+Six made-up development personas (synthetic data only). Every question is asked on {TODAY}
+(a Tuesday); each persona's data ends on {DATA_END}. The forecast covers {TODAY} to
+{DATA_END + timedelta(days=30)}.
+
+How to write them (spec docs/specs/2026-11-20-ask.md, step 9):
+- Write 50 questions the way you would really type them, in English or French (about 1 in 7 in
+  French), each for one persona below. Put the persona id before each question.
+- Mix roughly as the spec says: half lookups (totals, averages, counts, top N, comparisons, a few
+  typos or casual wording), some forecasts and what-ifs, a few budget, safe-to-spend and
+  recurring-payment questions, a few ambiguous ones, and a few it should refuse (advice,
+  opinions, things not in the data, past the 30-day forecast).
+- Do not read eval/ask_dev_set.py first, so your questions are your own wording.
+- Write only the questions; the gold plans are written separately (two subagents), and you
+  review where they disagree.
+- Counts in brackets are the number of rows, so you can tell what is common.
+"""
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--folder", type=Path, default=FOLDER)
+    parser.add_argument("--write", type=Path, help="write the sheet as Markdown to this file")
     args = parser.parse_args(argv)
-    for pid in PERSONAS:
-        print(sheet(pid, args.folder), end="\n\n")
+    text = SHEET_HEAD + "\n" + "\n\n".join(sheet(pid, args.folder) for pid in PERSONAS) + "\n"
+    if args.write:
+        args.write.parent.mkdir(parents=True, exist_ok=True)
+        args.write.write_text(text, encoding="utf-8")
+    print(text)
     return 0
 
 

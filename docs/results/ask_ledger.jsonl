@@ -1,0 +1,1 @@
+{"at": "2026-11-20T22:55:57+00:00", "set": "development", "planner": "offline", "code": "cc46f15", "n": 200, "answerable": 150, "correct_answerable": 114, "bootstrap_low": 0.6866666666666666, "should_refuse": 30, "refused": 30, "silent_wrong": 2, "ambiguous": 20, "correct_ambiguous": 17, "invalid": 0}
