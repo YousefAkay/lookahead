@@ -227,7 +227,8 @@ def plan_for(question: str, send: Send, spend: Spend) -> Planned:
         try:
             response = send(build_request(question, problems, first))
         except Exception as e:  # the SDK already retried; record it as an API failure
-            raise ApiFailed(type(e).__name__) from e
+            status = getattr(e, "status_code", "")  # the type and status only, never the text
+            raise ApiFailed(f"{type(e).__name__} {status}".strip()) from e
         spend.add(getattr(response, "usage", None))
         data = _tool_input(response)
         try:

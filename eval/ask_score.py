@@ -26,6 +26,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
@@ -113,7 +114,8 @@ def score_one(runner: Runner, q: Question, planner: Planner) -> Row:
     same = False
     try:
         data = planner(q.text, runner.context(q.persona))
-    except ApiFailed:  # not correct, not a refusal, not silent wrong (spec, his reading)
+    except ApiFailed as e:  # not correct, not a refusal, not silent wrong (spec, his reading)
+        API_ERRORS[str(e)] += 1
         return Row(q.id, q.persona, kind_of(q), q.lang, q.tags, "api_error", False, False, False)
     if data is None:
         produced = "refused"
@@ -238,6 +240,9 @@ def _history() -> list[str]:
     out = []
     for line in LEDGER.read_text(encoding="utf-8").splitlines():
         e = json.loads(line)
+        if e.get("set") == "note":
+            out.append(f"- note on {e['about']}: {'VOID: ' if e.get('void') else ''}{e['why']}")
+            continue
         if e.get("set") != "development":
             continue
         out.append(f"- {e['planner']}, code {e['code']}: {e['correct_answerable']} of "
@@ -275,6 +280,7 @@ def llm_planner(send: Send, spend: Spend) -> Planner:
 
 PLANNERS: dict[str, Planner] = {"offline": offline}
 SHOW_PLANS = False
+API_ERRORS: Counter[str] = Counter()  # error type and status -> how many, for the ledger
 SPEND_CAP_USD = 5.00  # all LLM development runs together (his cap for step 8, 2026-11-20)
 
 
@@ -324,6 +330,7 @@ def main(argv: list[str] | None = None) -> int:
                  "spent_usd": round(spend.spent_usd, 4), "calls": spend.calls,
                  "input_tokens": spend.input_tokens, "output_tokens": spend.output_tokens,
                  "api_errors": sum(r.produced == "api_error" for r in rows),
+                 "api_error_types": dict(API_ERRORS),
                  "questions_run": len(rows), "stopped": stopped}  # fmt: skip
         questions = questions[: len(rows)]
     else:
