@@ -2,6 +2,8 @@
 
 from datetime import date
 
+import pytest
+
 from eval.backtest import origins
 from eval.persona_report import (
     PersonaLine,
@@ -10,7 +12,7 @@ from eval.persona_report import (
     format_line,
     persona_line,
 )
-from lookahead.generator.archetypes import END, PERSONA_IDS, START, build_persona
+from lookahead.generator.archetypes import END, PERSONA_IDS, START, build_persona, development_ids
 from lookahead.generator.writer import export_rows
 
 PID = "v2-TIGHT-01"
@@ -40,15 +42,17 @@ def test_origins_below_the_buffer_are_counted_from_the_balance_at_each_origin() 
     assert 0 <= line.origins_below_buffer <= 40
 
 
-def test_the_line_names_the_persona_and_says_whether_it_is_held_out() -> None:
+def test_the_line_names_the_persona_and_a_held_out_persona_is_refused() -> None:
     assert "dev" in format_line(persona_line("v2-SAL-01"))
-    assert "held-out" in format_line(persona_line("v2-SAL-04"))
+    with pytest.raises(ValueError, match="held-out"):
+        persona_line("v2-SAL-04")
     assert "of 40 origins start below the buffer" in format_line(persona_line(PID))
 
 
-def test_every_persona_has_a_line() -> None:
-    lines = [persona_line(pid) for pid in PERSONA_IDS]
-    assert len(lines) == 30 and {ln.persona_id for ln in lines} == set(PERSONA_IDS)
+def test_every_development_persona_has_a_line() -> None:
+    lines = [persona_line(pid) for pid in development_ids()]
+    assert len(lines) == 20 and {ln.persona_id for ln in lines} == set(development_ids())
+    assert len(PERSONA_IDS) == 30
     assert all(ln.origins == 40 for ln in lines)
     assert date(2025, 12, 1) in origins()
 
@@ -103,7 +107,7 @@ def test_sal_and_sem_must_come_out_exactly_as_before() -> None:
 
 
 def test_the_real_generated_personas_get_a_verdict_on_each_of_the_four_checks() -> None:
-    results = acceptance_checks([persona_line(pid) for pid in PERSONA_IDS])
+    results = acceptance_checks([persona_line(pid) for pid in development_ids()])
     assert [r.name.split()[0].rstrip(":,") for r in results] == ["IFAM", "ITIGHT", "DHOME", "SAL"]
     assert all(isinstance(r.passed, bool) for r in results)
 
@@ -114,7 +118,7 @@ def test_the_real_generated_personas_get_a_verdict_on_each_of_the_four_checks() 
 def test_a_check_run_on_part_of_its_personas_says_it_was_skipped() -> None:
     from eval.persona_report import verdict_line
 
-    every = list(PERSONA_IDS)
+    every = development_ids()
     lines = [persona_line("v2-SAL-01")]
     by_name = {r.name.split(":")[0]: r for r in acceptance_checks(lines)}
     ifam = verdict_line(by_name["IFAM"], ["v2-SAL-01"], every)

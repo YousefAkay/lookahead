@@ -15,7 +15,9 @@ command does everything on one code commit:
 3. The held-out run: the four held-out pools. Void checks (counts, futures, no NaN, logic
    version); a void attempt shows no number.
 4. Everything is written to the ledger (docs/results/held_out_ledger.jsonl) before any number is
-   printed; then the result file docs/results/held_out_<date>.md is written and printed.
+   printed; then the result file docs/results/held_out_<date>.md is written and printed. The
+   result file is made from the ledger entry alone: if anything after "completed" fails,
+   `python -m eval.held_out --rebuild` writes it again from the ledger and opens no data.
 
 Records are saved under data/backtest/held-out-test/<attempt>/ (not committed).
 """
@@ -29,7 +31,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -449,10 +451,17 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--berka", type=Path, required=True, help="the Berka raw files folder")
+    parser.add_argument("--berka", type=Path, help="the Berka raw files folder")
     parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument("--rebuild", action="store_true",
+                        help="write the result file again from the ledger's completed entry; "
+                             "opens no data")  # fmt: skip
     args = parser.parse_args(argv)
     root = Path.cwd()
+    if args.rebuild:
+        return rebuild(root)
+    if args.berka is None:
+        parser.error("--berka is required")
     ctx = context(root)
     reasons = refusals(root)
     if reasons:
@@ -492,11 +501,32 @@ def main(argv: list[str] | None = None) -> int:
         if not recorded:
             append(root, {**ctx, "status": "crashed", "error": f"{type(e).__name__}: {e}"[:300]})
         raise
-    out = root / f"docs/results/held_out_{date.today().isoformat()}.md"
-    out.write_text(result_text(json.loads(json.dumps(entry, default=float))) + "\n",
-                   encoding="utf-8")  # fmt: skip
+    out = write_result(root, json.loads(json.dumps(entry, default=float)))
     print(out.read_text(encoding="utf-8"))
     print(f"written: {LEDGER} and {out.relative_to(root)}; commit both before anything else")
+    return 0
+
+
+def write_result(root: Path, entry: Record) -> Path:
+    """The result file, made from the ledger entry alone (named by the entry's date)."""
+    out = root / f"docs/results/held_out_{entry['time'][:10]}.md"
+    out.write_text(result_text(entry) + "\n", encoding="utf-8")
+    return out
+
+
+def completed_entry(root: Path) -> Record:
+    """The completed entry of the ledger (there is at most one: a second run is refused)."""
+    lines = (root / LEDGER).read_text(encoding="utf-8").splitlines()
+    done = [e for e in map(json.loads, lines) if e.get("status") == "completed"]
+    if len(done) != 1:
+        raise SystemExit(f"the ledger holds {len(done)} completed entries, not 1")
+    return done[0]
+
+
+def rebuild(root: Path) -> int:
+    """Writes the result file again from the ledger alone: opens no data, runs nothing."""
+    out = write_result(root, completed_entry(root))
+    print(f"rebuilt from {LEDGER}: {out.relative_to(root)}")
     return 0
 
 

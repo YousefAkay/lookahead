@@ -199,3 +199,42 @@ def test_the_ledger_is_one_json_line_per_attempt(tmp_path: Path) -> None:
     h.append(tmp_path, {"status": "void"})
     lines = (tmp_path / h.LEDGER).read_text(encoding="utf-8").splitlines()
     assert [json.loads(x)["status"] for x in lines] == ["refused", "void"]
+
+
+# --- The result file comes from the ledger alone ---
+
+
+def test_the_result_file_is_rebuilt_from_the_ledger_byte_for_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    caught = {"caught_on": 3, "caught": 1, "shortfall_episodes": 4, "alert_episodes": 3,
+              "false_alerts": 1, "precision": 2 / 3, "false_per_30_days": 0.0123,
+              "ordinary_origins": 9}  # fmt: skip
+    none = {**caught, "alert_episodes": 0, "false_alerts": 0, "precision": None}
+    monkeypatch.setattr(h, "dips", lambda g: {"f": caught, "r": none})
+
+    def pool(prefix: str) -> list[dict]:
+        return [_record(f"{prefix}{u}", f"2020-01-{d:02d}", dipped=d % 3 == 0,
+                        chance=0.1 * (d % 10), archetype=f"A{u % 2}")
+                for u in range(3) for d in range(1, 10)]  # fmt: skip
+
+    ctx = {"time": "2026-11-20T03:00:00+00:00", "code_commit": "c" * 40,
+           "protocol_commit": "p" * 40, "protocol_sha256": "s" * 64, "threshold": 0.35}  # fmt: skip
+    dev = {p: h.results(p, pool("d")) for p in h.POOLS}
+    held = {p: h.results(p, pool("h")) for p in h.POOLS}
+    entry = {**ctx, "status": "completed", "development": dev, "held_out": held}
+    h.append(tmp_path, {"status": "refused"})
+    h.append(tmp_path, entry)
+    (tmp_path / "docs/results").mkdir(parents=True, exist_ok=True)
+    direct = h.write_result(tmp_path, json.loads(json.dumps(entry, default=float)))
+    first = direct.read_bytes()
+    direct.unlink()
+    assert h.rebuild(tmp_path) == 0
+    assert direct.read_bytes() == first and direct.name == "held_out_2026-11-20.md"
+    assert "| dips, forecast at 35%: alert on" in first.decode("utf-8")
+
+
+def test_rebuild_refuses_without_exactly_one_completed_entry(tmp_path: Path) -> None:
+    h.append(tmp_path, {"status": "void"})
+    with pytest.raises(SystemExit, match="0 completed"):
+        h.rebuild(tmp_path)

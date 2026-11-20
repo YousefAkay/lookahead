@@ -67,7 +67,7 @@ def run_all(personas: list[str], work: Path, root: Path, futures: int = FUTURES)
     for variant in VARIANTS:
         keeps = KEEPS_NAMES.get(variant)
         for n, pid in enumerate(personas, start=1):
-            done = run_persona(pid, where[variant], days, futures, 42, work, False, keeps)
+            done = run_persona(pid, where[variant], days, futures, 42, work, keeps)
             print(f"[{variant}] [{n}/{len(personas)}] {pid}: {done} new origins", flush=True)
 
 

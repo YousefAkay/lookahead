@@ -1,13 +1,14 @@
 """One line per persona of the generator mix: what its generated year looks like.
 
-    python -m eval.persona_report                 # all 30
+    python -m eval.persona_report                 # the 20 development personas
     python -m eval.persona_report --only v2-SAL-01
     python -m eval.persona_report --check --set long   # the 24-month set, development only
 
 For each persona: archetype, development or held-out, coverage ratio (regular income over costs),
 the lowest and closing balance of the generated year, and how many of the 40 weekly origins start
 below the persona's buffer. These are properties of the generated histories, not of any forecast:
-nothing here runs a forecast. Synthetic data only.
+nothing here runs a forecast. Synthetic data only. Development personas only: a held-out
+persona is refused (held-out data goes only through eval/held_out.py, protocol of 2026-11-19).
 """
 
 import argparse
@@ -18,7 +19,7 @@ from datetime import date
 from eval.backtest import origins
 from lookahead.generator.archetypes import (
     END,
-    PERSONA_IDS,
+    assert_development_only,
     base_id,
     build_persona,
     coverage,
@@ -59,6 +60,7 @@ def balances_by_day(persona_id: str, seed: int = SEED) -> tuple[dict[date, int],
 
 
 def persona_line(persona_id: str, seed: int = SEED) -> PersonaLine:
+    assert_development_only([persona_id])  # before anything is generated
     p = build_persona(persona_id)
     by_day, opening, low = balances_by_day(persona_id, seed)
     days = sorted(by_day)
@@ -96,10 +98,10 @@ class CheckResult:
 
 
 # SAL and SEM were left alone: their lowest and closing balance (cents) must be unchanged.
+# Development personas only (the held-out ones were removed on 2026-11-19; see DECISIONS).
 UNCHANGED = {
     "v2-SAL-01": (295_000, 3_218_004), "v2-SAL-02": (300_000, 3_420_327),
-    "v2-SAL-03": (301_056, 1_375_793), "v2-SAL-04": (213_717, 3_684_799),
-    "v2-SEM-01": (79_664, 345_958), "v2-SEM-02": (59_681, 1_603_626),
+    "v2-SAL-03": (301_056, 1_375_793), "v2-SEM-01": (79_664, 345_958),
 }  # fmt: skip
 
 
@@ -234,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="the 12-month mix, or the 24-month set (dev only)")  # fmt: skip
     args = parser.parse_args(argv)
     long = args.set == "long"
-    ids = args.only or (development_ids(long=True) if long else PERSONA_IDS)
+    ids = args.only or development_ids(long=long)
     if long and [pid for pid in ids if not is_long(pid)]:
         raise ValueError("--set long takes v2L ids only")
     lines = [persona_line(pid) for pid in ids]
@@ -245,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
         # Check 4 (SAL and SEM unchanged) is about the 12-month mix only.
         checks = acceptance_checks(lines)[:3] + long_set_gates(lines) if long else (
             acceptance_checks(lines))  # fmt: skip
-        every = development_ids(long=True) if long else list(PERSONA_IDS)
+        every = development_ids(long=long)
         for result in checks:
             line = verdict_line(result, ids, every)
             print(line)

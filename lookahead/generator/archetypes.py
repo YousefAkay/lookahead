@@ -958,7 +958,8 @@ def _lengthen(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Write the exports and answer keys of the chosen personas (default: all 30), one at a time."""
+    """Write the exports and answer keys of the chosen personas (default: the 20 development
+    personas), one at a time. Held-out personas are refused: only eval/held_out.py uses them."""
     from lookahead.generator.writer import export_rows, money, write_persona
 
     parser = argparse.ArgumentParser(prog="python -m lookahead.generator.archetypes",
@@ -967,7 +968,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--only", nargs="*", default=None)
     args = parser.parse_args(argv)
-    for pid in args.only or PERSONA_IDS:
+    ids = args.only or development_ids()
+    assert_development_only(ids)  # before anything is generated
+    for pid in ids:
         p = build_persona(pid)
         export, key = write_persona(p.persona, args.out, args.seed, START, END)
         rows = export_rows(p.persona, START, END, args.seed)

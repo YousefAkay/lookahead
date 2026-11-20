@@ -679,3 +679,11 @@ def test_freelancer_deposits_keep_the_shape_of_the_old_range() -> None:
         series = sources(build_persona(pid), IrregularSeries)[0]
         low, high = series.amount_range_cents
         assert series.gap_days == (5, 20) and low >= 5_000 and 3 <= high / low <= 12
+
+
+def test_the_generator_command_refuses_a_held_out_persona_before_writing(tmp_path: Path) -> None:
+    from lookahead.generator.archetypes import main
+
+    with pytest.raises(ValueError, match="held-out"):
+        main(["--only", "v2-SAL-01", "v2-SAL-04", "--out", str(tmp_path)])
+    assert not list(tmp_path.iterdir())

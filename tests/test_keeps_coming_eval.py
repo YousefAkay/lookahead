@@ -64,12 +64,9 @@ def test_a_run_with_the_switch_on_never_mixes_with_one_with_it_off(tmp_path) -> 
 
     days = [date(2026, 6, 1)]
     out = tmp_path / "on"
-    assert (
-        run_persona("v2-SAL-01", out, days, 20, 42, tmp_path / "w", False, KEEPS_NAMES["with-own"])
-        == 1
-    )
+    assert run_persona("v2-SAL-01", out, days, 20, 42, tmp_path / "w", KEEPS_NAMES["with-own"]) == 1
     line = json.loads((out / "v2-SAL-01.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert line["keeps_coming"] == "with-own" and "arrivals_in" in line and "arrivals_out" in line
     with pytest.raises(ValueError, match="different settings"):
-        run_persona("v2-SAL-01", out, days, 20, 42, tmp_path / "w", False, None)  # the switch off
+        run_persona("v2-SAL-01", out, days, 20, 42, tmp_path / "w", None)  # the switch off
     assert set(folders(tmp_path)) == {"off", "with-own", "without-own"}
