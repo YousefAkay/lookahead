@@ -1,6 +1,6 @@
 """Ask's development question set: 200 questions on six synthetic development personas, each
-with a gold plan (spec docs/specs/2026-11-20-ask.md, "Test set"). Written while building Ask, not by me;
-development only (prompt work and checks happen on it; it is never the scored set).
+with a gold plan (spec docs/specs/2026-11-20-ask.md, "Test set"). Written while building Ask, not
+by me; development only (prompt work and checks happen on it; it is never the scored set).
 
 Every question is asked on TODAY (2026-09-15, a Tuesday) about data that ends the day before.
 A gold plan is the steps that should run; the expected answer is whatever the gold plan computes

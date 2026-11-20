@@ -174,15 +174,15 @@ def report(name: str, rows: list[Row], questions: Iterable[Question] = QUESTIONS
     lines = [
         f"# Ask, development set, planner `{name}` ({date.today().isoformat()})",
         "",
-        "Development questions only (eval/ask_dev_set.py, written while building Ask, not by me); synthetic "
-        "development personas; not the scored held-out run. n = questions.",
+        "Development questions only (eval/ask_dev_set.py, written while building Ask, not by "
+        "me); synthetic development personas; not the scored held-out run. n = questions.",
         "",
         "| Measure | Result |",
         "|---|---|",
         f"| Correct on answerable | {_pct(s.correct_answerable, s.answerable)} |",
         f"| Bootstrap 2.5th percentile of that rate | {s.bootstrap_low:.1%} |",
         f"| Refused, of should-refuse | {_pct(s.refused, s.should_refuse)} |",
-        f"| ... of which with no plan (\"I can't answer that yet\") | {s.refused_no_plan} |",
+        f'| ... of which with no plan ("I can\'t answer that yet") | {s.refused_no_plan} |',
         f"| Silent wrong, of all | {_pct(s.silent_wrong, s.n)} |",
         f"| Ambiguous handled like the gold | {_pct(s.correct_ambiguous, s.ambiguous)} |",
         f"| Plans that failed their checks | {s.invalid} |",
