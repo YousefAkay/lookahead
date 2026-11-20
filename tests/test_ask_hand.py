@@ -162,3 +162,37 @@ def test_recurring(conn: sqlite3.Connection) -> None:
     (line,) = ask(conn, {"op": "recurring", "name": "r"}).result.lines
     assert (line.name, line.cadence, line.usual_cents, line.next_day) == (
         "Lumen Hydro", "monthly", 10_000, date(2026, 10, 6))  # fmt: skip
+
+
+def test_a_referenced_amount_below_zero_is_refused(conn: sqlite3.Connection) -> None:
+    # September so far (14 x $10) minus August (31 x $10) is negative: not a usable cut.
+    steps = [
+        {"op": "rows", "name": "now", "period": {"kind": "this_month"}},
+        {"op": "aggregate", "name": "a", "source": "now", "measure": "sum"},
+        {"op": "rows", "name": "then", "categories": ["Groceries"],
+         "period": {"kind": "last_month"}},
+        {"op": "aggregate", "name": "b", "source": "then", "measure": "sum"},
+        {"op": "compare", "name": "d", "a": "a", "b": "b", "how": "difference"},
+        {"op": "whatif", "name": "w", "changes": [{"kind": "category", "category": "Groceries",
+                                                   "direction": "less", "amount": {"ref": "d"}}]},
+    ]  # fmt: skip
+    out = run(parse({"steps": steps}), Context(conn, ACCOUNT, TODAY, KEY))
+    assert out.kind == "refused" and out.result.reason == "negative_amount"
+
+
+def test_stale_data_says_where_the_forecast_starts(conn: sqlite3.Connection) -> None:
+    # Asked ten days after the data ends: the window starts the day after the data, and says so.
+    later = TODAY + timedelta(days=10)
+    out = run(parse({"steps": [{"op": "forecast", "name": "f", "measure": "lowest"}]}),
+              Context(conn, ACCOUNT, later, KEY))  # fmt: skip
+    assert any("the forecast starts the day after (2026-09-15)" in n for n in out.notes)
+
+
+def test_a_cancel_reaches_every_series_of_that_name(conn: sqlite3.Connection) -> None:
+    from lookahead.ask.engine import _series, forecast_of
+    from lookahead.ask.run import Outcome
+
+    ctx = Context(conn, ACCOUNT, TODAY, KEY)
+    fc = forecast_of(ctx)
+    keys = _series("Lumen Hydro", fc, ctx, Outcome("answer", None, []))
+    assert keys == [s.key for s in fc.series if s.name == "Lumen Hydro" and s.active]

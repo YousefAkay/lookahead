@@ -73,7 +73,9 @@ def _cents(amount: Amount, out: Outcome) -> int:
     value = out.values[amount.ref or ""]
     if not isinstance(value, Number) or value.value is None:
         raise Stop("refused", Refusal("no_amount"))
-    return abs(int(value.value))
+    if value.value < 0:  # e.g. "cut by this month minus last month" when this month is lower
+        raise Stop("refused", Refusal("negative_amount"))
+    return int(value.value)
 
 
 # --- forecast ---
@@ -112,6 +114,11 @@ def _forecast(step: Forecast, ctx: Context, out: Outcome) -> ForecastAnswer:
     sim = fc.simulation
     assert sim is not None
     first = fc.start.first_day
+    if ctx.today > first:
+        note = (f"Your data ends on {fc.start.data_last_updated}: the forecast starts the day "
+                f"after ({first}), not today, so its window counts from then.")  # fmt: skip
+        if note not in out.notes:
+            out.notes.append(note)
     if step.measure == "balance_on":
         assert step.on is not None
         day = _day_in_forecast(periods.future_day(step.on, ctx.today), fc)
@@ -157,19 +164,23 @@ class WhatIfAnswer:
 
 
 def _series(phrase: str, fc: BuiltForecast, ctx: Context, out: Outcome) -> list[str]:
-    """The keys of the recurring series a phrase names (one series, or one name's series)."""
-    named = {s.name: s for s in fc.series if s.name and s.active and s.status != "rejected"}
+    """The keys of the recurring series a phrase names: every active series with that name (two
+    series can share a name, and a change applies to all of them)."""
+    named: dict[str, list[str]] = {}
+    for s in fc.series:
+        if s.name and s.active and s.status != "rejected":
+            named.setdefault(s.name, []).append(s.key)
     if phrase in ctx.choices and ctx.choices[phrase] in named:
         chosen = ctx.choices[phrase]
         out.matches.append(Match(phrase, "one", (chosen,), "your pick"))
-        return [named[chosen].key]
+        return named[chosen]
     m = match(phrase, named, ctx.aliases())
     out.matches.append(m)
     if m.status == "none":
         raise Stop("not_found", NotFound(phrase, "recurring payment"))
     if m.status == "many":
         raise Stop("clarify", AskBack("which_one", m.names, phrase))
-    return [named[m.names[0]].key]
+    return named[m.names[0]]
 
 
 def _category_cuts(
