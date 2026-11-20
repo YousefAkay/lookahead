@@ -2587,3 +2587,9 @@ I picked Ask over "Been here before" (only one of them in v1). What I chose, and
 - **An offline parser** answers about 8 simple shapes in English and French with the LLM off, and is the baseline the LLM must beat.
 - **Transaction descriptions never reach the LLM,** so an instruction hidden in one cannot reach it.
 - **Test set:** 200 development questions and 100 held-out questions (instead of about 40) on synthetic development personas, never held-out personas. Scored on the computed answer, refusals and asking back; faithfulness is dropped because no answer text is written by an LLM. The pass rule is in the spec and is committed before any scored run.
+
+### 2026-11-20: Ask, two readings of the pass rule, before any held-out number
+Decided and committed before the held-out set exists, so no number could steer them (spec docs/specs/2026-11-20-ask.md, "Scoring and pass rule"):
+- **What counts as a refusal:** whatever the page shows as a refusal. That is `cannot_answer`, the offline parser finding no plan ("I can't answer that yet"), and a local check refusing (a day past the 30-day forecast, a day before it starts, no budget set). An API call that still fails after its retries is not correct, not a refusal and not silent wrong. On answerable questions a refusal is not correct and not silent wrong. Lost: counting only `cannot_answer` (the page shows the other two the same way, and I read what I see).
+- **The baseline condition stays as written:** the LLM must beat the offline parser by at least 20 points on correct-on-answerable. The offline parser was tuned on the development questions after its first score (46.0% to 76.0% of 150 answerable), which makes this condition harder for the LLM; I keep it rather than decide after seeing the held-out offline score. Lost: comparing with the parser's first score, or dropping the condition.
+
