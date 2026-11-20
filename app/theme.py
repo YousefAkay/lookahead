@@ -1078,9 +1078,9 @@ BUDGET_BARS = ("Spent so far", "Limit", "Likely end of month")
 
 def budget_chart(spent_cents: int, likely_end_cents: int, limit_cents: int) -> go.Figure:
     """One budget as three labelled bars, top to bottom: spent so far, the limit, and the likely
-    end of the month (amber when it is above the limit: a possible overspend), each with its
+    end of the month (amber when it or spent so far is above the limit), each with its
     amount written on it, plus the limit as a dashed line across the chart."""
-    over = likely_end_cents > limit_cents
+    over = likely_end_cents > limit_cents or spent_cents > limit_cents
     values = [spent_cents / 100, limit_cents / 100, likely_end_cents / 100]
     figure = go.Figure()
     figure.add_bar(

@@ -24,6 +24,7 @@ Monthly spending limits for a few discretionary categories, proposed from my own
 - Safe-to-spend: independent of budgets. The Budgets tab shows the current safe-to-spend figure as one line for context, and its method does not change.
 - Demo mode: the demo persona's proposals are shown and "Looks right" works, but accepting lasts only for the session and is never written to the committed demo snapshots.
 - After my real-data check (added 2026-11-20): once spent so far is above the limit, the chance of going over is 100% (a refund drawn from a past week does not undo money already spent). Before Looks right, each card's limit box holds the proposal, and a $0 limit is refused with a message. The four figures are in two rows of two, the chance also sits beside the category name, and the chart has three labelled bars (spent so far, limit, likely end of month) plus the limit line. The check's rows column is named "rows this month" and the check counts the corrections I stored.
+- Series categories win (added 2026-11-20): a row whose category comes from a recurring series I gave a category is not moved from the budget view; the page says so and points to the Recurring page. When spent so far is already above the limit, the card and alert say "You're already over this budget".
 - CV: no claim. If I ever want to claim the chance of going over is reliable, that needs its own pre-declared adopt rule on development personas (a score of the month-end overrun chance at fixed days of the month, against a run-rate baseline, with n as persona-months).
 
 ## Out of scope

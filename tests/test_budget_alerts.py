@@ -189,3 +189,13 @@ def test_home_leaves_out_an_alert_from_an_earlier_month(conn: sqlite3.Connection
 def test_home_with_no_rows_lists_no_budget_alert(conn: sqlite3.Connection) -> None:
     look(conn, date(2026, 9, 20), pace(0.9))
     assert needs_a_look(conn, ACCOUNT).budgets == ()
+
+
+def test_already_over_says_so_instead_of_quoting_a_chance(conn: sqlite3.Connection) -> None:
+    look(conn, date(2026, 9, 10), pace(1.0, likely_end=11_000, spent=12_000))
+    [e] = budget_episodes(conn, ACCOUNT)
+    message = alert_message(e)
+    assert message.startswith("You're already over this budget: Shopping")
+    assert "%" not in message and "simulated futures" not in message
+    look(conn, date(2026, 9, 11), pace(0.9, spent=6_000))  # not over: the chance again
+    assert "90% of simulated futures" in alert_message(budget_episodes(conn, ACCOUNT)[0])

@@ -555,6 +555,51 @@ def test_the_checks_rows_this_month_follow_a_one_row_move(persona_db: Path, tmp_
     assert count(after, "Groceries") == count(before, "Groceries") + 1
     assert "Category corrections stored: 0 one-row, 0 whole-merchant" in before
     assert "Category corrections stored: 1 one-row, 0 whole-merchant" in after
-    assert any(x.startswith("Rows this month in a budget category, shown with your corrected "
-                            "category: 1 of") for x in after)  # fmt: skip
+    assert "Corrected rows this month showing the corrected category: 1" in after
+    assert "Corrected rows this month showing their recurring series' category instead: 0" in after
     c.close()
+
+
+def test_the_checks_correction_lines_count_only_app_corrections(
+    persona_db: Path, tmp_path: Path
+) -> None:
+    """N1: a label from the label review page is not a correction; a corrected row of a series
+    I gave a category is counted as showing the series' category."""
+    from lookahead.budget_check import report
+    from lookahead.labels import label_row
+    from lookahead.recurring_store import load_series, refresh, set_category
+
+    db = Path(shutil.copy(persona_db, tmp_path / "labels.db"))
+    c = connect(db)
+    with c:
+        c.execute("DELETE FROM transactions WHERE posted_date > '2026-09-14'")
+    september = [r for r in category_rows(c, "synthetic-A", date(2026, 9, 14))
+                 if r.day >= date(2026, 9, 1)]  # fmt: skip
+    labelled = september[0]
+    label_row(c, "synthetic-A", labelled.fingerprint, labelled.category)
+    with c:  # what the categorizer writes for a reviewed row
+        c.execute("UPDATE category_predictions SET source = 'your label', detail = 'confirmed by "
+                  "you' WHERE fingerprint = ?", (labelled.fingerprint,))  # fmt: skip
+    lines = report(c, "synthetic-A", date(2026, 9, 20))
+    assert "Category corrections stored: 0 one-row, 0 whole-merchant" in lines
+    assert "Corrected rows this month showing the corrected category: 0" in lines
+    refresh(c, "synthetic-A")
+    fizz = next(s for s in load_series(c, "synthetic-A") if "Fizz" in s.key)
+    set_category(c, "synthetic-A", fizz, "Shopping", date(2026, 9, 20))
+    refresh(c, "synthetic-A")  # as the Recurring page does after a decision
+    payment = next(f for f in fizz.evidence if f in {r.fingerprint for r in september})
+    correct_row(c, "synthetic-A", payment, "Groceries", date(2026, 9, 20))
+    lines = report(c, "synthetic-A", date(2026, 9, 20))
+    assert "Category corrections stored: 1 one-row, 0 whole-merchant" in lines
+    assert "Corrected rows this month showing the corrected category: 0" in lines
+    assert "Corrected rows this month showing their recurring series' category instead: 1" in lines
+    c.close()
+
+
+def test_already_over_and_the_series_helper() -> None:
+    from lookahead.budgets import Pace, series_categorized
+
+    over = Pace("Shopping", 10_000, 10_001, 9_000, 1.0, 10, False, ())
+    assert over.already_over
+    assert not Pace("Shopping", 10_000, 10_000, 12_000, 0.9, 10, False, ()).already_over
+    assert series_categorized(["a", "b", "c"], {"a": "series", "b": "model"}) == ["a"]

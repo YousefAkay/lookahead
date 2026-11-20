@@ -29,6 +29,7 @@ from lookahead.budgets import (
     shown_categories,
     waiting_proposals,
 )
+from lookahead.corrections import corrections
 from lookahead.db import connect_readonly
 from lookahead.views import accounts, has_categories
 
@@ -40,23 +41,25 @@ def yes_no(value: bool) -> str:
 def correction_lines(
     conn: sqlite3.Connection, account: str, rows: list[CategoryRow], month_first: date
 ) -> list[str]:  # fmt: skip
-    """Counts that show whether a move made on the tab was saved and reached this month's rows."""
+    """Counts that show whether a move made on the tab was saved and is shown. Only corrections
+    made in the app count (their own table), never labels from the label review page. A
+    corrected row of a recurring series I gave a category shows the series' category instead."""
     try:
         stored = dict(conn.execute(
             "SELECT scope, COUNT(*) FROM category_corrections WHERE account = ? GROUP BY scope",
             (account,),
         ).fetchall())  # fmt: skip
-        mine = {r[0] for r in conn.execute(
-            "SELECT fingerprint FROM category_predictions WHERE account = ?"
-            " AND source = 'your label'", (account,))}  # fmt: skip
     except sqlite3.OperationalError:  # a database from before corrections existed
-        stored, mine = {}, set()
-    this_month = [r for r in rows if r.day >= month_first and r.category in BUDGETABLE]
+        stored = {}
+    corrected = corrections(conn, account)
+    this_month = [r for r in rows if r.day >= month_first and r.fingerprint in corrected]
+    shown = sum(r.category == corrected[r.fingerprint][0] for r in this_month)
     return [
         f"Category corrections stored: {stored.get('row', 0)} one-row, "
         f"{stored.get('merchant', 0)} whole-merchant",
-        f"Rows this month in a budget category, shown with your corrected category: "
-        f"{sum(r.fingerprint in mine for r in this_month)} of {len(this_month)}",
+        f"Corrected rows this month showing the corrected category: {shown}",
+        f"Corrected rows this month showing their recurring series' category instead: "
+        f"{len(this_month) - shown}",
     ]
 
 

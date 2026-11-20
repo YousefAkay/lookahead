@@ -21,15 +21,18 @@ from app.theme import (  # noqa: E402
     apply,
     budget_chart,
     cached_safe_to_spend,
+    choice_query,
     data_settings,
     fmt_date,
     footer,
+    link_button_html,
     money,
     tag_html,
     top_bar,
 )
 from lookahead import demo_mode  # noqa: E402
 from lookahead.budget_alerts import (  # noqa: E402
+    PROBABILITY_THRESHOLD,
     alert_message,
     budget_episodes,
     dismiss,
@@ -38,8 +41,10 @@ from lookahead.budget_alerts import (  # noqa: E402
     should_alert,
 )
 from lookahead.budgets import (  # noqa: E402
+    ALREADY_OVER,
     BIG_ONE_OFF_NOTE,
     OPTIONAL_CATEGORIES,
+    SERIES_NOTE,
     STALE_NOTE,
     addable,
     budget_forecast,
@@ -52,6 +57,7 @@ from lookahead.budgets import (  # noqa: E402
     on_budget,
     proposals_for,
     remove,
+    series_categorized,
     set_limit,
     shown_categories,
     waiting_proposals,
@@ -80,11 +86,12 @@ from lookahead.views import accounts, has_categories, transactions  # noqa: E402
 TITLE = "Budgets"
 JUST_THIS_ROW = "Just this row"
 WHOLE_MERCHANT = "All rows of this merchant"
-DEMO_LIMITS = "bu_demo_limits"
+DEMO_LIMITS = "bu_demo_limits"  # demo mode: {account: {category: cents or None}} in the session
+FLASH = "bu_flash"  # a message kept across the reload after a move
 ZERO_LIMIT = (
     'A limit must be above $0. To stop budgeting this category, use "No budget for this '
     'category" or "Turn this budget off".'
-)  # demo mode: {account: {category: cents or None}} in the session
+)
 
 
 def cents(dollars: float) -> int:
@@ -96,6 +103,12 @@ def note(text: str) -> None:
     """A small grey line. A dollar sign would start maths in markdown, so it is escaped."""
     escaped = html.escape(text).replace("$", "&#36;")
     st.markdown(f'<p class="la-note">{escaped}</p>', unsafe_allow_html=True)
+
+
+def recurring_link() -> None:
+    """A button to the Recurring page, where a series' category is changed."""
+    link = link_button_html("Recurring payments", "/Recurring", choice_query())
+    st.markdown(link, unsafe_allow_html=True)
 
 
 def warn(text: str) -> None:
@@ -192,6 +205,8 @@ st.markdown(
 )
 if is_stale(first_day, demo_mode.today(data_date)):
     st.info(STALE_NOTE)
+if FLASH in st.session_state:
+    warn(st.session_state.pop(FLASH))
 note(
     f"Spent so far counts rows up to {fmt_date(data_date)}. The rest of the month "
     f"({month.days_left} {'day' if month.days_left == 1 else 'days'}) comes from the forecast's "
@@ -208,6 +223,10 @@ if safe is not None:
 if is_demo():
     alerting = [p for p in month.paces if should_alert(p, first_day)]
     for p in alerting:
+        if p.already_over:
+            warn(f"{ALREADY_OVER}: {p.category}, spent so far {money(p.spent_cents)} against a "
+                 f"{money(p.limit_cents)} limit.")  # fmt: skip
+            continue
         warn(
             f"Possible overspend in {p.category}: in {p.chance_over:.0%} of simulated futures you "
             f"end the month above your {money(p.limit_cents)} budget (an estimate)."
@@ -248,6 +267,7 @@ if waiting:
 
 # --- One card per category ---
 by_fp = transactions(conn, account, end=data_date).set_index("fingerprint", drop=False)
+source_of = dict(zip(by_fp["fingerprint"], by_fp["source"], strict=True))
 
 
 def rows_table(fingerprints: list[str]):  # type: ignore[no-untyped-def]
@@ -258,9 +278,13 @@ def rows_table(fingerprints: list[str]):  # type: ignore[no-untyped-def]
 for s in shown:
     with st.container(border=True, key=f"card-budget-{CATEGORIES.index(s.category)}"):
         pace = paces.get(s.category)
-        chance = (tag_html(f"{pace.chance_over:.0%} chance of going over",
-                           "warn" if pace.chance_over > 0.5 else "neutral")
-                  if pace is not None else "")  # fmt: skip
+        if pace is None:
+            chance = ""
+        elif pace.already_over:
+            chance = tag_html(ALREADY_OVER, "warn")
+        else:
+            kind = "warn" if pace.chance_over > PROBABILITY_THRESHOLD else "neutral"
+            chance = tag_html(f"{pace.chance_over:.0%} chance of going over", kind)
         st.markdown(
             '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
             f"<h2>{html.escape(s.category)}</h2>{chance}</div>",
@@ -296,7 +320,8 @@ for s in shown:
         b.metric("Limit", money(pace.limit_cents))
         c, d = st.columns(2)
         c.metric("Likely end of month", money(pace.likely_end_cents))
-        d.metric("Chance of going over", f"{pace.chance_over:.0%}")
+        d.metric("Chance of going over",
+                 "Already over" if pace.already_over else f"{pace.chance_over:.0%}")  # fmt: skip
         st.plotly_chart(budget_chart(pace.spent_cents, pace.likely_end_cents, pace.limit_cents),
                         key=f"bu_chart_{s.category}", config={"displayModeBar": False})  # fmt: skip
         if pace.big_one_off:
@@ -328,6 +353,8 @@ for s in shown:
                 st.dataframe(shown_rows, hide_index=True, width="stretch")
                 labels = {
                     f: f"{day} · {amount:.2f} · {text}"
+                    + (" · category from its recurring series" if source_of.get(f) == "series"
+                       else "")
                     for f, day, amount, text in zip(
                         part["fingerprint"], shown_rows["Date"], shown_rows["Amount ($)"],
                         shown_rows["Text"], strict=True,
@@ -347,12 +374,28 @@ for s in shown:
                 if move and fingerprint is not None and target is not None:
                     merchant = by_fp.loc[fingerprint, "merchant"]
                     whole = scope == WHOLE_MERCHANT and isinstance(merchant, str) and merchant
-                    if whole and not merchant_fingerprints(conn, account, merchant):
+                    covered = merchant_fingerprints(conn, account, merchant) if whole else []
+                    in_series = series_categorized(covered if whole else [fingerprint],
+                                                   source_of)  # fmt: skip
+                    if whole and not covered:
                         st.warning(  # a whole-merchant move would change nothing: say so
                             "A rule decides every row of this merchant, so a whole-merchant "
                             'move cannot change them. Choose "Just this row" instead.'
                         )
+                    elif not whole and in_series:
+                        warn(SERIES_NOTE)  # the series' category wins: never store it silently
+                        recurring_link()
+                    elif whole and len(in_series) == len(covered):
+                        warn("Every row of this merchant is a payment of a recurring series "
+                             "you gave a category. Change it on the Recurring page.")  # fmt: skip
+                        recurring_link()
                     else:
+                        if in_series:  # shown after the page reloads
+                            st.session_state[FLASH] = (
+                                f"Moved {len(covered) - len(in_series)} rows of this merchant. "
+                                f"{len(in_series)} are payments of a recurring series you gave a "
+                                "category and keep it: change it on the Recurring page."
+                            )
                         try:
                             if whole:
                                 correct_merchant(conn, account, merchant, target)
@@ -371,21 +414,23 @@ if available:
     with st.expander("Add a budget for a category"):
         category = st.selectbox("Category", available, key="bu_add_category")
         proposed = proposals.get(category) if category else None
-        if proposed and proposed.limit_cents:
-            note(f"Proposed from your history: {money(proposed.limit_cents)}. Leave the limit at "
-                 "$0 to use it.")  # fmt: skip
+        has_proposal = proposed is not None and proposed.limit_cents is not None
+        if has_proposal:
+            note(f"Proposed from your history: {money(proposed.limit_cents)}, filled in below.")
         else:
             note("No proposal: too little history. Enter a limit.")
         with st.form("bu_add", border=False):
-            typed = st.number_input("Monthly limit ($)", min_value=0.0, step=10.0,
-                                    key="bu_add_limit")  # fmt: skip
+            typed = st.number_input(
+                "Monthly limit ($)", min_value=0.0, step=10.0,
+                value=proposed.limit_cents / 100 if has_proposal else 0.0,
+                key=f"bu_add_limit_{category}",
+            )  # fmt: skip
             if st.form_submit_button("Add") and category is not None:
-                amount = cents(typed) if typed > 0 else (proposed.limit_cents if proposed else None)
-                if amount:
-                    save_limit(category, amount)
-                    st.rerun()
+                if cents(typed) <= 0:
+                    warn(ZERO_LIMIT)
                 else:
-                    st.warning("Enter a limit above $0.")
+                    save_limit(category, cents(typed))
+                    st.rerun()
 
 # --- Staying on budget: the what-if ---
 if month.paces:

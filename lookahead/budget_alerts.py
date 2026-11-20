@@ -262,7 +262,12 @@ def _set_dismissed(
 
 
 def alert_message(e: BudgetEpisode) -> str:
-    """One plain sentence, in forecast words."""
+    """One plain sentence, in forecast words. Already over: says so, with no chance quoted."""
+    if e.spent_cents > e.limit_cents:
+        return (
+            f"You're already over this budget: {e.category}, spent so far "
+            f"{_dollars(e.spent_cents)} against a {_dollars(e.limit_cents)} limit."
+        )
     return (
         f"Possible overspend in {e.category}: in {e.probability:.0%} of simulated futures you "
         f"end the month above your {_dollars(e.limit_cents)} budget. Spent so far "

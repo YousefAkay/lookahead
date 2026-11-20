@@ -56,6 +56,11 @@ BIG_ONE_OFF_NOTE = (
     "This month's total includes a big one-time payment. It counts in what you spent, but the "
     "estimate never repeats it."
 )
+ALREADY_OVER = "You're already over this budget"
+SERIES_NOTE = (
+    "This row is a payment of a recurring series you gave a category, and every payment of a "
+    "series shows the series' category. Change it on the Recurring page."
+)
 STALE_NOTE = (
     "Your data ends before this calendar month, so these budgets are for an earlier month. "
     "Import your latest export to see this month."
@@ -133,6 +138,13 @@ def monthly_totals(rows: Iterable[CategoryRow], category: str) -> dict[date, int
         if r.category == category:
             totals[month_start(r.day)] += r.cents
     return dict(totals)
+
+
+def series_categorized(fingerprints: Iterable[str], source_of: Mapping[str, object]) -> list[str]:
+    """The rows among `fingerprints` whose category comes from their recurring series (the app
+    shows "series" as their source): a correction is stored for them but never shown, because a
+    series' category applies to every payment of the series (DECISIONS 2026-10-02)."""
+    return [f for f in fingerprints if source_of.get(f) == "series"]
 
 
 # --- Proposals ---
@@ -326,6 +338,11 @@ class Pace:
     @property
     def likely_over_cents(self) -> int:
         return max(self.likely_end_cents - self.limit_cents, 0)
+
+    @property
+    def already_over(self) -> bool:
+        """Spent so far is above the limit: the page says so instead of quoting a chance."""
+        return self.spent_cents > self.limit_cents
 
 
 @dataclass(frozen=True)

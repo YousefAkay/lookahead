@@ -3,6 +3,7 @@ AppTest on the synthetic demo personas (never held-out): Looks right, editing, r
 the stale-data line, budget alerts, and demo mode keeping everything in the session."""
 
 import hashlib
+import html
 import shutil
 from datetime import date
 from pathlib import Path
@@ -171,7 +172,7 @@ def test_a_budget_alert_is_recorded_and_can_be_dismissed(isolated: Path) -> None
     conn.close()
     at = opened()
     episodes = [b for b in at.button if b.label == "Dismiss this alert"]
-    assert any("Possible overspend" in str(w.value) for w in at.warning)
+    assert any("You're already over this budget" in str(w.value) for w in at.warning)  # $5
     assert episodes
     episodes[0].click().run()
     assert not at.exception, at.exception
@@ -192,7 +193,7 @@ def test_a_turned_off_default_category_can_be_turned_back_on(isolated: Path) -> 
     conn.close()
     assert category in at.selectbox(key="bu_add_category").options
     at.selectbox(key="bu_add_category").set_value(category).run()
-    at.number_input(key="bu_add_limit").set_value(75.0)
+    at.number_input(key=f"bu_add_limit_{category}").set_value(75.0)
     button(at, "Add").click().run()
     assert not at.exception, at.exception
     conn = connect(isolated / "demo.db")
@@ -341,12 +342,15 @@ def test_every_card_shows_four_figures_and_a_chart_with_the_limit(isolated: Path
         assert [s["x0"] for s in spec["layout"]["shapes"]] == [
             float(limit.strip("$").replace(",", ""))
         ]
-    tags = [str(m.value) for m in at.markdown if "chance of going over</span>" in str(m.value)]
+    tags = [str(m.value) for m in at.markdown if "chance of going over</span>" in str(m.value)
+            or "already over this budget</span>" in str(m.value)]  # fmt: skip
     assert len(tags) == cards
 
 
-def test_a_budget_already_over_shows_100_percent(isolated: Path) -> None:
-    from lookahead.budgets import set_limit
+def test_a_budget_already_over_says_so(isolated: Path) -> None:
+    """N2: spent so far above the limit: the card and the alert say "You're already over this
+    budget" and quote no chance of simulated futures."""
+    from lookahead.budgets import ALREADY_OVER, set_limit
 
     at = opened()
     account = at.sidebar.selectbox[0].value
@@ -354,7 +358,103 @@ def test_a_budget_already_over_shows_100_percent(isolated: Path) -> None:
     set_limit(conn, account, "Restaurants & cafés", 100)  # $1: already spent more this month
     conn.close()
     at = opened()
-    chances = [m.value for m in at.metric if m.label == "Chance of going over"]
-    spent = [m.value for m in at.metric if m.label == "Spent so far"]
-    assert len(chances) == 1 and spent[0] != "$0.00"
-    assert chances == ["100%"]
+    assert [m.value for m in at.metric if m.label == "Chance of going over"] == ["Already over"]
+    tag = html.escape(ALREADY_OVER)  # the tag beside the name (its text is HTML-escaped)
+    assert any(tag in str(m.value) for m in at.markdown)
+    warnings = [str(w.value) for w in at.warning]
+    assert any(w.startswith("You're already over this budget: Restaurants") for w in warnings)
+    assert not any("simulated futures" in w for w in warnings)
+
+
+def series_with_a_category(isolated: Path, account: str) -> tuple[str, str]:
+    """Give the Fizz phone series the category Shopping (as the Recurring page does): its
+    September payment then shows on the Shopping card. Returns (that payment, the merchant)."""
+    from lookahead.recurring_store import load_series, refresh, set_category
+
+    conn = connect(isolated / "demo.db")
+    refresh(conn, account)
+    fizz = next(s for s in load_series(conn, account) if "Fizz" in s.key)
+    set_category(conn, account, fizz, "Shopping")
+    refresh(conn, account)
+    september = {r[0] for r in conn.execute(
+        "SELECT fingerprint FROM transactions WHERE account = ? AND posted_date >= '2026-09-01'",
+        (account,))}  # fmt: skip
+    payment = next(f for f in fizz.evidence if f in september)
+    merchant = conn.execute("SELECT merchant FROM category_predictions WHERE fingerprint = ?",
+                            (payment,)).fetchone()[0]  # fmt: skip
+    conn.close()
+    return payment, merchant
+
+
+def corrections_count(isolated: Path) -> int:
+    conn = connect(isolated / "demo.db")
+    n = conn.execute("SELECT COUNT(*) FROM category_corrections").fetchone()[0]
+    conn.close()
+    return int(n)
+
+
+def move(at: AppTest, category: str, fingerprint: str, target: str, scope: str) -> None:
+    at.selectbox(key=f"bu_row_{category}").set_value(fingerprint)
+    at.selectbox(key=f"bu_target_{category}").set_value(target)
+    at.radio(key=f"bu_scope_{category}").set_value(scope)
+    (button_,) = [b for b in at.button if b.label == "Move" and category in str(b.form_id)]
+    button_.click().run()
+    assert not at.exception, at.exception
+
+
+def test_a_row_whose_category_comes_from_its_series_is_not_moved_silently(isolated: Path) -> None:
+    """A series' category applies to every payment of the series (DECISIONS 2026-10-02), so a
+    one-row move of such a row is refused with a pointer to the Recurring page, not stored."""
+    from lookahead.budgets import SERIES_NOTE
+
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    payment, _ = series_with_a_category(isolated, account)
+    at = opened()
+    button(at, "Looks right, accept all").click().run()
+    before = corrections_count(isolated)
+    move(at, "Shopping", payment, "Groceries", "Just this row")
+    assert any(SERIES_NOTE in str(w.value) for w in at.warning)
+    assert any("/Recurring" in str(m.value) for m in at.markdown)
+    assert corrections_count(isolated) == before
+
+
+def test_a_whole_merchant_move_says_what_its_series_keeps(isolated: Path) -> None:
+    from lookahead.corrections import merchant_fingerprints
+
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    payment, merchant = series_with_a_category(isolated, account)
+    conn = connect(isolated / "demo.db")
+    covered = merchant_fingerprints(conn, account, merchant)
+    conn.close()
+    at = opened()
+    button(at, "Looks right, accept all").click().run()
+    before = corrections_count(isolated)
+    move(at, "Shopping", payment, "Groceries", "All rows of this merchant")
+    warnings = " ".join(str(w.value) for w in at.warning)
+    if not covered:
+        assert "A rule decides every row of this merchant" in warnings
+        assert corrections_count(isolated) == before
+    elif "Every row of this merchant is a payment of a recurring series" in warnings:
+        assert corrections_count(isolated) == before  # all in the series: nothing stored
+    else:  # some moved; the page says how many keep their series' category
+        assert "are payments of a recurring series" in warnings
+        assert corrections_count(isolated) > before
+
+
+def test_the_add_form_never_mentions_a_zero_limit(isolated: Path) -> None:
+    """N4: the Add form fills in the proposal and refuses $0 like the cards."""
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    at.selectbox(key="bu_add_category").set_value("Groceries").run()
+    notes = " ".join(str(m.value) for m in at.markdown)
+    assert "Leave the limit" not in notes and "at &#36;0" not in notes
+    box = at.number_input(key="bu_add_limit_Groceries")
+    assert box.value > 0  # the proposal, filled in
+    box.set_value(0.0)
+    button(at, "Add").click().run()
+    assert any("must be above" in str(w.value) for w in at.warning)
+    conn = connect(isolated / "demo.db")
+    assert "Groceries" not in load_limits(conn, account)
+    conn.close()
