@@ -34,6 +34,9 @@ REFUSALS: dict[str, str] = {
     "not_in_data": "I can't answer that: it is not something your bank data shows.",
     "beyond_horizon": "I can't answer that: I forecast only 30 days ahead of your data.",
     "unsupported": "I can't answer that yet.",
+    # Not a plan's reason: said by the run when the data cannot answer at all.
+    "no_categories": "Ask needs categories first: run the categorizer (Transactions page).",
+    "no_data": "There is no data for this account yet: import a bank export first.",
 }
 CLARIFY: dict[str, str] = {
     "subject": "Which category, merchant or payment do you mean? Try asking again with a name.",

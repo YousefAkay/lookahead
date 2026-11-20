@@ -180,7 +180,8 @@ def test_plain_words_for_a_lookup() -> None:
 
 
 def test_refusals_and_ask_backs_are_fixed_sentences() -> None:
-    for reason, sentence in REFUSALS.items():
+    for reason in ("advice", "not_in_data", "beyond_horizon", "unsupported"):
+        sentence = REFUSALS[reason]
         assert plan_words(parse(plan({"op": "cannot_answer", "reason": reason}))) == [
             f"1. {sentence}"
         ]
