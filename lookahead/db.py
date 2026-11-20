@@ -265,6 +265,42 @@ CREATE TABLE IF NOT EXISTS since_marker (
     last_row_id   INTEGER,  -- the newest stored row then: later rows are new (NULL: older marker)
     balance_cents INTEGER   -- the balance shown then
 );
+-- Budgets that forecast (week 6, spec docs/specs/2026-11-20-budgets-that-forecast.md): one row
+-- per category I decided about. A limit in cents, or NULL: I turned that category's budget off.
+-- A default category with no row shows its proposal. Only lookahead.budgets writes it.
+CREATE TABLE IF NOT EXISTS budgets (
+    account     TEXT    NOT NULL,
+    category    TEXT    NOT NULL,
+    limit_cents INTEGER CHECK (limit_cents IS NULL OR limit_cents > 0),
+    set_on      TEXT    NOT NULL,
+    PRIMARY KEY (account, category)
+);
+-- Budget alerts: the shortfall alert's shape. One episode per category per month (`month` is
+-- "YYYY-MM"); it ends when the chance of going over is no longer above 50 percent or the month
+-- ends, and opens again (the same episode) if the chance comes back that month.
+CREATE TABLE IF NOT EXISTS budget_alert_episodes (
+    episode_id   INTEGER PRIMARY KEY,
+    account      TEXT    NOT NULL,
+    category     TEXT    NOT NULL,
+    month        TEXT    NOT NULL,
+    opened_on    TEXT    NOT NULL,  -- data dates
+    last_seen_on TEXT    NOT NULL,
+    closed_on    TEXT,
+    dismissed_on TEXT,              -- the real day I dismissed it
+    UNIQUE (account, category, month)
+);
+CREATE TABLE IF NOT EXISTS budget_alert_events (
+    event_id         INTEGER PRIMARY KEY,
+    episode_id       INTEGER NOT NULL REFERENCES budget_alert_episodes (episode_id),
+    data_date        TEXT    NOT NULL,
+    probability      REAL    NOT NULL,
+    limit_cents      INTEGER NOT NULL,
+    spent_cents      INTEGER NOT NULL,
+    likely_end_cents INTEGER NOT NULL,
+    notified         INTEGER NOT NULL,
+    reason           TEXT    NOT NULL,
+    evidence         TEXT    NOT NULL   -- JSON
+);
 CREATE TABLE IF NOT EXISTS categorizer_runs (
     run_id        INTEGER PRIMARY KEY,
     account       TEXT    NOT NULL,
