@@ -201,6 +201,15 @@ def move_merchant(
                         len(by_row))  # fmt: skip
 
 
+SERIES_SUFFIX = " · category from its recurring series"
+
+
+def picker_label(day: str, amount: float, text: str, from_series: bool) -> str:
+    """A row in the "Row in the wrong category" picker; a row whose category comes from its
+    recurring series says so (moving it alone is refused, SERIES_NOTE)."""
+    return f"{day} · {amount:.2f} · {text}" + (SERIES_SUFFIX if from_series else "")
+
+
 def merchant_move_message(m: MerchantMove) -> str:
     """What the page says after a whole-merchant move: rows moved, rows already there (now
     locked in), rows kept by their series, and rows kept by a one-row choice."""

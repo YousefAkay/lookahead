@@ -60,6 +60,7 @@ from lookahead.budgets import (  # noqa: E402
     month_key,
     move_merchant,
     on_budget,
+    picker_label,
     proposals_for,
     remove,
     series_categorized,
@@ -361,9 +362,7 @@ for s in shown:
                 part, shown_rows = rows_table([r.fingerprint for r in pace.rows])
                 st.dataframe(shown_rows, hide_index=True, width="stretch")
                 labels = {
-                    f: f"{day} · {amount:.2f} · {text}"
-                    + (" · category from its recurring series" if source_of.get(f) == "series"
-                       else "")
+                    f: picker_label(day, amount, text, source_of.get(f) == "series")
                     for f, day, amount, text in zip(
                         part["fingerprint"], shown_rows["Date"], shown_rows["Amount ($)"],
                         shown_rows["Text"], strict=True,

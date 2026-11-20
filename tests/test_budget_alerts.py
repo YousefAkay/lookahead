@@ -231,3 +231,18 @@ def test_the_tab_shows_the_live_pace_not_the_last_recorded_event(conn: sqlite3.C
     assert "92%" in shown and "95%" not in shown
     other = pace(0.92)
     assert with_live_pace(e, None) == e and with_live_pace(e, other) != e
+
+
+def test_the_chart_turns_amber_when_over_and_the_picker_marks_series_rows() -> None:
+    # Reviewer NB6. Bars are drawn bottom first: likely end, limit, spent so far.
+    from app.theme import COLORS, budget_chart
+    from lookahead.budgets import SERIES_SUFFIX, picker_label
+
+    def colours(spent: int, likely: int, limit: int) -> list[str]:
+        return list(budget_chart(spent, likely, limit).data[0].marker.color)
+
+    assert colours(5_000, 9_000, 10_000)[0] == COLORS.blue  # on track
+    assert colours(5_000, 12_000, 10_000)[0] == COLORS.amber_line  # likely to end over
+    assert colours(11_000, 11_000, 10_000)[0] == COLORS.amber_line  # already over
+    assert picker_label("2026-09-03", 12.5, "Quorvel", True).endswith(SERIES_SUFFIX)
+    assert picker_label("2026-09-03", 12.5, "Quorvel", False) == "2026-09-03 · 12.50 · Quorvel"
