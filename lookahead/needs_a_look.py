@@ -1,14 +1,16 @@
 """Home's "Needs a look" card: the alerts already recorded, counted without running anything.
 
 It reads the stored alert episodes only (lookahead/recurring_alerts.py for recurring payments,
-lookahead/alerts.py for a possible shortfall). Nothing is detected again and no forecast is run, so
-Home stays quick; the Recurring and Forecast pages keep the episodes up to date.
+lookahead/alerts.py for a possible shortfall, lookahead/budget_alerts.py for a possible
+overspend). Nothing is detected again and no forecast is run, so Home stays quick; the
+Recurring, Forecast and Budgets pages keep the episodes up to date.
 """
 
 import sqlite3
 from dataclasses import dataclass
 
 from lookahead.alerts import Episode, active_alert
+from lookahead.budget_alerts import BudgetEpisode, open_budget_alerts
 from lookahead.recurring_alerts import open_alerts
 
 
@@ -16,10 +18,11 @@ from lookahead.recurring_alerts import open_alerts
 class NeedsALook:
     recurring: int  # recurring alerts open and not dismissed
     shortfall: Episode | None  # the open shortfall alert, if any
+    budgets: tuple[BudgetEpisode, ...] = ()  # budget alerts open and not dismissed
 
     @property
     def anything(self) -> bool:
-        return self.recurring > 0 or self.shortfall is not None
+        return self.recurring > 0 or self.shortfall is not None or bool(self.budgets)
 
 
 def needs_a_look(conn: sqlite3.Connection, account: str) -> NeedsALook:
@@ -33,4 +36,4 @@ def needs_a_look(conn: sqlite3.Connection, account: str) -> NeedsALook:
         shortfall = active_alert(conn, account)
     except sqlite3.OperationalError:
         shortfall = None
-    return NeedsALook(recurring, shortfall)
+    return NeedsALook(recurring, shortfall, tuple(open_budget_alerts(conn, account)))

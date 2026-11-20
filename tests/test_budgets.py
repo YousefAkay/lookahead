@@ -401,3 +401,32 @@ def test_recategorizing_a_row_moves_it_out_of_spent_so_far(conn: sqlite3.Connect
     food_after = next(p for p in after.paces if p.category == "Food delivery")
     assert food_after.spent_cents == food.spent_cents - moved.cents
     assert moved.row_id not in {r.row_id for r in food_after.rows}
+
+
+# --- Budget alerts on a replay of synthetic data dates ---
+
+
+def test_budget_alerts_on_a_replay(conn: sqlite3.Connection) -> None:
+    """Looks every few days from July to September, in data-date order, with tight limits: no
+    alert in a month's first week, at most one episode per category and month, every earlier
+    month's episode ended at its last day, nothing open while the chance is not above 50%."""
+    from lookahead.budget_alerts import budget_episodes, record_look
+
+    tight = {"Food delivery": 5_000, "Restaurants & cafés": 3_000, "Shopping": 2_000}
+    day, alerts = date(2026, 7, 2), 0
+    while day <= date(2026, 9, 28):
+        f, month = month_of(conn, "synthetic-A", day, tight)
+        results = record_look(conn, "synthetic-A", month, f.start.first_day)
+        for r, p in zip(results, month.paces, strict=True):
+            on = f.start.first_day.day >= 8 and p.chance_over > 0.5
+            assert (r.episode_id is not None) == on
+            alerts += on
+        day += timedelta(days=3)
+    episodes = budget_episodes(conn, "synthetic-A")
+    assert alerts > 0 and episodes
+    keys = [(e.category, e.month) for e in episodes]
+    assert len(keys) == len(set(keys))
+    for e in episodes:
+        assert e.opened_on.day >= 7  # data date the 7th or later: first forecast day the 8th+
+        if e.month < "2026-09":
+            assert e.closed_on == month_end(date.fromisoformat(f"{e.month}-01"))
