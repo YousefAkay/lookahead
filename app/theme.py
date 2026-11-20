@@ -173,7 +173,7 @@ _MARK = (
     f'stroke-linecap="round" stroke-linejoin="round"></path></svg>'
 )
 
-PAGES = section_links()  # the five top-bar links (app/navigation.py)
+PAGES = section_links()  # the top-bar links (app/navigation.py)
 
 
 def top_bar_html(

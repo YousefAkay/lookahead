@@ -1,9 +1,9 @@
 """The app's sections and pages, in one place: the router (app/Home.py), the top bar and the tab
 rows all read this list.
 
-Five sections in the top bar, plus the settings gear: Home, Transactions, Recurring, Forecast and
-How it works. A section with more than one page shows a row of tab links under the bar. Every page
-keeps its own file and its own address (the `url_path`), so old links keep working: a page is
+Six sections in the top bar, plus the settings gear: Home, Transactions, Recurring, Forecast, Ask
+and How it works. A section with more than one page shows a row of tab links under the bar. Every
+page keeps its own file and its own address (the `url_path`), so old links keep working: a page is
 never merged into another one's script, because Streamlit runs every st.tabs tab on every rerun
 and a tab has no address of its own.
 """
@@ -20,7 +20,9 @@ class AppPage:
     tab: str | None = None  # its label in the section's tab row (None: not in a tab row)
 
 
-SECTIONS: tuple[str, ...] = ("Home", "Transactions", "Recurring", "Forecast", "How it works")
+SECTIONS: tuple[str, ...] = (
+    "Home", "Transactions", "Recurring", "Forecast", "Ask", "How it works",
+)  # fmt: skip
 
 APP_PAGES: tuple[AppPage, ...] = (
     AppPage("Home", "home_page.py", "", "Home"),
@@ -34,6 +36,7 @@ APP_PAGES: tuple[AppPage, ...] = (
     AppPage("Forecast", "pages/5_Forecast.py", "Forecast", "Forecast", "Forecast"),
     AppPage("Scenario", "pages/9_Scenario.py", "Scenario", "Forecast", "Scenario"),
     AppPage("Budgets", "pages/10_Budgets.py", "Budgets", "Forecast", "Budgets"),
+    AppPage("Ask", "pages/11_Ask.py", "Ask", "Ask"),
     AppPage(
         "Model report", "pages/7_Model_report.py", "Model_report", "How it works", "Model report"
     ),
@@ -50,7 +53,7 @@ def path_of(page: AppPage) -> str:
 
 
 def section_links() -> list[tuple[str, str]]:
-    """The five top-bar links: each section opens on its first page."""
+    """The top-bar links: each section opens on its first page."""
     return [(s, path_of(next(p for p in APP_PAGES if p.section == s))) for s in SECTIONS]
 
 

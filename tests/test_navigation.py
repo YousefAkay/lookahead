@@ -1,4 +1,4 @@
-"""The navigation rework: five sections and a settings gear in the top bar, a tab row for the
+"""The navigation rework: the sections and a settings gear in the top bar, a tab row for the
 sections with several pages, every page kept at its own address, and Home's "Needs a look" card.
 Made-up data only."""
 
@@ -22,7 +22,7 @@ APP = Path(__file__).resolve().parents[1] / "app"
 ROUTER = APP / "Home.py"
 OLD_ADDRESSES = {"", "Transactions", "Label_review", "To_check", "Recurring", "Forecast",
                  "Scenario", "Time_machine", "Model_report", "Since_last_time",
-                 "Budgets"}  # fmt: skip
+                 "Budgets", "Ask"}  # fmt: skip
 
 
 def links_of(nav_html: str) -> list[tuple[str, bool]]:
@@ -41,11 +41,11 @@ def main_nav(html: str) -> str:
 @pytest.mark.parametrize(("page", "section"), [
     ("Home", "Home"), ("Since last time", "Home"), ("Transactions", "Transactions"),
     ("To check", "Transactions"), ("Label review", "Transactions"), ("Recurring", "Recurring"),
-    ("Forecast", "Forecast"), ("Scenario", "Forecast"), ("Budgets", "Forecast"),
+    ("Forecast", "Forecast"), ("Scenario", "Forecast"), ("Budgets", "Forecast"), ("Ask", "Ask"),
     ("Model report", "How it works"),
     ("Time machine", "How it works"),
 ])  # fmt: skip
-def test_the_bar_has_the_five_sections_in_order_with_the_current_one_marked(
+def test_the_bar_has_the_sections_in_order_with_the_current_one_marked(
     page: str, section: str
 ) -> None:
     html = theme.top_bar_html(page, theme.PAGES, date(2026, 10, 1), "Synthetic demo")
