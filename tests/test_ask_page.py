@@ -151,6 +151,7 @@ def test_several_matching_merchants_ask_back_with_buttons(isolated: Path) -> Non
 
 def test_the_page_writes_nothing(isolated: Path) -> None:
     before = hashlib.sha256((isolated / "demo.db").read_bytes()).hexdigest()
-    asked("What if I spend $100 less on restaurants a month?")
+    asked("How much did I spend on groceries last month?")
+    asked("What are my recurring payments?")
     asked("What will my balance be in 2 weeks?")
     assert hashlib.sha256((isolated / "demo.db").read_bytes()).hexdigest() == before

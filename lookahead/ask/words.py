@@ -1,12 +1,14 @@
 """'How I worked it out': a checked plan in plain words, written by code from the plan's fields.
 
 Nothing here comes from the plan's author as free text: every word is fixed wording or a value
-of a checked field (a category from the fixed list, a number, a day). The only text copied from
-the plan is a name phrase, which `plan.check_phrases` has already found in my own question.
+of a checked field (a category from the fixed list, a number, a day). Steps are named by their
+number, never by the name the plan gives them. The only text copied from the plan is a name
+phrase, which `plan.check_phrases` has already found in my own question.
 The refusal and ask-back messages are fixed sentences chosen by a reason code.
 """
 
 from calendar import month_name
+from collections.abc import Callable
 
 from lookahead.ask.plan import (
     Aggregate,
@@ -47,12 +49,13 @@ CLARIFY: dict[str, str] = {
     "amount": "Which amount do you mean? Try asking again with a dollar figure.",
     "which_one": "That could mean more than one thing. Try asking again more precisely.",
 }
+# Examples the offline parser answers (every chip is tested on the demo data). What-ifs and
+# comparisons are added when the LLM is on (step 8).
 EXAMPLES: tuple[str, ...] = (
     "How much did I spend on groceries last month?",
     "What were my top 5 categories this year?",
     "What will my balance be in 2 weeks?",
     "What is the chance I go below my buffer this month?",
-    "What if I spend $100 less on restaurants a month?",
     "How much is safe to spend?",
     "How am I doing on my Shopping budget?",
     "What are my recurring payments?",
@@ -142,8 +145,22 @@ def _ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
-def amount_words(a: Amount) -> str:
-    return money(a.dollars) if a.dollars is not None else f"the result of {quoted(a.ref or '')}"
+Ref = Callable[[str], str]
+
+
+def _no_ref(name: str) -> str:
+    return "an earlier step"
+
+
+def step_ref(plan: Plan) -> Ref:
+    """How a step points at an earlier one on the page: by its number ("step 2"), never by the
+    name the plan's author gave it (a name is free text and never reaches the page)."""
+    numbers = {s.name: i for i, s in enumerate(plan.steps, start=1)}
+    return lambda name: f"step {numbers[name]}" if name in numbers else "an earlier step"
+
+
+def amount_words(a: Amount, ref: Ref = _no_ref) -> str:
+    return money(a.dollars) if a.dollars is not None else f"the result of {ref(a.ref or '')}"
 
 
 def _rows(s: Rows) -> str:
@@ -166,42 +183,42 @@ def _rows(s: Rows) -> str:
     return text + "."
 
 
-def _change(c: Change) -> str:
+def _change(c: Change, ref: Ref = _no_ref) -> str:
     if c.kind in ("category", "everyday"):
         what = f"on {c.category}" if c.kind == "category" else "on everyday spending"
-        size = amount_words(c.amount) + " a month" if c.amount else f"{c.percent:g}%"
+        size = amount_words(c.amount, ref) + " a month" if c.amount else f"{c.percent:g}%"
         return f"spend {size} {c.direction} {what}"
     if c.kind == "cancel":
         return f"stop the recurring payment {quoted(c.target or '')}"
     if c.kind == "swap":
         assert c.amount is not None
-        return f"pay {amount_words(c.amount)} each time for {quoted(c.target or '')}"
+        return f"pay {amount_words(c.amount, ref)} each time for {quoted(c.target or '')}"
     assert c.amount is not None
     when = day_words(c.day) if c.day else "on the first forecast day"
     way = "a deposit" if c.direction == "in" else "a payment"
-    return f"add {way} of {amount_words(c.amount)} {when}"
+    return f"add {way} of {amount_words(c.amount, ref)} {when}"
 
 
-def step_words(step: object) -> str:
-    """One step in plain words."""
+def step_words(step: object, ref: Ref = _no_ref) -> str:
+    """One step in plain words. Earlier steps are named by `ref` (their number on the page)."""
     if isinstance(step, Rows):
         return _rows(step)
     if isinstance(step, Group):
-        return (f"Group {quoted(step.source)} by {step.by}: the "
+        return (f"Group {ref(step.source)} by {step.by}: the "
                 f"{MEASURE[step.measure]} of each.")  # fmt: skip
     if isinstance(step, Aggregate):
-        return f"The {MEASURE[step.measure]} of {quoted(step.source)}."
+        return f"The {MEASURE[step.measure]} of {ref(step.source)}."
     if isinstance(step, Top):
-        return f"The {step.n} {step.order} of {quoted(step.source)}."
+        return f"The {step.n} {step.order} of {ref(step.source)}."
     if isinstance(step, Compare):
-        a, b = quoted(step.a), quoted(step.b)
+        a, b = ref(step.a).capitalize(), ref(step.b)
         return {
             "difference": f"{a} minus {b}.",
-            "percent_change": f"The change from {b} to {a}, in percent.",
+            "percent_change": f"The change from {b} to {a.lower()}, in percent.",
             "share": f"{a} as a percent of {b}.",
         }[step.how]
     if isinstance(step, ListRows):
-        return f"List {quoted(step.source)}, {step.order} first, up to {step.limit} rows."
+        return f"List {ref(step.source)}, {step.order} first, up to {step.limit} rows."
     if isinstance(step, Forecast):
         until = until_words(step.until)
         if step.measure == "balance_on":
@@ -209,10 +226,10 @@ def step_words(step: object) -> str:
             return f"Forecast your balance at the end of the day {day_words(step.on)}."
         if step.measure == "lowest":
             return f"Forecast your lowest balance (the middle future's), {until}."
-        below = amount_words(step.below) if step.below else "your safety buffer"
+        below = amount_words(step.below, ref) if step.below else "your safety buffer"
         return f"Forecast the chance of going below {below} on some day, {until}."
     if isinstance(step, WhatIf):
-        changes = "; ".join(_change(c) for c in step.changes)
+        changes = "; ".join(_change(c, ref) for c in step.changes)
         return (f"What if you {changes}? Compare your lowest balance and the chance of going "
                 "below your buffer over the next 30 days, as things are now and with the "
                 "change (the same simulated futures).")  # fmt: skip
@@ -233,9 +250,6 @@ def step_words(step: object) -> str:
 
 
 def plan_words(plan: Plan) -> list[str]:
-    """Numbered lines, one per step, naming each result so later steps can point at it."""
-    lines = []
-    for i, step in enumerate(plan.steps, start=1):
-        label = "" if isinstance(step, CannotAnswer | Clarify) else f" ({quoted(step.name)})"
-        lines.append(f"{i}. {step_words(step)}{label}")
-    return lines
+    """Numbered lines, one per step; a later step points at an earlier one by its number."""
+    ref = step_ref(plan)
+    return [f"{i}. {step_words(step, ref)}" for i, step in enumerate(plan.steps, start=1)]

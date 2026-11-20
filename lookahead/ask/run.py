@@ -37,6 +37,7 @@ from lookahead.views import has_categories, transactions
 
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 NO_MERCHANT = "(no merchant name)"
+NO_CATEGORY = "(no category)"
 NOTHING_MATCHES = "No rows match."
 
 
@@ -248,7 +249,8 @@ def _labels(source: RowSet, by: str) -> tuple[pd.Series, list[str]]:
         return labels, order
     if by == "weekday":
         return days.map(lambda d: WEEKDAYS[d.weekday()]), list(WEEKDAYS)
-    column = rows[by].map(lambda v: v if isinstance(v, str) else NO_MERCHANT)
+    missing = NO_MERCHANT if by == "merchant" else NO_CATEGORY
+    column = rows[by].map(lambda v: v if isinstance(v, str) else missing)
     return column, sorted(set(column))
 
 

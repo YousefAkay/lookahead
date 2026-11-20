@@ -174,8 +174,8 @@ def test_whole_plan_errors_name_only_steps_and_fields() -> None:
 def test_plain_words_for_a_lookup() -> None:
     lines = plan_words(parse(plan(ROWS, TOTAL)))
     assert lines == [
-        "1. Find money out in Groceries, last month; transfers between accounts left out. (“r”)",
-        "2. The total of “r”. (“t”)",
+        "1. Find money out in Groceries, last month; transfers between accounts left out.",
+        "2. The total of step 1.",
     ]
 
 
@@ -213,5 +213,39 @@ def test_every_block_has_plain_words() -> None:
     lines = plan_words(p)
     assert len(lines) == 10
     assert "at merchants matching “velisaro”" in lines[0]
-    assert lines[2] == "3. The 3 highest of “g”. (“tp”)"
-    assert "below the result of “t”" in lines[7]
+    assert lines[2] == "3. The 3 highest of step 2."
+    assert "below the result of step 5" in lines[7]
+
+
+def test_step_names_never_reach_the_page() -> None:
+    # A step name is free text chosen by the plan's author: steps are shown by number only.
+    from lookahead.ask.answer import Asked, headline
+    from lookahead.ask.run import Number, Outcome
+
+    name = "sell_all_your_stocks"
+    p = parse(plan(
+        ROWS | {"name": name},
+        {"op": "aggregate", "name": "buy_crypto_now", "source": name, "measure": "sum"},
+        {"op": "aggregate", "name": "you_should_quit", "source": name, "measure": "max"},
+        {"op": "compare", "name": "panic", "a": "buy_crypto_now", "b": "you_should_quit",
+         "how": "difference"},
+        {"op": "whatif", "name": "w", "changes": [{"kind": "everyday", "direction": "less",
+                                                   "amount": {"ref": "panic"}}]},
+    ))  # fmt: skip
+    shown = "\n".join(plan_words(p))
+    for step in p.steps:
+        out = Outcome(
+            "answer",
+            None,
+            [],
+            {
+                s.name: Number(s.name, "money", 100)
+                for s in p.steps
+                if s.op in ("aggregate", "compare")
+            },
+        )
+        if step.op in ("aggregate", "compare"):
+            out.result = out.values[step.name]
+            shown += headline(Asked("q", parse({"steps": list(p.model_dump()["steps"])}), out))
+    for word in ("sell_all", "crypto", "quit", "panic"):
+        assert word not in shown, word

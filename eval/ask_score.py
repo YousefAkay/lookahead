@@ -42,7 +42,8 @@ from lookahead.generator.archetypes import assert_development_only
 
 BOOTSTRAP = 10_000
 SEED = 20261120
-LEDGER = Path("docs/results/ask_ledger.jsonl")
+# Absolute, so a run from any worktree writes to the one ledger of this checkout's repository.
+LEDGER = Path(__file__).resolve().parents[1] / "docs" / "results" / "ask_ledger.jsonl"
 # A planner sees the question; the offline one may also read the merchant names in the data (it
 # runs on this machine). An LLM planner must ignore the context: it sees only the question.
 Planner = Callable[[str, Context], dict[str, Any] | None]
@@ -59,6 +60,7 @@ class Row:
     correct: bool
     silent_wrong: bool
     refused: bool
+    no_plan: bool = False  # the planner gave no plan (shown as "I can't answer that yet")
 
 
 def kind_of(q: Question) -> str:
@@ -112,7 +114,7 @@ def score_one(runner: Runner, q: Question, planner: Planner) -> Row:
             produced = out.kind
             same = signature(out) == signature(gold)
     return Row(q.id, q.persona, kind_of(q), q.lang, q.tags, produced, same,
-               produced == "answer" and not same, produced == "refused")  # fmt: skip
+               produced == "answer" and not same, produced == "refused", data is None)  # fmt: skip
 
 
 def bootstrap_low(hits: list[bool], seed: int = SEED, n: int = BOOTSTRAP) -> float:
@@ -137,6 +139,7 @@ class Summary:
     ambiguous: int
     correct_ambiguous: int
     invalid: int
+    refused_no_plan: int  # of the refusals on should-refuse questions: no plan at all
 
     @property
     def rate(self) -> float:
@@ -151,6 +154,7 @@ def summarize(rows: list[Row]) -> Summary:
         len(rows), len(ans), sum(r.correct for r in ans), bootstrap_low([r.correct for r in ans]),
         len(ref), sum(r.refused for r in ref), sum(r.silent_wrong for r in rows), len(amb),
         sum(r.correct for r in amb), sum(r.produced == "invalid" for r in rows),
+        sum(r.refused and r.no_plan for r in ref),
     )  # fmt: skip
 
 
@@ -170,7 +174,7 @@ def report(name: str, rows: list[Row], questions: Iterable[Question] = QUESTIONS
     lines = [
         f"# Ask, development set, planner `{name}` ({date.today().isoformat()})",
         "",
-        "Development questions only (eval/ask_dev_set.py, written by Claude Code); synthetic "
+        "Development questions only (eval/ask_dev_set.py, written while building Ask, not by me); synthetic "
         "development personas; not the scored held-out run. n = questions.",
         "",
         "| Measure | Result |",
@@ -178,9 +182,16 @@ def report(name: str, rows: list[Row], questions: Iterable[Question] = QUESTIONS
         f"| Correct on answerable | {_pct(s.correct_answerable, s.answerable)} |",
         f"| Bootstrap 2.5th percentile of that rate | {s.bootstrap_low:.1%} |",
         f"| Refused, of should-refuse | {_pct(s.refused, s.should_refuse)} |",
+        f"| ... of which with no plan (\"I can't answer that yet\") | {s.refused_no_plan} |",
         f"| Silent wrong, of all | {_pct(s.silent_wrong, s.n)} |",
         f"| Ambiguous handled like the gold | {_pct(s.correct_ambiguous, s.ambiguous)} |",
         f"| Plans that failed their checks | {s.invalid} |",
+        "",
+        "The offline parser was tuned on these same 200 questions after its first score, so its "
+        "figures here are fitted to them; only the held-out run measures it. Every development "
+        "run is in docs/results/ask_ledger.jsonl:",
+        "",
+        *_history(),
         "",
         "## By tag (answerable and ambiguous questions: correct; should-refuse: refused)",
         "",
@@ -206,6 +217,21 @@ def report(name: str, rows: list[Row], questions: Iterable[Question] = QUESTIONS
     return "\n".join(lines) + "\n"
 
 
+def _history() -> list[str]:
+    if not LEDGER.exists():
+        return ["- (no earlier runs)"]
+    out = []
+    for line in LEDGER.read_text(encoding="utf-8").splitlines():
+        e = json.loads(line)
+        if e.get("set") != "development":
+            continue
+        out.append(f"- {e['planner']}, code {e['code']}: {e['correct_answerable']} of "
+                   f"{e['answerable']} answerable correct, {e['refused']} of "
+                   f"{e['should_refuse']} refused, {e['silent_wrong']} of {e['n']} silent wrong"
+                   + (f" ({e['variant']})" if e.get("variant") else ""))  # fmt: skip
+    return out
+
+
 def _commit() -> str:
     try:
         return subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
@@ -226,15 +252,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--planner", choices=sorted(PLANNERS), default="offline")
     parser.add_argument("--out", type=Path, default=Path("docs/results"))
     parser.add_argument("--no-ledger", action="store_true")
+    parser.add_argument("--variant", default="", help="what changed since the last run")
     args = parser.parse_args(argv)
     rows = score(PLANNERS[args.planner])
     text = report(args.planner, rows)
-    path = args.out / f"ask_dev_{args.planner}_{date.today().isoformat()}.md"
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")  # one file per run, never overwritten
+    path = args.out / f"ask_dev_{args.planner}_{stamp}.md"
     path.write_text(text, encoding="utf-8")
     print(text)
     if not args.no_ledger:
         entry = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "set": "development",
-                 "planner": args.planner, "code": _commit(), **asdict(summarize(rows))}  # fmt: skip
+                 "planner": args.planner, "code": _commit(), "variant": args.variant,
+                 **asdict(summarize(rows))}  # fmt: skip
         with LEDGER.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
     print(f"Wrote {path}")

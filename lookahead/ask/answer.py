@@ -20,7 +20,7 @@ from lookahead.ask.match import Match
 from lookahead.ask.offline import parse_question
 from lookahead.ask.plan import Aggregate, Compare, Plan, PlanError, Rows, check_phrases, parse
 from lookahead.ask.run import Context, Listing, Number, Outcome, Refusal, Table, run
-from lookahead.ask.words import EXAMPLES, MEASURE, period_words
+from lookahead.ask.words import EXAMPLES, MEASURE, period_words, step_ref
 
 CANT_YET = "I can't answer that yet."
 
@@ -82,10 +82,11 @@ def _number(plan: Plan, r: Number, matches: list[Match]) -> str:
     if r.value is None:
         return "There is nothing to work it out from: no rows match."
     step = next(s for s in plan.steps if s.name == r.name)
+    ref = step_ref(plan)
     if r.unit == "percent":
         if isinstance(step, Compare) and step.how == "percent_change":
             way = "up" if r.value >= 0 else "down"
-            return f"{abs(r.value):.1f}% {way} (the change from “{step.b}” to “{step.a}”)."
+            return f"{abs(r.value):.1f}% {way} (the change from {ref(step.b)} to {ref(step.a)})."
         return f"{r.value:.1f}%."
     value = f"{int(r.value):,}" if r.unit == "count" else dollars(r.value)
     if isinstance(step, Aggregate):
@@ -103,9 +104,9 @@ def _number(plan: Plan, r: Number, matches: list[Match]) -> str:
             if step.measure == "average":
                 return f"{value} on average per transaction ({what})."
             return f"{verb} {value} ({what})."
-        return f"The {MEASURE[step.measure]} of “{step.source}”: {value}."
+        return f"The {MEASURE[step.measure]} of {ref(step.source)}: {value}."
     if isinstance(step, Compare) and step.how == "difference":
-        return f"“{step.a}” minus “{step.b}”: {value}."
+        return f"{ref(step.a).capitalize()} minus {ref(step.b)}: {value}."
     return f"{value}."
 
 
