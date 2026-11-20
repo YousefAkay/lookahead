@@ -468,6 +468,8 @@ def test_the_check_prints_counts_only_and_writes_nothing(
     assert "Categories with a pace computed from the futures: 1 of 1" in out
     assert re.search(r"Categories with a chance of going over above 0: [01] of 1", out)
     assert "at or above as-now in every future on every day: yes" in out
+    # beside the all-months total, the current month's count, as Home lists them (reviewer N-a)
+    assert "Open budget alerts of this budget month (as Home lists them): 0" in out
     assert main(["--db", str(db), "--account", "9"]) == 2
 
 

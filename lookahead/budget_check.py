@@ -31,6 +31,7 @@ from lookahead.budgets import (
 )
 from lookahead.corrections import corrections
 from lookahead.db import connect_readonly
+from lookahead.needs_a_look import current_budget_alerts
 from lookahead.views import accounts, has_categories
 
 
@@ -110,6 +111,8 @@ def report(conn: sqlite3.Connection, account: str, today: date | None = None) ->
         f"{sum(p.big_one_off for p in month.paces)}",
         f"Open budget alerts (recorded by the tab): {len(open_budget_alerts(conn, account))} "
         f"of {len(budget_episodes(conn, account))} episodes",
+        f"Open budget alerts of this budget month (as Home lists them): "
+        f"{len(current_budget_alerts(conn, account))}",
         *correction_lines(conn, account, rows, forecast.start.first_day.replace(day=1)),
     ]
     if month.paces:
