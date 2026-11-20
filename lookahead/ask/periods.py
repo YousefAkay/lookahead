@@ -6,7 +6,8 @@ question reaches outside them. Written defaults (spec, "Ambiguity"):
 - "last month" is the previous full calendar month, "this month" the 1st to today;
 - weeks run Monday to Sunday; "last N months/weeks" are full ones before the current one;
 - "last N days" are the N days before today;
-- a month without a year ("in March") is the latest March that has started by today.
+- a month without a year ("in March") is the latest March that has started by today;
+- "since July 1" without a year is the latest July 1 on or before today.
 
 Future days are relative to today too; the forecast covers the 30 days after my data ends.
 """
@@ -86,6 +87,16 @@ def asked(period: Period | None, today: date, first: date) -> tuple[date, date]:
     if k == "range":
         assert period.start and period.end
         return period.start, period.end
+    if k == "since_named":
+        assert period.month and period.day
+        start = None
+        for year in (today.year, today.year - 1):
+            day = date(year, period.month, min(period.day, monthrange(year, period.month)[1]))
+            if day <= today:
+                start = day
+                break
+        assert start is not None
+        return start, today
     assert period.start  # since
     return period.start, today
 

@@ -326,3 +326,11 @@ def test_count_by_month(ctx: Context) -> None:
                "measure": "count"})  # fmt: skip
     assert out.result.pairs == (("2026-08", 1), ("2026-09", 2), ("2026-10", 1))
     assert out.result.unit == "count"
+
+
+def test_since_a_day_without_a_year() -> None:
+    # "since July 1" asked on 2026-10-16: this year's; "since December 1": last year's
+    p = Period(kind="since_named", month=7, day=1)
+    assert asked(p, TODAY, date(2026, 8, 3)) == (date(2026, 7, 1), TODAY)
+    p = Period(kind="since_named", month=12, day=1)
+    assert asked(p, TODAY, date(2026, 8, 3)) == (date(2025, 12, 1), TODAY)

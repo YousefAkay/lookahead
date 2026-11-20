@@ -107,6 +107,8 @@ def period_words(p: Period | None) -> str:
         return f"{p.year}"
     if k == "range":
         return f"from {p.start} to {p.end}"
+    if k == "since_named":
+        return f"since {month_name[p.month or 1]} {p.day} (the latest one)"
     return f"since {p.start}"  # since
 
 

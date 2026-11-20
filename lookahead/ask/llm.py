@@ -93,12 +93,15 @@ Periods (past): {"kind": K} with K one of "all","today","yesterday","this_week",
   "last_n_months","n":N} (full weeks/months before the current one); {"kind":"month",
   "year":Y,"month":M}; {"kind":"named_month","month":M} (a month named without a year);
   {"kind":"year","year":Y}; {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"};
-  {"kind":"since","start":"YYYY-MM-DD"}. You do not know today's date: use these words, the
-  program turns them into dates.
+  {"kind":"since","start":"YYYY-MM-DD"}; {"kind":"since_named","month":M,"day":D} ("since
+  July 1" with no year). You do not know today's date or the year: never write a year the user
+  did not write; use these words, the program turns them into dates.
 Days (future): {"kind":"tomorrow"}, {"kind":"in_days","n":N}, {"kind":"date","date":"YYYY-MM-DD"},
   {"kind":"day_of_month","day":D} ("on the 15th"), {"kind":"named_date","month":M,"day":D},
-  {"kind":"end_of_week"}, {"kind":"end_of_month"}. "Next 2 weeks" = in_days 14;
-  "next month" or "next 30 days" = no "until".
+  {"kind":"end_of_week"}, {"kind":"end_of_month"} (this month's end). A named day without a
+  year ("October 1", "the end of October") is named_date with that month and day (the month's
+  last day for its end), never "date". "Next 2 weeks" = in_days 14; "next month" or "next 30
+  days" = no "until"; "this month" for a forecast = until end_of_month.
 
 Written defaults: "spending" is money out without transfers; "last month" is the previous
 calendar month; a word that is neither a merchant name nor a category goes to the closest
@@ -120,6 +123,9 @@ Q: "What if I drop my gym membership and buy a $300 bike on the 10th?" ->
 {"steps":[{"op":"whatif","name":"w","changes":[{"kind":"cancel","target":"gym"},
 {"kind":"one_off","direction":"out","amount":{"dollars":300},"day":{"kind":"day_of_month",
 "day":10}}]}]}
+Q: "What if I spend 15% less on shopping?" ->
+{"steps":[{"op":"whatif","name":"w","changes":[{"kind":"category","category":"Shopping",
+"direction":"less","percent":15}]}]}
 Q: "Is my phone plan too expensive?" -> {"steps":[{"op":"cannot_answer","reason":"advice"}]}
 """
 )

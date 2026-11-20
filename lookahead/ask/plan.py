@@ -51,7 +51,7 @@ class Strict(BaseModel):
 PeriodKind = Literal[
     "all", "today", "yesterday", "this_week", "last_week", "this_month", "last_month",
     "this_year", "last_year", "last_n_days", "last_n_weeks", "last_n_months", "month",
-    "named_month", "year", "range", "since",
+    "named_month", "year", "range", "since", "since_named",
 ]  # fmt: skip
 _PERIOD_FIELDS: dict[str, set[str]] = {
     "last_n_days": {"n"},
@@ -62,6 +62,7 @@ _PERIOD_FIELDS: dict[str, set[str]] = {
     "year": {"year"},
     "range": {"start", "end"},
     "since": {"start"},
+    "since_named": {"month", "day"},  # "since July 1": the latest July 1 by today
 }
 _N_LIMIT = {"last_n_days": 731, "last_n_weeks": 104, "last_n_months": 24}
 
@@ -74,13 +75,14 @@ class Period(Strict):
     n: int | None = None
     year: int | None = Field(default=None, ge=2000, le=2100)
     month: int | None = Field(default=None, ge=1, le=12)
+    day: int | None = Field(default=None, ge=1, le=31)
     start: date | None = None
     end: date | None = None
 
     @model_validator(mode="after")
     def _fields_fit_the_kind(self) -> "Period":
-        _need_exactly(self, _PERIOD_FIELDS.get(self.kind, set()), ("n", "year", "month", "start",
-                                                                   "end"))  # fmt: skip
+        _need_exactly(self, _PERIOD_FIELDS.get(self.kind, set()), ("n", "year", "month", "day",
+                                                                   "start", "end"))  # fmt: skip
         if self.n is not None and not 1 <= self.n <= _N_LIMIT[self.kind]:
             raise ValueError(f"n must be from 1 to {_N_LIMIT[self.kind]}")
         if self.kind == "range" and self.start and self.end and self.end < self.start:
