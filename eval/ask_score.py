@@ -15,12 +15,14 @@ gold: answerable (an answer, or an honest "no merchant like ..."), ambiguous, sh
   gold where the gold uses a written default (reported apart).
 
 A planner that gives no plan (the offline parser's None) has refused ("I can't answer that yet").
-A plan that fails its checks is not correct, not a refusal and not silent wrong.
+A plan that fails its checks (the LLM's after its one retry) is not correct, not a refusal and not
+silent wrong; so is an API call that still fails after its retries ("api_error").
 
     python -m eval.ask_score --planner offline          # development set, writes a dated report
 """
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -34,6 +36,16 @@ import numpy as np
 
 from eval.ask_dev_set import QUESTIONS, Question
 from eval.ask_personas import ACCOUNT, KEY, TODAY, build
+from lookahead.ask.llm import (
+    MODEL,
+    SYSTEM,
+    ApiFailed,
+    Send,
+    Spend,
+    SpendCapReached,
+    make_sender,
+    plan_for,
+)
 from lookahead.ask.offline import parse_question
 from lookahead.ask.plan import PlanError, check_phrases, parse
 from lookahead.ask.run import Context, Outcome, run, signature
@@ -97,9 +109,12 @@ def gold_outcome(runner: Runner, q: Question) -> Outcome:
 
 def score_one(runner: Runner, q: Question, planner: Planner) -> Row:
     gold = gold_outcome(runner, q)
-    data = planner(q.text, runner.context(q.persona))
     produced: str
     same = False
+    try:
+        data = planner(q.text, runner.context(q.persona))
+    except ApiFailed:  # not correct, not a refusal, not silent wrong (spec, his reading)
+        return Row(q.id, q.persona, kind_of(q), q.lang, q.tags, "api_error", False, False, False)
     if data is None:
         produced = "refused"
         same = gold.kind == "refused"
@@ -244,18 +259,66 @@ def offline(question: str, ctx: Context) -> dict[str, Any] | None:
     return parse_question(question, ctx.merchant_names())
 
 
+def llm_planner(send: Send, spend: Spend) -> Planner:
+    """The LLM planner for the scorer. It gets the question only: the context (the data) is
+    never passed on."""
+
+    def planner(question: str, ctx: Context) -> dict[str, Any] | None:
+        del ctx  # never sent
+        return plan_for(question, send, spend).plan
+
+    return planner
+
+
 PLANNERS: dict[str, Planner] = {"offline": offline}
+SPEND_CAP_USD = 5.00  # all LLM development runs together (his cap for step 8, 2026-11-20)
+
+
+def spent_so_far() -> float:
+    if not LEDGER.exists():
+        return 0.0
+    total = 0.0
+    for line in LEDGER.read_text(encoding="utf-8").splitlines():
+        total += float(json.loads(line).get("spent_usd", 0.0))
+    return total
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Score a planner on Ask's development set.")
-    parser.add_argument("--planner", choices=sorted(PLANNERS), default="offline")
+    parser.add_argument("--planner", choices=[*sorted(PLANNERS), "llm"], default="offline")
     parser.add_argument("--out", type=Path, default=Path("docs/results"))
     parser.add_argument("--no-ledger", action="store_true")
     parser.add_argument("--variant", default="", help="what changed since the last run")
+    parser.add_argument("--limit", type=int, default=0, help="only the first N questions")
     args = parser.parse_args(argv)
-    rows = score(PLANNERS[args.planner])
-    text = report(args.planner, rows)
+    questions = list(QUESTIONS[: args.limit] if args.limit else QUESTIONS)
+    extra: dict[str, Any] = {}
+    stopped = ""
+    if args.planner == "llm":
+        spend = Spend(cap_usd=SPEND_CAP_USD - spent_so_far())
+        planner = llm_planner(make_sender(), spend)
+        runner = Runner()
+        rows = []
+        for q in questions:
+            try:
+                rows.append(score_one(runner, q, planner))
+            except SpendCapReached:
+                stopped = f"spend cap reached after {len(rows)} questions"
+                break
+        extra = {"model": MODEL, "prompt_sha256": hashlib.sha256(SYSTEM.encode()).hexdigest(),
+                 "spent_usd": round(spend.spent_usd, 4), "calls": spend.calls,
+                 "input_tokens": spend.input_tokens, "output_tokens": spend.output_tokens,
+                 "api_errors": sum(r.produced == "api_error" for r in rows),
+                 "questions_run": len(rows), "stopped": stopped}  # fmt: skip
+        questions = questions[: len(rows)]
+    else:
+        rows = score(PLANNERS[args.planner], questions)
+    text = report(args.planner, rows, questions)
+    if extra:
+        text += (f"\nModel {MODEL}, temperature 0. Spent {extra['spent_usd']:.4f} USD on "
+                 f"{extra['calls']} calls ({extra['input_tokens']} tokens in, "
+                 f"{extra['output_tokens']} out); API failures {extra['api_errors']}."
+                 + (f" Stopped: {stopped}." if stopped else "") + "\n")  # fmt: skip
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M")  # one file per run, never overwritten
     path = args.out / f"ask_dev_{args.planner}_{stamp}.md"
     path.write_text(text, encoding="utf-8")
@@ -263,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_ledger:
         entry = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "set": "development",
                  "planner": args.planner, "code": _commit(), "variant": args.variant,
-                 **asdict(summarize(rows))}  # fmt: skip
+                 **asdict(summarize(rows)), **extra}  # fmt: skip
         with LEDGER.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
     print(f"Wrote {path}")
