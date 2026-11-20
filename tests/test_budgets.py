@@ -603,3 +603,100 @@ def test_already_over_and_the_series_helper() -> None:
     assert over.already_over
     assert not Pace("Shopping", 10_000, 10_000, 12_000, 0.9, 10, False, ()).already_over
     assert series_categorized(["a", "b", "c"], {"a": "series", "b": "model"}) == ["a"]
+
+
+# --- Whole-merchant moves store only the rows they move (reviewer NB1, NB2, NB3) ---
+
+
+def mixed_merchant(conn: sqlite3.Connection, account: str = "synthetic-A"):  # type: ignore[no-untyped-def]
+    """Build the mixed case here: a merchant with some payments in a series I give a category
+    and some rows outside it, one of which I correct one row at a time. Returns (merchant, the
+    series' payments, the one-row-corrected row, the rest)."""
+    from lookahead.corrections import merchant_fingerprints
+    from lookahead.recurring_store import load_series, refresh, set_category
+
+    refresh(conn, account)
+    rows = conn.execute(
+        "SELECT fingerprint, merchant FROM category_predictions WHERE account = ?", (account,)
+    )
+    merchant_of = dict(rows.fetchall())
+    for s in load_series(conn, account):
+        if s.direction != "out" or not s.evidence:
+            continue
+        merchant = merchant_of.get(s.evidence[0])
+        covered = merchant_fingerprints(conn, account, merchant) if merchant else []
+        outside = [f for f in covered if f not in set(s.evidence)]
+        if len(outside) >= 2 and set(s.evidence) <= set(covered):
+            set_category(conn, account, s, "Subscriptions", date(2026, 9, 20))
+            refresh(conn, account)  # as the Recurring page does
+            correct_row(conn, account, outside[0], "Gifts & donations", date(2026, 9, 20))
+            return merchant, list(s.evidence), outside[0], outside[1:]
+    raise AssertionError("no merchant with both series and non-series rows")
+
+
+def test_a_whole_merchant_move_stores_only_the_rows_it_moves(conn: sqlite3.Connection) -> None:
+    from lookahead.budgets import move_merchant
+    from lookahead.corrections import corrections
+    from lookahead.views import transactions
+
+    merchant, in_series, own_row, rest = mixed_merchant(conn)
+    before = dict(corrections(conn, "synthetic-A"))
+    result = move_merchant(conn, "synthetic-A", merchant, "Groceries", date(2026, 9, 21))
+    assert result.kept_by_series == len(in_series) and result.kept_by_row == 1
+    assert result.moved == len(rest) and result.covered == len(in_series) + 1 + len(rest)
+    after = corrections(conn, "synthetic-A")
+    stored = {f for f in after if after[f] != before.get(f)}
+    assert stored == set(rest)  # never the series payments, never the one-row-corrected row
+    shown = transactions(conn, "synthetic-A")
+    category = dict(zip(shown["fingerprint"], shown["category"], strict=True))
+    assert all(category[f] == "Groceries" for f in rest)
+    assert all(category[f] == "Subscriptions" for f in in_series)
+    assert category[own_row] == "Gifts & donations"
+    # Clearing the series' category later brings back each payment's own category, not Groceries.
+    from lookahead.recurring_store import load_series, refresh, set_category
+
+    series = next(s for s in load_series(conn, "synthetic-A") if s.evidence[0] in in_series)
+    set_category(conn, "synthetic-A", series, None, date(2026, 9, 22))
+    refresh(conn, "synthetic-A")
+    shown = transactions(conn, "synthetic-A")
+    category = dict(zip(shown["fingerprint"], shown["category"], strict=True))
+    assert not any(category[f] == "Groceries" for f in in_series)
+
+
+def test_a_second_move_to_the_same_category_moves_nothing(conn: sqlite3.Connection) -> None:
+    from lookahead.budgets import merchant_move_message, move_merchant
+
+    merchant, in_series, _, rest = mixed_merchant(conn)
+    move_merchant(conn, "synthetic-A", merchant, "Groceries")
+    again = move_merchant(conn, "synthetic-A", merchant, "Groceries")
+    assert again.moved == 0  # they already show Groceries: nothing stored, nothing counted
+    assert merchant_move_message(again).startswith("No row of this merchant was moved.")
+    assert len(rest) > 0 and len(in_series) > 0
+
+
+def test_the_move_message_counts_only_moved_rows() -> None:
+    from lookahead.budgets import MerchantMove, merchant_move_message
+
+    assert merchant_move_message(MerchantMove(5, 3, 1, 1)) == (
+        "Moved 3 rows of this merchant. 1 is a payment of a recurring series you gave a category "
+        "and keep it: change it on the Recurring page. 1 has a category you set one row at a "
+        "time and keep it."
+    )
+    assert merchant_move_message(MerchantMove(1, 1, 0, 0)) == "Moved 1 row of this merchant."
+    assert merchant_move_message(MerchantMove(4, 0, 4, 0)).startswith(
+        "No row of this merchant was moved. 4 are payments"
+    )
+
+
+def test_home_says_already_over_like_the_tab() -> None:
+    from lookahead.budget_alerts import BudgetEpisode, alert_message, home_line
+
+    def episode(spent: int) -> BudgetEpisode:
+        return BudgetEpisode(1, "a", "Shopping", "2026-09", date(2026, 9, 10), date(2026, 9, 10),
+                             None, None, 1.0, 10_000, spent, 15_000, {})  # fmt: skip
+
+    over = episode(12_000)
+    assert home_line(over) == alert_message(over)
+    assert home_line(over).startswith("You're already over this budget: Shopping")
+    assert "simulated futures" not in home_line(over)
+    assert "100% of simulated futures" in home_line(episode(6_000))

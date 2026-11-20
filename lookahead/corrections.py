@@ -17,6 +17,7 @@ corrected merchant are covered by the retrained model instead (it reuses the lab
 """
 
 import sqlite3
+from collections.abc import Collection
 from datetime import date
 
 import pandas as pd
@@ -110,12 +111,18 @@ def merchant_fingerprints(conn: sqlite3.Connection, account: str, merchant: str)
 
 def correct_merchant(
     conn: sqlite3.Connection, account: str, merchant: str, category: str,
-    when: date | None = None,
+    when: date | None = None, only: Collection[str] | None = None,
 ) -> int:  # fmt: skip
-    """Set the category of every such row of a merchant. Returns the rows written."""
+    """Set the category of every such row of a merchant (or, with `only`, of those of them in
+    `only`). Returns the rows written."""
     if category not in CATEGORIES:
         raise ValueError(f"unknown category {category!r}")
     fingerprints = merchant_fingerprints(conn, account, merchant)
+    if only is not None:
+        keep = set(only)
+        fingerprints = [f for f in fingerprints if f in keep]
+    if not fingerprints:
+        return 0
     _store(conn, account, fingerprints, category, "merchant", when)
     return len(fingerprints)
 

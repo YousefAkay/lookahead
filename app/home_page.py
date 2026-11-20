@@ -26,6 +26,7 @@ from app.theme import (  # noqa: E402
     status_card_html,
     top_bar,
 )
+from lookahead.budget_alerts import home_line  # noqa: E402
 from lookahead.db import connect_readonly  # noqa: E402
 from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
@@ -162,12 +163,8 @@ if look is not None:
                 f"{fmt_date(e.low_day)} (an estimate)."
             )
             links.append(link_button_html("See the forecast", "/Forecast", query))
-        for b in look.budgets:
-            st.markdown(
-                f"Possible overspend in {b.category}: {b.probability:.0%} of simulated futures "
-                f"end the month above your {money(b.limit_cents, markdown=True)} budget "
-                "(an estimate)."
-            )
+        for b in look.budgets:  # a dollar sign would start maths in markdown
+            st.markdown(home_line(b).replace("$", "\\$"))
         if look.budgets:
             links.append(link_button_html("Budgets", "/Budgets", query))
         if links:

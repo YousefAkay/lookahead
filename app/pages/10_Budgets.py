@@ -53,7 +53,9 @@ from lookahead.budgets import (  # noqa: E402
     check_limit,
     is_stale,
     load_limits,
+    merchant_move_message,
     month_key,
+    move_merchant,
     on_budget,
     proposals_for,
     remove,
@@ -63,7 +65,6 @@ from lookahead.budgets import (  # noqa: E402
     waiting_proposals,
 )
 from lookahead.corrections import (  # noqa: E402
-    correct_merchant,
     correct_row,
     merchant_fingerprints,
 )
@@ -374,33 +375,31 @@ for s in shown:
                 if move and fingerprint is not None and target is not None:
                     merchant = by_fp.loc[fingerprint, "merchant"]
                     whole = scope == WHOLE_MERCHANT and isinstance(merchant, str) and merchant
-                    covered = merchant_fingerprints(conn, account, merchant) if whole else []
-                    in_series = series_categorized(covered if whole else [fingerprint],
-                                                   source_of)  # fmt: skip
-                    if whole and not covered:
+                    if whole and not merchant_fingerprints(conn, account, merchant):
                         st.warning(  # a whole-merchant move would change nothing: say so
                             "A rule decides every row of this merchant, so a whole-merchant "
                             'move cannot change them. Choose "Just this row" instead.'
                         )
-                    elif not whole and in_series:
+                    elif whole:
+                        try:
+                            result = move_merchant(conn, account, merchant, target)
+                        except ValueError as e:
+                            st.error(str(e))
+                        else:
+                            message = merchant_move_message(result)
+                            if result.moved == 0:  # nothing stored: say why, stay here
+                                warn(message)
+                                if result.kept_by_series:
+                                    recurring_link()
+                            else:  # shown after the page reloads
+                                st.session_state[FLASH] = message
+                                st.rerun()
+                    elif series_categorized([fingerprint], source_of):
                         warn(SERIES_NOTE)  # the series' category wins: never store it silently
                         recurring_link()
-                    elif whole and len(in_series) == len(covered):
-                        warn("Every row of this merchant is a payment of a recurring series "
-                             "you gave a category. Change it on the Recurring page.")  # fmt: skip
-                        recurring_link()
                     else:
-                        if in_series:  # shown after the page reloads
-                            st.session_state[FLASH] = (
-                                f"Moved {len(covered) - len(in_series)} rows of this merchant. "
-                                f"{len(in_series)} are payments of a recurring series you gave a "
-                                "category and keep it: change it on the Recurring page."
-                            )
                         try:
-                            if whole:
-                                correct_merchant(conn, account, merchant, target)
-                            else:
-                                correct_row(conn, account, fingerprint, target)
+                            correct_row(conn, account, fingerprint, target)
                         except ValueError as e:
                             st.error(str(e))
                         else:

@@ -275,6 +275,17 @@ def alert_message(e: BudgetEpisode) -> str:
     )
 
 
+def home_line(e: BudgetEpisode) -> str:
+    """Home's "Needs a look" sentence for a budget alert (plain dollar signs; Home escapes them).
+    Already over: the tab's own words, with no chance quoted."""
+    if e.spent_cents > e.limit_cents:
+        return alert_message(e)
+    return (
+        f"Possible overspend in {e.category}: {e.probability:.0%} of simulated futures end the "
+        f"month above your {_dollars(e.limit_cents)} budget (an estimate)."
+    )
+
+
 def _dollars(cents: int) -> str:
     sign = "-" if cents < 0 else ""
     return f"{sign}${abs(cents) / 100:,.0f}"

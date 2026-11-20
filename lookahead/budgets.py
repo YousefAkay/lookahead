@@ -147,6 +147,59 @@ def series_categorized(fingerprints: Iterable[str], source_of: Mapping[str, obje
     return [f for f in fingerprints if source_of.get(f) == "series"]
 
 
+@dataclass(frozen=True)
+class MerchantMove:
+    """What a whole-merchant move from the budget view did."""
+
+    covered: int  # rows a whole-merchant correction can reach (a rule decides none of them)
+    moved: int  # rows that now show the new category: the only ones a correction was stored for
+    kept_by_series: int  # payments of a series I gave a category: they keep it, nothing stored
+    kept_by_row: int  # rows with their own one-row correction: it wins, nothing stored
+
+
+def move_merchant(
+    conn: sqlite3.Connection, account: str, merchant: str, target: str,
+    when: date | None = None,
+) -> MerchantMove:  # fmt: skip
+    """Move a merchant's rows to `target`, storing a correction only for the rows it actually
+    moves: not payments of a series I gave a category (its category wins, DECISIONS 2026-10-02),
+    not rows with their own one-row correction (it wins over a merchant one), not rows that
+    already show `target`."""
+    from lookahead.corrections import correct_merchant, corrections, merchant_fingerprints
+    from lookahead.views import transactions
+
+    shown = transactions(conn, account)
+    present = set(shown["fingerprint"])  # stored rows only (a prediction can outlive its row)
+    covered = [f for f in merchant_fingerprints(conn, account, merchant) if f in present]
+    shown = shown[shown["fingerprint"].isin(covered)]
+    source_of = dict(zip(shown["fingerprint"], shown["source"], strict=True))
+    category_of = dict(zip(shown["fingerprint"], shown["category"], strict=True))
+    by_series = set(series_categorized(covered, source_of))
+    reach = set(covered)
+    by_row = {f for f, (_, scope) in corrections(conn, account).items()
+              if scope == "row" and f in reach} - by_series  # fmt: skip
+    kept = by_series | by_row
+    moving = [f for f in covered if f not in kept and category_of.get(f) != target]
+    if moving:
+        correct_merchant(conn, account, merchant, target, when, only=moving)
+    return MerchantMove(len(covered), len(moving), len(by_series), len(by_row))
+
+
+def merchant_move_message(m: MerchantMove) -> str:
+    """What the page says after a whole-merchant move: only rows actually moved are counted."""
+    rows = "row" if m.moved == 1 else "rows"
+    parts = [f"Moved {m.moved} {rows} of this merchant." if m.moved
+             else "No row of this merchant was moved."]  # fmt: skip
+    if m.kept_by_series:
+        are = "is a payment" if m.kept_by_series == 1 else "are payments"
+        parts.append(f"{m.kept_by_series} {are} of a recurring series you gave a category and "
+                     "keep it: change it on the Recurring page.")  # fmt: skip
+    if m.kept_by_row:
+        have = "has" if m.kept_by_row == 1 else "have"
+        parts.append(f"{m.kept_by_row} {have} a category you set one row at a time and keep it.")
+    return " ".join(parts)
+
+
 # --- Proposals ---
 
 

@@ -222,7 +222,8 @@ def test_moving_a_whole_merchant_from_the_budget_view(isolated: Path) -> None:
     fingerprint, merchant = next(
         (f, m) for f, m in this_month if len(merchant_fingerprints(conn, account, m)) > 1
     )
-    covered = set(merchant_fingerprints(conn, account, merchant))
+    stored = {r[0] for r in conn.execute("SELECT fingerprint FROM transactions")}
+    covered = set(merchant_fingerprints(conn, account, merchant)) & stored  # rows still stored
     conn.close()
     before = metric_for(at, category, isolated)
     rows_box.set_value(fingerprint)
@@ -419,28 +420,21 @@ def test_a_row_whose_category_comes_from_its_series_is_not_moved_silently(isolat
     assert corrections_count(isolated) == before
 
 
-def test_a_whole_merchant_move_says_what_its_series_keeps(isolated: Path) -> None:
-    from lookahead.corrections import merchant_fingerprints
-
+def test_a_whole_merchant_move_of_only_series_payments_moves_nothing(isolated: Path) -> None:
+    """Every stored Fizz row is a payment of the series given a category: nothing is stored and
+    the page says why, with the Recurring link."""
     at = opened()
     account = at.sidebar.selectbox[0].value
-    payment, merchant = series_with_a_category(isolated, account)
-    conn = connect(isolated / "demo.db")
-    covered = merchant_fingerprints(conn, account, merchant)
-    conn.close()
+    payment, _ = series_with_a_category(isolated, account)
     at = opened()
     button(at, "Looks right, accept all").click().run()
     before = corrections_count(isolated)
     move(at, "Shopping", payment, "Groceries", "All rows of this merchant")
     warnings = " ".join(str(w.value) for w in at.warning)
-    if not covered:
-        assert "A rule decides every row of this merchant" in warnings
-        assert corrections_count(isolated) == before
-    elif "Every row of this merchant is a payment of a recurring series" in warnings:
-        assert corrections_count(isolated) == before  # all in the series: nothing stored
-    else:  # some moved; the page says how many keep their series' category
-        assert "are payments of a recurring series" in warnings
-        assert corrections_count(isolated) > before
+    assert "No row of this merchant was moved." in warnings
+    assert "of a recurring series you gave a category" in warnings
+    assert any("/Recurring" in str(m.value) for m in at.markdown)
+    assert corrections_count(isolated) == before
 
 
 def test_the_add_form_never_mentions_a_zero_limit(isolated: Path) -> None:
@@ -458,3 +452,72 @@ def test_the_add_form_never_mentions_a_zero_limit(isolated: Path) -> None:
     conn = connect(isolated / "demo.db")
     assert "Groceries" not in load_limits(conn, account)
     conn.close()
+
+
+# --- Home's sentence and the mixed whole-merchant move (this round) ---
+
+
+def test_home_says_youre_already_over_like_the_tab(isolated: Path) -> None:
+    from lookahead.budget_alerts import record_look
+    from lookahead.budgets import BudgetMonth, Pace
+
+    home = ROOT / "app" / "Home.py"
+    at = AppTest.from_file(str(home), default_timeout=300).run()
+    account = at.sidebar.selectbox[0].value
+    conn = connect(isolated / "demo.db")
+    over = Pace("Shopping", 2_000, 3_000, 4_000, 1.0, 100, False, ())
+    record_look(conn, account, BudgetMonth(date(2026, 9, 1), date(2026, 9, 14), 16, (over,)),
+                date(2026, 9, 15))  # fmt: skip
+    conn.close()
+    at = AppTest.from_file(str(home), default_timeout=300).run()
+    assert not at.exception, at.exception
+    text = " ".join(str(m.value) for m in at.markdown)
+    assert "You're already over this budget: Shopping" in text
+    assert "of simulated futures end the month above" not in text
+
+
+def test_a_mixed_whole_merchant_move_on_the_tab(isolated: Path) -> None:
+    """Built here: the Fizz series gets the category Shopping (its payments show Shopping), and
+    one more Fizz row this month that is not in the series is added as Shopping. A whole-merchant
+    move to Groceries stores a correction for that one row only and says the series' payments
+    keep their category, after the page reloads."""
+    from lookahead.corrections import corrections
+
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    payment, merchant = series_with_a_category(isolated, account)
+    conn = connect(isolated / "demo.db")
+    in_series = {r[0] for r in conn.execute(
+        "SELECT p.fingerprint FROM category_predictions p JOIN transactions t"
+        " ON t.fingerprint = p.fingerprint WHERE t.account = ? AND p.merchant = ?",
+        (account, merchant))}  # fmt: skip
+    with conn:
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES (?, '2026-09-12', -2500, 'pos purchase', 'Fizz extra', 0, 'fizz-extra',"
+            " 'x.csv', '2026-10-02')",
+            (account,),
+        )
+        conn.execute(
+            "INSERT INTO category_predictions (fingerprint, account, merchant, flow_type,"
+            " category, source, detail, flagged, confidence, model_version, predicted_at)"
+            " VALUES ('fizz-extra', ?, ?, 'everyday', 'Shopping', 'model', '', 0, 0.9, 'test',"
+            " '2026-10-02')",
+            (account, merchant),
+        )
+    before = dict(corrections(conn, account))
+    conn.close()
+    at = opened()
+    button(at, "Looks right, accept all").click().run()
+    move(at, "Shopping", "fizz-extra", "Groceries", "All rows of this merchant")
+    warnings = " ".join(str(w.value) for w in at.warning)
+    kept = len(in_series)
+    assert "Moved 1 row of this merchant." in warnings
+    assert f"{kept} {'is a payment' if kept == 1 else 'are payments'} of a recurring series" in (
+        warnings)  # fmt: skip
+    conn = connect(isolated / "demo.db")
+    after = corrections(conn, account)
+    conn.close()
+    assert {f for f in after if after[f] != before.get(f)} == {"fizz-extra"}
+    assert payment in in_series
