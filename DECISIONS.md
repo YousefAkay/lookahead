@@ -2477,3 +2477,81 @@ The draft's open points are settled (my decisions with my advisor's input); the 
 - **The app now alerts above 35 percent.** The median-lowest clause stays but never adds an alert at 35 percent: a median lowest below the buffer means more than half the futures dip. `eval.metrics` now takes the app's threshold as its default, so the held-out test scores this rule. The old 0.20 is kept only for the earlier studies that compare with it.
 - n is small: 52 episodes from 8 personas, and origins within a persona overlap.
 
+### 2026-11-20: The held-out test of the forecaster, run once
+
+- **What ran:** `python -m eval.held_out` on code commit e09af99, under the protocol of 2026-11-19 (c8392be, sha256 ca78b2151939…), with the alert threshold 0.35. It ran once, on 2026-11-19 from 23:46 to 00:07 Montreal time. The ledger `docs/results/held_out_ledger.jsonl` holds one attempt (05f05543): started, dry run passed, completed. Results: [docs/results/held_out_2026-11-20.md](docs/results/held_out_2026-11-20.md). The held-out data is now used. There is no second run, and nothing is tuned after it.
+- **Dry run:** the same command first ran the development pools and reproduced every compared row of `docs/results/scores_development_2026-11-19.md` (13 rows × 3 columns). Only then were the held-out pools opened.
+- **Results, pooled over scored origins** (development → held-out). Synthetic amounts are dollars; Berka amounts are scaled units.
+  - **12-month set:**
+    - origins: 726 scored of 800 (20 personas) → 320 scored of 400 (10 personas); dips 125 → 88.
+    - CRPS skill, mean of 30 days: vs stays +28.3% → +26.4%; vs walk +10.0% → +9.1%.
+    - CRPS skill, day 30: vs stays +16.9% → +21.6%; vs walk −4.2% → +1.7%.
+    - 80% band coverage: day 30 49.0% → 56.2%; all 30 days 58.9% → 61.8%.
+    - Brier skill vs stays / vs walk: +65.2% / +23.0% → +60.2% / +8.6%.
+    - lowest-balance bias: +708 → +1,176.
+  - **24-month set:**
+    - origins: 717 of 800 (20) → 329 of 400 (10); dips 123 → 49.
+    - CRPS skill, mean of 30 days: vs stays +33.6% → +27.9%; vs walk +9.2% → +3.4%.
+    - CRPS skill, day 30: vs stays +22.9% → +22.0%; vs walk −11.4% → −10.1%.
+    - coverage: day 30 58.7% → 58.4%; all days 63.1% → 64.0%.
+    - Brier skill vs stays / vs walk: +80.2% / +43.0% → +61.2% / −4.3%.
+    - bias: +625 → +1,034.
+  - **Berka primary:**
+    - origins: 7,135 of 8,000 (200 accounts) → 7,159 of 8,000 (200); dips 818 → 848.
+    - CRPS skill, mean of 30 days: vs stays +27.8% → +27.6%; vs walk +3.0% → +2.4%.
+    - CRPS skill, day 30: vs stays +10.7% → +8.7%; vs walk −20.5% → −23.0%.
+    - coverage: day 30 75.3% → 77.8%; all days 57.0% → 58.3%.
+    - Brier skill vs stays / vs walk: +32.7% / −5.9% → +32.5% / −7.3%.
+    - bias: +136 → +96.
+- **Results, averaged per unit** (archetypes for synthetic, accounts for Berka; units included in brackets): CRPS skill, mean of 30 days, vs stays / vs walk:
+  - 12-month: +40.8% / +24.8% (8) → +46.9% / +33.5% (8).
+  - 24-month: +47.8% / +29.4% (8) → +46.6% / +29.9% (8).
+  - Berka primary: +30.0% / +6.8% (200) → +31.6% / +8.1% (200).
+  - The rest, including the per-unit dips caught, is in the result file.
+- **Dips caught at 0.35** (pooled; development → held-out). Two meanings of caught:
+  - *alert on* (caught_on): an alert was on in the 30 days before the dip;
+  - *alert opened* (caught): an alert opened at an ordinary origin before the dip.
+
+  The figures:
+  - **12-month:**
+    - forecast: alert on 47/52 → 34/42; alert opened 25/52 → 21/42; precision 76% (22/29) → 62% (13/21); false alerts per 30 days 0.041 → 0.107.
+    - random walk at 0.35: alert on 48/52 → 37/42; alert opened 13/52 → 13/42; precision 41% (13/32) → 47% (15/32); false alerts per 30 days 0.112 → 0.228.
+  - **24-month:**
+    - forecast: alert on 45/51 → 17/24; alert opened 16/51 → 8/24; precision 68% (15/22) → 78% (7/9); false alerts per 30 days 0.042 → 0.026.
+    - walk: 44/51 → 16/24; 12/51 → 1/24; precision 47% (9/19) → 50% (1/2); false alerts per 30 days 0.060 → 0.013.
+  - **Berka primary:**
+    - forecast: alert on 238/283 → 265/301; alert opened 174/283 → 193/301; precision 34% (199/579) → 36% (227/627); false alerts per 30 days 0.228 → 0.239.
+    - walk: 217/283 → 252/301; 123/283 → 139/301; precision 33% (124/381) → 34% (143/424); false alerts per 30 days 0.154 → 0.168.
+  - The development column is the dry run at the fixed 0.35. On the 12-month set it equals the threshold report's "all 20 together" figures (76%, 22 of 29), not its leave-one-persona-out figures (73%, 22 of 30).
+- **Berka sensitivity** (secondary; decides nothing, never pooled with primary):
+  - 7,424 scored origins of 8,000 (198 accounts) → 7,700 (200).
+  - CRPS skill, mean of 30 days, vs stays / vs walk: +30.6% / +8.7% → +31.1% / +8.7%.
+  - Day 30 vs walk: −17.8% → −20.8%.
+  - Coverage all days: 45.9% → 48.1%.
+  - Forecast dips, alert on: 148/172 → 91/119. Precision: 36% (127/354) → 29% (90/311).
+- **Zero-estimate origins** (Berka primary, reported apart): 466 scored (81 accounts) → 483 (83). CRPS skill vs walk, mean of 30 days: +0.4% → −1.0%.
+- **Neighbouring weekly origins share outcomes,** so the effective n is smaller than the n shown. This applies most to the synthetic held-out pools (10 personas, 24 to 42 dip episodes).
+- **Disclosed: what was known about the held-out personas before the run.** The protocol says "no transaction or forecast of theirs has been made". That was not accurate:
+  - **Forecasts of v2-SAL-04 in tests.** Two tests in `tests/test_backtest.py` forecast held-out persona v2-SAL-04 on every full suite run. One was added on 2026-10-08 (b4944a6) and the other on 2026-10-11 (b36288d). One used 1 origin; the other used 2 origins with 20 futures. Both ran in a temporary folder and checked only the record's label and folder; no outcome was printed or compared. Both were removed before the run (adc9ac4).
+  - **Generated balances, 2026-10-08 to 2026-10-09, while I built the generator.** Three records in this file show the generated histories (seed 42) of held-out 12-month personas. No forecast, error, coverage, Brier or alert result existed for any persona at the time.
+    1. **2026-10-08, "Mix v2 … one finding" (a5f6913).** Approximate closing balances from looking at generated histories, among them two held-out personas: v2-ITIGHT-04 about −$4,100 and v2-DRENT-04 about −$5,400. The coverage-ratio revision that followed names only development personas as its reasons (v2-IFAM-01, v2-ITIGHT-01, v2-ITIGHT-02), but it applies to every student persona, held-out ones included.
+    2. **2026-10-08, "The 30 personas after the coverage-ratio revision" (committed b02ac48 on 2026-10-09; made with `python -m eval.persona_report`).** One row per persona, all 10 held-out 12-month personas included: coverage ratio, buffer, lowest balance, closing balance, and how many of the 40 weekly origins start below the buffer.
+    3. **2026-10-09, the last generator revision and its result (48d8185; `python -m eval.persona_report --check`).** The revision names two reasons. One is a held-out persona: v2-FREE-02 started below its buffer at 26 of 40 origins. The FREE deposits were rescaled, which changes v2-FREE-01 (development) and v2-FREE-02 (held out). The ITIGHT change (lower opening balance, a second family transfer) applies to held-out v2-ITIGHT-04 and -05 too. The table after the revision has the same columns for all 30 personas. The acceptance checks, written before regenerating, ran on all 30. Held-out v2-ITIGHT-04 failed the no-runaway check and was recorded as a known limitation, not changed. The mix was frozen that day, before the first backtest.
+    - **The origins-below-the-buffer column in the 2026-10-09 table** is the count of held-out origins the test does not score. The six non-zero held-out 12-month counts add up to 80 (v2-ITIGHT-04 24, v2-ITIGHT-05 4, v2-DRENT-04 18, v2-DRENT-05 11, v2-TIGHT-04 14, v2-FREE-02 9), which equals 400 − 320 in the held-out result.
+    - **Nothing about the forecaster was chosen from these records.** The forecaster's settings and the 0.35 threshold were chosen on development personas only. What was changed was the generator (the data), and one of the two named reasons was a held-out persona.
+    - **Code:** until 3ef32b4, `eval.persona_report` and the generator command (`python -m lookahead.generator.archetypes`) printed these numbers for held-out personas on request. From 48d8185 to 3ef32b4, `eval/persona_report.py` stored v2-SAL-04's and v2-SEM-02's lowest and closing balances for check 4. Both commands now refuse held-out personas.
+    - **24-month held-out personas and held-out Berka accounts:** I found no record of their data being seen. For the 24-month personas there are only tests that check they are refused. For Berka there are only the id lists in the split file and two tests that check the first id is refused.
+  - **Definitions.** `tests/test_archetypes.py` checks the held-out personas' definitions: summer term, aid, tuition and family-money plans. These are inputs, not balances.
+- **Found before the run and fixed:**
+  - **The rehearsal bug.** I rehearsed the result-file step on the saved development records. The dips-caught results overwrote the dips count in the pooled summary, and the result-file step crashed. In the real run this would have happened after the ledger said "completed", so the result file would never have been written. Fixed in adc9ac4.
+  - **A broken test.** adc9ac4 removed an argument that `eval/keeps_coming_eval.py` still passed, which broke one test. The full-suite gate on adc9ac4 never finished, because the session ended. The quick subset found it, and it was fixed in 3ef32b4.
+  - **The reviewer's first round on the harness (FAIL),** five blocking points:
+    - the harness's helpers could open held-out data outside a run;
+    - held-out records were written before "completed", and a hard kill was not recorded;
+    - this disclosure was missing;
+    - day-30 CRPS was not shown;
+    - `main()` had no tests.
+
+    The first two, the day-30 CRPS and the tests were fixed in e09af99. The disclosure is this entry. Reviewer PASS on e09af99; full suite 2,885 passed.
+  - **The result file can be rebuilt from the ledger alone** (`python -m eval.held_out --rebuild`). Its output is byte-identical to the original, which a test checks.
+- **Not done:** the reviewer's non-blocking notes on the harness (for example, per-unit false alerts drop units with no rate; the dry run loads the whole Berka table before filtering). None changes a computed number.
