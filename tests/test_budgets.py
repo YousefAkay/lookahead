@@ -501,7 +501,7 @@ def test_the_budgets_are_the_same_as_on_a_copy_cut_at_the_data_date(
     cut.close()
 
 
-# --- The chance when spent so far is already over (his check, 2026-11-20) ---
+# --- The chance when spent so far is already over ---
 
 
 def test_the_chance_rule() -> None:

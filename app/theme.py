@@ -1097,7 +1097,7 @@ def budget_chart(spent_cents: int, likely_end_cents: int, limit_cents: int) -> g
     top = max(*values, 1.0)
     figure.update_layout(template=TEMPLATE, height=180, hovermode="closest", bargap=0.3,
                          margin={"l": 8, "r": 16, "t": 8, "b": 8})  # fmt: skip
-    figure.update_xaxes(range=[min(0.0, values[0]) * 1.1, top * 1.15], tickformat="$~s",
+    figure.update_xaxes(range=[min(0.0, *values) * 1.1, top * 1.15], tickformat="$~s",
                         hoverformat="$,.2f")  # fmt: skip
     return figure
 

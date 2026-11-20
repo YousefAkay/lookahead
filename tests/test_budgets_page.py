@@ -265,7 +265,7 @@ def test_a_whole_merchant_move_on_a_rule_merchant_says_why(isolated: Path) -> No
     assert account
 
 
-# --- His real-data check of 2026-11-20 ---
+# --- Prefilled limits, $0 refused, the heading, figures and chart ---
 
 
 def test_before_looks_right_the_limit_box_holds_the_proposal(isolated: Path) -> None:
@@ -580,7 +580,7 @@ def test_a_later_categorizer_run_cannot_split_a_moved_merchant(isolated: Path) -
     assert all(new[f] == "Groceries" for f in covered)  # the move does not
 
 
-# --- A month where refunds are larger than spending (his data, 2026-11-20) ---
+# --- A month where refunds are larger than spending ---
 
 
 def test_refunds_larger_than_spending_show_as_minus_dollars_with_a_note(isolated: Path) -> None:

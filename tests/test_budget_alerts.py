@@ -205,3 +205,15 @@ def test_dollars_put_the_minus_sign_before_the_dollar_sign() -> None:
     from lookahead.budget_alerts import _dollars
 
     assert _dollars(-2_500) == "\u2212$25" and _dollars(2_500) == "$25"
+
+
+def test_the_chart_shows_a_likely_end_below_spent_so_far() -> None:
+    from app.theme import budget_chart
+
+    figure = budget_chart(-50_000, -70_000, 10_000)  # refunds drawn in the futures go lower
+    low = figure.layout.xaxis.range[0]
+    labels = dict(zip(figure.data[0].y, figure.data[0].text, strict=True))
+    assert low <= -700
+    assert labels["Spent so far"] == "−$500.00"
+    assert labels["Likely end of month"] == "−$700.00"
+    assert labels["Limit"] == "$100.00"
