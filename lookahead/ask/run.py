@@ -50,6 +50,7 @@ class Context:
     today: date
     key: bytes | None = None
     choices: Mapping[str, str] = field(default_factory=dict)
+    limits: Mapping[str, int | None] | None = None  # demo mode: the session's budgets
     _cache: dict[str, Any] = field(default_factory=dict)
 
     def cached(self, name: str, make: Callable[[], Any]) -> Any:
@@ -355,6 +356,8 @@ def _step(step: Any, ctx: Context, out: Outcome) -> Any:
         return _compare(step, v[step.a], v[step.b])
     if isinstance(step, ListRows):
         return _list(step, v[step.source])
+    if not ENGINE_BLOCKS:
+        import lookahead.ask.engine  # noqa: F401  (registers the engine blocks)
     engine = ENGINE_BLOCKS.get(step.op)
     if engine is None:
         raise Stop("refused", Refusal("unsupported"))

@@ -37,6 +37,9 @@ REFUSALS: dict[str, str] = {
     # Not a plan's reason: said by the run when the data cannot answer at all.
     "no_categories": "Ask needs categories first: run the categorizer (Transactions page).",
     "no_data": "There is no data for this account yet: import a bank export first.",
+    "before_forecast": "I can't answer that: the forecast starts the day after your data ends.",
+    "no_amount": "I can't answer that: the amount it needs came out empty (no matching rows).",
+    "no_budget": "You have no budget set for that. Set one on the Budgets tab first.",
 }
 CLARIFY: dict[str, str] = {
     "subject": "Which category, merchant or payment do you mean? Try asking again with a name.",
