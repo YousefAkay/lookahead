@@ -144,7 +144,19 @@ def test_restore_and_unknown_episodes(conn: sqlite3.Connection) -> None:
         restore(conn, ACCOUNT, 999)
 
 
+def posted(conn: sqlite3.Connection, day: str) -> None:
+    """A stored row, so the account's data ends on `day`."""
+    with conn:
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES (?, ?, -100, 'pos purchase', 'x', 0, ?, 'x.csv', '2026-10-02')",
+            (ACCOUNT, day, f"fp-{day}"),
+        )
+
+
 def test_home_counts_open_budget_alerts(conn: sqlite3.Connection) -> None:
+    posted(conn, "2026-09-10")
     assert not needs_a_look(conn, ACCOUNT).anything
     [r] = look(conn, date(2026, 9, 10), pace(0.9))
     look_now = needs_a_look(conn, ACCOUNT)
@@ -158,3 +170,22 @@ def test_an_old_read_only_database_has_no_budget_alerts(tmp_path: Path) -> None:
     raw.execute("CREATE TABLE transactions (id INTEGER)")
     assert budget_episodes(raw, ACCOUNT) == []
     raw.close()
+
+
+def test_home_leaves_out_an_alert_from_an_earlier_month(conn: sqlite3.Connection) -> None:
+    """N4: after an import into the next month, Home no longer lists last month's budget alert,
+    even before the Budgets tab looks again and ends it."""
+    posted(conn, "2026-09-20")
+    look(conn, date(2026, 9, 20), pace(0.9))
+    assert [e.month for e in needs_a_look(conn, ACCOUNT).budgets] == ["2026-09"]
+    posted(conn, "2026-09-30")  # data to the 30th: the budget month is now October
+    assert needs_a_look(conn, ACCOUNT).budgets == ()
+    assert open_budget_alerts(conn, ACCOUNT)  # still open in the store until the tab looks
+    look(conn, date(2026, 10, 9), pace(0.9))
+    posted(conn, "2026-10-09")
+    assert [e.month for e in needs_a_look(conn, ACCOUNT).budgets] == ["2026-10"]
+
+
+def test_home_with_no_rows_lists_no_budget_alert(conn: sqlite3.Connection) -> None:
+    look(conn, date(2026, 9, 20), pace(0.9))
+    assert needs_a_look(conn, ACCOUNT).budgets == ()

@@ -8,9 +8,11 @@ Recurring, Forecast and Budgets pages keep the episodes up to date.
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 from lookahead.alerts import Episode, active_alert
 from lookahead.budget_alerts import BudgetEpisode, open_budget_alerts
+from lookahead.budgets import month_key
 from lookahead.recurring_alerts import open_alerts
 
 
@@ -36,4 +38,19 @@ def needs_a_look(conn: sqlite3.Connection, account: str) -> NeedsALook:
         shortfall = active_alert(conn, account)
     except sqlite3.OperationalError:
         shortfall = None
-    return NeedsALook(recurring, shortfall, tuple(open_budget_alerts(conn, account)))
+    return NeedsALook(recurring, shortfall, current_budget_alerts(conn, account))
+
+
+def current_budget_alerts(conn: sqlite3.Connection, account: str) -> tuple[BudgetEpisode, ...]:
+    """Open budget alerts of the current budget month only: the month of the day after the last
+    posted row, as on the Budgets tab. An earlier month's alert ends only when the tab next looks,
+    so after an import Home would otherwise still list it."""
+    try:
+        row = conn.execute("SELECT MAX(posted_date) FROM transactions WHERE account = ?",
+                           (account,)).fetchone()  # fmt: skip
+    except sqlite3.OperationalError:  # an old read-only database: nothing to list
+        return ()
+    if not row or not row[0]:
+        return ()
+    current = month_key(date.fromisoformat(row[0]) + timedelta(days=1))
+    return tuple(e for e in open_budget_alerts(conn, account) if e.month >= current)
