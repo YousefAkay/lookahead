@@ -1088,7 +1088,7 @@ def budget_chart(spent_cents: int, likely_end_cents: int, limit_cents: int) -> g
         x=list(reversed(values)),
         orientation="h",
         marker_color=[COLORS.amber_line if over else COLORS.blue, COLORS.muted, COLORS.green],
-        text=[f"${v:,.2f}" for v in reversed(values)],
+        text=[money(round(v * 100)) for v in reversed(values)],  # "−$5.00", never "$-5.00"
         textposition="auto",
         hovertemplate="%{y}: %{x:$,.2f}<extra></extra>",
         name="budget",

@@ -44,6 +44,8 @@ from lookahead.budgets import (  # noqa: E402
     ALREADY_OVER,
     BIG_ONE_OFF_NOTE,
     OPTIONAL_CATEGORIES,
+    REFUNDS_CHART_NOTE,
+    REFUNDS_NOTE,
     SERIES_NOTE,
     STALE_NOTE,
     addable,
@@ -318,6 +320,8 @@ for s in shown:
 
         a, b = st.columns(2)  # two rows of two: the four figures stay readable on a narrow window
         a.metric("Spent so far", money(pace.spent_cents))
+        if pace.spent_cents < 0:  # refunds count, so a month can be below $0: say why
+            a.caption(REFUNDS_NOTE)
         b.metric("Limit", money(pace.limit_cents))
         c, d = st.columns(2)
         c.metric("Likely end of month", money(pace.likely_end_cents))
@@ -325,6 +329,8 @@ for s in shown:
                  "Already over" if pace.already_over else f"{pace.chance_over:.0%}")  # fmt: skip
         st.plotly_chart(budget_chart(pace.spent_cents, pace.likely_end_cents, pace.limit_cents),
                         key=f"bu_chart_{s.category}", config={"displayModeBar": False})  # fmt: skip
+        if pace.spent_cents < 0:
+            note(REFUNDS_CHART_NOTE)
         if pace.big_one_off:
             note(BIG_ONE_OFF_NOTE)
 

@@ -199,3 +199,9 @@ def test_already_over_says_so_instead_of_quoting_a_chance(conn: sqlite3.Connecti
     assert "%" not in message and "simulated futures" not in message
     look(conn, date(2026, 9, 11), pace(0.9, spent=6_000))  # not over: the chance again
     assert "90% of simulated futures" in alert_message(budget_episodes(conn, ACCOUNT)[0])
+
+
+def test_dollars_put_the_minus_sign_before_the_dollar_sign() -> None:
+    from lookahead.budget_alerts import _dollars
+
+    assert _dollars(-2_500) == "\u2212$25" and _dollars(2_500) == "$25"

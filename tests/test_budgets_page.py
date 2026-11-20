@@ -578,3 +578,47 @@ def test_a_later_categorizer_run_cannot_split_a_moved_merchant(isolated: Path) -
     assert all(old[f] == "Groceries" for f in covered if f != crafted)
     new = after_run(isolated / "demo.db", new_move)
     assert all(new[f] == "Groceries" for f in covered)  # the move does not
+
+
+# --- A month where refunds are larger than spending (his data, 2026-11-20) ---
+
+
+def test_refunds_larger_than_spending_show_as_minus_dollars_with_a_note(isolated: Path) -> None:
+    import json
+
+    from lookahead.budgets import REFUNDS_CHART_NOTE, REFUNDS_NOTE, set_limit
+
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    conn = connect(isolated / "demo.db")
+    with conn:  # a $500 Shopping refund this month: larger than the month's Shopping purchases
+        conn.execute(
+            "INSERT INTO transactions (account, posted_date, amount_cents, description,"
+            " sub_description, balance_after_cents, fingerprint, source_file, imported_at)"
+            " VALUES (?, '2026-09-10', 50000, 'pos return', 'Big Store return', 0,"
+            " 'big-refund', 'x.csv', '2026-10-02')",
+            (account,),
+        )
+        conn.execute(
+            "INSERT INTO category_predictions (fingerprint, account, merchant, flow_type,"
+            " category, source, detail, flagged, confidence, model_version, predicted_at)"
+            " VALUES ('big-refund', ?, 'Big Store', 'refund', 'Shopping', 'model', '', 0, 0.9,"
+            " 'test', '2026-10-02')",
+            (account,),
+        )
+    set_limit(conn, account, "Shopping", 10_000)
+    conn.close()
+    at = opened()
+    assert not at.exception, at.exception
+    [spent] = [m.value for m in at.metric if m.label == "Spent so far"]
+    assert spent.startswith("\u2212$")  # −$X: a real minus sign before the dollar sign
+    assert REFUNDS_NOTE in [str(c.value) for c in at.caption]
+    notes = " ".join(str(m.value) for m in at.markdown)
+    assert REFUNDS_CHART_NOTE.replace("$", "&#36;") in notes
+    [chart] = at.get("plotly_chart")
+    bars = json.loads(chart.proto.spec)["data"][0]
+    label = bars["text"][bars["y"].index("Spent so far")]
+    assert label == spent and bars["x"][bars["y"].index("Spent so far")] < 0  # sign kept
+    shown = [notes, *(str(m.value) for m in at.metric), *(str(w.value) for w in at.warning),
+             *bars["text"]]  # fmt: skip
+    assert not any("$-" in text for text in shown)

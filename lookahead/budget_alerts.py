@@ -287,5 +287,6 @@ def home_line(e: BudgetEpisode) -> str:
 
 
 def _dollars(cents: int) -> str:
-    sign = "-" if cents < 0 else ""
+    """$1,234, or −$1,234 (a real minus sign in front of the dollar sign, as on the pages)."""
+    sign = "\u2212" if cents < 0 else ""
     return f"{sign}${abs(cents) / 100:,.0f}"

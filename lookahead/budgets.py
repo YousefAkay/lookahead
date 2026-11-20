@@ -57,6 +57,10 @@ BIG_ONE_OFF_NOTE = (
     "estimate never repeats it."
 )
 ALREADY_OVER = "You're already over this budget"
+REFUNDS_NOTE = "Refunds so far are larger than spending this month."
+REFUNDS_CHART_NOTE = (
+    "The spent bar is below $0 because refunds so far are larger than spending this month."
+)
 SERIES_NOTE = (
     "This row is a payment of a recurring series you gave a category, and every payment of a "
     "series shows the series' category. Change it on the Recurring page."
