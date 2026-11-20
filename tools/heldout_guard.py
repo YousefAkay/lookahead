@@ -5,8 +5,8 @@ subagent, with the call as JSON on stdin; exit code 2 blocks it. It blocks any c
 the held-out folder, or that could reach it through a wildcard or a recursive search of data/,
 unless the caller is one of the named writer subagents, and then only for its own files:
 
-- ask-heldout-questions: writes and reads questions_agent.jsonl;
-- ask-gold-a / ask-gold-b: read the question files, write and read their own gold file
+- heldout-questions: writes and reads questions_agent.jsonl;
+- heldout-gold-a / heldout-gold-b: read the question files, write and read their own gold file
   (gold_a.jsonl / gold_b.jsonl), never the other one;
 - each may also run `python -m eval.ask_heldout` (counts and fingerprints only).
 
@@ -35,10 +35,10 @@ RECURSIVE = re.compile(r"\b(grep|rg|ag)\b[^|;&]*\s-\w*[rR]|\bfind\b|\bls\b[^|;&]
 DATA = re.compile(r"(^|[\s\"'=/])data([\\/]|\s|$|[\"'])")
 QUESTION_FILES = ("questions_agent.jsonl", "questions_yousef.txt")
 WRITERS: dict[str, dict[str, tuple[str, ...]]] = {
-    "ask-heldout-questions": {"read": ("questions_agent.jsonl",),
+    "heldout-questions": {"read": ("questions_agent.jsonl",),
                               "write": ("questions_agent.jsonl",)},
-    "ask-gold-a": {"read": (*QUESTION_FILES, "gold_a.jsonl"), "write": ("gold_a.jsonl",)},
-    "ask-gold-b": {"read": (*QUESTION_FILES, "gold_b.jsonl"), "write": ("gold_b.jsonl",)},
+    "heldout-gold-a": {"read": (*QUESTION_FILES, "gold_a.jsonl"), "write": ("gold_a.jsonl",)},
+    "heldout-gold-b": {"read": (*QUESTION_FILES, "gold_b.jsonl"), "write": ("gold_b.jsonl",)},
 }  # fmt: skip
 ALLOWED_COMMAND = re.compile(r"^\S*python3?\s+-m\s+eval\.ask_heldout(\s+[\w=.\-]+)*\s*$")
 # The main repository folder's logs/ (the hook runs a copy from .claude/hooks/).

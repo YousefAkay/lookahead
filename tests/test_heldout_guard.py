@@ -44,16 +44,20 @@ def test_the_session_is_refused_every_way_in(tool: str, args: dict[str, str]) ->
 
 def test_each_writer_reaches_only_its_own_files() -> None:
     q, a, b = (f"{FOLDER}/{n}" for n in ("questions_agent.jsonl", "gold_a.jsonl", "gold_b.jsonl"))
-    assert call("Write", "ask-heldout-questions", file_path=q)
-    assert not call("Read", "ask-heldout-questions", file_path=a)
-    assert call("Read", "ask-gold-a", file_path=q) and call("Write", "ask-gold-a", file_path=a)
-    assert not call("Read", "ask-gold-a", file_path=b)  # never the other gold set
-    assert not call("Write", "ask-gold-a", file_path=q)  # never the questions
-    assert call("Read", "ask-gold-b", file_path=b) and not call("Read", "ask-gold-b", file_path=a)
-    assert call("Bash", "ask-gold-a", command="../lookahead/.venv/bin/python -m eval.ask_heldout "
-                                              "check-gold --which a")  # fmt: skip
-    assert not call("Bash", "ask-gold-a", command=f"cat {b}")
-    assert not call("Grep", "ask-gold-a", pattern="x", path=FOLDER)
+    assert call("Write", "heldout-questions", file_path=q)
+    assert not call("Read", "heldout-questions", file_path=a)
+    assert call("Read", "heldout-gold-a", file_path=q) and call(
+        "Write", "heldout-gold-a", file_path=a
+    )
+    assert not call("Read", "heldout-gold-a", file_path=b)  # never the other gold set
+    assert not call("Write", "heldout-gold-a", file_path=q)  # never the questions
+    assert call("Read", "heldout-gold-b", file_path=b) and not call(
+        "Read", "heldout-gold-b", file_path=a
+    )
+    check = "../lookahead/.venv/bin/python -m eval.ask_heldout check-gold --which a"
+    assert call("Bash", "heldout-gold-a", command=check)
+    assert not call("Bash", "heldout-gold-a", command=f"cat {b}")
+    assert not call("Grep", "heldout-gold-a", pattern="x", path=FOLDER)
 
 
 def test_the_code_and_other_data_are_not_blocked() -> None:
