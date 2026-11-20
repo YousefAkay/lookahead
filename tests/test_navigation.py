@@ -21,7 +21,8 @@ from lookahead.needs_a_look import needs_a_look
 APP = Path(__file__).resolve().parents[1] / "app"
 ROUTER = APP / "Home.py"
 OLD_ADDRESSES = {"", "Transactions", "Label_review", "To_check", "Recurring", "Forecast",
-                 "Scenario", "Time_machine", "Model_report", "Since_last_time"}  # fmt: skip
+                 "Scenario", "Time_machine", "Model_report", "Since_last_time",
+                 "Budgets"}  # fmt: skip
 
 
 def links_of(nav_html: str) -> list[tuple[str, bool]]:
@@ -40,7 +41,8 @@ def main_nav(html: str) -> str:
 @pytest.mark.parametrize(("page", "section"), [
     ("Home", "Home"), ("Since last time", "Home"), ("Transactions", "Transactions"),
     ("To check", "Transactions"), ("Label review", "Transactions"), ("Recurring", "Recurring"),
-    ("Forecast", "Forecast"), ("Scenario", "Forecast"), ("Model report", "How it works"),
+    ("Forecast", "Forecast"), ("Scenario", "Forecast"), ("Budgets", "Forecast"),
+    ("Model report", "How it works"),
     ("Time machine", "How it works"),
 ])  # fmt: skip
 def test_the_bar_has_the_five_sections_in_order_with_the_current_one_marked(
@@ -63,8 +65,9 @@ def test_settings_is_a_gear_not_a_word() -> None:
     ("Transactions", [("All", True), ("To check", False), ("Label review", False)]),
     ("To check", [("All", False), ("To check", True), ("Label review", False)]),
     ("Label review", [("All", False), ("To check", False), ("Label review", True)]),
-    ("Forecast", [("Forecast", True), ("Scenario", False)]),
-    ("Scenario", [("Forecast", False), ("Scenario", True)]),
+    ("Forecast", [("Forecast", True), ("Scenario", False), ("Budgets", False)]),
+    ("Scenario", [("Forecast", False), ("Scenario", True), ("Budgets", False)]),
+    ("Budgets", [("Forecast", False), ("Scenario", False), ("Budgets", True)]),
     ("Model report", [("Model report", True), ("Time machine", False)]),
     ("Time machine", [("Model report", False), ("Time machine", True)]),
 ])  # fmt: skip

@@ -33,6 +33,7 @@ APP_PAGES: tuple[AppPage, ...] = (
     AppPage("Recurring", "pages/4_Recurring.py", "Recurring", "Recurring"),
     AppPage("Forecast", "pages/5_Forecast.py", "Forecast", "Forecast", "Forecast"),
     AppPage("Scenario", "pages/9_Scenario.py", "Scenario", "Forecast", "Scenario"),
+    AppPage("Budgets", "pages/10_Budgets.py", "Budgets", "Forecast", "Budgets"),
     AppPage(
         "Model report", "pages/7_Model_report.py", "Model_report", "How it works", "Model report"
     ),

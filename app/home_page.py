@@ -162,6 +162,14 @@ if look is not None:
                 f"{fmt_date(e.low_day)} (an estimate)."
             )
             links.append(link_button_html("See the forecast", "/Forecast", query))
+        for b in look.budgets:
+            st.markdown(
+                f"Possible overspend in {b.category}: {b.probability:.0%} of simulated futures "
+                f"end the month above your {money(b.limit_cents, markdown=True)} budget "
+                "(an estimate)."
+            )
+        if look.budgets:
+            links.append(link_button_html("Budgets", "/Budgets", query))
         if links:
             st.markdown('<div style="display: flex; flex-wrap: wrap; gap: 12px">' + "".join(links)
                         + "</div>", unsafe_allow_html=True)  # fmt: skip

@@ -1069,6 +1069,33 @@ def fit_y_range(figure: go.Figure, dollars: list[float], pad: float = 0.1) -> go
     return figure
 
 
+# --- Budgets ---
+
+
+def budget_chart(spent_cents: int, likely_end_cents: int, limit_cents: int) -> go.Figure:
+    """One budget: spent so far and the likely end of the month as two bars, the limit as a
+    dashed line. Amber for a likely end above the limit (possible overspend), blue otherwise."""
+    over = likely_end_cents > limit_cents
+    figure = go.Figure()
+    figure.add_bar(
+        y=["Likely end of month", "Spent so far"],
+        x=[likely_end_cents / 100, spent_cents / 100],
+        orientation="h",
+        marker_color=[COLORS.amber_line if over else COLORS.blue, COLORS.green],
+        hovertemplate="%{y}: %{x:$,.2f}<extra></extra>",
+        name="budget",
+    )
+    figure.add_vline(x=limit_cents / 100, line=BUFFER_LINE, name="limit")
+    figure.add_annotation(x=limit_cents / 100, y=1, yref="paper", text="limit", showarrow=False,
+                          yanchor="bottom", font={"color": COLORS.amber, "size": 11})  # fmt: skip
+    top = max(spent_cents, likely_end_cents, limit_cents, 100) / 100
+    figure.update_layout(template=TEMPLATE, height=150, hovermode="closest", bargap=0.35,
+                         margin={"l": 8, "r": 16, "t": 22, "b": 8})  # fmt: skip
+    figure.update_xaxes(range=[min(0, spent_cents / 100) * 1.1, top * 1.12], tickformat="$~s",
+                        hoverformat="$,.2f")  # fmt: skip
+    return figure
+
+
 # --- Safe to spend (Forecast page and Home) ---
 
 

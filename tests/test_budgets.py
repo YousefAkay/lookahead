@@ -430,3 +430,35 @@ def test_budget_alerts_on_a_replay(conn: sqlite3.Connection) -> None:
         assert e.opened_on.day >= 7  # data date the 7th or later: first forecast day the 8th+
         if e.month < "2026-09":
             assert e.closed_on == month_end(date.fromisoformat(f"{e.month}-01"))
+
+
+# --- The counts-only check for my real database ---
+
+
+def test_the_check_prints_counts_only_and_writes_nothing(
+    persona_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import hashlib
+    import re
+
+    from lookahead.budget_check import main
+
+    db = Path(shutil.copy(persona_db, tmp_path / "check.db"))
+    conn = connect(db)
+    with conn:  # mid-month, with one saved limit
+        conn.execute("DELETE FROM transactions WHERE posted_date > '2026-09-14'")
+    set_limit(conn, "synthetic-A", "Food delivery", 5_000, date(2026, 9, 14))
+    merchants = {r[0] for r in conn.execute("SELECT merchant FROM category_predictions") if r[0]}
+    conn.close()
+    before = hashlib.sha256(db.read_bytes()).hexdigest()
+    assert main(["--db", str(db), "--account", "1"]) == 0
+    out = capsys.readouterr().out
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == before
+    assert "$" not in out and "%" not in out
+    assert not re.search(r"\d{4}-\d{2}|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", out)
+    assert "synthetic" not in out
+    assert not any(m in out for m in merchants if len(m) > 3)
+    assert "Categories with a saved limit: 1" in out
+    assert "Pace computed on: saved limits" in out
+    assert "at or above as-now in every future on every day: yes" in out
+    assert main(["--db", str(db), "--account", "9"]) == 2
