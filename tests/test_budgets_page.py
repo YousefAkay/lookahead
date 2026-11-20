@@ -431,8 +431,8 @@ def test_a_whole_merchant_move_of_only_series_payments_moves_nothing(isolated: P
     before = corrections_count(isolated)
     move(at, "Shopping", payment, "Groceries", "All rows of this merchant")
     warnings = " ".join(str(w.value) for w in at.warning)
-    assert "No row of this merchant was moved." in warnings
-    assert "of a recurring series you gave a category" in warnings
+    assert "0 moved, 0 already there," in warnings and "kept by their series" in warnings
+    assert "A series' category is changed on the Recurring page." in warnings
     assert any("/Recurring" in str(m.value) for m in at.markdown)
     assert corrections_count(isolated) == before
 
@@ -513,11 +513,59 @@ def test_a_mixed_whole_merchant_move_on_the_tab(isolated: Path) -> None:
     move(at, "Shopping", "fizz-extra", "Groceries", "All rows of this merchant")
     warnings = " ".join(str(w.value) for w in at.warning)
     kept = len(in_series)
-    assert "Moved 1 row of this merchant." in warnings
-    assert f"{kept} {'is a payment' if kept == 1 else 'are payments'} of a recurring series" in (
-        warnings)  # fmt: skip
+    assert f"1 moved, 0 already there, {kept} kept by their series." in warnings
     conn = connect(isolated / "demo.db")
     after = corrections(conn, account)
     conn.close()
     assert {f for f in after if after[f] != before.get(f)} == {"fizz-extra"}
     assert payment in in_series
+
+
+def test_a_later_categorizer_run_cannot_split_a_moved_merchant(isolated: Path) -> None:
+    """A row the model had put in the target is locked in by the whole-merchant move: retraining
+    and categorizing again leaves every row of the merchant in the target. Without the move, the
+    same run takes that row back to the model's own category (the split this guards against)."""
+    from lookahead.budgets import move_merchant
+    from lookahead.categorize import categorize, train
+    from lookahead.corrections import merchant_fingerprints
+    from lookahead.demo import DEMO_SETTINGS
+    from lookahead.views import transactions
+
+    conn = connect(isolated / "demo.db")
+    account = "synthetic-A"
+    present = {r[0] for r in conn.execute(
+        "SELECT fingerprint FROM transactions WHERE account = ?", (account,))}  # fmt: skip
+    merchants = conn.execute(
+        "SELECT merchant FROM category_predictions WHERE account = ? AND merchant IS NOT NULL"
+        " AND category != 'Groceries' GROUP BY merchant ORDER BY COUNT(*) DESC",
+        (account,),
+    ).fetchall()
+    merchant, covered = next(
+        (m[0], rows) for m in merchants
+        if len(rows := [f for f in merchant_fingerprints(conn, account, m[0]) if f in present]) >= 3
+    )  # fmt: skip
+    crafted = covered[0]
+
+    def shown() -> dict[str, str]:
+        df = transactions(conn, account)
+        return dict(zip(df["fingerprint"], df["category"], strict=True))
+
+    def model_says_target() -> None:  # as if the model had put this one row in Groceries
+        with conn:
+            conn.execute("UPDATE category_predictions SET category = 'Groceries'"
+                         " WHERE fingerprint = ?", (crafted,))  # fmt: skip
+
+    def categorize_again() -> None:
+        model, _ = train(conn, account, DEMO_SETTINGS)
+        categorize(conn, account, DEMO_SETTINGS, model=model)
+
+    model_says_target()
+    categorize_again()
+    assert shown()[crafted] != "Groceries"  # left alone, the run moves it back: a split
+    model_says_target()
+    result = move_merchant(conn, account, merchant, "Groceries")
+    assert result.already_there == 1 and result.moved == len(covered) - 1
+    categorize_again()
+    after = shown()
+    assert all(after[f] == "Groceries" for f in covered)
+    conn.close()

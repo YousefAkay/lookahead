@@ -634,19 +634,25 @@ def mixed_merchant(conn: sqlite3.Connection, account: str = "synthetic-A"):  # t
     raise AssertionError("no merchant with both series and non-series rows")
 
 
-def test_a_whole_merchant_move_stores_only_the_rows_it_moves(conn: sqlite3.Connection) -> None:
+def test_a_whole_merchant_move_locks_in_every_row_but_series_and_one_row_choices(
+    conn: sqlite3.Connection,
+) -> None:
     from lookahead.budgets import move_merchant
     from lookahead.corrections import corrections
     from lookahead.views import transactions
 
     merchant, in_series, own_row, rest = mixed_merchant(conn)
+    with conn:  # one of the other rows already shows the target, as the model might have it
+        conn.execute("UPDATE category_predictions SET category = 'Groceries' WHERE fingerprint = ?",
+                     (rest[0],))  # fmt: skip
     before = dict(corrections(conn, "synthetic-A"))
     result = move_merchant(conn, "synthetic-A", merchant, "Groceries", date(2026, 9, 21))
     assert result.kept_by_series == len(in_series) and result.kept_by_row == 1
-    assert result.moved == len(rest) and result.covered == len(in_series) + 1 + len(rest)
+    assert result.already_there == 1 and result.moved == len(rest) - 1
+    assert result.covered == len(in_series) + 1 + len(rest)
     after = corrections(conn, "synthetic-A")
     stored = {f for f in after if after[f] != before.get(f)}
-    assert stored == set(rest)  # never the series payments, never the one-row-corrected row
+    assert stored == set(rest)  # the row already there is locked in too; series and own row not
     shown = transactions(conn, "synthetic-A")
     category = dict(zip(shown["fingerprint"], shown["category"], strict=True))
     assert all(category[f] == "Groceries" for f in rest)
@@ -663,28 +669,28 @@ def test_a_whole_merchant_move_stores_only_the_rows_it_moves(conn: sqlite3.Conne
     assert not any(category[f] == "Groceries" for f in in_series)
 
 
-def test_a_second_move_to_the_same_category_moves_nothing(conn: sqlite3.Connection) -> None:
+def test_a_second_move_to_the_same_category_stores_nothing_new(conn: sqlite3.Connection) -> None:
     from lookahead.budgets import merchant_move_message, move_merchant
 
     merchant, in_series, _, rest = mixed_merchant(conn)
     move_merchant(conn, "synthetic-A", merchant, "Groceries")
+    rows_before = conn.execute("SELECT COUNT(*) FROM category_corrections").fetchone()[0]
     again = move_merchant(conn, "synthetic-A", merchant, "Groceries")
-    assert again.moved == 0  # they already show Groceries: nothing stored, nothing counted
-    assert merchant_move_message(again).startswith("No row of this merchant was moved.")
-    assert len(rest) > 0 and len(in_series) > 0
+    assert conn.execute("SELECT COUNT(*) FROM category_corrections").fetchone()[0] == rows_before
+    assert again.moved == 0 and again.already_there == len(rest)
+    wanted = f"0 moved, {len(rest)} already there, {len(in_series)} kept by their series"
+    assert merchant_move_message(again).startswith(wanted)
 
 
-def test_the_move_message_counts_only_moved_rows() -> None:
+def test_the_move_message_reports_moved_already_there_and_kept() -> None:
     from lookahead.budgets import MerchantMove, merchant_move_message
 
-    assert merchant_move_message(MerchantMove(5, 3, 1, 1)) == (
-        "Moved 3 rows of this merchant. 1 is a payment of a recurring series you gave a category "
-        "and keep it: change it on the Recurring page. 1 has a category you set one row at a "
-        "time and keep it."
+    assert merchant_move_message(MerchantMove(7, 3, 2, 1, 1)) == (
+        "3 moved, 2 already there, 1 kept by their series, 1 kept by your one-row choice. "
+        "A series' category is changed on the Recurring page."
     )
-    assert merchant_move_message(MerchantMove(1, 1, 0, 0)) == "Moved 1 row of this merchant."
-    assert merchant_move_message(MerchantMove(4, 0, 4, 0)).startswith(
-        "No row of this merchant was moved. 4 are payments"
+    assert merchant_move_message(MerchantMove(1, 1, 0, 0, 0)) == (
+        "1 moved, 0 already there, 0 kept by their series."
     )
 
 

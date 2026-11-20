@@ -387,7 +387,7 @@ for s in shown:
                             st.error(str(e))
                         else:
                             message = merchant_move_message(result)
-                            if result.moved == 0:  # nothing stored: say why, stay here
+                            if result.moved == 0:  # nothing changed on screen: say why
                                 warn(message)
                                 if result.kept_by_series:
                                     recurring_link()
