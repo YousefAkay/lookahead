@@ -22,7 +22,7 @@ dismissal.
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
@@ -273,6 +273,17 @@ def alert_message(e: BudgetEpisode) -> str:
         f"end the month above your {_dollars(e.limit_cents)} budget. Spent so far "
         f"{_dollars(e.spent_cents)}; likely end of month about {_dollars(e.likely_end_cents)}."
     )
+
+
+def with_live_pace(e: BudgetEpisode, pace: Pace | None) -> BudgetEpisode:
+    """The episode with this look's figures (reviewer NB5): its recorded event is refreshed only
+    on a band change or a $25 move, so the tab shows the live pace beside the card instead."""
+    if pace is None or pace.category != e.category:
+        return e
+    return replace(
+        e, probability=pace.chance_over, limit_cents=pace.limit_cents,
+        spent_cents=pace.spent_cents, likely_end_cents=pace.likely_end_cents,
+    )  # fmt: skip
 
 
 def home_line(e: BudgetEpisode) -> str:

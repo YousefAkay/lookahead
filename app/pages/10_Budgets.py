@@ -39,6 +39,7 @@ from lookahead.budget_alerts import (  # noqa: E402
     record_look,
     restore,
     should_alert,
+    with_live_pace,
 )
 from lookahead.budgets import (  # noqa: E402
     ALREADY_OVER,
@@ -238,10 +239,11 @@ else:
     record_look(conn, account, month, first_day)
     this_month = [e for e in budget_episodes(conn, account) if e.month == month_key(month.month)
                   and e.status != "closed"]  # fmt: skip
+    live = {p.category: p for p in month.paces}
     for e in this_month:
         with st.container(border=True, key=f"card-balert-{e.episode_id}"):
             if e.status == "open":
-                warn(alert_message(e) + " (an estimate)")
+                warn(alert_message(with_live_pace(e, live.get(e.category))) + " (an estimate)")
                 if st.button("Dismiss this alert", key=f"bu_dismiss_{e.episode_id}"):
                     dismiss(conn, account, e.episode_id)
                     st.rerun()

@@ -217,3 +217,17 @@ def test_the_chart_shows_a_likely_end_below_spent_so_far() -> None:
     assert labels["Spent so far"] == "−$500.00"
     assert labels["Likely end of month"] == "−$700.00"
     assert labels["Limit"] == "$100.00"
+
+
+def test_the_tab_shows_the_live_pace_not_the_last_recorded_event(conn: sqlite3.Connection) -> None:
+    # Reviewer NB5: a 95% episode, then a look at 92% (same band, small move: no new event).
+    from lookahead.budget_alerts import with_live_pace
+
+    look(conn, date(2026, 9, 7), pace(0.95))
+    look(conn, date(2026, 9, 8), pace(0.92))
+    [e] = open_budget_alerts(conn, ACCOUNT)
+    assert "95%" in alert_message(e)  # the recorded event
+    shown = alert_message(with_live_pace(e, pace(0.92)))
+    assert "92%" in shown and "95%" not in shown
+    other = pace(0.92)
+    assert with_live_pace(e, None) == e and with_live_pace(e, other) != e
