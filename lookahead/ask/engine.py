@@ -163,7 +163,7 @@ def _series(phrase: str, fc: BuiltForecast, ctx: Context, out: Outcome) -> list[
         chosen = ctx.choices[phrase]
         out.matches.append(Match(phrase, "one", (chosen,), "your pick"))
         return [named[chosen].key]
-    m = match(phrase, named)
+    m = match(phrase, named, ctx.aliases())
     out.matches.append(m)
     if m.status == "none":
         raise Stop("not_found", NotFound(phrase, "recurring payment"))
@@ -369,7 +369,7 @@ def _recurring(step: Recurring, ctx: Context, out: Outcome) -> RecurringAnswer:
             wanted = ctx.choices[step.find]
             out.matches.append(Match(step.find, "one", (wanted,), "your pick"))
         else:
-            m = match(step.find, named)
+            m = match(step.find, named, ctx.aliases())
             out.matches.append(m)
             if m.status == "none":
                 raise Stop("not_found", NotFound(step.find, "recurring payment"))

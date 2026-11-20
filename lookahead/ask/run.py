@@ -19,7 +19,7 @@ from typing import Any
 import pandas as pd
 
 from lookahead.ask import periods
-from lookahead.ask.match import Match, match
+from lookahead.ask.match import Match, match, stored_aliases
 from lookahead.ask.plan import (
     FLOW_OF_KIND,
     Aggregate,
@@ -70,6 +70,9 @@ class Context:
 
     def all_rows(self) -> pd.DataFrame:
         return self.cached("rows", lambda: transactions(self.conn, self.account))  # type: ignore[no-any-return]
+
+    def aliases(self) -> dict[str, str]:
+        return self.cached("aliases", lambda: stored_aliases(self.conn))  # type: ignore[no-any-return]
 
     def merchant_names(self) -> list[str]:
         rows = self.all_rows()
@@ -210,7 +213,7 @@ def _merchant(phrase: str, ctx: Context, out: Outcome) -> str:
         chosen = ctx.choices[phrase]
         out.matches.append(Match(phrase, "one", (chosen,), "your pick"))
         return chosen
-    m = match(phrase, ctx.merchant_names())
+    m = match(phrase, ctx.merchant_names(), ctx.aliases())
     out.matches.append(m)
     if m.status == "none":
         raise Stop("not_found", NotFound(phrase))
