@@ -29,6 +29,7 @@ import math
 import subprocess
 import sys
 import tempfile
+import uuid
 from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
@@ -41,11 +42,11 @@ from eval.backtest import FUTURES, LOGIC, origins
 from eval.baselines import MIN_DIPS, scored_record, walk_records
 from eval.berka_gate import load as load_berka
 from eval.berka_scores import CORE_ROWS, account_records, summary_core
-from eval.berka_split import development_accounts, held_out_accounts
+from eval.berka_split import development_accounts, held_out_accounts, load_split
 from eval.metrics import alert_metrics
 from eval.personas_db import persona_db
 from lookahead.alerts import PROBABILITY_THRESHOLD
-from lookahead.generator.archetypes import HELD_OUT, LONG_HELD_OUT, development_ids
+from lookahead.generator.archetypes import ALL_HELD_OUT, HELD_OUT, LONG_HELD_OUT, development_ids
 
 PROTOCOL = Path("docs/specs/2026-11-19-held-out-test-protocol.md")
 LEDGER = Path("docs/results/held_out_ledger.jsonl")
@@ -60,11 +61,46 @@ DRY_RUN_COLUMNS = ("12-month", "24-month", "berka-primary")
 Record = dict[str, Any]
 
 
+# --- The open attempt: held-out data only after this attempt's dry run passed ---
+
+# (repository root, attempt id): passed to every worker, which checks it against the ledger
+Attempt = tuple[str, str]
+STARTED, DRY_RUN_PASSED = "started", "dry run passed"
+
+
+def check_open(attempt: Attempt | None) -> None:
+    """Refuses unless the ledger on disk shows this attempt started, its dry run passed, and it
+    has no final entry yet. Called before any held-out id is read or any held-out persona or
+    account is generated, in the main process and again in each worker."""
+    refusal = ValueError("held-out data opens only inside a run of python -m eval.held_out whose "
+                         "dry run passed")  # fmt: skip
+    if attempt is None:
+        raise refusal
+    root, attempt_id = Path(attempt[0]), attempt[1]
+    path = root / LEDGER
+    if not path.exists():
+        raise refusal
+    mine = [e.get("status") for e in map(json.loads, path.read_text(encoding="utf-8").splitlines())
+            if e.get("attempt") == attempt_id]  # fmt: skip
+    if mine != [STARTED, DRY_RUN_PASSED]:
+        raise refusal
+
+
+def _held_berka_ids() -> set[int]:
+    """The held-out Berka ids, read from the split file without returning them to any caller
+    (used only to decide whether a worker must check the attempt)."""
+    split = load_split()
+    return {int(a) for k in ("primary_held_out", "sensitivity_held_out") for a in split[k]}  # type: ignore[attr-defined]
+
+
 # --- Pools ---
 
 
-def pool_ids(pool: str, held: bool) -> list[Any]:
-    """The personas or accounts of one pool (12-month, 24-month, berka-primary or -sensitivity)."""
+def pool_ids(pool: str, held: bool, attempt: Attempt | None = None) -> list[Any]:
+    """The personas or accounts of one pool (12-month, 24-month, berka-primary or -sensitivity).
+    Held-out ids only inside an open attempt whose dry run passed (see `check_open`)."""
+    if held:
+        check_open(attempt)
     if pool == "12-month":
         return sorted(HELD_OUT) if held else development_ids(False)
     if pool == "24-month":
@@ -74,6 +110,8 @@ def pool_ids(pool: str, held: bool) -> list[Any]:
 
 
 POOLS = ("12-month", "24-month", "berka-primary", "berka-sensitivity")
+# The protocol's pool sizes (units), for the void check: fixed here, not read from the lists.
+EXPECTED_UNITS = {"12-month": 10, "24-month": 10, "berka-primary": 200, "berka-sensitivity": 200}
 
 
 def unit_of(pool: str) -> Callable[[Record], str]:
@@ -86,33 +124,44 @@ def unit_of(pool: str) -> Callable[[Record], str]:
 # --- The run (workers) ---
 
 
-def _synthetic_job(pid: str) -> list[Record]:
-    """Every origin of one persona, made exactly as eval.baselines.run_persona makes them."""
+def _synthetic_job(pid: str, attempt: Attempt | None = None) -> list[Record]:
+    """Every origin of one persona, made exactly as eval.baselines.run_persona makes them.
+    A held-out persona only inside an open attempt (checked again here: workers are separate
+    processes)."""
+    if pid in ALL_HELD_OUT:
+        check_open(attempt)
     with tempfile.TemporaryDirectory() as tmp, persona_db(pid, Path(tmp), SEED) as db:
         return [scored_record(db.conn, pid, o, FUTURES, db.persona.archetype) for o in origins()]
 
 
-def _berka_job(args: tuple[int, Any]) -> list[Record]:
-    """Every origin of one Berka account, made exactly as eval.berka_scores.run makes them."""
-    account, frame = args
+def _berka_job(args: tuple[int, Any, Attempt | None]) -> list[Record]:
+    """Every origin of one Berka account, made exactly as eval.berka_scores.run makes them.
+    A held-out account only inside an open attempt (checked again in the worker)."""
+    account, frame, attempt = args
+    if account in _held_berka_ids():
+        check_open(attempt)
     with tempfile.TemporaryDirectory() as tmp:
         return account_records(account, frame, Path(tmp))
 
 
-def compute(held: bool, berka_dir: Path, jobs: int) -> dict[str, list[Record]]:
-    """The records of the four pools, development (`held` False) or held out."""
-    ids = {pool: pool_ids(pool, held) for pool in POOLS}
+def compute(held: bool, berka_dir: Path, jobs: int, attempt: Attempt | None = None
+            ) -> dict[str, list[Record]]:  # fmt: skip
+    """The records of the four pools, development (`held` False) or held out (only inside an
+    open attempt whose dry run passed)."""
+    if held:
+        check_open(attempt)
+    ids = {pool: pool_ids(pool, held, attempt) for pool in POOLS}
     wanted = set(ids["berka-primary"]) | set(ids["berka-sensitivity"])
     table = load_berka(berka_dir)
     table = table[table["account_id"].isin(wanted)].reset_index(drop=True)
     frames = {a: g.reset_index(drop=True) for a, g in table.groupby("account_id")}
     out: dict[str, list[Record]] = {}
     with ProcessPoolExecutor(max_workers=jobs) as ex:
-        futures = {pool: [ex.submit(_synthetic_job, pid) for pid in ids[pool]]
+        futures = {pool: [ex.submit(_synthetic_job, pid, attempt) for pid in ids[pool]]
                    for pool in ("12-month", "24-month")}  # fmt: skip
         for pool in ("berka-primary", "berka-sensitivity"):
             futures[pool] = [
-                ex.submit(_berka_job, (a, frames[a])) for a in ids[pool] if a in frames
+                ex.submit(_berka_job, (a, frames[a], attempt)) for a in ids[pool] if a in frames
             ]
         for pool in POOLS:
             out[pool] = []
@@ -338,9 +387,15 @@ DIPS_ROWS = (("on", "alert on in the 30 days before the dip (caught_on)"),
              ("false30", "false alerts per 30 days"))  # fmt: skip
 
 
+def _crps30(x: Record) -> str:
+    return f"{x['crps30_f'] / 100:,.0f} / {x['crps30_n'] / 100:,.0f} / {x['crps30_r'] / 100:,.0f}"
+
+
 def pooled_rows(cols: list[Record]) -> list[str]:
     lines = [f"| {label} | " + " | ".join(fn(c["pooled"]) for c in cols) + " |"
              for label, fn in CORE_ROWS]  # fmt: skip
+    lines.append("| CRPS forecast / stays / walk, day 30 | "
+                 + " | ".join(_crps30(c["pooled"]) for c in cols) + " |")  # fmt: skip
     for tag, who in (("f", "forecast"), ("r", "random walk")):
         cells = [_dips_cells(c["pooled"]["caught"][tag]) for c in cols]
         for key, label in DIPS_ROWS:
@@ -357,6 +412,9 @@ UNIT_ROWS: tuple[tuple[str, str, Callable[[float], str]], ...] = (
     ("CRPS forecast, mean of 30 days", "crps_f", lambda x: f"{x / 100:,.0f}"),
     ("CRPS balance stays, mean of 30 days", "crps_n", lambda x: f"{x / 100:,.0f}"),
     ("CRPS random walk, mean of 30 days", "crps_r", lambda x: f"{x / 100:,.0f}"),
+    ("CRPS forecast, day 30", "crps30_f", lambda x: f"{x / 100:,.0f}"),
+    ("CRPS balance stays, day 30", "crps30_n", lambda x: f"{x / 100:,.0f}"),
+    ("CRPS random walk, day 30", "crps30_r", lambda x: f"{x / 100:,.0f}"),
     ("80% band coverage, day 30", "coverage30", lambda x: f"{x:.1%}"),
     ("80% band coverage, all 30 days", "coverage_all", lambda x: f"{x:.1%}"),
     ("Brier, forecast", "brier_f", lambda x: f"{x:.4f}"),
@@ -469,6 +527,12 @@ def main(argv: list[str] | None = None) -> int:
         print("refused:\n  " + "\n  ".join(reasons))
         return 2
     folder = root / OUT / ctx["time"].replace(":", "")
+    attempt_id = uuid.uuid4().hex
+    attempt: Attempt = (str(root), attempt_id)
+    ctx = {**ctx, "attempt": attempt_id}
+    # Written first, so even a hard kill leaves a ledger change that must be committed before
+    # the next attempt (the command refuses an uncommitted ledger).
+    append(root, {**ctx, "status": STARTED})
     recorded = False
     try:
         print("dry run on the development pools", flush=True)
@@ -482,12 +546,11 @@ def main(argv: list[str] | None = None) -> int:
             print("STOPPED: the dry run does not reproduce the development report. Nothing held "
                   "out was opened.\n  " + "\n  ".join(diffs))  # fmt: skip
             return 3
-        print("dry run: every compared row reproduced; now the held-out pools", flush=True)
         dev = {p: results(p, r) for p, r in dev_records.items()}
-        held_records = compute(True, args.berka, args.jobs)
-        save(folder / "held-out", held_records)
-        expected = {p: len(pool_ids(p, True)) for p in POOLS}
-        problems = void_problems(held_records, expected)
+        append(root, {**ctx, "status": DRY_RUN_PASSED})
+        print("dry run: every compared row reproduced; now the held-out pools", flush=True)
+        held_records = compute(True, args.berka, args.jobs, attempt)
+        problems = void_problems(held_records, EXPECTED_UNITS)
         if problems:
             append(root, {**ctx, "status": "void", "problems": problems})
             recorded = True
@@ -497,6 +560,8 @@ def main(argv: list[str] | None = None) -> int:
         entry = {**ctx, "status": "completed", "development": dev, "held_out": held}
         append(root, entry)
         recorded = True
+        # per-origin held-out records only now, after the completed entry (not committed)
+        save(folder / "held-out", held_records)
     except BaseException as e:
         if not recorded:
             append(root, {**ctx, "status": "crashed", "error": f"{type(e).__name__}: {e}"[:300]})

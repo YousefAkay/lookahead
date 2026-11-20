@@ -27,13 +27,37 @@ def test_the_metrics_final_test_flag_is_gone() -> None:
         metrics.main(["--final-test"])
 
 
-def test_the_harness_pools_have_the_protocol_sizes() -> None:
-    # names only (the split file and the archetype list), never a row of data
-    sizes = {p: len(h.pool_ids(p, True)) for p in h.POOLS}
-    assert sizes == {"12-month": 10, "24-month": 10, "berka-primary": 200,
-                     "berka-sensitivity": 200}  # fmt: skip
+def test_held_out_ids_refuse_without_an_open_attempt_and_sizes_are_the_protocols() -> None:
+    assert h.EXPECTED_UNITS == {"12-month": 10, "24-month": 10, "berka-primary": 200,
+                                "berka-sensitivity": 200}  # fmt: skip
+    dev = {p: len(h.pool_ids(p, False)) for p in h.POOLS}
+    assert dev == {"12-month": 20, "24-month": 20, "berka-primary": 200,
+                   "berka-sensitivity": 200}  # fmt: skip
     for p in h.POOLS:
-        assert not set(h.pool_ids(p, True)) & set(h.pool_ids(p, False))
+        with pytest.raises(ValueError, match="dry run passed"):
+            h.pool_ids(p, True)
+    with pytest.raises(ValueError, match="dry run passed"):
+        h.compute(True, Path("nowhere"), 1)
+    with pytest.raises(ValueError, match="dry run passed"):
+        h._synthetic_job("v2-SAL-04")  # refused before anything is generated
+    with pytest.raises(ValueError, match="dry run passed"):
+        h._synthetic_job("v2-SAL-04", ("/tmp", "made-up"))
+
+
+def test_an_attempt_is_open_only_between_its_dry_run_and_its_final_entry(tmp_path: Path) -> None:
+    attempt = (str(tmp_path), "a1")
+    with pytest.raises(ValueError):
+        h.check_open(attempt)  # no ledger
+    h.append(tmp_path, {"attempt": "a1", "status": h.STARTED})
+    with pytest.raises(ValueError):
+        h.check_open(attempt)  # dry run not passed yet
+    h.append(tmp_path, {"attempt": "a1", "status": h.DRY_RUN_PASSED})
+    h.check_open(attempt)
+    with pytest.raises(ValueError):
+        h.check_open((str(tmp_path), "another"))
+    h.append(tmp_path, {"attempt": "a1", "status": "void"})
+    with pytest.raises(ValueError):
+        h.check_open(attempt)  # closed
 
 
 # --- Readiness and the ledger (in a throw-away git repository) ---
@@ -238,3 +262,119 @@ def test_rebuild_refuses_without_exactly_one_completed_entry(tmp_path: Path) -> 
     h.append(tmp_path, {"status": "void"})
     with pytest.raises(SystemExit, match="0 completed"):
         h.rebuild(tmp_path)
+
+
+# --- The command: order of ledger entries, prints and held-out access ---
+
+
+@pytest.fixture
+def run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+    """main() in a throw-away repository, with compute and the scores replaced by stand-ins.
+    Returns (events, call): events lists ledger statuses, prints and compute calls in order."""
+    root = _repo(tmp_path)
+    (root / h.DEV_REPORT).parent.mkdir(parents=True, exist_ok=True)
+    (root / h.DEV_REPORT).write_text("report\n", encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "report")
+    monkeypatch.chdir(root)
+    events: list[str] = []
+    real_append = h.append
+
+    def append(r: Path, entry: dict) -> None:  # type: ignore[type-arg]
+        events.append(f"ledger {entry['status']}")
+        real_append(r, entry)
+
+    def fake_print(*args: object, **kwargs: object) -> None:
+        events.append("print " + " ".join(str(a) for a in args)[:40])
+
+    held_records = {p: [{"persona": "x"}] for p in h.POOLS}
+
+    def compute(held: bool, berka: Path, jobs: int, attempt=None):  # type: ignore[no-untyped-def]
+        events.append(f"compute held={held}")
+        if held:
+            h.check_open(attempt)  # the real check passes inside main's attempt
+        return held_records
+
+    monkeypatch.setattr(h, "append", append)
+    monkeypatch.setattr(h, "print", fake_print, raising=False)
+    monkeypatch.setattr(h, "compute", compute)
+    monkeypatch.setattr(h, "save", lambda folder, pools: events.append(f"save {folder.name}"))
+    monkeypatch.setattr(h, "summary_core", lambda r: {})
+    monkeypatch.setattr(h, "dry_run_differences", lambda s, t: [])
+    monkeypatch.setattr(h, "void_problems", lambda pools, expected: [])
+    monkeypatch.setattr(h, "results", lambda p, r: {"n": 1})
+    monkeypatch.setattr(h, "result_text", lambda e: "RESULT")
+
+    def call() -> int:
+        return h.main(["--berka", "berka"])
+
+    return events, call, monkeypatch, root
+
+
+def _ledger(root: Path) -> list[dict]:  # type: ignore[type-arg]
+    return [json.loads(x) for x in (root / h.LEDGER).read_text(encoding="utf-8").splitlines()]
+
+
+def test_a_completed_run_writes_the_ledger_before_any_number_and_saves_held_out_last(
+    run,  # type: ignore[no-untyped-def]
+) -> None:
+    events, call, _, root = run
+    assert call() == 0
+    order = [e for e in events if not e.startswith("print  ") and "pools" not in e]
+    i = events.index("ledger completed")
+    assert events.index("ledger started") < events.index("compute held=False")
+    assert events.index("ledger dry run passed") < events.index("compute held=True")
+    assert events.index("save held-out") > i
+    assert not [e for e in events[:i] if e.startswith("print RESULT")]
+    assert any(e.startswith("print RESULT") for e in events[i:]), order
+    entries = _ledger(root)
+    assert [e["status"] for e in entries] == ["started", "dry run passed", "completed"]
+    assert len({e["attempt"] for e in entries}) == 1
+
+
+def test_a_dry_run_difference_stops_before_held_out_data(run) -> None:  # type: ignore[no-untyped-def]
+    events, call, monkeypatch, root = run
+    monkeypatch.setattr(h, "dry_run_differences", lambda s, t: ["12-month | dips: a, b"])
+    assert call() == 3
+    assert "compute held=True" not in events
+    assert [e["status"] for e in _ledger(root)] == ["started", "stopped: the dry run differs"]
+
+
+def test_a_void_run_records_void_and_prints_no_number(run) -> None:  # type: ignore[no-untyped-def]
+    events, call, monkeypatch, root = run
+    monkeypatch.setattr(h, "void_problems", lambda pools, expected: ["12-month: 9 units"])
+    results_called = []
+    monkeypatch.setattr(h, "results", lambda p, r: results_called.append(p) or {"n": 1})
+    assert call() == 4
+    assert results_called == list(h.POOLS)  # development only, never the held-out pools
+    assert [e["status"] for e in _ledger(root)] == ["started", "dry run passed", "void"]
+    assert "save held-out" not in events and not any("RESULT" in e for e in events)
+
+
+def test_a_crash_is_recorded_and_held_out_records_are_not_saved(run) -> None:  # type: ignore[no-untyped-def]
+    events, call, monkeypatch, root = run
+
+    def boom(pools, expected):  # type: ignore[no-untyped-def]
+        raise RuntimeError("worker died")
+
+    monkeypatch.setattr(h, "void_problems", boom)
+    with pytest.raises(RuntimeError):
+        call()
+    statuses = [e["status"] for e in _ledger(root)]
+    assert statuses == ["started", "dry run passed", "crashed"]
+    assert "save held-out" not in events
+
+
+def test_a_refusal_is_recorded_and_nothing_runs(run) -> None:  # type: ignore[no-untyped-def]
+    events, call, monkeypatch, root = run
+    monkeypatch.setattr(h, "PROBABILITY_THRESHOLD", 0.2)
+    assert call() == 2
+    assert not [e for e in events if e.startswith("compute")]
+    assert [e["status"] for e in _ledger(root)] == ["refused"]
+
+
+def test_a_started_entry_left_by_a_hard_kill_blocks_the_next_attempt(run) -> None:  # type: ignore[no-untyped-def]
+    _, call, _, root = run
+    h.append(root, {"attempt": "killed", "status": h.STARTED})  # as a kill would leave it
+    assert call() == 2
+    assert _ledger(root)[-1]["status"] == "refused"

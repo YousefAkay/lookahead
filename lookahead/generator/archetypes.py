@@ -119,9 +119,10 @@ HARNESS = "eval/held_out.py"  # the only route to held-out data (protocol of 202
 def called_by_harness() -> bool:
     """True when the held-out harness is on the call stack (in this process or a worker it
     started): only then may held-out data be read, forecast or scored."""
+    harness = (Path(__file__).resolve().parents[2] / HARNESS).as_posix()  # this repository's own
     frame = sys._getframe(1)
     while frame is not None:
-        if Path(frame.f_code.co_filename).as_posix().endswith(HARNESS):
+        if Path(frame.f_code.co_filename).resolve().as_posix() == harness:
             return True
         frame = frame.f_back
     return False

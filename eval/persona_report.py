@@ -98,7 +98,7 @@ class CheckResult:
 
 
 # SAL and SEM were left alone: their lowest and closing balance (cents) must be unchanged.
-# Development personas only (the held-out ones were removed on 2026-11-19; see DECISIONS).
+# Development personas only: v2-SAL-04 and v2-SEM-02 (held out) were removed on 2026-11-19.
 UNCHANGED = {
     "v2-SAL-01": (295_000, 3_218_004), "v2-SAL-02": (300_000, 3_420_327),
     "v2-SAL-03": (301_056, 1_375_793), "v2-SEM-01": (79_664, 345_958),
