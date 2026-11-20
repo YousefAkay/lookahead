@@ -336,6 +336,15 @@ class BudgetMonth:
     paces: tuple[Pace, ...]
 
 
+def chance_over(spent_cents: int, limit_cents: int, totals: Sequence[int]) -> float:
+    """The share of futures that end the month above the limit. Already above it on the data
+    date: 1.0, whatever the futures draw (a refund drawn from a past week does not undo money
+    already spent). With no futures: 1.0 or 0.0 from spent so far alone."""
+    if spent_cents > limit_cents or not totals:
+        return float(spent_cents > limit_cents)
+    return sum(t > limit_cents for t in totals) / len(totals)
+
+
 def budget_month(
     forecast: Forecast, rows: Sequence[CategoryRow], limits: Mapping[str, int]
 ) -> BudgetMonth:  # fmt: skip
@@ -364,7 +373,7 @@ def budget_month(
         paces.append(Pace(
             category, limit, spent,
             _percentile(totals, 0.5) if totals else spent,
-            sum(t > limit for t in totals) / len(totals) if totals else float(spent > limit),
+            chance_over(spent, limit, totals),
             len(totals),
             any(r.row_id in set_aside for r in this_month),
             tuple(this_month),

@@ -260,3 +260,101 @@ def test_a_whole_merchant_move_on_a_rule_merchant_says_why(isolated: Path) -> No
     assert conn.execute("SELECT COUNT(*) FROM category_corrections").fetchone()[0] == before
     conn.close()
     assert account
+
+
+# --- His real-data check of 2026-11-20 ---
+
+
+def test_before_looks_right_the_limit_box_holds_the_proposal(isolated: Path) -> None:
+    from lookahead.budgets import budget_forecast, category_rows, proposals_for
+
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    conn = connect(isolated / "demo.db")
+    f = budget_forecast(conn, account, futures=10)
+    assert f is not None
+    rows = category_rows(conn, account, f.start.data_last_updated)
+    proposals = proposals_for(conn, account, rows, f)
+    conn.close()
+    boxes = {n.key: n.value for n in at.number_input if str(n.key).startswith("bu_typed_")}
+    assert boxes
+    for key, value in boxes.items():
+        p = proposals[key.removeprefix("bu_typed_")]
+        assert value == (p.limit_cents / 100 if p.limit_cents else 0.0)
+    assert any(v > 0 for v in boxes.values())
+
+
+def test_a_zero_limit_is_refused_with_a_message(isolated: Path) -> None:
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    category = "Food delivery"
+    at.number_input(key=f"bu_typed_{category}").set_value(0.0)
+    (save,) = [b for b in at.button if b.label == "Save limit" and category in str(b.form_id)]
+    save.click().run()
+    assert not at.exception, at.exception
+    assert any("must be above" in str(w.value) for w in at.warning)
+    conn = connect(isolated / "demo.db")
+    assert category not in load_limits(conn, account)
+    conn.close()
+    # The edit form after Looks right refuses $0 the same way and keeps the saved limit.
+    button(at, "Looks right, accept all").click().run()
+    conn = connect(isolated / "demo.db")
+    kept = load_limits(conn, account)[category]
+    conn.close()
+    at.number_input(key=f"bu_new_{category}").set_value(0.0)
+    (edit,) = [b for b in at.button if b.label == "Save" and category in str(b.form_id)]
+    edit.click().run()
+    assert any("must be above" in str(w.value) for w in at.warning)
+    conn = connect(isolated / "demo.db")
+    assert load_limits(conn, account)[category] == kept
+    conn.close()
+
+
+def test_the_heading_names_the_month_above_the_cards(isolated: Path) -> None:
+    at = opened()
+    texts = [str(m.value) for m in at.markdown]
+    heading = next(i for i, t in enumerate(texts) if "<h1>Budgets for September 2026</h1>" in t)
+    first_card = next(i for i, t in enumerate(texts) if "<h2>" in t)
+    assert heading < first_card
+
+
+def test_every_card_shows_four_figures_and_a_chart_with_the_limit(isolated: Path) -> None:
+    import json
+
+    from app.theme import BUDGET_BARS
+
+    at = opened()
+    button(at, "Looks right, accept all").click().run()
+    labels = [m.label for m in at.metric]
+    cards = labels.count("Spent so far")
+    assert cards >= 3
+    for label in ("Limit", "Likely end of month", "Chance of going over"):
+        assert labels.count(label) == cards
+    charts = at.get("plotly_chart")
+    assert len(charts) == cards
+    limits = [m.value for m in at.metric if m.label == "Limit"]
+    for chart, limit in zip(charts, limits, strict=True):
+        spec = json.loads(chart.proto.spec)
+        (bars,) = spec["data"]
+        assert sorted(bars["y"]) == sorted(BUDGET_BARS)  # spent, limit and likely end: 3 bars
+        assert bars["text"][bars["y"].index("Limit")] == limit
+        assert [s["x0"] for s in spec["layout"]["shapes"]] == [
+            float(limit.strip("$").replace(",", ""))
+        ]
+    tags = [str(m.value) for m in at.markdown if "chance of going over</span>" in str(m.value)]
+    assert len(tags) == cards
+
+
+def test_a_budget_already_over_shows_100_percent(isolated: Path) -> None:
+    from lookahead.budgets import set_limit
+
+    at = opened()
+    account = at.sidebar.selectbox[0].value
+    conn = connect(isolated / "demo.db")
+    set_limit(conn, account, "Restaurants & cafés", 100)  # $1: already spent more this month
+    conn.close()
+    at = opened()
+    chances = [m.value for m in at.metric if m.label == "Chance of going over"]
+    spent = [m.value for m in at.metric if m.label == "Spent so far"]
+    assert len(chances) == 1 and spent[0] != "$0.00"
+    assert chances == ["100%"]

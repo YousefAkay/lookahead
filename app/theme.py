@@ -122,6 +122,7 @@ _TAGS = {
     "confirmed": (COLORS.soft_green, COLORS.green_dark),
     "ended": (COLORS.grey_tag, COLORS.muted),
     "neutral": (COLORS.grey_tag, COLORS.muted),
+    "warn": (COLORS.amber_bg, COLORS.amber),  # a possible overspend
 }
 
 
@@ -1072,26 +1073,31 @@ def fit_y_range(figure: go.Figure, dollars: list[float], pad: float = 0.1) -> go
 # --- Budgets ---
 
 
+BUDGET_BARS = ("Spent so far", "Limit", "Likely end of month")
+
+
 def budget_chart(spent_cents: int, likely_end_cents: int, limit_cents: int) -> go.Figure:
-    """One budget: spent so far and the likely end of the month as two bars, the limit as a
-    dashed line. Amber for a likely end above the limit (possible overspend), blue otherwise."""
+    """One budget as three labelled bars, top to bottom: spent so far, the limit, and the likely
+    end of the month (amber when it is above the limit: a possible overspend), each with its
+    amount written on it, plus the limit as a dashed line across the chart."""
     over = likely_end_cents > limit_cents
+    values = [spent_cents / 100, limit_cents / 100, likely_end_cents / 100]
     figure = go.Figure()
     figure.add_bar(
-        y=["Likely end of month", "Spent so far"],
-        x=[likely_end_cents / 100, spent_cents / 100],
+        y=list(reversed(BUDGET_BARS)),  # Plotly draws the first category at the bottom
+        x=list(reversed(values)),
         orientation="h",
-        marker_color=[COLORS.amber_line if over else COLORS.blue, COLORS.green],
+        marker_color=[COLORS.amber_line if over else COLORS.blue, COLORS.muted, COLORS.green],
+        text=[f"${v:,.2f}" for v in reversed(values)],
+        textposition="auto",
         hovertemplate="%{y}: %{x:$,.2f}<extra></extra>",
         name="budget",
     )
     figure.add_vline(x=limit_cents / 100, line=BUFFER_LINE, name="limit")
-    figure.add_annotation(x=limit_cents / 100, y=1, yref="paper", text="limit", showarrow=False,
-                          yanchor="bottom", font={"color": COLORS.amber, "size": 11})  # fmt: skip
-    top = max(spent_cents, likely_end_cents, limit_cents, 100) / 100
-    figure.update_layout(template=TEMPLATE, height=150, hovermode="closest", bargap=0.35,
-                         margin={"l": 8, "r": 16, "t": 22, "b": 8})  # fmt: skip
-    figure.update_xaxes(range=[min(0, spent_cents / 100) * 1.1, top * 1.12], tickformat="$~s",
+    top = max(*values, 1.0)
+    figure.update_layout(template=TEMPLATE, height=180, hovermode="closest", bargap=0.3,
+                         margin={"l": 8, "r": 16, "t": 8, "b": 8})  # fmt: skip
+    figure.update_xaxes(range=[min(0.0, values[0]) * 1.1, top * 1.15], tickformat="$~s",
                         hoverformat="$,.2f")  # fmt: skip
     return figure
 

@@ -499,3 +499,62 @@ def test_the_budgets_are_the_same_as_on_a_copy_cut_at_the_data_date(
 
     assert everything(conn) == everything(cut)
     cut.close()
+
+
+# --- The chance when spent so far is already over (his check, 2026-11-20) ---
+
+
+def test_the_chance_rule() -> None:
+    from lookahead.budgets import chance_over
+
+    assert chance_over(12_000, 10_000, [9_000, 13_000]) == 1.0  # over already: a drawn refund
+    assert chance_over(12_000, 10_000, []) == 1.0  # does not undo it
+    assert chance_over(10_000, 10_000, [10_000, 10_001, 9_000, 15_000]) == 0.5  # at the limit
+    assert chance_over(5_000, 10_000, []) == 0.0
+
+
+def test_over_the_limit_already_is_100_percent_otherwise_the_futures_decide(
+    conn: sqlite3.Connection,
+) -> None:
+    as_of = date(2026, 9, 14)
+    _, roomy = month_of(conn, "synthetic-A", as_of)
+    food = next(p for p in roomy.paces if p.category == "Food delivery")
+    assert food.spent_cents > 1_000
+    _, tight = month_of(conn, "synthetic-A", as_of, {"Food delivery": food.spent_cents - 100})
+    assert tight.paces[0].chance_over == 1.0  # spent so far is already above the limit
+    # A limit between spent so far and the futures' totals: some futures go over, some don't.
+    totals = sorted(food.spent_cents + sum(d) for d in food.remaining)
+    middle = totals[len(totals) // 2]
+    _, mid = month_of(conn, "synthetic-A", as_of, {"Food delivery": middle})
+    pace = mid.paces[0]
+    assert pace.spent_cents <= middle
+    assert pace.chance_over == sum(t > middle for t in totals) / len(totals)
+    assert 0 < pace.chance_over < 1
+
+
+def test_the_checks_rows_this_month_follow_a_one_row_move(persona_db: Path, tmp_path: Path) -> None:
+    from lookahead.budget_check import report
+
+    db = Path(shutil.copy(persona_db, tmp_path / "rows.db"))
+    c = connect(db)
+    with c:
+        c.execute("DELETE FROM transactions WHERE posted_date > '2026-09-14'")
+
+    def count(lines: list[str], category: str) -> int:
+        line = next(x for x in lines if x.startswith(category))
+        return int(line.split()[-1])
+
+    before = report(c, "synthetic-A", date(2026, 9, 20))
+    assert any("rows this month" in x for x in before)
+    september = [r for r in category_rows(c, "synthetic-A", date(2026, 9, 14))
+                 if r.day >= date(2026, 9, 1) and r.cents > 0]  # fmt: skip
+    moved = next(r for r in september if r.category == "Food delivery")
+    correct_row(c, "synthetic-A", moved.fingerprint, "Groceries", date(2026, 9, 20))
+    after = report(c, "synthetic-A", date(2026, 9, 20))
+    assert count(after, "Food delivery") == count(before, "Food delivery") - 1
+    assert count(after, "Groceries") == count(before, "Groceries") + 1
+    assert "Category corrections stored: 0 one-row, 0 whole-merchant" in before
+    assert "Category corrections stored: 1 one-row, 0 whole-merchant" in after
+    assert any(x.startswith("Rows this month in a budget category, shown with your corrected "
+                            "category: 1 of") for x in after)  # fmt: skip
+    c.close()

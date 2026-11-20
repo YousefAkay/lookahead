@@ -80,7 +80,11 @@ from lookahead.views import accounts, has_categories, transactions  # noqa: E402
 TITLE = "Budgets"
 JUST_THIS_ROW = "Just this row"
 WHOLE_MERCHANT = "All rows of this merchant"
-DEMO_LIMITS = "bu_demo_limits"  # demo mode: {account: {category: cents or None}} in the session
+DEMO_LIMITS = "bu_demo_limits"
+ZERO_LIMIT = (
+    'A limit must be above $0. To stop budgeting this category, use "No budget for this '
+    'category" or "Turn this budget off".'
+)  # demo mode: {account: {category: cents or None}} in the session
 
 
 def cents(dollars: float) -> int:
@@ -253,8 +257,15 @@ def rows_table(fingerprints: list[str]):  # type: ignore[no-untyped-def]
 
 for s in shown:
     with st.container(border=True, key=f"card-budget-{CATEGORIES.index(s.category)}"):
-        st.markdown(f"<h2>{html.escape(s.category)}</h2>", unsafe_allow_html=True)
         pace = paces.get(s.category)
+        chance = (tag_html(f"{pace.chance_over:.0%} chance of going over",
+                           "warn" if pace.chance_over > 0.5 else "neutral")
+                  if pace is not None else "")  # fmt: skip
+        st.markdown(
+            '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
+            f"<h2>{html.escape(s.category)}</h2>{chance}</div>",
+            unsafe_allow_html=True,
+        )
         if pace is None:  # no limit saved yet
             p = s.proposal
             if p is not None and p.limit_cents is not None:
@@ -262,12 +273,16 @@ for s in shown:
             else:
                 note("Not enough history for a proposal (it needs 2 full months with spending). "
                      "Enter a limit.")  # fmt: skip
+            prefill = p.limit_cents / 100 if p is not None and p.limit_cents else 0.0
             with st.form(f"bu_enter_{s.category}", border=False):
                 typed = st.number_input("Monthly limit ($)", min_value=0.0, step=10.0,
-                                        key=f"bu_typed_{s.category}")  # fmt: skip
-                if st.form_submit_button("Save limit") and typed > 0:
-                    save_limit(s.category, cents(typed))
-                    st.rerun()
+                                        value=prefill, key=f"bu_typed_{s.category}")  # fmt: skip
+                if st.form_submit_button("Save limit"):
+                    if cents(typed) <= 0:
+                        warn(ZERO_LIMIT)
+                    else:
+                        save_limit(s.category, cents(typed))
+                        st.rerun()
             if st.button("No budget for this category", key=f"bu_off_{s.category}"):
                 if s.category in OPTIONAL_CATEGORIES:
                     forget(s.category)
@@ -276,9 +291,10 @@ for s in shown:
                 st.rerun()
             continue
 
-        a, b, c, d = st.columns(4)
+        a, b = st.columns(2)  # two rows of two: the four figures stay readable on a narrow window
         a.metric("Spent so far", money(pace.spent_cents))
         b.metric("Limit", money(pace.limit_cents))
+        c, d = st.columns(2)
         c.metric("Likely end of month", money(pace.likely_end_cents))
         d.metric("Chance of going over", f"{pace.chance_over:.0%}")
         st.plotly_chart(budget_chart(pace.spent_cents, pace.likely_end_cents, pace.limit_cents),
@@ -291,9 +307,12 @@ for s in shown:
                 new = st.number_input("Monthly limit ($)", min_value=0.0, step=10.0,
                                       value=pace.limit_cents / 100,
                                       key=f"bu_new_{s.category}")  # fmt: skip
-                if st.form_submit_button("Save") and new > 0:
-                    save_limit(s.category, cents(new))
-                    st.rerun()
+                if st.form_submit_button("Save"):
+                    if cents(new) <= 0:
+                        warn(ZERO_LIMIT)
+                    else:
+                        save_limit(s.category, cents(new))
+                        st.rerun()
             if st.button("Turn this budget off", key=f"bu_turnoff_{s.category}"):
                 if s.category in OPTIONAL_CATEGORIES:
                     forget(s.category)
