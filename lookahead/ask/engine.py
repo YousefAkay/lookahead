@@ -120,7 +120,7 @@ def _forecast(step: Forecast, ctx: Context, out: Outcome) -> ForecastAnswer:
                               futures=sim.futures)  # fmt: skip
     last = fc.start.last_day
     if step.until is not None:
-        last = _day_in_forecast(periods.future_day(step.until, ctx.today), fc)
+        last = _day_in_forecast(periods.window_end(step.until, ctx.today), fc)
     days = (last - first).days + 1
     if step.measure == "lowest":
         k = min(range(days), key=lambda i: (sim.p50[i], i))

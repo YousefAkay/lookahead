@@ -12,6 +12,7 @@ Every error message is built from step positions, names and field names only, ne
 it is what the LLM gets back on its one retry (spec, "Plan checks").
 """
 
+import re
 import unicodedata
 from datetime import date
 from datetime import date as Date
@@ -458,10 +459,11 @@ def _problem(err: dict) -> str:  # type: ignore[type-arg]
 
 
 def _plain(text: str) -> str:
-    """Lowercase, no accents, single spaces: how a phrase is looked for in the question."""
+    """Lowercase, no accents, punctuation as spaces, single spaces: how a phrase is looked for in
+    the question ("Hydro-Québec" is found in "hydro quebec")."""
     folded = unicodedata.normalize("NFKD", text.casefold())
     letters = "".join(c for c in folded if not unicodedata.combining(c))
-    return " ".join(letters.split())
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", letters).split())
 
 
 def phrases(plan: Plan) -> list[str]:

@@ -39,8 +39,9 @@ class Asked:
 
 
 def ask_offline(question: str, ctx: Context) -> Asked:
-    """The offline parser's plan, checked and run. No plan: "I can't answer that yet"."""
-    data = parse_question(question)
+    """The offline parser's plan, checked and run. No plan: "I can't answer that yet". The parser
+    may look at the merchant names in my data (offline: nothing is sent)."""
+    data = parse_question(question, ctx.merchant_names())
     if data is None:
         return Asked(question, None, None)
     try:

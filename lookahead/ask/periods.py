@@ -133,3 +133,11 @@ def future_day(day: Day, today: date) -> date:
     if k == "end_of_week":
         return today + timedelta(days=6 - today.weekday())
     return month_last(today.year, today.month)  # end_of_month
+
+
+def window_end(day: Day, today: date) -> date:
+    """The last day of a window ending at `day`: "within the next N days" is today and the N - 1
+    days after it (the next 30 days end on day 30, not 31); other words end on their day."""
+    if day.kind == "in_days":
+        return today + timedelta(days=(day.n or 1) - 1)
+    return future_day(day, today)

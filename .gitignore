@@ -47,3 +47,6 @@ DECISIONS-private.md
 
 # local logs and reports (never committed)
 logs/
+
+# Ask test set: synthetic persona databases built on demand (python -m eval.ask_personas)
+data/ask_eval/
