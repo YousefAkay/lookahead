@@ -81,14 +81,55 @@ it (600 rows, 356 merchants), so it stays off.
   1990s), split into development and held-out accounts. Source: the PKDD'99 Discovery Challenge
   financial dataset, prepared by Petr Berka and Marta Sochorova. The data is not included here (only
   the account-id split lists in `docs/`); download it yourself.
-- **The held-out test has not been run.** I made this repository public before the forecaster's
-  final held-out test. The held-out personas and Berka accounts are unopened, and every forecaster
-  number below is on development data only. The test runs once, when the forecaster is final, and
-  nothing is tuned after it.
+- **The held-out test ran once (2026-11-19).** The forecaster was final, and the rules for the test
+  were committed before anything held out was opened
+  ([protocol](docs/specs/2026-11-19-held-out-test-protocol.md)). One command first reran the
+  development data and had to reproduce the development report exactly. Only then did it score the
+  10 held-out personas of each synthetic set and the 200 held-out Berka accounts of each pool. Every
+  attempt goes in a tracked ledger, and a second run is refused. Nothing was tuned after it.
+  Two things happened before the run, and both are disclosed in [DECISIONS.md](DECISIONS.md)
+  (2026-11-20). Two old tests had forecast one held-out persona, without printing or comparing any
+  outcome. And while I built the generator (2026-10-08 and 2026-10-09), I looked at the generated
+  balances of the 12-month held-out personas; one of them was among the reasons for the last
+  generator change. No forecaster setting or threshold was chosen on them.
 - **My own account is never scored in public.** I use it to find problems, but no forecast
   error, balance or amount from it is in this repository.
 
-## Forecaster results (development data only)
+## Forecaster results
+
+**Development next to held-out.** The final forecaster at 40 weekly origins per persona or account,
+500 futures, alert threshold 35%. Scores use scored origins: those not already below the line,
+with at least 20 past 30-day windows for the random walk. The numbers are pooled over those origins
+([docs/results/held_out_2026-11-20.md](docs/results/held_out_2026-11-20.md), where the per-kind and
+per-account averages are too).
+
+| | Synthetic 12 months: development | held-out | Synthetic 24 months: development | held-out | Berka: development | held-out |
+|---|---|---|---|---|---|---|
+| Scored origins (personas or accounts) | 726 (20) | 320 (10) | 717 (20) | 329 (10) | 7,135 (200) | 7,159 (200) |
+| CRPS skill vs "balance stays", mean of 30 days | +28.3% | +26.4% | +33.6% | +27.9% | +27.8% | +27.6% |
+| same, averaged per archetype / per account | +40.8% (8) | +46.9% (8) | +47.8% (8) | +46.6% (8) | +30.0% (200) | +31.6% (200) |
+| CRPS skill vs random walk, mean of 30 days | +10.0% | +9.1% | +9.2% | +3.4% | +3.0% | +2.4% |
+| CRPS skill vs random walk, day 30 | −4.2% | +1.7% | −11.4% | −10.1% | −20.5% | −23.0% |
+| 80% band coverage, all 30 days | 58.9% | 61.8% | 63.1% | 64.0% | 57.0% | 58.3% |
+| Brier skill of the dip chance vs random walk | +23.0% | +8.6% | +43.0% | −4.3% | −5.9% | −7.3% |
+| Lowest-balance bias, mean (positive = too optimistic) | +708 | +1,176 | +625 | +1,034 | +136 | +96 |
+| Dips caught, *alert on* in the 30 days before | 47/52 | 34/42 | 45/51 | 17/24 | 238/283 | 265/301 |
+| Dips caught, *alert opened* before the dip | 25/52 | 21/42 | 16/51 | 8/24 | 174/283 | 193/301 |
+| Alert precision | 76% (22/29) | 62% (13/21) | 68% (15/22) | 78% (7/9) | 34% (199/579) | 36% (227/627) |
+| False alerts per 30 days | 0.041 | 0.107 | 0.042 | 0.026 | 0.228 | 0.239 |
+| Random walk at 35%: *alert on* / *alert opened* | 48/52 / 13/52 | 37/42 / 13/42 | 44/51 / 12/51 | 16/24 / 1/24 | 217/283 / 123/283 | 252/301 / 139/301 |
+
+Pooled numbers weigh origins with larger balances more; the per-archetype / per-account row gives
+each archetype (synthetic) or account (Berka) equal weight, with the number of units in brackets.
+*Alert on*: an alert was on at some point in the 30 days before the dip (this includes alerts that
+opened when the balance was already below the line). *Alert opened*: an alert opened at an ordinary
+origin before the dip. Berka's line is "fell below one month's outflow". Its amounts are in scaled
+units (the bias row too), so only skills, coverage, Brier and dips compare across datasets. The
+synthetic held-out pools are small (10 personas, 24 and 42 dip episodes), and neighbouring weekly
+origins share outcomes, so their effective n is smaller than shown. The Berka sensitivity pool (200
+more accounts, a looser filter) is reported apart in the result file and decides nothing.
+
+The rest of this section is development data only.
 
 **Synthetic personas.** CRPS skill over 30 days against two simple forecasts (higher is better;
 0 means no better than that forecast, below 0 worse). "Balance stays" keeps today's balance. The
@@ -119,7 +160,8 @@ the 24-month set. By kind of persona (origins, personas):
 These numbers were computed before I renamed five made-up shop names in the generator
 (2026-11-17). On the 12-month set I checked the effect: 794 of 800 origins are identical and the
 other 6 changed slightly, and safe to spend (below) is identical everywhere. The 24-month set was
-not checked. I rerun the baselines on the renamed code before the held-out test.
+not checked at the time. I reran the baselines on the renamed code on 2026-11-19, before the
+held-out test: 794 of 800 12-month origins and 799 of 800 24-month origins came out identical.
 
 **Berka.** So far only a check that the forecaster runs and looks sane: on 400 development
 accounts (200 primary, 200 for sensitivity) and 40 origins each, a forecast came back at all 16,000
@@ -143,8 +185,10 @@ on the 20 development personas of the 12-month set (52 shortfall episodes, leave
 [docs/results/thresholds_raw_2026-11-19.md](docs/results/thresholds_raw_2026-11-19.md)). Caught,
 counted two ways: an alert was on in the 30 days before 47 of 52 dips, and an alert opened before
 the dip for 25 of 52 (the first count includes alerts that opened when the balance was already
-below the buffer). Precision 73% (22 of 30 alerts), 0.047 false alerts per 30 days. 52 episodes
-from 8 personas is a small n.
+below the buffer). Precision 73% (22 of 30 alerts), 0.047 false alerts per 30 days, with the
+threshold chosen on the other personas each time (leave one persona out). With 35% fixed on all 20
+personas, which is what the development column of the table above shows: precision 76% (22 of 29),
+0.041 false alerts per 30 days. 52 episodes from 8 personas is a small n.
 
 ## How it works
 
@@ -214,13 +258,17 @@ that an account never ends up on a network by accident.
 ## Limits
 
 - The synthetic personas follow rules I wrote, so they test the method on the kinds of accounts I
-  thought of, not on the real world. Berka is the only outside data, it is old and Czech, and it
-  has not been scored yet.
+  thought of, not on the real world. Berka is the only outside data for the forecaster, and it is
+  old and Czech.
 - The forecast does not expect a first or one-off large payment (tuition, say). For students paid
   in lumps the error is still large.
 - The 80% band is too narrow, and the dip chance is overconfident at the low end.
 - One chequing account at a time. Credit cards and other accounts are not modelled.
 - The categorizer numbers rest on small test sets labelled by one person.
-- The held-out test has not been run, so none of the forecaster numbers are final.
+- The held-out test ran once. Its synthetic pools are small (10 personas each), so their numbers
+  move a lot with a few dips.
+- On Berka the shortfall alert is noisy at 35%: precision 36% (227 of 627) and 0.24 false alerts
+  per 30 days, well below the bar the threshold was picked for on synthetic data.
+- The forecast is too optimistic about the lowest balance, more so on held-out synthetic personas.
 
 Estimates for personal budgeting. Not financial advice.
