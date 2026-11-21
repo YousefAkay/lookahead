@@ -76,13 +76,13 @@ class HeldOutQuestion:
     lang: str = ""
 
 
-ID = re.compile(r"^h[ab]-\d{3}$")
+ID = re.compile(r"h[ab]-[0-9]{3}")
 
 
 def safe_id(raw: Any, name: str, number: int) -> str:
     """An id as written only when it has the full form (ha-001, hb-001); anything else is named
     by its file and line, so no text a writer put in an id is ever printed."""
-    return raw if isinstance(raw, str) and ID.match(raw) else f"{name} line {number}"
+    return raw if isinstance(raw, str) and ID.fullmatch(raw) else f"{name} line {number}"
 
 
 def read_questions(path: Path) -> list[HeldOutQuestion]:
@@ -137,7 +137,7 @@ def check_questions(folder: Path = FOLDER, which: str = "") -> list[str]:
     for name, prefix, w in zip(QUESTION_FILES, ("ha-", "hb-"), "ab", strict=True):
         if (folder / name).exists() and which in ("", w):
             wrong = [q.id for q in read_questions(folder / name)
-                     if ID.match(q.id) and not q.id.startswith(prefix)]  # fmt: skip
+                     if ID.fullmatch(q.id) and not q.id.startswith(prefix)]  # fmt: skip
             problems += [f"{i}: id should start with {prefix} in {name}" for i in wrong]
     return [
         f"questions: {len(qs)} (ha: {sum(q.id.startswith('ha-') for q in qs)}, "
@@ -346,6 +346,7 @@ def write_review(folder: Path) -> list[str]:
     this, by whatever route, sees no question and no plan. Never overwrites answers given."""
     if _filled(folder / ANSWERS):
         return [f"{ANSWERS} already has answers: not overwritten (move it away to start again)"]
+    (folder / FINAL).unlink(missing_ok=True)  # a new review: the old final gold no longer holds
     cases, text = review_cases(folder)
     (folder / REVIEW).write_text("\n".join(text) + "\n", encoding="utf-8")
     (folder / CASES).write_text(json.dumps(cases, indent=1) + "\n", encoding="utf-8")
@@ -454,6 +455,7 @@ def apply_review(folder: Path = FOLDER) -> list[str]:
 def apply_review_or_none(folder: Path) -> list[str]:
     """apply-review, or one line when the review files do not exist yet."""
     if not (folder / CASES).exists() or not (folder / ANSWERS).exists():
+        (folder / FINAL).unlink(missing_ok=True)  # an older final gold never outlives its review
         return [f"no review yet: run disagreements first ({CASES} or {ANSWERS} missing)"]
     return apply_review(folder)
 

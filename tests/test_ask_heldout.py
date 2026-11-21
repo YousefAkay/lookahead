@@ -151,3 +151,23 @@ def test_text_in_an_id_is_never_printed(tmp_path: Path) -> None:
     assert "platypusword" not in text and "otterword" not in text and "grocery" not in text
     assert "questions_agent.jsonl line 2: id not in the form ha-001 / hb-001" in text
     assert "gold_a.jsonl line 2: a plan for no question" in text
+
+
+def test_apply_review_with_a_bad_id_prints_no_text_and_a_restart_clears_the_final_gold(
+    tmp_path: Path,
+) -> None:
+    """Review N1/N2: apply-review itself (with review files) on a question whose id carries text,
+    and a restarted review leaves no older final gold behind."""
+    made_up(tmp_path)
+    held.write_review(tmp_path)
+    (tmp_path / held.ANSWERS).write_text("d01: A\nd02: B\ns01: OK\n", "utf-8")
+    assert held.apply_review(tmp_path)[-1] == "wrote gold_final.jsonl: 3 plans"
+    (tmp_path / held.ANSWERS).unlink()  # he starts the review again
+    held.apply_review_or_none(tmp_path)
+    assert not (tmp_path / held.FINAL).exists()
+    bad = json.dumps({"id": "hb-001 narwhalword\n", "persona": "v2-SAL-01", "text": "q"})
+    write(tmp_path / held.QUESTION_FILES[1], [bad])
+    held.write_review(tmp_path)
+    out = "\n".join(held.apply_review(tmp_path))
+    assert "narwhalword" not in out and "questions_agent_b.jsonl line 1" in out
+    assert held.check_questions(tmp_path, "b")[-1].endswith("id not in the form ha-001 / hb-001")
