@@ -25,9 +25,11 @@ its text into the blocked folder and prints only a line count (eval/ask_heldout.
 the module by any route shows no content; Yousef opens the file himself.
 
 Who may do what:
-- the three writers (heldout-questions, heldout-gold-a, heldout-gold-b) read and write only their
-  own files, directly in the folder, and run only their own check commands;
-- the coding session may run only `python -m eval.ask_heldout fingerprint`;
+- the writers (heldout-questions, heldout-questions-b, heldout-gold-a, heldout-gold-b and,
+  after the review, heldout-fixer) read and write only their own files, directly in the folder,
+  and run only their own check commands;
+- the coding session may run only `python -m eval.ask_heldout` fingerprint, apply-review and
+  check-final (counts, ids and hashes);
 - an allowed check command runs only on committed code: the hook refuses it when the checkout it
   runs in has uncommitted changes under eval/, lookahead/ or tools/ (`checkout_is_clean`), so
   an edited copy of the module never runs on the folder before it is committed and reviewed;
@@ -43,17 +45,28 @@ from dataclasses import dataclass
 from pathlib import Path
 
 FOLDER = "data/ask_heldout"
-QUESTION_FILES = ("questions_agent.jsonl", "questions_yousef.txt")
+QUESTION_FILES = ("questions_agent.jsonl", "questions_agent_b.jsonl")
+REVIEW_FILES = ("answers.txt", "review_cases.json")
 WRITERS: dict[str, dict[str, tuple[str, ...]]] = {
+    # Two question writers, each blind to the other's 50.
     "heldout-questions": {"read": ("questions_agent.jsonl",),
                           "write": ("questions_agent.jsonl",),
                           "command": ("check-questions", "fingerprint")},
+    "heldout-questions-b": {"read": ("questions_agent_b.jsonl",),
+                            "write": ("questions_agent_b.jsonl",),
+                            "command": ("check-questions", "fingerprint")},
     "heldout-gold-a": {"read": (*QUESTION_FILES, "gold_a.jsonl"), "write": ("gold_a.jsonl",),
                        "command": ("check-gold --which a", "fingerprint")},
     "heldout-gold-b": {"read": (*QUESTION_FILES, "gold_b.jsonl"), "write": ("gold_b.jsonl",),
                        "command": ("check-gold --which b", "fingerprint")},
+    # After Yousef's review: writes the corrected plan for each case he marked X.
+    "heldout-fixer": {"read": (*QUESTION_FILES, "gold_a.jsonl", "gold_b.jsonl", *REVIEW_FILES,
+                               "gold_fixes.jsonl"),
+                      "write": ("gold_fixes.jsonl",),
+                      "command": ("check-fixes", "fingerprint")},
 }  # fmt: skip
-SESSION_COMMANDS = ("fingerprint",)  # the coding session (no agent name)
+# The coding session (no agent name): commands that print only counts, ids and hashes.
+SESSION_COMMANDS = ("fingerprint", "apply-review", "check-final")
 
 # The folder's name: "ask" then "held", with anything but letters and digits between them.
 NAMES = re.compile(r"ask[\W_]*held", re.IGNORECASE)

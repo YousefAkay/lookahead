@@ -1,67 +1,93 @@
 """The held-out module (spec docs/specs/2026-11-20-ask.md, step 9), on made-up files in a temporary
-folder, never the real one: id numbering of Yousef's file, the fingerprint (its hash is
-committed before the scored run), and that the printout shows no content."""
+folder, never the real one: the fingerprint (its hash is committed before the scored run), the
+review files Yousef answers with one letter per case, and how his answers become the final gold.
+"""
 
 import hashlib
+import json
 from pathlib import Path
 
 import eval.ask_heldout as held
 
+REFUSE = [{"op": "cannot_answer", "reason": "advice"}]
+CLARIFY = [{"op": "clarify", "about": "subject"}]
 
-def test_yousef_ids_skip_blank_and_comment_lines(tmp_path: Path) -> None:
-    path = tmp_path / held.YOUSEF
-    path.write_text("# notes\nv2-SAL-01\tfirst?\n\n  # more\nv2-TIGHT-03\tsecond?\n", "utf-8")
-    qs = held.read_yousef(path)
-    assert [(q.id, q.persona, q.text) for q in qs] == [
-        ("hy-001", "v2-SAL-01", "first?"),
-        ("hy-002", "v2-TIGHT-03", "second?"),
-    ]
+
+def q(qid: str) -> str:
+    return json.dumps({"id": qid, "persona": "v2-SAL-01", "text": "q", "lang": "en"})
+
+
+def plan(qid: str, steps: list, expect: str = "refused") -> dict:  # type: ignore[type-arg]
+    return {"id": qid, "expect": expect, "ambiguous": False, "steps": steps}
+
+
+def write(path: Path, rows: list) -> None:  # type: ignore[type-arg]
+    path.write_text("".join((r if isinstance(r, str) else json.dumps(r)) + "\n" for r in rows),
+                    encoding="utf-8")  # fmt: skip
+
+
+def made_up(folder: Path) -> None:
+    """ha-001: both agree (a spot check); ha-002: A refuses, B asks back (a disagreement);
+    hb-001: plan A cannot run (a disagreement)."""
+    write(folder / held.QUESTION_FILES[0], [q("ha-001"), q("ha-002")])
+    write(folder / held.QUESTION_FILES[1], [q("hb-001")])
+    write(folder / held.GOLD["a"], [plan("ha-001", REFUSE), plan("ha-002", REFUSE),
+                                    plan("hb-001", [{"op": "nonsense"}])])  # fmt: skip
+    write(folder / held.GOLD["b"], [plan("ha-001", REFUSE), plan("ha-002", CLARIFY, "clarify"),
+                                    plan("hb-001", REFUSE)])  # fmt: skip
 
 
 def test_the_fingerprint_is_fixed_and_follows_every_byte(tmp_path: Path) -> None:
     (tmp_path / held.AGENT).write_bytes(b'{"id": "ha-001"}\n')
     lines = held.fingerprint(tmp_path)
     digest = hashlib.sha256(b'{"id": "ha-001"}\n').hexdigest()
-    assert lines[0] == f"{held.YOUSEF}: absent"
-    assert lines[1] == f"{held.AGENT}: 1 lines, sha256 {digest}"
+    assert lines[0] == f"{held.AGENT}: 1 lines, sha256 {digest}"
+    assert lines[1] == f"{held.QUESTION_FILES[1]}: absent"
     overall = hashlib.sha256(held.AGENT.encode() + b"\0" + digest.encode() + b"\n").hexdigest()
     assert lines[-1] == f"set: sha256 {overall}"
     (tmp_path / held.AGENT).write_bytes(b'{"id": "ha-002"}\n')
     assert held.fingerprint(tmp_path)[-1] != lines[-1]
 
 
-def test_the_printout_writes_into_the_folder_and_prints_no_content(
+def test_the_review_shows_cases_side_by_side_and_prints_only_counts(
     tmp_path: Path,
     monkeypatch,
     capsys,  # type: ignore[no-untyped-def]
 ) -> None:
-    """Review B1b (2026-11-21): whatever route runs it, the command shows only a line count; the
-    text goes into the (blocked) folder. Made-up empty folder: nothing to compare."""
+    made_up(tmp_path)
     monkeypatch.setattr(held, "FOLDER", tmp_path)
-    for name in held.GOLD.values():
-        (tmp_path / name).write_text("", encoding="utf-8")
     assert held.main(["disagreements"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("wrote ") and "lines to disagreements.txt" in out
-    assert "differ" not in out and "agreed" not in out
-    assert (tmp_path / held.REVIEW).read_text(encoding="utf-8").startswith("0 of 0 differ")
+    assert "2 disagreements, 1 spot checks" in out and "gives" not in out and "q" not in out[:5]
+    cases = json.loads((tmp_path / held.CASES).read_text("utf-8"))
+    assert [(c["case"], c["question"]) for c in cases] == [
+        ("d01", "ha-002"), ("d02", "hb-001"), ("s01", "ha-001")]  # fmt: skip
+    text = (tmp_path / held.REVIEW).read_text("utf-8")
+    assert "=== d01" in text and " | " in text and "could not run (PlanError)" in text
+    assert "gives: I can't give advice" in text  # what plan A computes, in plain words
+    assert (tmp_path / held.ANSWERS).read_text("utf-8") == "d01: \nd02: \ns01: \n"
 
 
-def test_a_broken_gold_plan_is_listed_and_the_rest_still_compared(tmp_path: Path) -> None:
-    """Review N5 and NB3/NB4: a question whose plan A cannot run is named (A), counted in the
-    first line, and the other question is still compared (its two plans agree)."""
-    import json
-
-    def line(qid: str) -> str:
-        return json.dumps({"id": qid, "persona": "v2-SAL-01", "text": "q", "lang": "en"})
-
-    (tmp_path / held.AGENT).write_text(line("ha-001") + "\n" + line("ha-002") + "\n", "utf-8")
-    refuse = [{"op": "cannot_answer", "reason": "advice"}]
-    good = {"expect": "refused", "ambiguous": False, "steps": refuse}
-    a = [{"id": "ha-001", **good, "steps": [{"op": "nonsense"}]}, {"id": "ha-002", **good}]
-    b = [{"id": "ha-001", **good}, {"id": "ha-002", **good}]
-    for name, plans in ((held.GOLD["a"], a), (held.GOLD["b"], b)):
-        (tmp_path / name).write_text("".join(json.dumps(x) + "\n" for x in plans), "utf-8")
-    lines = held.disagreements(tmp_path)
-    assert lines[0] == "0 of 1 differ, 1 could not run"
-    assert "== ha-001: could not run: A (PlanError)" in lines
+def test_answers_become_the_final_gold(tmp_path: Path) -> None:
+    made_up(tmp_path)
+    held.write_review(tmp_path)
+    (tmp_path / held.ANSWERS).write_text("d01: OK\nd02: x\ns01: ok\n", "utf-8")
+    lines = held.apply_review(tmp_path)
+    assert "d01: a disagreement takes A, B or X" in lines
+    assert "d02: X needs one line saying what the right plan does" in lines
+    assert not (tmp_path / held.FINAL).exists()
+    (tmp_path / held.ANSWERS).write_text("d01: b\nd02: X it should refuse: advice\ns01: OK\n",
+                                         "utf-8")  # fmt: skip
+    lines = held.apply_review(tmp_path)
+    assert lines[0] == "answers: 3 of 3 cases (B 1, OK 1, X 1)"
+    assert lines[1] == "X cases still waiting for the fixer: 1 (d02)"
+    assert not (tmp_path / held.FINAL).exists()
+    assert held.write_review(tmp_path)[0].startswith("answers.txt already has answers")
+    write(tmp_path / held.FIXES, [plan("hb-001", REFUSE)])
+    assert held.check_fixes(tmp_path)[-1] == "problems: none"
+    assert held.apply_review(tmp_path)[-1] == "wrote gold_final.jsonl: 3 plans"
+    final = held.read_gold(tmp_path / held.FINAL)
+    assert final["ha-002"]["steps"] == CLARIFY  # B chosen
+    assert final["hb-001"]["steps"] == REFUSE  # the fix
+    assert final["ha-001"]["steps"] == REFUSE  # agreed
+    assert held.check_final(tmp_path)[-1] == "problems: none"

@@ -164,10 +164,15 @@ def test_the_session_may_run_only_the_fingerprint() -> None:
 
 def test_each_writer_reaches_only_its_own_files() -> None:
     q, a, b, y = (f"{ABS}/{n}" for n in ("questions_agent.jsonl", "gold_a.jsonl",
-                                         "gold_b.jsonl", "questions_yousef.txt"))  # fmt: skip
+                                         "gold_b.jsonl", "questions_agent_b.jsonl"))  # fmt: skip
     assert allowed("write", q, "heldout-questions") and allowed("read", q, "heldout-questions")
     assert not allowed("read", a, "heldout-questions")
+    # The two question writers never see each other's questions.
     assert not allowed("read", y, "heldout-questions")
+    assert allowed("write", y, "heldout-questions-b") and allowed("read", y, "heldout-questions-b")
+    assert not allowed("read", q, "heldout-questions-b")
+    assert not allowed("write", q, "heldout-questions-b")
+    assert not allowed("read", a, "heldout-questions-b")
     for who, own, other in (("heldout-gold-a", a, b), ("heldout-gold-b", b, a)):
         own_name, other_name = own.rsplit("/", 1)[1], other.rsplit("/", 1)[1]
         assert allowed("read", q, who) and allowed("read", y, who)
@@ -180,17 +185,36 @@ def test_each_writer_reaches_only_its_own_files() -> None:
         assert not allowed("command", f"cat {own}", who)  # files are read only by path
         assert not allowed("search", ABS, who)
     assert not allowed("read", f"{ABS}/notes.txt", "heldout-gold-a")
+    # The gold writers never see the review; the fixer sees it, writes only the fixes.
+    for who in ("heldout-gold-a", "heldout-gold-b", "heldout-questions", "heldout-questions-b"):
+        assert not allowed("read", f"{ABS}/answers.txt", who)
+    fixer = "heldout-fixer"
+    for name in ("questions_agent.jsonl", "questions_agent_b.jsonl", "gold_a.jsonl",
+                 "gold_b.jsonl", "answers.txt", "review_cases.json",
+                 "gold_fixes.jsonl"):  # fmt: skip
+        assert allowed("read", f"{ABS}/{name}", fixer)
+    assert allowed("write", f"{ABS}/gold_fixes.jsonl", fixer)
+    for name in ("gold_a.jsonl", "gold_b.jsonl", "gold_final.jsonl", "answers.txt", "review.txt"):
+        assert not allowed("write", f"{ABS}/{name}", fixer)
+    assert not allowed("read", f"{ABS}/review.txt", fixer)  # the plans' text, for Yousef only
 
 
 def test_each_writer_runs_only_its_own_check() -> None:
     cd = "cd /Users/someone/lookahead && "
-    own = {"heldout-questions": "check-questions", "heldout-gold-a": "check-gold --which a",
-           "heldout-gold-b": "check-gold --which b"}  # fmt: skip
+    own = {"heldout-questions": "check-questions", "heldout-questions-b": "check-questions",
+           "heldout-gold-a": "check-gold --which a", "heldout-gold-b": "check-gold --which b",
+           "heldout-fixer": "check-fixes"}  # fmt: skip
+    every = {*own.values(), "apply-review", "check-final", "disagreements"}
     for who, sub in own.items():
         assert allowed("command", f"{cd}{PY} -m eval.ask_heldout {sub}", who)
         assert allowed("command", f"{cd}{PY} -m eval.ask_heldout fingerprint", who)
-        for other in set(own.values()) - {sub}:
+        for other in every - {sub}:
             assert not allowed("command", f"{cd}{PY} -m eval.ask_heldout {other}", who)
+    # The session: counts, ids and hashes only; never a writer's check or the review text.
+    for sub in ("fingerprint", "apply-review", "check-final"):
+        assert allowed("command", f"{cd}{PY} -m eval.ask_heldout {sub}")
+    for sub in ("disagreements", "check-fixes", "check-questions", "check-gold --which a"):
+        assert not allowed("command", f"{cd}{PY} -m eval.ask_heldout {sub}")
 
 
 @pytest.mark.parametrize(
