@@ -1,134 +1,193 @@
 """The guard on Ask's held-out folder (spec docs/specs/2026-11-20-ask.md, step 9).
 
-A local command hook runs `main` before every tool call of the coding session and of every
-subagent, with the call as JSON on stdin; exit code 2 blocks it. It blocks any call that names
-the held-out folder, or that could reach it through a wildcard or a recursive search of data/,
-unless the caller is one of the named writer subagents, and then only for its own files:
+A local hook (outside the repository) calls `decide` before every file or command access of the
+coding session and of every agent, with the access as one of these kinds:
+- "read" or "write": one file, by path;
+- "search": a file search, by the folder it searches (no folder means the current folder);
+- "pattern": the file-name pattern of a search, relative to the folder searched;
+- "command": a shell command, by its text.
+Anything else that names the folder is "other" and is refused.
 
-- heldout-questions: writes and reads questions_agent.jsonl;
-- heldout-gold-a / heldout-gold-b: read the question files, write and read their own gold file
-  (gold_a.jsonl / gold_b.jsonl), never the other one;
-- each may also run `python -m eval.ask_heldout` (counts and fingerprints only).
+What it stops: accidental reads of the folder by the routes below. It refuses the folder's name
+in any spelling (quotes and backslashes removed first, any case, any separator between its two
+words), any wildcard or variable over data/, a `cd` into data, a recursive command or a search
+whose targets are not all code folders (no target means the current folder, so it is refused
+too), and a search pattern that climbs out of its folder. It cannot see what a script it runs
+does: a script written to read the folder is not caught, so none is ever written.
 
-Everything else, the main session and the reviewer included, is blocked. Anything that cannot
-be read is blocked (fail closed). The log line keeps only the tool name, the caller's type and
-the decision, never what the call contained.
+Who may do what:
+- the three writers (heldout-questions, heldout-gold-a, heldout-gold-b) read and write only their
+  own files, directly in the folder, and run only their own check commands;
+- the coding session may run only `python -m eval.ask_heldout fingerprint`;
+- everyone else, the reviewer included, nothing;
+- `disagreements` (which prints questions and plans) is refused for every caller: only Yousef
+  runs it, himself.
 """
 
-import json
-import os
+import posixpath
 import re
-import sys
-from collections.abc import Mapping
-from pathlib import Path
-from typing import Any
+from dataclasses import dataclass
 
 FOLDER = "data/ask_heldout"
-NAMES = re.compile(r"ask[\W_]*held", re.IGNORECASE)
-# The code that works on the folder is not the folder: its module and test file may be named.
-CODE_NAMES = re.compile(r"eval[./\\]ask_heldout(\.py)?\b|tests[/\\]test_ask_heldout\.py",
-                        re.IGNORECASE)  # fmt: skip
-# A wildcard over data/ (data/*, data/ask_*, data/**), or a recursive look through data/.
-WILDCARD = re.compile(r"data[\\/]+(\*|ask_?[*?\[])|data[\\/]+\*\*", re.IGNORECASE)
-RECURSIVE = re.compile(r"\b(grep|rg|ag)\b[^|;&]*\s-\w*[rR]|\bfind\b|\bls\b[^|;&]*\s-\w*R|\btar\b|"
-                       r"\bcp\b[^|;&]*\s-\w*[rR]|\brsync\b|\bzip\b|\bdu\b")  # fmt: skip
-DATA = re.compile(r"(^|[\s\"'=/])data([\\/]|\s|$|[\"'])")
 QUESTION_FILES = ("questions_agent.jsonl", "questions_yousef.txt")
 WRITERS: dict[str, dict[str, tuple[str, ...]]] = {
     "heldout-questions": {"read": ("questions_agent.jsonl",),
-                              "write": ("questions_agent.jsonl",)},
-    "heldout-gold-a": {"read": (*QUESTION_FILES, "gold_a.jsonl"), "write": ("gold_a.jsonl",)},
-    "heldout-gold-b": {"read": (*QUESTION_FILES, "gold_b.jsonl"), "write": ("gold_b.jsonl",)},
+                          "write": ("questions_agent.jsonl",),
+                          "command": ("check-questions", "fingerprint")},
+    "heldout-gold-a": {"read": (*QUESTION_FILES, "gold_a.jsonl"), "write": ("gold_a.jsonl",),
+                       "command": ("check-gold --which a", "fingerprint")},
+    "heldout-gold-b": {"read": (*QUESTION_FILES, "gold_b.jsonl"), "write": ("gold_b.jsonl",),
+                       "command": ("check-gold --which b", "fingerprint")},
 }  # fmt: skip
-ALLOWED_COMMAND = re.compile(r"^\S*python3?\s+-m\s+eval\.ask_heldout(\s+[\w=.\-]+)*\s*$")
-# The main repository folder's logs/ (the hook runs a copy from .claude/hooks/).
-LOG = (
-    Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path(__file__).resolve().parents[1])
-    / "logs"
-    / ("heldout-guard.log")
+SESSION_COMMANDS = ("fingerprint",)  # the coding session (no agent name)
+
+# The folder's name: "ask" then "held", with anything but letters and digits between them.
+NAMES = re.compile(r"ask[\W_]*held", re.IGNORECASE)
+# The module and its test are code, not the folder: they may be edited, listed and committed.
+CODE_FILES = re.compile(r"eval[/\\]ask_heldout\.py|tests[/\\]test_ask_heldout\.py", re.IGNORECASE)
+# Running the module, by name or by file.
+MODULE = re.compile(r"eval\.ask_?heldout|python3?\s+\S*eval[/\\]ask_?heldout", re.IGNORECASE)
+MODULE_COMMAND = re.compile(
+    r"^(?:cd\s+\S+\s+&&\s+)?\S*python3?\s+-m\s+eval\.ask_heldout\s+(?P<sub>[\w\- ]+?)\s*$"
 )
+WILDCARD = re.compile(r"data[\\/]+\S*[*?\[{$]", re.IGNORECASE)
+CD_DATA = re.compile(r"\b(cd|pushd)\s+(\S*[\\/])?data\b", re.IGNORECASE)
+# Commands that walk folders. For the first group the first plain word is the search text.
+WALK_WITH_TEXT = ("grep", "egrep", "fgrep", "rg", "ag", "ack", "fd")
+WALK = ("find", "tree", "tar", "rsync", "zip", "du")
+RECURSIVE_FLAG = re.compile(
+    r"^(-\w*[rR]\w*|--recursive|--dereference-recursive|--directories=recurse|-d)$"
+)
+TEXT_OPTIONS = ("-e", "-f", "--regexp", "--file")
+CODE_DIRS = ("lookahead", "app", "tests", "eval", "tools", "docs", ".streamlit")
+# A repository folder (the main one or a worktree) in front of a code folder: the first folder
+# named lookahead... in the path, so one nested deeper (say under data/) does not count.
+REPO_PREFIX = re.compile(r"^(?:.*?/)?lookahead[\w\-]*/")
+SEPARATORS = re.compile(r"[|;&()\n`]+")
+PREFIX_WORDS = ("sudo", "env", "nice", "time", "command", "exec", "nohup")
 
 
-def _texts(tool: str, args: Mapping[str, Any]) -> list[str]:
-    keys = {"Read": ("file_path",), "Write": ("file_path",), "Edit": ("file_path",),
-            "MultiEdit": ("file_path",), "NotebookEdit": ("notebook_path",),
-            "Grep": ("path", "glob"), "Glob": ("path", "pattern"),
-            "Bash": ("command",), "Monitor": ("command",)}  # fmt: skip
-    if tool in keys:
-        return [str(args.get(k) or "") for k in keys[tool]]
-    return [json.dumps(args, default=str)]  # any other tool: everything it was given
+@dataclass(frozen=True)
+class Decision:
+    allowed: bool
+    reason: str
+    reaches: bool  # the access names the folder or could reach it
 
 
-# Tools that open no file and run no command: starting or messaging an agent, loading tools.
-# An agent's instructions may name the folder; the agent's own calls are checked one by one.
-NO_ACCESS = frozenset({"Agent", "Task", "SendMessage", "ListAgents", "TaskStop", "ToolSearch",
-                       "Skill", "ScheduleWakeup", "AskUserQuestion", "ReportFindings",
-                       "SubagentHandback"})  # fmt: skip
+def plain(text: str) -> str:
+    """Quotes and backslashes removed, so a name split by quotes reads as the name it spells."""
+    return re.sub(r"['\"\\`]", "", text)
 
 
-def touches(tool: str, args: Mapping[str, Any]) -> bool:
-    """True when the call names the folder or could reach it (wildcards, recursive search of
-    data/, a search tool pointed at data/)."""
-    if tool in NO_ACCESS:
+def code_path(path: str) -> bool:
+    """A path inside a code folder (lookahead/, app/, tests/, ...), relative or under a
+    repository folder, that does not climb back out with `..`."""
+    p = posixpath.normpath(path.replace("\\", "/"))
+    if p.startswith("~") or "$" in p:
         return False
-    texts = _texts(tool, args)
-    joined = CODE_NAMES.sub(" ", " ".join(texts))
-    if NAMES.search(joined) or WILDCARD.search(joined):
-        return True
-    if tool in ("Bash", "Monitor") and RECURSIVE.search(joined) and DATA.search(joined):
-        return True
-    if tool in ("Grep", "Glob"):
-        path = str(args.get("path") or "")
-        return bool(re.match(r"^(\./)?data([\\/]|$)", path) or path.rstrip("/").endswith("/data"))
+    rest = REPO_PREFIX.sub("", p, count=1) if p.startswith(("/", "..")) else p
+    if rest.startswith(("/", "..")):
+        return False
+    parts = rest.split("/")
+    return parts[0] in CODE_DIRS and ".." not in parts
+
+
+def _walk_targets(words: list[str]) -> list[str] | None:
+    """The folders a folder-walking command reaches, or None when the command does not walk
+    folders. A walk with no folder named walks the current one, returned as "."."""
+    if not words:
+        return None
+    name = words[0].rsplit("/", 1)[-1]
+    if name == "xargs":  # its targets come from its input, so they are unknown
+        return None if _walk_targets(words[1:]) is None else ["."]
+    options = [w for w in words[1:] if w.startswith("-")]
+    plain_words = [w for w in words[1:] if not w.startswith("-")]
+    if name in WALK_WITH_TEXT:
+        if name in ("grep", "egrep", "fgrep") and not any(RECURSIVE_FLAG.match(o) for o in options):
+            return None
+        targets, skip, text_given = [], False, False
+        for w in words[1:]:
+            if skip:  # the value of -e / -f: search text, not a folder
+                skip = False
+            elif w in TEXT_OPTIONS:
+                skip = text_given = True
+            elif w.startswith(("--regexp=", "--file=")):
+                text_given = True
+            elif not w.startswith("-"):
+                targets.append(w)
+        if not text_given:
+            targets = targets[1:]  # the first plain word is the search text
+        return targets or ["."]
+    if name == "find":
+        targets = []
+        for w in words[1:]:
+            if w.startswith(("-", "(", "!")):
+                break
+            targets.append(w)
+        return targets or ["."]
+    if name in WALK:
+        return plain_words or ["."]
+    if name == "ls" and any(re.match(r"^-\w*R", o) for o in options):
+        return plain_words or ["."]
+    if name == "cp" and any(re.match(r"^-\w*[rR]", o) for o in options):
+        return plain_words
+    return None
+
+
+def walks_outside_code(command: str) -> bool:
+    """True when some part of the command walks a folder that is not a code folder."""
+    for part in SEPARATORS.split(command):
+        words = part.split()
+        while words and (re.match(r"^\w+=", words[0]) or words[0] in PREFIX_WORDS):
+            words = words[1:]
+        targets = _walk_targets(words)
+        if targets is not None and not all(code_path(t) for t in targets):
+            return True
     return False
 
 
-def decide(tool: str, args: Mapping[str, Any], agent: str | None) -> tuple[bool, str]:
-    """(allowed, reason)."""
-    if not touches(tool, args):
-        return True, "does not reach the held-out folder"
+def reaches(kind: str, text: str) -> bool:
+    """Does the access name the folder, or could it reach it?"""
+    raw = plain(text)
+    t = CODE_FILES.sub(" ", raw)
+    if NAMES.search(t) or WILDCARD.search(t):
+        return True
+    if kind == "command":
+        return bool(MODULE.search(raw) or CD_DATA.search(t) or walks_outside_code(t))
+    if kind == "search":
+        return not code_path(t.strip() or ".")
+    if kind == "pattern":
+        p = t.strip().replace("\\", "/")
+        return p.startswith(("/", "~")) or ".." in p.split("/") or "$" in p
+    return False
+
+
+def decide(kind: str, text: str, agent: str | None) -> Decision:
+    """May this access go ahead? `text` is the path (read, write), the searched folder (search),
+    the search pattern (pattern) or the command (command); `agent` is the agent's name, None for
+    the coding session."""
+    if not reaches(kind, text):
+        return Decision(True, "does not reach the held-out folder", False)
+    t = plain(text).strip()
+    if kind == "command":
+        m = MODULE_COMMAND.match(t)
+        if m is not None:
+            sub = " ".join(m.group("sub").split())
+            if agent in WRITERS:
+                allowed = WRITERS[agent]["command"]
+            else:
+                allowed = SESSION_COMMANDS if agent is None else ()
+            if sub in allowed:
+                return Decision(True, f"the check command {sub}", True)
+            return Decision(False, f"this caller may not run the held-out command {sub!r}", True)
+        return Decision(False, "this command could reach the held-out folder", True)
     rights = WRITERS.get(agent or "")
-    if rights is None:
-        return False, "the held-out folder is blocked for this session and every other agent"
-    if tool in ("Bash", "Monitor"):
-        command = str(args.get("command") or "").strip()
-        if ALLOWED_COMMAND.match(command):
-            return True, "the held-out check command"
-        return False, "writer agents may only run python -m eval.ask_heldout"
-    if tool not in ("Read", "Write", "Edit", "MultiEdit"):
-        return False, f"writer agents may not use {tool} on the held-out folder"
-    path = str(args.get("file_path") or "").replace("\\", "/")
+    if rights is None or kind not in ("read", "write"):
+        return Decision(False, "the held-out folder is blocked for this caller", True)
+    path = posixpath.normpath(t.replace("\\", "/"))
     name = path.rsplit("/", 1)[-1]
     if not path.endswith(f"{FOLDER}/{name}"):
-        return False, "not a file directly in the held-out folder"
-    allowed = rights["read"] if tool == "Read" else rights["write"]
-    if name in allowed:
-        return True, f"{agent} may {'read' if tool == 'Read' else 'write'} {name}"
-    return False, f"{agent} may not touch {name}"
-
-
-def main() -> None:
-    try:
-        call = json.load(sys.stdin)
-        tool = str(call["tool_name"])
-        args = call.get("tool_input") or {}
-        agent = call.get("agent_type")
-    except Exception:
-        print("Blocked by heldout_guard: could not read the tool call", file=sys.stderr)
-        sys.exit(2)
-    allowed, reason = decide(tool, args, agent)
-    if touches(tool, args):
-        try:
-            LOG.parent.mkdir(parents=True, exist_ok=True)
-            with LOG.open("a", encoding="utf-8") as f:
-                f.write(json.dumps({"tool": tool, "agent_type": agent, "allowed": allowed}) + "\n")
-        except OSError:
-            pass
-    if not allowed:
-        print(f"Blocked by heldout_guard: {reason}", file=sys.stderr)
-        sys.exit(2)
-    sys.exit(0)
-
-
-if __name__ == "__main__":
-    main()
+        return Decision(False, "not a file directly in the held-out folder", True)
+    if name in rights[kind]:
+        return Decision(True, f"{agent} may {kind} {name}", True)
+    return Decision(False, f"{agent} may not {kind} {name}", True)
