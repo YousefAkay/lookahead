@@ -140,7 +140,11 @@ def check_gold(which: str, folder: Path = FOLDER) -> list[str]:
         except (PlanError, KeyError):
             problems.append(f"{qid}: the plan fails its checks")
             continue
-        out = run(plan, runner.context(q.persona))
+        try:
+            out = run(plan, runner.context(q.persona))
+        except Exception as e:  # listed by id and error type only
+            problems.append(f"{qid}: the plan could not run ({type(e).__name__})")
+            continue
         if out.kind != g["expect"]:
             problems.append(f"{qid}: runs to {out.kind}, expect says {g['expect']}")
         kinds[f"{g['expect']}{' (ambiguous)' if g.get('ambiguous') else ''}"] += 1
@@ -183,16 +187,21 @@ def disagreements(folder: Path = FOLDER) -> list[str]:
     for q in questions(folder):
         if q.id not in a or q.id not in b:
             continue
-        try:
-            pa, pb = parse({"steps": a[q.id]["steps"]}), parse({"steps": b[q.id]["steps"]})
-            same = (same_answer(run(pa, runner.context(q.persona)),
-                                run(pb, runner.context(q.persona)))
-                    and a[q.id].get("ambiguous") == b[q.id].get("ambiguous"))  # fmt: skip
-        except Exception as e:  # one broken plan: listed, the rest still compared
-            broken.append(f"== {q.id}: a plan could not run ({type(e).__name__})")
+        ran, failed = {}, []
+        for which, gold in (("A", a), ("B", b)):
+            try:
+                plan = parse({"steps": gold[q.id]["steps"]})
+                ran[which] = (plan, run(plan, runner.context(q.persona)))
+            except Exception as e:  # one broken plan: listed, the rest still compared
+                failed.append(f"{which} ({type(e).__name__})")
+        if failed:
+            broken.append(f"== {q.id}: could not run: {', '.join(failed)}")
             continue
+        (pa, oa), (pb, ob) = ran["A"], ran["B"]
+        same = same_answer(oa, ob) and a[q.id].get("ambiguous") == b[q.id].get("ambiguous")
         (agree if same else differ).append((q, pa, pb))
-    lines = [f"{len(differ)} of {len(differ) + len(agree)} differ", "", *broken]
+    lines = [f"{len(differ)} of {len(differ) + len(agree)} differ, {len(broken)} could not run",
+             "", *broken]  # fmt: skip
     for q, pa, pb in differ:
         lines += [f"== {q.id} ({q.persona}) {q.text}", "  A:"]
         lines += ["    " + w for w in plan_words(pa)] + ["  B:"]

@@ -48,17 +48,20 @@ def test_the_printout_writes_into_the_folder_and_prints_no_content(
 
 
 def test_a_broken_gold_plan_is_listed_and_the_rest_still_compared(tmp_path: Path) -> None:
-    """Review round 3, N5: one plan that cannot run does not stop the comparison."""
+    """Review N5 and NB3/NB4: a question whose plan A cannot run is named (A), counted in the
+    first line, and the other question is still compared (its two plans agree)."""
     import json
 
-    (tmp_path / held.AGENT).write_text(
-        json.dumps({"id": "ha-001", "persona": "v2-SAL-01", "text": "q", "lang": "en"}) + "\n",
-        encoding="utf-8",
-    )
-    bad = json.dumps({"id": "ha-001", "expect": "answer", "ambiguous": False,
-                      "steps": [{"op": "nonsense"}]})  # fmt: skip
-    for name in held.GOLD.values():
-        (tmp_path / name).write_text(bad + "\n", encoding="utf-8")
+    def line(qid: str) -> str:
+        return json.dumps({"id": qid, "persona": "v2-SAL-01", "text": "q", "lang": "en"})
+
+    (tmp_path / held.AGENT).write_text(line("ha-001") + "\n" + line("ha-002") + "\n", "utf-8")
+    refuse = [{"op": "cannot_answer", "reason": "advice"}]
+    good = {"expect": "refused", "ambiguous": False, "steps": refuse}
+    a = [{"id": "ha-001", **good, "steps": [{"op": "nonsense"}]}, {"id": "ha-002", **good}]
+    b = [{"id": "ha-001", **good}, {"id": "ha-002", **good}]
+    for name, plans in ((held.GOLD["a"], a), (held.GOLD["b"], b)):
+        (tmp_path / name).write_text("".join(json.dumps(x) + "\n" for x in plans), "utf-8")
     lines = held.disagreements(tmp_path)
-    assert lines[0] == "0 of 0 differ"
-    assert any(line.startswith("== ha-001: a plan could not run") for line in lines)
+    assert lines[0] == "0 of 1 differ, 1 could not run"
+    assert "== ha-001: could not run: A (PlanError)" in lines
