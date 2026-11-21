@@ -1,0 +1,20 @@
+{"header": true, "prompt_sha256": "93d412d07defb4927ae4190e3ccd657668ad036a32491da12d1b3eb0af7f6f4b", "prompt_at": "14d2a0b", "code": "ecc5fb3"}
+{"id": "dev-019", "plan": {"steps": [{"op": "rows", "name": "r", "categories": ["Restaurants & cafés"], "period": {"kind": "since", "start": "2024-07-01"}}, {"op": "aggregate", "name": "total", "source": "r", "measure": "sum"}]}}
+{"id": "dev-042", "plan": {"steps": [{"op": "rows", "name": "r", "period": {"kind": "last_month"}}, {"op": "list", "name": "biggest", "source": "r", "order": "largest", "limit": 1}]}}
+{"id": "dev-047", "plan": {"steps": [{"op": "rows", "name": "r", "merchants": ["IGA"]}, {"op": "list", "name": "largest", "source": "r", "order": "largest", "limit": 1}]}}
+{"id": "dev-048", "plan": {"steps": [{"op": "rows", "name": "r", "categories": ["Groceries"], "period": {"kind": "last_month"}}, {"op": "list", "name": "smallest", "source": "r", "order": "smallest", "limit": 1}]}}
+{"id": "dev-050", "plan": {"steps": [{"op": "rows", "name": "r", "merchants": ["Uber Eats"], "period": {"kind": "this_year"}}, {"op": "list", "name": "biggest", "source": "r", "order": "largest", "limit": 1}]}}
+{"id": "dev-054", "plan": {"steps": [{"op": "rows", "name": "this_month_spending", "period": {"kind": "this_month"}, "direction": "out"}, {"op": "list", "name": "largest_expense", "source": "this_month_spending", "order": "largest", "limit": 1}]}}
+{"id": "dev-104", "plan": {"steps": [{"op": "rows", "name": "subscriptions", "categories": ["Subscriptions"], "direction": "out"}, {"op": "list", "name": "subscription_list", "source": "subscriptions", "order": "largest", "limit": 200}]}}
+{"id": "dev-111", "plan": {"steps": [{"op": "forecast", "name": "balance_oct_1", "measure": "balance_on", "on": {"kind": "date", "date": "2024-10-01"}}]}}
+{"id": "dev-114", "plan": {"steps": [{"op": "forecast", "name": "forecast_balance", "measure": "lowest"}]}}
+{"id": "dev-120", "plan": {"steps": [{"op": "forecast", "name": "risk", "measure": "chance_below", "below": {"dollars": 0}}]}}
+{"id": "dev-128", "plan": {"steps": [{"op": "whatif", "name": "w", "changes": [{"kind": "category", "category": "Groceries", "direction": "less", "amount": {"percent": 20}}]}]}}
+{"id": "dev-129", "plan": {"steps": [{"op": "rows", "name": "delivery_spending", "categories": ["Food delivery"], "direction": "out"}, {"op": "aggregate", "name": "monthly_delivery", "source": "delivery_spending", "measure": "average"}, {"op": "whatif", "name": "no_delivery", "changes": [{"kind": "category", "category": "Food delivery", "direction": "less", "amount": {"ref": "monthly_delivery"}}]}]}}
+{"id": "dev-134", "plan": {"steps": [{"op": "whatif", "name": "w", "changes": [{"kind": "everyday", "direction": "less", "amount": {"percent": 10}}]}]}}
+{"id": "dev-153", "plan": {"steps": [{"op": "rows", "name": "r", "categories": ["Restaurants & cafés"], "period": {"kind": "last_month"}}, {"op": "aggregate", "name": "total", "source": "r", "measure": "sum"}]}}
+{"id": "dev-161", "plan": {"steps": [{"op": "rows", "name": "coffee_transactions", "categories": ["Restaurants & cafés"], "merchants": ["coffee"], "period": {"kind": "this_year"}}, {"op": "aggregate", "name": "total_spent", "source": "coffee_transactions", "measure": "sum"}]}}
+{"id": "dev-163", "plan": {"steps": [{"op": "rows", "name": "all_spending", "direction": "out"}, {"op": "group", "name": "by_category", "source": "all_spending", "by": "category"}, {"op": "top", "name": "biggest", "source": "by_category", "n": 1, "order": "highest"}]}}
+{"id": "dev-169", "plan": {"steps": [{"op": "rows", "name": "r", "categories": ["Restaurants & cafés", "Food delivery"], "period": {"kind": "last_month"}, "direction": "out"}, {"op": "aggregate", "name": "total", "source": "r", "measure": "sum"}]}}
+{"id": "dev-188", "plan": {"steps": [{"op": "cannot_answer", "reason": "not_in_data"}]}}
+{"id": "dev-193", "plan": {"steps": [{"op": "forecast", "name": "balance_at_end_of_october", "measure": "balance_on", "on": {"kind": "day_of_month", "day": 31}}]}}
