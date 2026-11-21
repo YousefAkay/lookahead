@@ -28,6 +28,9 @@ Who may do what:
 - the three writers (heldout-questions, heldout-gold-a, heldout-gold-b) read and write only their
   own files, directly in the folder, and run only their own check commands;
 - the coding session may run only `python -m eval.ask_heldout fingerprint`;
+- an allowed check command runs only on committed code: the hook refuses it when the checkout it
+  runs in has uncommitted changes under eval/, lookahead/ or tools/ (`checkout_is_clean`), so
+  an edited copy of the module never runs on the folder before it is committed and reviewed;
 - everyone else, the reviewer included, nothing;
 - `disagreements` (which writes questions and plans into the folder) is refused for every
   caller: only Yousef runs it, himself.
@@ -35,7 +38,9 @@ Who may do what:
 
 import posixpath
 import re
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 FOLDER = "data/ask_heldout"
 QUESTION_FILES = ("questions_agent.jsonl", "questions_yousef.txt")
@@ -194,6 +199,8 @@ def decide(kind: str, text: str, agent: str | None) -> Decision:
         return Decision(True, "does not reach the held-out folder", False)
     t = plain(text).strip()
     if kind == "command":
+        if CD_DATA.search(t):  # even in front of an allowed command
+            return Decision(False, "this command could reach the held-out folder", True)
         m = MODULE_COMMAND.match(text.strip())  # as typed, not with quotes removed
         if m is not None:
             sub = m.group("sub")
@@ -215,3 +222,29 @@ def decide(kind: str, text: str, agent: str | None) -> Decision:
     if name in rights[kind]:
         return Decision(True, f"{agent} may {kind} {name}", True)
     return Decision(False, f"{agent} may not {kind} {name}", True)
+
+
+def run_folder(command: str, cwd: str) -> Path:
+    """The folder an allowed check command runs in: its `cd` target, else the call's folder."""
+    m = re.match(r"^cd ([\w./~-]+) && ", command.strip())
+    if m is None:
+        return Path(cwd)
+    target = Path(m.group(1)).expanduser()
+    return target if target.is_absolute() else Path(cwd) / target
+
+
+def checkout_is_clean(folder: Path) -> bool:
+    """No uncommitted change (staged, unstaged or untracked) to the code a check command runs.
+    Anything that cannot be checked counts as not clean."""
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--", "eval", "lookahead", "tools"],
+            cwd=folder,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.strip() == ""

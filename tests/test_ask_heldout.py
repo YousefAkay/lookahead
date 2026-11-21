@@ -45,3 +45,20 @@ def test_the_printout_writes_into_the_folder_and_prints_no_content(
     assert out.startswith("wrote ") and "lines to disagreements.txt" in out
     assert "differ" not in out and "agreed" not in out
     assert (tmp_path / held.REVIEW).read_text(encoding="utf-8").startswith("0 of 0 differ")
+
+
+def test_a_broken_gold_plan_is_listed_and_the_rest_still_compared(tmp_path: Path) -> None:
+    """Review round 3, N5: one plan that cannot run does not stop the comparison."""
+    import json
+
+    (tmp_path / held.AGENT).write_text(
+        json.dumps({"id": "ha-001", "persona": "v2-SAL-01", "text": "q", "lang": "en"}) + "\n",
+        encoding="utf-8",
+    )
+    bad = json.dumps({"id": "ha-001", "expect": "answer", "ambiguous": False,
+                      "steps": [{"op": "nonsense"}]})  # fmt: skip
+    for name in held.GOLD.values():
+        (tmp_path / name).write_text(bad + "\n", encoding="utf-8")
+    lines = held.disagreements(tmp_path)
+    assert lines[0] == "0 of 0 differ"
+    assert any(line.startswith("== ha-001: a plan could not run") for line in lines)

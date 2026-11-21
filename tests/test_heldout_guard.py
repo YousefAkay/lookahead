@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.heldout_guard import decide, reaches
+from tools.heldout_guard import checkout_is_clean, decide, reaches, run_folder
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "ask_" + "heldout"  # built, so this file does not name the folder in one piece
@@ -284,3 +284,45 @@ def test_harmless_cd_and_moves_are_allowed() -> None:
     assert allowed("command", "cd ~/Documents/PersonalProjects/lookahead-x && git status")
     assert allowed("command", "git mv lookahead/data.py lookahead/rows.py")
     assert allowed("command", "mv x.txt data.csv")
+
+
+def test_a_cd_into_data_refuses_even_an_allowed_command() -> None:
+    """Review round 3, N1: the allowed command cannot start inside the folder."""
+    module = "eval.ask_" + "heldout"
+    for agent, sub in ((None, "fingerprint"), ("heldout-gold-a", "check-gold --which a")):
+        assert not allowed("command", f"cd {FOLDER} && python -m {module} {sub}", agent)
+        assert not allowed("command", f"cd data && python -m {module} {sub}", agent)
+
+
+def test_the_check_commands_run_only_on_committed_code(tmp_path: Path) -> None:
+    """Review round 3, N2: the hook asks `checkout_is_clean` for the folder an allowed command
+    runs in; an uncommitted edit under eval/ (or untracked code) makes it refuse."""
+    import subprocess
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (tmp_path / "eval").mkdir()
+    (tmp_path / "eval" / "m.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("n\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "c")
+    assert checkout_is_clean(tmp_path)
+    (tmp_path / "notes.md").write_text("changed\n", encoding="utf-8")  # not code
+    assert checkout_is_clean(tmp_path)
+    (tmp_path / "eval" / "m.py").write_text("x = 2\n", encoding="utf-8")
+    assert not checkout_is_clean(tmp_path)
+    git("checkout", "-q", "--", "eval")
+    (tmp_path / "eval" / "new.py").write_text("y = 1\n", encoding="utf-8")
+    assert not checkout_is_clean(tmp_path)
+    assert not checkout_is_clean(tmp_path / "missing")  # cannot check: not clean
+
+
+def test_the_run_folder_is_the_cd_target_or_the_calls_folder() -> None:
+    module = "eval.ask_" + "heldout"
+    assert run_folder(f"cd /a/b && python -m {module} fingerprint", "/x") == Path("/a/b")
+    assert run_folder(f"cd ../w && python -m {module} fingerprint", "/x/y") == Path("/x/y/../w")
+    assert run_folder(f"python -m {module} fingerprint", "/x") == Path("/x")

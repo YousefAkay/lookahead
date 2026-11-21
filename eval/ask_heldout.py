@@ -179,16 +179,20 @@ def disagreements(folder: Path = FOLDER) -> list[str]:
 
     a, b = read_gold(folder / GOLD["a"]), read_gold(folder / GOLD["b"])
     runner = Runner()
-    differ, agree = [], []
+    differ, agree, broken = [], [], []  # type: ignore[var-annotated]
     for q in questions(folder):
         if q.id not in a or q.id not in b:
             continue
-        pa, pb = parse({"steps": a[q.id]["steps"]}), parse({"steps": b[q.id]["steps"]})
-        same = (same_answer(run(pa, runner.context(q.persona)),
-                            run(pb, runner.context(q.persona)))
-                and a[q.id].get("ambiguous") == b[q.id].get("ambiguous"))  # fmt: skip
+        try:
+            pa, pb = parse({"steps": a[q.id]["steps"]}), parse({"steps": b[q.id]["steps"]})
+            same = (same_answer(run(pa, runner.context(q.persona)),
+                                run(pb, runner.context(q.persona)))
+                    and a[q.id].get("ambiguous") == b[q.id].get("ambiguous"))  # fmt: skip
+        except Exception as e:  # one broken plan: listed, the rest still compared
+            broken.append(f"== {q.id}: a plan could not run ({type(e).__name__})")
+            continue
         (agree if same else differ).append((q, pa, pb))
-    lines = [f"{len(differ)} of {len(differ) + len(agree)} differ", ""]
+    lines = [f"{len(differ)} of {len(differ) + len(agree)} differ", "", *broken]
     for q, pa, pb in differ:
         lines += [f"== {q.id} ({q.persona}) {q.text}", "  A:"]
         lines += ["    " + w for w in plan_words(pa)] + ["  B:"]
