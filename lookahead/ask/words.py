@@ -44,6 +44,9 @@ REFUSALS: dict[str, str] = {
     "no_budget": "You have no budget set for that. Set one on the Budgets tab first.",
     "negative_amount": "I can't use that amount: it came out below zero.",
 }
+# A plan that still fails its checks after the one retry (his reading, 2026-11-21): not a
+# refusal, so it is said differently from "I can't answer that yet".
+COULD_NOT_PLAN = "I couldn't work that question out. Try asking it another way."
 CLARIFY: dict[str, str] = {
     "subject": "Which category, merchant or payment do you mean? Try asking again with a name.",
     "period": "Which period do you mean? Try asking again with a month, a year or 'last month'.",

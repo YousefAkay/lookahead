@@ -334,3 +334,32 @@ def test_since_a_day_without_a_year() -> None:
     assert asked(p, TODAY, date(2026, 8, 3)) == (date(2026, 7, 1), TODAY)
     p = Period(kind="since_named", month=12, day=1)
     assert asked(p, TODAY, date(2026, 8, 3)) == (date(2025, 12, 1), TODAY)
+
+
+def test_one_value_answers_are_equal_whatever_their_shape(ctx: Context) -> None:
+    """Equivalence (his decision, 2026-11-21): the same single value to the cent and the same row,
+    as a number or a one-row list, is the same answer. Worked out by hand on ROWS: Groceries
+    money out is 50.00 (fp00), 30.00 (fp01), 45.00 (fp05), 60.00 (fp12); Lumen Property is
+    1,200.00 twice (fp04 in September, fp11 in October)."""
+    groceries = rows(categories=[G])
+
+    def listed(order: str, limit: int = 1) -> dict:  # type: ignore[type-arg]
+        return {"op": "list", "name": "l", "source": "r", "order": order, "limit": limit}
+
+    largest = ask(ctx, groceries, total(measure="max"))
+    assert largest.result.value == 6000 and largest.result.row["fingerprint"] == "fp12"
+    assert signature(largest) == signature(ask(ctx, groceries, listed("largest")))
+    smallest = ask(ctx, groceries, total(measure="min"))
+    assert signature(smallest) == signature(ask(ctx, groceries, listed("smallest")))
+    assert signature(largest) != signature(ask(ctx, groceries, listed("smallest")))
+    assert signature(largest) != signature(ask(ctx, groceries, listed("largest", 2)))  # two rows
+    # Same value, other row: not the same answer.
+    rent = rows(merchants=["Lumen Property"])
+    rent_max = ask(ctx, rent, total(measure="max"))
+    assert rent_max.result.row["fingerprint"] == "fp11"  # newest first: October
+    assert signature(rent_max) == signature(ask(ctx, rent, listed("latest")))
+    assert signature(rent_max) != signature(ask(ctx, rent, listed("earliest")))  # fp04, same $
+    # A number that identifies no row (a sum of one row) is not a one-row list.
+    shop = rows(merchants=["Petit Orme"])
+    assert ask(ctx, shop, total()).result.value == 2500
+    assert signature(ask(ctx, shop, total())) != signature(ask(ctx, shop, listed("largest")))

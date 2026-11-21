@@ -139,3 +139,26 @@ def test_no_development_question_is_in_the_instructions() -> None:
     # The prompt's examples are not questions of the development set.
     for q in QUESTIONS:
         assert q.text not in SYSTEM
+
+
+@pytest.mark.parametrize("expect", ["refused", "answer"])
+def test_a_plan_still_failing_its_checks_is_not_a_refusal(
+    expect: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """His reading, 2026-11-21: after the retry, a plan that still fails its checks is not
+    correct, not a refusal and not silent wrong, also on a should-refuse question; the page says
+    it with its own sentence, not the refusal one."""
+    import eval.ask_score as score
+    from lookahead.ask.words import COULD_NOT_PLAN, REFUSALS
+
+    class Stub:
+        def context(self, persona: str) -> None:
+            return None
+
+    monkeypatch.setattr(score, "gold_outcome", lambda runner, question: None)
+    q = next(q for q in QUESTIONS if q.expect == expect and not q.ambiguous)
+    broken = {"steps": [{"op": "aggregate", "name": "t", "source": "nowhere", "measure": "sum"}]}
+    row = score_one(Stub(), q, lambda text, ctx: broken)  # type: ignore[arg-type]
+    assert (row.produced, row.correct, row.refused, row.silent_wrong) == (
+        "invalid", False, False, False)  # fmt: skip
+    assert COULD_NOT_PLAN not in REFUSALS.values() and "can't" not in COULD_NOT_PLAN
