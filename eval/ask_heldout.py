@@ -142,8 +142,10 @@ def check_questions(folder: Path = FOLDER, which: str = "") -> list[str]:
     return [
         f"questions: {len(qs)} (ha: {sum(q.id.startswith('ha-') for q in qs)}, "
         f"hb: {sum(q.id.startswith('hb-') for q in qs)})",
-        "by persona: " + _counts(Counter(q.persona for q in qs)),
-        "by language: " + _counts(Counter(q.lang for q in qs)),
+        "by persona: "
+        + _counts(Counter(q.persona if q.persona in PERSONAS else "other" for q in qs)),
+        "by language: "
+        + _counts(Counter(q.lang if q.lang in ("en", "fr") else "other" for q in qs)),
         *(problems or ["problems: none"]),
     ]
 
@@ -335,6 +337,14 @@ def review_cases(folder: Path = FOLDER) -> tuple[list[dict[str, Any]], list[str]
     return cases, text
 
 
+def _remove_final(folder: Path) -> str:
+    """Remove an older final gold and say so (empty when there was none)."""
+    if (folder / FINAL).exists():
+        (folder / FINAL).unlink()
+        return f" (removed an older {FINAL})"
+    return ""
+
+
 def _filled(path: Path) -> bool:
     return path.exists() and any(
         re.match(r"^\s*[ds]\d+:\s*\S", line) for line in path.read_text("utf-8").splitlines()
@@ -346,7 +356,7 @@ def write_review(folder: Path) -> list[str]:
     this, by whatever route, sees no question and no plan. Never overwrites answers given."""
     if _filled(folder / ANSWERS):
         return [f"{ANSWERS} already has answers: not overwritten (move it away to start again)"]
-    (folder / FINAL).unlink(missing_ok=True)  # a new review: the old final gold no longer holds
+    removed = _remove_final(folder)  # a new review: the old final gold no longer holds
     cases, text = review_cases(folder)
     (folder / REVIEW).write_text("\n".join(text) + "\n", encoding="utf-8")
     (folder / CASES).write_text(json.dumps(cases, indent=1) + "\n", encoding="utf-8")
@@ -354,7 +364,7 @@ def write_review(folder: Path) -> list[str]:
     (folder / ANSWERS).write_text("\n".join(template) + "\n", encoding="utf-8")
     n_d = sum(c["kind"] == "disagreement" for c in cases)
     return [f"wrote {REVIEW}, {ANSWERS} and {CASES}: {n_d} disagreements, "
-            f"{len(cases) - n_d} spot checks (open {REVIEW} yourself)"]  # fmt: skip
+            f"{len(cases) - n_d} spot checks (open {REVIEW} yourself)" + removed]  # fmt: skip
 
 
 ANSWER = re.compile(r"^\s*(?P<case>[ds]\d+):\s*(?P<letter>OK|[ABX])\b\s*(?P<why>.*)$", re.I)
@@ -455,8 +465,9 @@ def apply_review(folder: Path = FOLDER) -> list[str]:
 def apply_review_or_none(folder: Path) -> list[str]:
     """apply-review, or one line when the review files do not exist yet."""
     if not (folder / CASES).exists() or not (folder / ANSWERS).exists():
-        (folder / FINAL).unlink(missing_ok=True)  # an older final gold never outlives its review
-        return [f"no review yet: run disagreements first ({CASES} or {ANSWERS} missing)"]
+        removed = _remove_final(folder)  # an older final gold never outlives its review
+        return [f"no review yet: run disagreements first ({CASES} or {ANSWERS} missing)"
+                + removed]  # fmt: skip
     return apply_review(folder)
 
 

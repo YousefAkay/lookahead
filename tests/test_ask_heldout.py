@@ -171,3 +171,36 @@ def test_apply_review_with_a_bad_id_prints_no_text_and_a_restart_clears_the_fina
     out = "\n".join(held.apply_review(tmp_path))
     assert "narwhalword" not in out and "questions_agent_b.jsonl line 1" in out
     assert held.check_questions(tmp_path, "b")[-1].endswith("id not in the form ha-001 / hb-001")
+
+
+def test_no_persona_or_language_text_is_printed(tmp_path: Path) -> None:
+    """Review round 4, B1: persona and language values not on the sheet count as "other"."""
+    odd = json.dumps({"id": "hb-001", "persona": "v2-SAL-01 dugongword", "text": "q",
+                      "lang": "en manateeword"})  # fmt: skip
+    write(tmp_path / held.QUESTION_FILES[1], [odd, q("hb-002")])
+    out = "\n".join(held.check_questions(tmp_path, "b"))
+    assert "dugongword" not in out and "manateeword" not in out
+    assert "by persona: other 1, v2-SAL-01 1" in out and "by language: en 1, other 1" in out
+
+
+def test_a_new_review_removes_an_older_final_gold_and_says_so(tmp_path: Path) -> None:
+    """Review round 4, N1/N3: write_review itself removes it (answers not yet given)."""
+    made_up(tmp_path)
+    (tmp_path / held.FINAL).write_text("{}\n", "utf-8")
+    out = held.write_review(tmp_path)[0]
+    assert not (tmp_path / held.FINAL).exists() and out.endswith(
+        "(removed an older gold_final.jsonl)"
+    )
+    (tmp_path / held.FINAL).write_text("{}\n", "utf-8")
+    (tmp_path / held.ANSWERS).unlink()
+    assert held.apply_review_or_none(tmp_path)[0].endswith("(removed an older gold_final.jsonl)")
+
+
+def test_ids_must_match_in_full(tmp_path: Path) -> None:
+    """Review round 4, N2: a trailing newline or non-ASCII digits (accepted by the old pattern)
+    are named by file and line."""
+    rows = [json.dumps({"id": i, "persona": "v2-SAL-01", "text": "q"})
+            for i in ("ha-001\n", "ha-\u0660\u0660\u0661", "ha-002")]  # fmt: skip
+    write(tmp_path / held.QUESTION_FILES[0], rows)
+    ids = [x.id for x in held.read_questions(tmp_path / held.QUESTION_FILES[0])]
+    assert ids == ["questions_agent.jsonl line 1", "questions_agent.jsonl line 2", "ha-002"]
