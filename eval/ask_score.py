@@ -2,8 +2,9 @@
 rule"). Development runs only here; the held-out run has its own harness (step 10).
 
 For each question, the gold plan and the planner's plan are both run on the persona's database;
-the planner is correct when the two outcomes have the same signature (`run.signature`: numbers to
-the cent, same rows, same groups; refusal = refusal, ask-back = ask-back). Kinds come from the
+the planner is correct when the two outcomes are the same answer (`run.same_answer`: numbers to
+the cent, same rows, same groups, a number from one row equal to a list of that one row;
+refusal = refusal, ask-back = ask-back). Kinds come from the
 gold: answerable (an answer, or an honest "no merchant like ..."), ambiguous, should-refuse.
 
 - correct on answerable: the share of answerable questions answered like the gold, with the
@@ -15,8 +16,12 @@ gold: answerable (an answer, or an honest "no merchant like ..."), ambiguous, sh
   gold where the gold uses a written default (reported apart).
 
 A planner that gives no plan (the offline parser's None) has refused ("I can't answer that yet").
-A plan that fails its checks (the LLM's after its one retry) is not correct, not a refusal and not
-silent wrong; so is an API call that still fails after its retries ("api_error").
+A plan that fails its checks (the LLM's after its one retry: the planner passes on that plan, so it
+is scored here as "invalid", never as no plan) is not correct, not a refusal and not silent wrong;
+so is an API call that still fails after its retries ("api_error").
+
+    python -m eval.ask_score --planner llm --prompt-at COMMIT --ids ...   # an earlier prompt
+    python -m eval.ask_score --rescore docs/results/ask_dev_llm_..._plans.jsonl   # no API call
 
     python -m eval.ask_score --planner offline          # development set, writes a dated report
 """
@@ -26,6 +31,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import types
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
@@ -35,11 +41,11 @@ from typing import Any
 
 import numpy as np
 
+import lookahead.ask.llm as llm
 from eval.ask_dev_set import QUESTIONS, Question
 from eval.ask_personas import ACCOUNT, KEY, TODAY, build
 from lookahead.ask.llm import (
     MODEL,
-    SYSTEM,
     ApiFailed,
     Send,
     Spend,
@@ -49,7 +55,7 @@ from lookahead.ask.llm import (
 )
 from lookahead.ask.offline import parse_question
 from lookahead.ask.plan import PlanError, check_phrases, parse
-from lookahead.ask.run import Context, Outcome, run, signature
+from lookahead.ask.run import Context, Outcome, run, same_answer
 from lookahead.db import connect_readonly
 from lookahead.generator.archetypes import assert_development_only
 
@@ -129,7 +135,7 @@ def score_one(runner: Runner, q: Question, planner: Planner) -> Row:
         else:
             out = run(plan, runner.context(q.persona))
             produced = out.kind
-            same = signature(out) == signature(gold)
+            same = same_answer(out, gold)
     return Row(q.id, q.persona, kind_of(q), q.lang, q.tags, produced, same,
                produced == "answer" and not same, produced == "refused", data is None)  # fmt: skip
 
@@ -204,9 +210,11 @@ def report(name: str, rows: list[Row], questions: Iterable[Question] = QUESTIONS
         f"| Ambiguous handled like the gold | {_pct(s.correct_ambiguous, s.ambiguous)} |",
         f"| Plans that failed their checks | {s.invalid} |",
         "",
-        "The offline parser was tuned on these same 200 questions after its first score, so its "
-        "figures here are fitted to them; only the held-out run measures it. Every development "
-        "run is in docs/results/ask_ledger.jsonl:",
+        "The offline parser was tuned on these same 200 questions after its first score, and the "
+        "LLM's instructions were written and revised while looking at its misses on them, so "
+        "both planners' figures here are fitted to these questions; only the held-out run "
+        "measures them. Every development run is in docs/results/ask_ledger.jsonl (a VOID run "
+        "says nothing about its planner):",
         "",
         *_history(),
         "",
@@ -238,14 +246,16 @@ def _history() -> list[str]:
     if not LEDGER.exists():
         return ["- (no earlier runs)"]
     out = []
-    for line in LEDGER.read_text(encoding="utf-8").splitlines():
-        e = json.loads(line)
+    entries = [json.loads(line) for line in LEDGER.read_text(encoding="utf-8").splitlines()]
+    void = {e["about"] for e in entries if e.get("set") == "note" and e.get("void")}
+    for e in entries:
         if e.get("set") == "note":
             out.append(f"- note on {e['about']}: {'VOID: ' if e.get('void') else ''}{e['why']}")
             continue
         if e.get("set") != "development":
             continue
-        out.append(f"- {e['planner']}, code {e['code']}: {e['correct_answerable']} of "
+        mark = "VOID, " if e.get("variant") in void or e.get("void") else ""
+        out.append(f"- {mark}{e['planner']}, code {e['code']}: {e['correct_answerable']} of "
                    f"{e['answerable']} answerable correct, {e['refused']} of "
                    f"{e['should_refuse']} refused, {e['silent_wrong']} of {e['n']} silent wrong"
                    + (f" ({e['variant']})" if e.get("variant") else ""))  # fmt: skip
@@ -271,15 +281,22 @@ def llm_planner(send: Send, spend: Spend) -> Planner:
     def planner(question: str, ctx: Context) -> dict[str, Any] | None:
         del ctx  # never sent
         planned = plan_for(question, send, spend)
+        # A plan still failing its checks is passed on, so it is scored as failing them (not
+        # correct, not a refusal); never None, which would read as "no plan" (a refusal).
+        plan = planned.plan if planned.plan is not None else (planned.rejected or {"steps": []})
+        PRODUCED[question] = plan
         if SHOW_PLANS:
-            print(f"PLAN {question!r}: {json.dumps(planned.plan, ensure_ascii=False)}")
-        return planned.plan
+            print(f"PLAN {question!r}: {json.dumps(plan, ensure_ascii=False)}")
+        return plan
 
     return planner
 
 
 PLANNERS: dict[str, Planner] = {"offline": offline}
 SHOW_PLANS = False
+PRODUCED: dict[
+    str, dict[str, Any]
+] = {}  # question text -> the plan the LLM gave, for the run's file
 API_ERRORS: Counter[str] = Counter()  # error type and status -> how many, for the ledger
 SPEND_CAP_USD = 5.00  # all LLM development runs together (his cap for step 8, 2026-11-20)
 
@@ -291,6 +308,34 @@ def spent_so_far() -> float:
     for line in LEDGER.read_text(encoding="utf-8").splitlines():
         total += float(json.loads(line).get("spent_usd", 0.0))
     return total
+
+
+def system_at(commit: str) -> str:
+    """The LLM instructions as they were at a commit (lookahead/ask/llm.py there, run as a module:
+    our own code, never model-written)."""
+    source = subprocess.run(["git", "show", f"{commit}:lookahead/ask/llm.py"], capture_output=True,
+                            text=True, check=True).stdout  # fmt: skip
+    module = types.ModuleType(f"llm_at_{commit}")
+    exec(compile(source, f"{commit}:lookahead/ask/llm.py", "exec"), module.__dict__)
+    return str(module.SYSTEM)
+
+
+def saved_planner(path: Path) -> tuple[Planner, list[str], dict[str, Any]]:
+    """A planner that answers from a run's saved plans (no API call), the ids saved, and the
+    run's header line (prompt, code)."""
+    lines = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+    header = lines[0] if lines and "header" in lines[0] else {}
+    plans = [x for x in lines if "id" in x]
+    text_of = {q.id: q.text for q in QUESTIONS}
+    by_text = {text_of[x["id"]]: x["plan"] for x in plans}
+
+    def planner(question: str, ctx: Context) -> dict[str, Any] | None:
+        del ctx
+        if by_text[question] == "api_error":
+            raise ApiFailed("recorded in the saved run")
+        return by_text[question]  # type: ignore[no-any-return]
+
+    return planner, [x["id"] for x in plans], header
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -306,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="print each produced plan (development questions only)",
     )
+    parser.add_argument("--prompt-at", default="", help="use the LLM instructions of this commit")
+    parser.add_argument("--rescore", type=Path, help="score a run's saved plans (no API call)")
     args = parser.parse_args(argv)
     questions = list(QUESTIONS[: args.limit] if args.limit else QUESTIONS)
     if args.ids:
@@ -315,7 +362,17 @@ def main(argv: list[str] | None = None) -> int:
     stopped = ""
     global SHOW_PLANS
     SHOW_PLANS = args.show_plans
-    if args.planner == "llm":
+    if args.prompt_at:
+        llm.SYSTEM = system_at(args.prompt_at)
+    if args.rescore:
+        planner, ids, header = saved_planner(args.rescore)
+        questions = [q for q in QUESTIONS if q.id in set(ids)]
+        rows = score(planner, questions)
+        extra = {"rescored_from": str(args.rescore), "plans_code": header.get("code"),
+                 "prompt_sha256": header.get("prompt_sha256"),
+                 "prompt_at": header.get("prompt_at")}  # fmt: skip
+        args.planner = "llm"
+    elif args.planner == "llm":
         spend = Spend(cap_usd=SPEND_CAP_USD - spent_so_far())
         planner = llm_planner(make_sender(), spend)
         runner = Runner()
@@ -326,7 +383,10 @@ def main(argv: list[str] | None = None) -> int:
             except SpendCapReached:
                 stopped = f"spend cap reached after {len(rows)} questions"
                 break
-        extra = {"model": MODEL, "prompt_sha256": hashlib.sha256(SYSTEM.encode()).hexdigest(),
+            if rows[-1].produced == "api_error":
+                PRODUCED[q.text] = "api_error"  # type: ignore[assignment]
+        extra = {"model": MODEL, "prompt_sha256": hashlib.sha256(llm.SYSTEM.encode()).hexdigest(),
+                 "prompt_at": args.prompt_at or "this commit",
                  "spent_usd": round(spend.spent_usd, 4), "calls": spend.calls,
                  "input_tokens": spend.input_tokens, "output_tokens": spend.output_tokens,
                  "api_errors": sum(r.produced == "api_error" for r in rows),
@@ -336,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         rows = score(PLANNERS[args.planner], questions)
     text = report(args.planner, rows, questions)
-    if extra:
+    if extra and "calls" in extra:
         text += (f"\nModel {MODEL}, temperature 0. Spent {extra['spent_usd']:.4f} USD on "
                  f"{extra['calls']} calls ({extra['input_tokens']} tokens in, "
                  f"{extra['output_tokens']} out); API failures {extra['api_errors']}."
@@ -344,6 +404,15 @@ def main(argv: list[str] | None = None) -> int:
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M")  # one file per run, never overwritten
     path = args.out / f"ask_dev_{args.planner}_{stamp}.md"
     path.write_text(text, encoding="utf-8")
+    if PRODUCED:  # the plans the LLM gave, so the run can be rescored without calling it again
+        plans = path.with_name(path.stem + "_plans.jsonl")
+        header = {"header": True, "prompt_sha256": extra.get("prompt_sha256"),
+                  "prompt_at": extra.get("prompt_at"), "code": _commit()}  # fmt: skip
+        out = [header] + [{"id": q.id, "plan": PRODUCED[q.text]} for q in questions
+                          if q.text in PRODUCED]  # fmt: skip
+        plans.write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in out),
+                         encoding="utf-8")  # fmt: skip
+        print(f"Wrote {plans}")
     print(text)
     if not args.no_ledger:
         entry = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "set": "development",

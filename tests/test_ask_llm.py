@@ -162,3 +162,55 @@ def test_a_plan_still_failing_its_checks_is_not_a_refusal(
     assert (row.produced, row.correct, row.refused, row.silent_wrong) == (
         "invalid", False, False, False)  # fmt: skip
     assert COULD_NOT_PLAN not in REFUSALS.values() and "can't" not in COULD_NOT_PLAN
+
+
+def test_the_scorer_passes_on_a_plan_that_still_fails_so_it_is_not_read_as_no_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without this, the LLM's None after the retry read as the offline parser's "no plan", a
+    refusal: the opposite of his reading."""
+    import eval.ask_score as score
+
+    class Stub:
+        def context(self, persona: str) -> None:
+            return None
+
+    bad = {"steps": [{"op": "aggregate", "name": "t", "source": "nowhere", "measure": "sum"}]}
+    monkeypatch.setattr(score, "gold_outcome", lambda runner, question: None)
+    q = next(q for q in QUESTIONS if q.expect == "refused" and not q.ambiguous)
+    planner = llm_planner(Fake(bad, bad), Spend(cap_usd=1.0))
+    row = score_one(Stub(), q, planner)  # type: ignore[arg-type]
+    assert (row.produced, row.refused, row.no_plan) == ("invalid", False, False)
+
+
+def test_a_saved_run_can_be_rescored_without_the_api(tmp_path: Path) -> None:
+    from eval.ask_score import saved_planner
+
+    a, b = QUESTIONS[0], QUESTIONS[1]
+    path = tmp_path / "run_plans.jsonl"
+    lines = [{"header": True, "prompt_sha256": "abc", "prompt_at": "x", "code": "c0de"},
+             {"id": a.id, "plan": GOOD}, {"id": b.id, "plan": "api_error"}]  # fmt: skip
+    path.write_text("".join(json.dumps(x) + "\n" for x in lines), encoding="utf-8")
+    planner, ids, header = saved_planner(path)
+    assert ids == [a.id, b.id] and header["code"] == "c0de"
+    assert planner(a.text, None) == GOOD  # type: ignore[arg-type]
+    with pytest.raises(ApiFailed):
+        planner(b.text, None)  # type: ignore[arg-type]
+
+
+def test_reports_mark_void_runs_and_say_the_figures_are_fitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eval.ask_score as score
+
+    entry = {"set": "development", "planner": "llm", "code": "x", "variant": "run 2",
+             "correct_answerable": 58, "answerable": 150, "refused": 0, "should_refuse": 30,
+             "silent_wrong": 4, "n": 200}  # fmt: skip
+    note = {"set": "note", "about": "run 2", "void": True, "why": "credit ran out"}
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text(json.dumps(entry) + "\n" + json.dumps(note) + "\n", encoding="utf-8")
+    monkeypatch.setattr(score, "LEDGER", ledger)
+    history = score._history()
+    assert history[0].startswith("- VOID, llm") and history[1].startswith("- note on run 2: VOID")
+    text = score.report("llm", [], [])
+    assert "fitted to these questions" in text and "LLM's instructions" in text

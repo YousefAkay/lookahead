@@ -386,14 +386,6 @@ def signature(out: Outcome) -> tuple[Any, ...]:
 
 
 def result_signature(r: Any) -> tuple[Any, ...]:
-    """Equivalence (his decision, 2026-11-21, before any held-out question existed): an answer
-    that gives one value is compared by that value, to the cent, and the row it identifies,
-    whatever its shape. A number taken from one row (max, min of rows) equals a one-row list of
-    that same row ("my largest purchase" as max or as the largest 1). A number that identifies
-    no row (a sum, an average) never equals a list."""
-    one = _one_row(r)
-    if one is not None:
-        return one
     if isinstance(r, Number):
         return ("number", r.unit, r.value)
     if isinstance(r, Table):
@@ -406,12 +398,26 @@ def result_signature(r: Any) -> tuple[Any, ...]:
     raise TypeError(f"no signature for {type(r).__name__}")
 
 
-def _one_row(r: Any) -> tuple[Any, ...] | None:
+def same_answer(a: Outcome, b: Outcome) -> bool:
+    """Are two outcomes the same answer? Equal signatures, or (his decision, 2026-11-21, before
+    any held-out question existed) one value shown in two shapes: a number taken from one row
+    (max, min of rows) equals a list of exactly that one row, when the value is the same to the
+    cent and the row is the same ("my largest purchase" as max or as the largest 1). This only
+    adds matches: a number that identifies no row (a sum, an average) never equals a list."""
+    if signature(a) == signature(b):
+        return True
+    if a.kind != "answer" or b.kind != "answer":
+        return False
+    one_a, one_b = _one_row(a.result), _one_row(b.result)
+    return one_a is not None and one_a == one_b and type(a.result) is not type(b.result)
+
+
+def _one_row(r: Any) -> tuple[int, str] | None:
     """One row's value (cents, as its size) and fingerprint, for a number taken from a row or a
     list of exactly one row; None for anything else."""
     if isinstance(r, Number) and r.unit == "money" and r.row is not None and r.value is not None:
-        return ("one_row", abs(int(r.value)), r.row["fingerprint"])
+        return abs(int(r.value)), str(r.row["fingerprint"])
     if isinstance(r, Listing) and len(r.rows) == 1:
         row = r.rows.iloc[0]
-        return ("one_row", abs(int(row["amount_cents"])), row["fingerprint"])
+        return abs(int(row["amount_cents"])), str(row["fingerprint"])
     return None

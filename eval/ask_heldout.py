@@ -172,7 +172,7 @@ def disagreements(folder: Path = FOLDER) -> list[str]:
     on ambiguity), both in plain words; then SPOT_N agreed ones chosen with SPOT_SEED."""
     from eval.ask_score import Runner
     from lookahead.ask.plan import parse
-    from lookahead.ask.run import run, signature
+    from lookahead.ask.run import run, same_answer
     from lookahead.ask.words import plan_words
 
     a, b = read_gold(folder / GOLD["a"]), read_gold(folder / GOLD["b"])
@@ -182,8 +182,8 @@ def disagreements(folder: Path = FOLDER) -> list[str]:
         if q.id not in a or q.id not in b:
             continue
         pa, pb = parse({"steps": a[q.id]["steps"]}), parse({"steps": b[q.id]["steps"]})
-        same = (signature(run(pa, runner.context(q.persona)))
-                == signature(run(pb, runner.context(q.persona)))
+        same = (same_answer(run(pa, runner.context(q.persona)),
+                            run(pb, runner.context(q.persona)))
                 and a[q.id].get("ambiguous") == b[q.id].get("ambiguous"))  # fmt: skip
         (agree if same else differ).append((q, pa, pb))
     lines = [f"{len(differ)} of {len(differ) + len(agree)} differ", ""]

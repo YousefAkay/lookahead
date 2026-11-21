@@ -205,6 +205,7 @@ class Planned:
     plan: dict[str, Any] | None  # None: the check still failed after the retry
     attempts: int
     problems: list[str] = field(default_factory=list)
+    rejected: dict[str, Any] | None = None  # the retry's plan that still failed its checks
 
 
 Send = Callable[[dict[str, Any]], Any]
@@ -237,7 +238,7 @@ def plan_for(question: str, send: Send, spend: Spend) -> Planned:
             problems, first = e.problems, data
             continue
         return Planned(data, attempt)
-    return Planned(None, 2, problems or [])
+    return Planned(None, 2, problems or [], first)
 
 
 def main_checkout() -> Path:

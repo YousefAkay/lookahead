@@ -12,7 +12,7 @@ import pytest
 
 from lookahead.ask.periods import asked, future_day, span
 from lookahead.ask.plan import Day, Period, parse
-from lookahead.ask.run import Context, Listing, Number, Table, run, signature
+from lookahead.ask.run import Context, Listing, Number, Table, run, same_answer, signature
 from lookahead.db import connect
 
 ACCOUNT = "made-up"
@@ -348,18 +348,22 @@ def test_one_value_answers_are_equal_whatever_their_shape(ctx: Context) -> None:
 
     largest = ask(ctx, groceries, total(measure="max"))
     assert largest.result.value == 6000 and largest.result.row["fingerprint"] == "fp12"
-    assert signature(largest) == signature(ask(ctx, groceries, listed("largest")))
+    assert same_answer(largest, ask(ctx, groceries, listed("largest")))
     smallest = ask(ctx, groceries, total(measure="min"))
-    assert signature(smallest) == signature(ask(ctx, groceries, listed("smallest")))
-    assert signature(largest) != signature(ask(ctx, groceries, listed("smallest")))
-    assert signature(largest) != signature(ask(ctx, groceries, listed("largest", 2)))  # two rows
+    assert same_answer(smallest, ask(ctx, groceries, listed("smallest")))
+    assert not same_answer(largest, ask(ctx, groceries, listed("smallest")))
+    assert not same_answer(largest, ask(ctx, groceries, listed("largest", 2)))  # two rows
     # Same value, other row: not the same answer.
     rent = rows(merchants=["Lumen Property"])
     rent_max = ask(ctx, rent, total(measure="max"))
     assert rent_max.result.row["fingerprint"] == "fp11"  # newest first: October
-    assert signature(rent_max) == signature(ask(ctx, rent, listed("latest")))
-    assert signature(rent_max) != signature(ask(ctx, rent, listed("earliest")))  # fp04, same $
+    assert same_answer(rent_max, ask(ctx, rent, listed("latest")))
+    assert not same_answer(rent_max, ask(ctx, rent, listed("earliest")))  # fp04, same $
     # A number that identifies no row (a sum of one row) is not a one-row list.
     shop = rows(merchants=["Petit Orme"])
     assert ask(ctx, shop, total()).result.value == 2500
-    assert signature(ask(ctx, shop, total())) != signature(ask(ctx, shop, listed("largest")))
+    assert not same_answer(ask(ctx, shop, total()), ask(ctx, shop, listed("largest")))
+    # It only adds matches: equal numbers stay equal, with or without the row behind them.
+    by_merchant = {"op": "group", "name": "g", "source": "r", "by": "merchant", "measure": "max"}
+    from_table = ask(ctx, groceries, by_merchant, total("g", measure="max"))
+    assert from_table.result.row is None and same_answer(largest, from_table)
