@@ -200,7 +200,12 @@ def test_each_writer_runs_only_its_own_check() -> None:
         ("read", f"/repo/tests/test_{NAME}.py"),
         ("read", "/repo/data/ask_eval/v2-SAL-01.db"),
         ("command", f"ruff check eval/{NAME}.py tests/test_{NAME}.py"),
-        ("command", f"{PY} -m pytest -q tests/test_{NAME}.py"),
+        ("command", f"pytest -q tests/test_{NAME}.py"),
+        ("command", "rg foo -g '*.py' lookahead"),
+        ("command", "grep -r -A 3 foo lookahead"),
+        ("search", "DECISIONS.md"),
+        ("search", f"eval/{NAME}.py"),
+        ("search", "/Users/someone/lookahead-x/README.md"),
         ("command", "python -m eval.ask_score --planner offline"),
         ("command", 'python -m pytest -m "not slow" -q'),
         ("command", "git status --short && git log --oneline -3"),
@@ -231,3 +236,30 @@ def test_the_guard_names_no_assistant_tools() -> None:
         assert not re.search(rf"\b{w}\b", source, re.IGNORECASE) or w in (
             "read", "write", "edit", "grep", "glob", "task", "agent", "monitor"
         ), w  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"PYTHONPATH=. {PY} -u eval/{NAME}.py disagreements",
+        f"{PY} -c \"import runpy,sys; sys.argv=['x','disagreements']; "
+        f"runpy.run_path('eval/{NAME}.py', run_name='__main__')\"",
+        f"python3.13 eval/{NAME}.py disagreements",
+        f"python eval/{NAME}.py fingerprint",
+        f"{PY} -m pytest -q tests/test_{NAME}.py",  # an interpreter: the file name stays in
+    ],
+)
+def test_the_module_runs_only_in_the_m_form(command: str) -> None:
+    """Review B1 (2026-11-21): an interpreter option before the file, runpy, or python3.13 ran
+    the printout. A command that runs an interpreter keeps the file name in the check."""
+    for agent in (None, "reviewer", "heldout-gold-a"):
+        assert not allowed("command", command, agent)
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["cd da* && cat */q*", "cd $D", "cd ~/x && cat y", "mv data tests/d", "ln -s ../data tests/d"],
+)
+def test_cd_to_a_wildcard_and_moving_data_are_refused(command: str) -> None:
+    for agent in OTHERS:
+        assert not allowed("command", command, agent)

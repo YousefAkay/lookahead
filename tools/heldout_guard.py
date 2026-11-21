@@ -12,8 +12,12 @@ What it stops: accidental reads of the folder by the routes below. It refuses th
 in any spelling (quotes and backslashes removed first, any case, any separator between its two
 words), any wildcard or variable over data/, a `cd` into data, a recursive command or a search
 whose targets are not all code folders (no target means the current folder, so it is refused
-too), and a search pattern that climbs out of its folder. It cannot see what a script it runs
-does: a script written to read the folder is not caught, so none is ever written.
+too), a search pattern that climbs out of its folder, a `cd` to a wildcard or variable, and
+`ln` or `mv` of anything named data. A command that runs an interpreter (python, runpy) is
+checked with the module's file name left in, so the module runs only in the `-m` form below.
+It cannot see what a script it runs does, nor a name built from pieces inside one: a script
+written to read the folder is not caught, so none is ever written, and the printout also asks
+for a typed confirmation on a terminal (eval/ask_heldout.py), which agents do not have.
 
 Who may do what:
 - the three writers (heldout-questions, heldout-gold-a, heldout-gold-b) read and write only their
@@ -45,13 +49,15 @@ SESSION_COMMANDS = ("fingerprint",)  # the coding session (no agent name)
 NAMES = re.compile(r"ask[\W_]*held", re.IGNORECASE)
 # The module and its test are code, not the folder: they may be edited, listed and committed.
 CODE_FILES = re.compile(r"eval[/\\]ask_heldout\.py|tests[/\\]test_ask_heldout\.py", re.IGNORECASE)
-# Running the module, by name or by file.
-MODULE = re.compile(r"eval\.ask_?heldout|python3?\s+\S*eval[/\\]ask_?heldout", re.IGNORECASE)
+# Running the module by name; a command that runs an interpreter keeps the file name in.
+MODULE = re.compile(r"eval\.ask_?heldout", re.IGNORECASE)
+INTERPRETER = re.compile(r"python[\d.]*\b|runpy|\bexec\b|\bsource\b", re.IGNORECASE)
 MODULE_COMMAND = re.compile(
     r"^(?:cd\s+\S+\s+&&\s+)?\S*python3?\s+-m\s+eval\.ask_heldout\s+(?P<sub>[\w\- ]+?)\s*$"
 )
 WILDCARD = re.compile(r"data[\\/]+\S*[*?\[{$]", re.IGNORECASE)
-CD_DATA = re.compile(r"\b(cd|pushd)\s+(\S*[\\/])?data\b", re.IGNORECASE)
+CD_DATA = re.compile(r"\b(cd|pushd)\s+((\S*[\\/])?data\b|\S*[*?\[{$~])", re.IGNORECASE)
+MOVE_DATA = re.compile(r"\b(ln|mv)\b[^|;&]*\bdata\b", re.IGNORECASE)
 # Commands that walk folders. For the first group the first plain word is the search text.
 WALK_WITH_TEXT = ("grep", "egrep", "fgrep", "rg", "ag", "ack", "fd")
 WALK = ("find", "tree", "tar", "rsync", "zip", "du")
@@ -59,10 +65,15 @@ RECURSIVE_FLAG = re.compile(
     r"^(-\w*[rR]\w*|--recursive|--dereference-recursive|--directories=recurse|-d)$"
 )
 TEXT_OPTIONS = ("-e", "-f", "--regexp", "--file")
+# Options whose next word is a value, not a folder (context lines, globs, types, counts).
+VALUE_OPTIONS = ("-A", "-B", "-C", "-m", "-g", "-t", "-T", "-M", "--glob", "--type",
+                 "--type-not", "--max-count", "--context", "--max-depth", "--include",
+                 "--exclude")  # fmt: skip
 CODE_DIRS = ("lookahead", "app", "tests", "eval", "tools", "docs", ".streamlit")
 # A repository folder (the main one or a worktree) in front of a code folder: the first folder
 # named lookahead... in the path, so one nested deeper (say under data/) does not count.
 REPO_PREFIX = re.compile(r"^(?:.*?/)?lookahead[\w\-]*/")
+TOP_FILE = re.compile(r"^[\w\-]+\.(md|toml|txt|cfg|ini|py)$")
 SEPARATORS = re.compile(r"[|;&()\n`]+")
 PREFIX_WORDS = ("sudo", "env", "nice", "time", "command", "exec", "nohup")
 
@@ -89,6 +100,8 @@ def code_path(path: str) -> bool:
     if rest.startswith(("/", "..")):
         return False
     parts = rest.split("/")
+    if len(parts) == 1 and TOP_FILE.match(parts[0]):  # README.md, DECISIONS.md, pyproject.toml
+        return True
     return parts[0] in CODE_DIRS and ".." not in parts
 
 
@@ -107,10 +120,12 @@ def _walk_targets(words: list[str]) -> list[str] | None:
             return None
         targets, skip, text_given = [], False, False
         for w in words[1:]:
-            if skip:  # the value of -e / -f: search text, not a folder
+            if skip:  # the value of an option: not a folder
                 skip = False
             elif w in TEXT_OPTIONS:
                 skip = text_given = True
+            elif w in VALUE_OPTIONS:
+                skip = True
             elif w.startswith(("--regexp=", "--file=")):
                 text_given = True
             elif not w.startswith("-"):
@@ -149,13 +164,15 @@ def walks_outside_code(command: str) -> bool:
 def reaches(kind: str, text: str) -> bool:
     """Does the access name the folder, or could it reach it?"""
     raw = plain(text)
-    t = CODE_FILES.sub(" ", raw)
+    runs_code = kind == "command" and INTERPRETER.search(raw)
+    t = raw if runs_code else CODE_FILES.sub(" ", raw)
     if NAMES.search(t) or WILDCARD.search(t):
         return True
     if kind == "command":
-        return bool(MODULE.search(raw) or CD_DATA.search(t) or walks_outside_code(t))
+        return bool(MODULE.search(raw) or CD_DATA.search(t) or MOVE_DATA.search(t)
+                    or walks_outside_code(t))  # fmt: skip
     if kind == "search":
-        return not code_path(t.strip() or ".")
+        return not code_path(raw.strip() or ".")
     if kind == "pattern":
         p = t.strip().replace("\\", "/")
         return p.startswith(("/", "~")) or ".." in p.split("/") or "$" in p

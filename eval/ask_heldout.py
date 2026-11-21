@@ -198,6 +198,15 @@ def disagreements(folder: Path = FOLDER) -> list[str]:
     return lines
 
 
+def confirm_printout(stdin: Any = None, ask: Any = input) -> bool:
+    """The printout of questions and plans needs a terminal and a typed SHOW: a second lock
+    behind the hook (agents have no terminal, so a route the hook misses still prints nothing)."""
+    stdin = stdin if stdin is not None else sys.stdin
+    if not (hasattr(stdin, "isatty") and stdin.isatty()):
+        return False
+    return str(ask("This prints held-out questions and plans. Type SHOW to go on: ")) == "SHOW"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ask's held-out set: counts and fingerprints.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -207,6 +216,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("fingerprint")
     sub.add_parser("disagreements")
     args = parser.parse_args(argv)
+    if args.command == "disagreements" and not confirm_printout():
+        print("Refused: the printout runs only on a terminal, after typing SHOW (Yousef only).")
+        return 2
     commands = {"check-questions": check_questions, "fingerprint": fingerprint,
                 "disagreements": disagreements}  # fmt: skip
     lines = check_gold(args.which) if args.command == "check-gold" else commands[args.command]()
