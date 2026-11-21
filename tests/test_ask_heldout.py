@@ -91,3 +91,47 @@ def test_answers_become_the_final_gold(tmp_path: Path) -> None:
     assert final["hb-001"]["steps"] == REFUSE  # the fix
     assert final["ha-001"]["steps"] == REFUSE  # agreed
     assert held.check_final(tmp_path)[-1] == "problems: none"
+
+
+def test_problem_lines_never_carry_the_review_text(tmp_path: Path) -> None:
+    """Review B1 (2026-11-21): a line without its colon, a wrapped line or a duplicate is named by
+    case id or line number only; no word of an explanation reaches the output."""
+    made_up(tmp_path)
+    held.write_review(tmp_path)
+    (tmp_path / held.ANSWERS).write_text(
+        "d01 X zebrawords only the dining rows\n"
+        "   and leave out quokkatext: both months\n"
+        "d02: A\nd02: B\n"
+        "s01 - OK walrusnote\n",
+        "utf-8",
+    )
+    out = "\n".join(held.apply_review(tmp_path))
+    for word in ("zebrawords", "dining", "quokkatext", "months", "walrusnote"):
+        assert word not in out
+    assert "d01: not understood" in out
+    assert "answers.txt line 2: not understood" in out
+    assert "d02: answered twice" in out
+    assert "s01: not understood" in out
+
+
+def test_a_stale_final_gold_is_removed_and_missing_plans_are_named(tmp_path: Path) -> None:
+    made_up(tmp_path)
+    held.write_review(tmp_path)
+    (tmp_path / held.ANSWERS).write_text("d01: A\nd02: B\ns01: OK\n", "utf-8")
+    assert held.apply_review(tmp_path)[-1] == "wrote gold_final.jsonl: 3 plans"
+    (tmp_path / held.ANSWERS).write_text("d01: A\nd02: B\ns01: X it should ask back\n", "utf-8")
+    held.apply_review(tmp_path)
+    assert not (tmp_path / held.FINAL).exists()  # never an older final gold left in place
+    write(tmp_path / held.GOLD["b"], [plan("ha-001", REFUSE), plan("ha-002", CLARIFY, "clarify")])
+    assert "hb-001: no plan in gold B" in held.apply_review(tmp_path)
+
+
+def test_each_question_writer_sees_only_its_own_file(tmp_path: Path) -> None:
+    write(tmp_path / held.QUESTION_FILES[0], [q("ha-001"), q("ha-002")])
+    write(tmp_path / held.QUESTION_FILES[1], [q("hb-001"), q("ha-009")])  # a wrong prefix
+    a = held.check_questions(tmp_path, "a")
+    b = held.check_questions(tmp_path, "b")
+    assert a[0] == "questions: 2 (ha: 2, hb: 0)" and a[-1] == "problems: none"
+    assert b[0] == "questions: 2 (ha: 1, hb: 1)"
+    assert "ha-009: id should start with hb- in questions_agent_b.jsonl" in b
+    assert not any("ha-001" in line or "ha-002" in line for line in b)

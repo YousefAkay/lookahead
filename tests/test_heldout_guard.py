@@ -194,26 +194,38 @@ def test_each_writer_reaches_only_its_own_files() -> None:
                  "gold_fixes.jsonl"):  # fmt: skip
         assert allowed("read", f"{ABS}/{name}", fixer)
     assert allowed("write", f"{ABS}/gold_fixes.jsonl", fixer)
-    for name in ("gold_a.jsonl", "gold_b.jsonl", "gold_final.jsonl", "answers.txt", "review.txt"):
+    for name in (
+        "gold_a.jsonl",
+        "gold_b.jsonl",
+        "gold_final.jsonl",
+        "answers.txt",
+        "review.txt",
+        "review_cases.json",
+    ):
         assert not allowed("write", f"{ABS}/{name}", fixer)
     assert not allowed("read", f"{ABS}/review.txt", fixer)  # the plans' text, for Yousef only
 
 
 def test_each_writer_runs_only_its_own_check() -> None:
     cd = "cd /Users/someone/lookahead && "
-    own = {"heldout-questions": "check-questions", "heldout-questions-b": "check-questions",
+    own = {"heldout-questions": "check-questions --file a",
+           "heldout-questions-b": "check-questions --file b",
            "heldout-gold-a": "check-gold --which a", "heldout-gold-b": "check-gold --which b",
            "heldout-fixer": "check-fixes"}  # fmt: skip
-    every = {*own.values(), "apply-review", "check-final", "disagreements"}
+    every = {*own.values(), "apply-review", "check-final", "disagreements", "check-questions",
+             "fingerprint"}  # fmt: skip
     for who, sub in own.items():
         assert allowed("command", f"{cd}{PY} -m eval.ask_heldout {sub}", who)
-        assert allowed("command", f"{cd}{PY} -m eval.ask_heldout fingerprint", who)
-        for other in every - {sub}:
+        if not who.startswith("heldout-questions"):  # question writers: their own counts only
+            assert allowed("command", f"{cd}{PY} -m eval.ask_heldout fingerprint", who)
+        for other in every - {sub, "fingerprint"}:
             assert not allowed("command", f"{cd}{PY} -m eval.ask_heldout {other}", who)
+    for who in ("heldout-questions", "heldout-questions-b"):
+        assert not allowed("command", f"{cd}{PY} -m eval.ask_heldout fingerprint", who)
     # The session: counts, ids and hashes only; never a writer's check or the review text.
     for sub in ("fingerprint", "apply-review", "check-final"):
         assert allowed("command", f"{cd}{PY} -m eval.ask_heldout {sub}")
-    for sub in ("disagreements", "check-fixes", "check-questions", "check-gold --which a"):
+    for sub in ("disagreements", "check-fixes", "check-questions --file a", "check-gold --which a"):
         assert not allowed("command", f"{cd}{PY} -m eval.ask_heldout {sub}")
 
 

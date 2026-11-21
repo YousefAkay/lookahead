@@ -25,7 +25,7 @@ Files (all in the folder):
 - gold_final.jsonl: the gold used by the scored run (`apply-review`).
 
 Commands (none prints a question or a plan):
-    python -m eval.ask_heldout check-questions        # counts by file, persona, language
+    python -m eval.ask_heldout check-questions --file a   # one writer's file: counts, problems
     python -m eval.ask_heldout check-gold --which a   # counts; plans that fail or run otherwise
     python -m eval.ask_heldout fingerprint            # SHA-256 of each file and of the set
     python -m eval.ask_heldout disagreements          # Yousef only: writes the review files;
@@ -105,17 +105,22 @@ def _counts(counter: Counter[str]) -> str:
     return ", ".join(f"{k or '?'} {n}" for k, n in sorted(counter.items())) or "none"
 
 
-def check_questions(folder: Path = FOLDER) -> list[str]:
-    """Counts and problems, no question text."""
+def check_questions(folder: Path = FOLDER, which: str = "") -> list[str]:
+    """Counts and problems, no question text. `which` ("a" or "b") limits it to one writer's
+    file, so neither question writer sees counts from the other's."""
     from eval.ask_personas import PERSONAS
 
-    qs = questions(folder)
+    if which:
+        name = QUESTION_FILES[0 if which == "a" else 1]
+        qs = read_questions(folder / name) if (folder / name).exists() else []
+    else:
+        qs = questions(folder)
     problems = [f"{q.id}: persona not on the sheet" for q in qs if q.persona not in PERSONAS]
     problems += [f"{q.id}: empty question" for q in qs if not q.text]
     ids = Counter(q.id for q in qs)
     problems += [f"{i}: id used twice" for i, n in ids.items() if n > 1]
-    for name, prefix in zip(QUESTION_FILES, ("ha-", "hb-"), strict=True):
-        if (folder / name).exists():
+    for name, prefix, w in zip(QUESTION_FILES, ("ha-", "hb-"), "ab", strict=True):
+        if (folder / name).exists() and which in ("", w):
             wrong = [q.id for q in read_questions(folder / name) if not q.id.startswith(prefix)]
             problems += [f"{i}: id should start with {prefix} in {name}" for i in wrong]
     return [
@@ -195,7 +200,7 @@ def fingerprint(folder: Path = FOLDER) -> list[str]:
     """SHA-256 of each file present, and one over all of them in a fixed order."""
     overall = hashlib.sha256()
     lines = []
-    for name in (*QUESTION_FILES, *GOLD.values(), FINAL):
+    for name in (*QUESTION_FILES, *GOLD.values(), CASES, ANSWERS, FIXES, FINAL):
         path = folder / name
         if not path.exists():
             lines.append(f"{name}: absent")
@@ -343,17 +348,27 @@ def read_answers(folder: Path) -> tuple[dict[str, tuple[str, str]], list[str]]:
     cases = {c["case"]: c for c in json.loads((folder / CASES).read_text("utf-8"))}
     answers: dict[str, tuple[str, str]] = {}
     problems = []
-    for line in (folder / ANSWERS).read_text("utf-8").splitlines():
+    for number, line in enumerate((folder / ANSWERS).read_text("utf-8").splitlines(), 1):
         if not line.strip():
             continue
         m = ANSWER.match(line)
-        cid = line.split(":", 1)[0].strip()
-        if m is None:
-            problems.append(f"{cid}: no answer yet, or not A, B, OK or X")
+        if m is None:  # only a case id or the line number is ever printed, never the text
+            head = re.match(r"^\s*([ds]\d+)\s*:\s*$", line, re.I)
+            where = re.match(r"^\s*([ds]\d+)\b", line, re.I)
+            if head is not None:
+                problems.append(f"{head[1].lower()}: no answer yet")
+            elif where is not None:
+                problems.append(f"{where[1].lower()}: not understood (write `{where[1].lower()}: "
+                                "A`, B, OK or X and one line, on one line)")  # fmt: skip
+            else:
+                problems.append(f"{ANSWERS} line {number}: not understood (each answer on one "
+                                "line, starting with its case id and a colon)")  # fmt: skip
             continue
         cid, letter, why = m["case"].lower(), m["letter"].upper(), m["why"].strip()
         kind = cases.get(cid, {}).get("kind")
-        if kind is None:
+        if cid in answers:
+            problems.append(f"{cid}: answered twice")
+        elif kind is None:
             problems.append(f"{cid}: not a case")
         elif kind == "disagreement" and letter not in ("A", "B", "X"):
             problems.append(f"{cid}: a disagreement takes A, B or X")
@@ -385,6 +400,9 @@ def apply_review(folder: Path = FOLDER) -> list[str]:
     fixes = read_gold(folder / FIXES)
     final, waiting = [], []
     for q in questions(folder):
+        if q.id not in golds["A"] or q.id not in golds["B"]:
+            problems.append(f"{q.id}: no plan in gold {'A' if q.id not in golds['A'] else 'B'}")
+            continue
         case = cases.get(q.id)
         letter = answers.get(case["case"], ("",))[0] if case else "agreed"
         if letter in ("agreed", "OK", "A"):
@@ -401,6 +419,8 @@ def apply_review(folder: Path = FOLDER) -> list[str]:
             final.append(plan)
     if not problems and not waiting:
         (folder / FINAL).write_text("".join(json.dumps(p) + "\n" for p in final), "utf-8")
+    else:
+        (folder / FINAL).unlink(missing_ok=True)  # never leave an older final gold in place
     tally = Counter(letter for letter, _ in answers.values())
     return [
         f"answers: {len(answers)} of {len(cases)} cases ({_counts(tally)})",
@@ -416,13 +436,14 @@ def apply_review(folder: Path = FOLDER) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ask's held-out set: counts and fingerprints.")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("check-questions", "fingerprint", "disagreements", "apply-review",
-                 "check-fixes", "check-final"):  # fmt: skip
+    for name in ("fingerprint", "disagreements", "apply-review", "check-fixes", "check-final"):
         sub.add_parser(name)
+    cq = sub.add_parser("check-questions")
+    cq.add_argument("--file", choices=["a", "b"], default="")
     gold = sub.add_parser("check-gold")
     gold.add_argument("--which", choices=sorted(GOLD), required=True)
     args = parser.parse_args(argv)
-    commands = {"check-questions": lambda: check_questions(FOLDER),
+    commands = {"check-questions": lambda: check_questions(FOLDER, args.file),
                 "fingerprint": lambda: fingerprint(FOLDER),
                 "disagreements": lambda: write_review(FOLDER),
                 "apply-review": lambda: apply_review(FOLDER),

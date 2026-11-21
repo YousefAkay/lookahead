@@ -51,10 +51,10 @@ WRITERS: dict[str, dict[str, tuple[str, ...]]] = {
     # Two question writers, each blind to the other's 50.
     "heldout-questions": {"read": ("questions_agent.jsonl",),
                           "write": ("questions_agent.jsonl",),
-                          "command": ("check-questions", "fingerprint")},
+                          "command": ("check-questions --file a",)},
     "heldout-questions-b": {"read": ("questions_agent_b.jsonl",),
                             "write": ("questions_agent_b.jsonl",),
-                            "command": ("check-questions", "fingerprint")},
+                            "command": ("check-questions --file b",)},
     "heldout-gold-a": {"read": (*QUESTION_FILES, "gold_a.jsonl"), "write": ("gold_a.jsonl",),
                        "command": ("check-gold --which a", "fingerprint")},
     "heldout-gold-b": {"read": (*QUESTION_FILES, "gold_b.jsonl"), "write": ("gold_b.jsonl",),
@@ -78,7 +78,7 @@ INTERPRETER = re.compile(r"python[\d.]*\b|runpy|\bexec\b|\bsource\b", re.IGNOREC
 # On the text as typed: plain path characters only, so nothing can ride in front of the command.
 MODULE_COMMAND = re.compile(
     r"^(?:cd [\w./~-]+ && )?[\w./~-]*python3? -m eval\.ask_heldout (?P<sub>[a-z]+(?:-[a-z]+)?"
-    r"(?: --which [ab])?)$"
+    r"(?: --(?:which|file) [ab])?)$"
 )
 WILDCARD = re.compile(r"data[\\/]+\S*[*?\[{$]", re.IGNORECASE)
 CD_DATA = re.compile(r"\b(cd|pushd)\s+((\S*[\\/])?data\b|\S*[*?\[{$])", re.IGNORECASE)
