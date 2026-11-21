@@ -214,3 +214,40 @@ def test_reports_mark_void_runs_and_say_the_figures_are_fitted(
     assert history[0].startswith("- VOID, llm") and history[1].startswith("- note on run 2: VOID")
     text = score.report("llm", [], [])
     assert "fitted to these questions" in text and "LLM's instructions" in text
+
+
+# Each convention the prompt v2 commit (bd90413) said it added, and the text that states it. The
+# review found five of them missing from the prompt; this keeps claim and text together.
+CLAIMED = {
+    "no invented years": "never write a year the user",
+    "named days without a year": "is named_date with that month and day",
+    "a yearless 'since July 1' period": '{"kind":"since_named","month":M,"day":D}',
+    "chance for 'will I go below'": "is forecast chance_below with\n  that amount",
+    "'this month' ends the window": '"this month" for a forecast = until end_of_month',
+    "single largest purchase is max": "transaction is aggregate max or min over rows",
+    "places after 'at' are merchants": 'A place named after "at"',
+    "ordinary words never merchants": "is never a merchant name",
+    "subscriptions are recurring payments": "are recurring payments (recurring)",
+    "stopping something is 100% less": 'direction "less" and percent\n  100',
+    "a percent what-if example": '"direction":"less","percent":15',
+}
+
+
+@pytest.mark.parametrize("claim", sorted(CLAIMED))
+def test_the_prompt_states_each_convention_it_claims(claim: str) -> None:
+    assert CLAIMED[claim] in SYSTEM, claim
+
+
+def test_the_refusal_guidance_names_kinds_not_the_development_questions() -> None:
+    """The cannot_answer guidance shares no content word with any development should-refuse
+    question, so it describes kinds of questions instead of listing the development ones."""
+    import re
+
+    guidance = SYSTEM.split("cannot_answer:")[1].split("clarify:")[0].casefold()
+    words = set(re.findall(r"[a-zà-ÿ]{4,}", guidance))
+    plain = {"balance", "account", "this", "that", "what", "much", "your", "will", "with", "about"}
+    for q in QUESTIONS:
+        if q.expect != "refused" or q.ambiguous:
+            continue
+        shared = set(re.findall(r"[a-zà-ÿ]{4,}", q.text.casefold())) & words - plain
+        assert not shared, (q.id, shared)

@@ -79,11 +79,12 @@ safe_to_spend: {"op":"safe_to_spend","name":...}. How much a day is safe to spen
 recurring: {"op":"recurring","name":...,"find":<name as written> (optional),
   "direction":"out"|"in"|"both"}. Recurring payments, their usual amount and next date.
 cannot_answer: {"op":"cannot_answer","reason":"advice"|"not_in_data"|"beyond_horizon"|
-  "unsupported"} as the only step. advice: opinions, recommendations, "should I", "is it worth
-  it", "too much". not_in_data: anything a single chequing account's transactions cannot show
-  (prices, rates, other accounts or people, credit cards, investments, net worth).
-  beyond_horizon: the future past the forecast's 30 days, or future spending totals.
-  unsupported: anything else that is not a question about this account.
+  "unsupported"} as the only step. advice: the question asks for a judgement, an opinion or a
+  recommendation instead of a figure. not_in_data: the answer is not money that moved in or out
+  of this one account, or its balance: anything held or owed elsewhere, anyone else's money,
+  and facts about the world outside the account. beyond_horizon: a day past the forecast's 30
+  days, or a future total the blocks do not give. unsupported: a request that is not a
+  question about this account's money, including asking for an action.
 clarify: {"op":"clarify","about":"subject"|"period"|"amount"|"which_one"} as the only step,
   when the question has no clear subject ("that", "it"), a vague period ("recently"), a missing
   amount, or a word that could mean several categories ("food").
@@ -106,6 +107,16 @@ Days (future): {"kind":"tomorrow"}, {"kind":"in_days","n":N}, {"kind":"date","da
 Written defaults: "spending" is money out without transfers; "last month" is the previous
 calendar month; a word that is neither a merchant name nor a category goes to the closest
 category (coffee -> Restaurants & cafés). Questions may be in English or French.
+
+Conventions:
+- A single largest or smallest transaction is aggregate max or min over rows.
+- Whether the balance will go below an amount, or the risk of it, is forecast chance_below with
+  that amount, not the lowest balance.
+- A place named after "at" (or "chez", "à") is a merchant: copy it into merchants as written.
+- An ordinary word for a kind of spending is never a merchant name: use the closest category.
+- Subscriptions, and bills that come back every month, are recurring payments (recurring).
+- Stopping a kind of spending altogether is a whatif change with direction "less" and percent
+  100.
 
 Categories (use exactly these): """
     + ", ".join(CATEGORIES)
