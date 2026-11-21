@@ -135,3 +135,19 @@ def test_each_question_writer_sees_only_its_own_file(tmp_path: Path) -> None:
     assert b[0] == "questions: 2 (ha: 1, hb: 1)"
     assert "ha-009: id should start with hb- in questions_agent_b.jsonl" in b
     assert not any("ha-001" in line or "ha-002" in line for line in b)
+
+
+def test_text_in_an_id_is_never_printed(tmp_path: Path) -> None:
+    """Review B2 (2026-11-21): an id not in the form ha-001 is named by file and line only, in
+    every command the session may run."""
+    bad = json.dumps({"id": "ha-007 platypusword grocery", "persona": "v2-SAL-01", "text": "q"})
+    write(tmp_path / held.QUESTION_FILES[0], [q("ha-001"), bad])
+    write(tmp_path / held.GOLD["a"], [plan("ha-001", REFUSE),
+                                      {**plan("x", REFUSE), "id": "ha-009 otterword"}])  # fmt: skip
+    write(tmp_path / held.GOLD["b"], [plan("ha-001", REFUSE)])
+    outputs = [held.check_questions(tmp_path, "a"), held.check_gold("a", tmp_path),
+               held.apply_review_or_none(tmp_path), held.check_final(tmp_path)]  # fmt: skip
+    text = "\n".join(line for out in outputs for line in out)
+    assert "platypusword" not in text and "otterword" not in text and "grocery" not in text
+    assert "questions_agent.jsonl line 2: id not in the form ha-001 / hb-001" in text
+    assert "gold_a.jsonl line 2: a plan for no question" in text

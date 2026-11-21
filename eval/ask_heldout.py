@@ -76,12 +76,23 @@ class HeldOutQuestion:
     lang: str = ""
 
 
+ID = re.compile(r"^h[ab]-\d{3}$")
+
+
+def safe_id(raw: Any, name: str, number: int) -> str:
+    """An id as written only when it has the full form (ha-001, hb-001); anything else is named
+    by its file and line, so no text a writer put in an id is ever printed."""
+    return raw if isinstance(raw, str) and ID.match(raw) else f"{name} line {number}"
+
+
 def read_questions(path: Path) -> list[HeldOutQuestion]:
     out = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if line.strip():
             d = json.loads(line)
-            out.append(HeldOutQuestion(d["id"], d["persona"], d["text"], d.get("lang", "")))
+            qid = safe_id(d.get("id"), path.name, number)
+            out.append(HeldOutQuestion(qid, d.get("persona", ""), d.get("text", ""),
+                                       d.get("lang", "")))  # fmt: skip
     return out
 
 
@@ -96,9 +107,12 @@ def questions(folder: Path = FOLDER) -> list[HeldOutQuestion]:
 def read_gold(path: Path) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
-    rows = (json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip())  # fmt: skip
-    return {d["id"]: d for d in rows}
+    out: dict[str, dict[str, Any]] = {}
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if line.strip():
+            d = json.loads(line)
+            out[safe_id(d.get("id"), path.name, number)] = d
+    return out
 
 
 def _counts(counter: Counter[str]) -> str:
@@ -119,9 +133,11 @@ def check_questions(folder: Path = FOLDER, which: str = "") -> list[str]:
     problems += [f"{q.id}: empty question" for q in qs if not q.text]
     ids = Counter(q.id for q in qs)
     problems += [f"{i}: id used twice" for i, n in ids.items() if n > 1]
+    problems += [f"{q.id}: id not in the form ha-001 / hb-001" for q in qs if " line " in q.id]
     for name, prefix, w in zip(QUESTION_FILES, ("ha-", "hb-"), "ab", strict=True):
         if (folder / name).exists() and which in ("", w):
-            wrong = [q.id for q in read_questions(folder / name) if not q.id.startswith(prefix)]
+            wrong = [q.id for q in read_questions(folder / name)
+                     if ID.match(q.id) and not q.id.startswith(prefix)]  # fmt: skip
             problems += [f"{i}: id should start with {prefix} in {name}" for i in wrong]
     return [
         f"questions: {len(qs)} (ha: {sum(q.id.startswith('ha-') for q in qs)}, "
@@ -394,6 +410,7 @@ def _x_cases(folder: Path) -> list[dict[str, Any]]:
 def apply_review(folder: Path = FOLDER) -> list[str]:
     """gold_final from the answers: agreed plans (gold A), A or B where chosen, OK spot checks,
     and the fixer's plan for each X. Prints counts and case ids only."""
+    (folder / FINAL).unlink(missing_ok=True)  # rewritten below only when the review is complete
     answers, problems = read_answers(folder)
     cases = {c["question"]: c for c in json.loads((folder / CASES).read_text("utf-8"))}
     golds = {"A": read_gold(folder / GOLD["a"]), "B": read_gold(folder / GOLD["b"])}
@@ -401,7 +418,8 @@ def apply_review(folder: Path = FOLDER) -> list[str]:
     final, waiting = [], []
     for q in questions(folder):
         if q.id not in golds["A"] or q.id not in golds["B"]:
-            problems.append(f"{q.id}: no plan in gold {'A' if q.id not in golds['A'] else 'B'}")
+            lacking = [w for w in ("A", "B") if q.id not in golds[w]]
+            problems.append(f"{q.id}: no plan in gold {' and '.join(lacking)}")
             continue
         case = cases.get(q.id)
         letter = answers.get(case["case"], ("",))[0] if case else "agreed"
@@ -433,6 +451,13 @@ def apply_review(folder: Path = FOLDER) -> list[str]:
     ]
 
 
+def apply_review_or_none(folder: Path) -> list[str]:
+    """apply-review, or one line when the review files do not exist yet."""
+    if not (folder / CASES).exists() or not (folder / ANSWERS).exists():
+        return [f"no review yet: run disagreements first ({CASES} or {ANSWERS} missing)"]
+    return apply_review(folder)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ask's held-out set: counts and fingerprints.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -446,7 +471,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {"check-questions": lambda: check_questions(FOLDER, args.file),
                 "fingerprint": lambda: fingerprint(FOLDER),
                 "disagreements": lambda: write_review(FOLDER),
-                "apply-review": lambda: apply_review(FOLDER),
+                "apply-review": lambda: apply_review_or_none(FOLDER),
                 "check-fixes": lambda: check_fixes(FOLDER),
                 "check-final": lambda: check_final(FOLDER)}  # fmt: skip
     lines = check_gold(args.which) if args.command == "check-gold" else commands[args.command]()
