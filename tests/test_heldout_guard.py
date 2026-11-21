@@ -258,8 +258,29 @@ def test_the_module_runs_only_in_the_m_form(command: str) -> None:
 
 @pytest.mark.parametrize(
     "command",
-    ["cd da* && cat */q*", "cd $D", "cd ~/x && cat y", "mv data tests/d", "ln -s ../data tests/d"],
+    ["cd da* && cat */q*", "cd $D", "mv data tests/d", "ln -s ../data tests/d"],
 )
 def test_cd_to_a_wildcard_and_moving_data_are_refused(command: str) -> None:
     for agent in OTHERS:
         assert not allowed("command", command, agent)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["{cat,x};", "cat x;", "$(cat x)", "`cat x`", "a|", "x&", "{a,b}/"],
+)
+def test_nothing_rides_in_front_of_an_allowed_command(prefix: str) -> None:
+    """Review B1a (2026-11-21): the allowed command is matched on the text as typed, with plain
+    path characters only, so no shell text can be attached to it."""
+    module = "eval.ask_" + "heldout"
+    for agent, sub in ((None, "fingerprint"), ("heldout-gold-a", "check-gold --which a")):
+        assert not allowed("command", f"{prefix}python -m {module} {sub}", agent)
+        assert not allowed("command", f"cd /x;{prefix} && python -m {module} {sub}", agent)
+        assert not allowed("command", f"cd {prefix}x && python -m {module} {sub}", agent)
+        assert not allowed("command", f"python -m {module} {sub};{prefix}", agent)
+
+
+def test_harmless_cd_and_moves_are_allowed() -> None:
+    assert allowed("command", "cd ~/Documents/PersonalProjects/lookahead-x && git status")
+    assert allowed("command", "git mv lookahead/data.py lookahead/rows.py")
+    assert allowed("command", "mv x.txt data.csv")

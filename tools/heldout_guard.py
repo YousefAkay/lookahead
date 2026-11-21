@@ -8,24 +8,29 @@ coding session and of every agent, with the access as one of these kinds:
 - "command": a shell command, by its text.
 Anything else that names the folder is "other" and is refused.
 
-What it stops: accidental reads of the folder by the routes below. It refuses the folder's name
+What it stops: accidental reads of the folder, and the routes below. It refuses the folder's name
 in any spelling (quotes and backslashes removed first, any case, any separator between its two
 words), any wildcard or variable over data/, a `cd` into data, a recursive command or a search
 whose targets are not all code folders (no target means the current folder, so it is refused
 too), a search pattern that climbs out of its folder, a `cd` to a wildcard or variable, and
-`ln` or `mv` of anything named data. A command that runs an interpreter (python, runpy) is
-checked with the module's file name left in, so the module runs only in the `-m` form below.
-It cannot see what a script it runs does, nor a name built from pieces inside one: a script
-written to read the folder is not caught, so none is ever written, and the printout also asks
-for a typed confirmation on a terminal (eval/ask_heldout.py), which agents do not have.
+`ln` or `mv` of data. A command that runs an interpreter (python, runpy) is checked with the
+module's file name left in. The allowed check commands are matched on the text exactly as typed,
+with only plain path characters (no `;`, braces, `$`, quotes or other expansions) and one
+`cd <folder> &&` in front.
+
+What it cannot stop: a name or a command deliberately disguised (built from pieces, globs over
+another folder, a variable), or what a script does. That is the same limit as the deny rule on
+data/private. So the printout of questions and plans no longer prints: `disagreements` writes
+its text into the blocked folder and prints only a line count (eval/ask_heldout.py), so running
+the module by any route shows no content; Yousef opens the file himself.
 
 Who may do what:
 - the three writers (heldout-questions, heldout-gold-a, heldout-gold-b) read and write only their
   own files, directly in the folder, and run only their own check commands;
 - the coding session may run only `python -m eval.ask_heldout fingerprint`;
 - everyone else, the reviewer included, nothing;
-- `disagreements` (which prints questions and plans) is refused for every caller: only Yousef
-  runs it, himself.
+- `disagreements` (which writes questions and plans into the folder) is refused for every
+  caller: only Yousef runs it, himself.
 """
 
 import posixpath
@@ -52,12 +57,14 @@ CODE_FILES = re.compile(r"eval[/\\]ask_heldout\.py|tests[/\\]test_ask_heldout\.p
 # Running the module by name; a command that runs an interpreter keeps the file name in.
 MODULE = re.compile(r"eval\.ask_?heldout", re.IGNORECASE)
 INTERPRETER = re.compile(r"python[\d.]*\b|runpy|\bexec\b|\bsource\b", re.IGNORECASE)
+# On the text as typed: plain path characters only, so nothing can ride in front of the command.
 MODULE_COMMAND = re.compile(
-    r"^(?:cd\s+\S+\s+&&\s+)?\S*python3?\s+-m\s+eval\.ask_heldout\s+(?P<sub>[\w\- ]+?)\s*$"
+    r"^(?:cd [\w./~-]+ && )?[\w./~-]*python3? -m eval\.ask_heldout (?P<sub>[a-z]+(?:-[a-z]+)?"
+    r"(?: --which [ab])?)$"
 )
 WILDCARD = re.compile(r"data[\\/]+\S*[*?\[{$]", re.IGNORECASE)
-CD_DATA = re.compile(r"\b(cd|pushd)\s+((\S*[\\/])?data\b|\S*[*?\[{$~])", re.IGNORECASE)
-MOVE_DATA = re.compile(r"\b(ln|mv)\b[^|;&]*\bdata\b", re.IGNORECASE)
+CD_DATA = re.compile(r"\b(cd|pushd)\s+((\S*[\\/])?data\b|\S*[*?\[{$])", re.IGNORECASE)
+MOVE_DATA = re.compile(r"\b(ln|mv)\b[^|;&]*(^|[\s/])data(/|\s|$)", re.IGNORECASE)
 # Commands that walk folders. For the first group the first plain word is the search text.
 WALK_WITH_TEXT = ("grep", "egrep", "fgrep", "rg", "ag", "ack", "fd")
 WALK = ("find", "tree", "tar", "rsync", "zip", "du")
@@ -187,9 +194,9 @@ def decide(kind: str, text: str, agent: str | None) -> Decision:
         return Decision(True, "does not reach the held-out folder", False)
     t = plain(text).strip()
     if kind == "command":
-        m = MODULE_COMMAND.match(t)
+        m = MODULE_COMMAND.match(text.strip())  # as typed, not with quotes removed
         if m is not None:
-            sub = " ".join(m.group("sub").split())
+            sub = m.group("sub")
             if agent in WRITERS:
                 allowed = WRITERS[agent]["command"]
             else:

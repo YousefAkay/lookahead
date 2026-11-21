@@ -1,17 +1,11 @@
 """The held-out module (spec docs/specs/2026-11-20-ask.md, step 9), on made-up files in a temporary
 folder, never the real one: id numbering of Yousef's file, the fingerprint (its hash is
-committed before the scored run), and the printout's lock."""
+committed before the scored run), and that the printout shows no content."""
 
 import hashlib
-import io
 from pathlib import Path
 
 import eval.ask_heldout as held
-
-
-class Terminal(io.StringIO):
-    def isatty(self) -> bool:
-        return True
 
 
 def test_yousef_ids_skip_blank_and_comment_lines(tmp_path: Path) -> None:
@@ -36,12 +30,18 @@ def test_the_fingerprint_is_fixed_and_follows_every_byte(tmp_path: Path) -> None
     assert held.fingerprint(tmp_path)[-1] != lines[-1]
 
 
-def test_the_printout_needs_a_terminal_and_a_typed_confirmation() -> None:
-    assert not held.confirm_printout(io.StringIO(), ask=lambda prompt: "SHOW")  # no terminal
-    assert not held.confirm_printout(Terminal(), ask=lambda prompt: "yes")
-    assert held.confirm_printout(Terminal(), ask=lambda prompt: "SHOW")
-
-
-def test_the_printout_command_refuses_without_a_terminal(capsys) -> None:  # type: ignore[no-untyped-def]
-    assert held.main(["disagreements"]) == 2  # pytest gives no terminal: nothing is read
-    assert "Refused" in capsys.readouterr().out
+def test_the_printout_writes_into_the_folder_and_prints_no_content(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,  # type: ignore[no-untyped-def]
+) -> None:
+    """Review B1b (2026-11-21): whatever route runs it, the command shows only a line count; the
+    text goes into the (blocked) folder. Made-up empty folder: nothing to compare."""
+    monkeypatch.setattr(held, "FOLDER", tmp_path)
+    for name in held.GOLD.values():
+        (tmp_path / name).write_text("", encoding="utf-8")
+    assert held.main(["disagreements"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("wrote ") and "lines to disagreements.txt" in out
+    assert "differ" not in out and "agreed" not in out
+    assert (tmp_path / held.REVIEW).read_text(encoding="utf-8").startswith("0 of 0 differ")

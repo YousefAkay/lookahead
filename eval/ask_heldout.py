@@ -14,12 +14,14 @@ Files:
   {"id": "...", "expect": "answer" | "refused" | "clarify" | "not_found",
    "ambiguous": true | false, "steps": [...]}.
 
-Commands (none prints a question or a plan, except `disagreements`, which only Yousef runs):
+Commands (none prints a question or a plan):
     python -m eval.ask_heldout check-questions   # counts by persona, language; format problems
     python -m eval.ask_heldout check-gold --which a   # counts; plans that fail or run otherwise
     python -m eval.ask_heldout fingerprint       # SHA-256 of each file and of the set
-    python -m eval.ask_heldout disagreements     # Yousef only: plans that differ, in plain words,
-                                                 # and 10 agreed ones chosen with SPOT_SEED
+    python -m eval.ask_heldout disagreements     # Yousef only: writes disagreements.txt into the
+                                                 # folder (plans that differ, in plain words, and
+                                                 # 10 agreed ones chosen with SPOT_SEED); prints
+                                                 # only its line count
 """
 
 import argparse
@@ -198,13 +200,15 @@ def disagreements(folder: Path = FOLDER) -> list[str]:
     return lines
 
 
-def confirm_printout(stdin: Any = None, ask: Any = input) -> bool:
-    """The printout of questions and plans needs a terminal and a typed SHOW: a second lock
-    behind the hook (agents have no terminal, so a route the hook misses still prints nothing)."""
-    stdin = stdin if stdin is not None else sys.stdin
-    if not (hasattr(stdin, "isatty") and stdin.isatty()):
-        return False
-    return str(ask("This prints held-out questions and plans. Type SHOW to go on: ")) == "SHOW"
+REVIEW = "disagreements.txt"  # written into the folder; only Yousef opens it
+
+
+def write_disagreements(folder: Path) -> list[str]:
+    """Write the disagreements into the blocked folder and say only how many lines: whoever
+    runs this, by whatever route, sees no question and no plan."""
+    lines = disagreements(folder)
+    (folder / REVIEW).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return [f"wrote {len(lines)} lines to {REVIEW} in the held-out folder (open it yourself)"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -216,11 +220,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("fingerprint")
     sub.add_parser("disagreements")
     args = parser.parse_args(argv)
-    if args.command == "disagreements" and not confirm_printout():
-        print("Refused: the printout runs only on a terminal, after typing SHOW (Yousef only).")
-        return 2
-    commands = {"check-questions": check_questions, "fingerprint": fingerprint,
-                "disagreements": disagreements}  # fmt: skip
+    commands = {"check-questions": lambda: check_questions(FOLDER),
+                "fingerprint": lambda: fingerprint(FOLDER),
+                "disagreements": lambda: write_disagreements(FOLDER)}  # fmt: skip
     lines = check_gold(args.which) if args.command == "check-gold" else commands[args.command]()
     print("\n".join(lines))
     return 0
