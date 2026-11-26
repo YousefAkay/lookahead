@@ -59,6 +59,43 @@ Rejected: training the model on cleaned merchant names and letting a list of Can
 answer rows directly. On the same dataset, an earlier split, it scored 74.3% against 75.2% without
 it (600 rows, 356 merchants), so it stays off.
 
+## Ask results
+
+The Ask page answers questions about the account ("how much did I spend on groceries last
+month?"). An offline parser turns the question into a plan of building blocks; Lookahead checks
+the plan and computes the answer itself. I also built an optional LLM planner (Claude Haiku 4.5):
+it writes only the plan and never sees a number; it is sent the question and fixed instructions,
+nothing from the account. It
+would be offered as "Smarter questions" only if it passed a rule I committed before the test.
+
+It failed, so Ask ships offline-only. The test set has 100 questions (76 answerable, 14 that
+should be refused, 10 ambiguous) on synthetic accounts, written by two separate AI agents that
+never saw my prompt or development questions (their instructions share one convention with it:
+the largest purchase is the maximum over rows). The answer keys are model-written too. Scored
+once.
+
+| Test set, 100 questions | LLM planner | Offline parser |
+|---|---|---|
+| Correct on answerable (rule: 85% or more) | 93.4% (71 of 76) | 43.4% (33 of 76) |
+| Refused, of should-refuse (rule: 90% or more) | 92.9% (13 of 14) | 85.7% (12 of 14) |
+| Wrong answer shown as if right, of all (rule: 5% or less) | **8.0% (8 of 100)** | 10.0% (10 of 100) |
+| Ambiguous, handled like the answer key | 8 of 10 | 2 of 10 |
+
+The LLM met every condition but one: it showed 8 wrong answers as if they were right, and the cap
+was 5. What I have to disclose:
+
+- The offline parser, which ships, was wrong without saying so more often (10 of 100). The cap
+  applied only to the LLM. I keep the rule as written, because changing it after seeing the result
+  would make the test worthless; an Ask v2 needs a fixed rule and a new test set.
+- The offline parser was fitted to my development questions: 76% there (114 of 150), 43.4% on
+  the test set.
+- On the development questions the LLM scored 98% (147 of 150). I flagged that as too good, since
+  its instructions were written from its own misses on those questions. The test set measured
+  93.4%.
+
+All runs, including the void ones, are in [DECISIONS.md](DECISIONS.md) and
+`docs/results/ask_ledger.jsonl`.
+
 ## How I evaluate
 
 - **Rules written first.** Before each experiment I write down what I will measure and the rule
