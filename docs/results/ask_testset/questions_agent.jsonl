@@ -1,0 +1,50 @@
+{"id": "ha-001", "persona": "v2-SAL-01", "text": "how much did i spend at IGA last month", "lang": "en"}
+{"id": "ha-002", "persona": "v2-FREE-01", "text": "total groceries since january?", "lang": "en"}
+{"id": "ha-003", "persona": "v2-TIGHT-01", "text": "what's my average monthly spend on restaurants and cafés over the last 6 months", "lang": "en"}
+{"id": "ha-004", "persona": "v2-DRENT-01", "text": "how many uber eats orders did I have in august", "lang": "en"}
+{"id": "ha-005", "persona": "v2-DHOME-01", "text": "biggest purchase this year", "lang": "en"}
+{"id": "ha-006", "persona": "v2-IFAM-01", "text": "top 3 spending categories last month", "lang": "en"}
+{"id": "ha-007", "persona": "v2-SAL-01", "text": "amazon spending july vs august, which was higher?", "lang": "en"}
+{"id": "ha-008", "persona": "v2-FREE-01", "text": "combien j'ai dépensé chez metro en août?", "lang": "fr"}
+{"id": "ha-009", "persona": "v2-TIGHT-01", "text": "what percent of my spending last month went to groceries", "lang": "en"}
+{"id": "ha-010", "persona": "v2-DRENT-01", "text": "did i spend more on doordash or uber eats this year", "lang": "en"}
+{"id": "ha-011", "persona": "v2-DHOME-01", "text": "how much tim hortns in july lol", "lang": "en"}
+{"id": "ha-012", "persona": "v2-IFAM-01", "text": "average weekly spend on food delivery in the last 3 months", "lang": "en"}
+{"id": "ha-013", "persona": "v2-SAL-01", "text": "bixi total this yr?", "lang": "en"}
+{"id": "ha-014", "persona": "v2-FREE-01", "text": "how much income came in during june", "lang": "en"}
+{"id": "ha-015", "persona": "v2-TIGHT-01", "text": "mes 5 plus gros marchands depuis le début de l'année", "lang": "fr"}
+{"id": "ha-016", "persona": "v2-DRENT-01", "text": "how much more did I spend on food delivery than on groceries last month", "lang": "en"}
+{"id": "ha-017", "persona": "v2-DHOME-01", "text": "which day of the week do i spend the most at restaurants", "lang": "en"}
+{"id": "ha-018", "persona": "v2-IFAM-01", "text": "list my 5 largest transactions in august", "lang": "en"}
+{"id": "ha-019", "persona": "v2-SAL-01", "text": "how much at the saq over the last 3 months compared to the 3 months before that", "lang": "en"}
+{"id": "ha-020", "persona": "v2-FREE-01", "text": "totl spent on shoping in may", "lang": "en"}
+{"id": "ha-021", "persona": "v2-TIGHT-01", "text": "how many times did scotiabank charge me this year", "lang": "en"}
+{"id": "ha-022", "persona": "v2-DHOME-01", "text": "moyenne par mois chez couche-tard", "lang": "fr"}
+{"id": "ha-023", "persona": "v2-DHOME-01", "text": "by what % did my total spending change from july to august", "lang": "en"}
+{"id": "ha-024", "persona": "v2-IFAM-01", "text": "how much have i sent nadia haddad since march", "lang": "en"}
+{"id": "ha-025", "persona": "v2-SAL-01", "text": "what was my most expensive restaurant bill in 2026", "lang": "en"}
+{"id": "ha-026", "persona": "v2-FREE-01", "text": "what will my balance be on oct 1", "lang": "en"}
+{"id": "ha-027", "persona": "v2-TIGHT-01", "text": "lowest my balance gets in the next 30 days?", "lang": "en"}
+{"id": "ha-028", "persona": "v2-DRENT-01", "text": "quelles sont les chances que mon solde passe sous zéro d'ici le 14 octobre", "lang": "fr"}
+{"id": "ha-029", "persona": "v2-DHOME-01", "text": "chance i go below my buffer before the end of september", "lang": "en"}
+{"id": "ha-030", "persona": "v2-IFAM-01", "text": "if I cut food delivery by $150 a month how low does my balance go", "lang": "en"}
+{"id": "ha-031", "persona": "v2-DRENT-01", "text": "what happens to my balance if i cancel netflix and disney plus", "lang": "en"}
+{"id": "ha-032", "persona": "v2-SAL-01", "text": "if i buy a $900 laptop this friday do i drop under my buffer?", "lang": "en"}
+{"id": "ha-033", "persona": "v2-TIGHT-01", "text": "what if spotify went up to $15 a month", "lang": "en"}
+{"id": "ha-034", "persona": "v2-SAL-01", "text": "how's my shopping budget looking", "lang": "en"}
+{"id": "ha-035", "persona": "v2-DHOME-01", "text": "how much can i safely spend right now", "lang": "en"}
+{"id": "ha-036", "persona": "v2-IFAM-01", "text": "liste de mes paiements récurrents", "lang": "fr"}
+{"id": "ha-037", "persona": "v2-FREE-01", "text": "when's my next hydro payment and how much is it usually", "lang": "en"}
+{"id": "ha-038", "persona": "v2-TIGHT-01", "text": "am I going to go over my restaurant budget this month?", "lang": "en"}
+{"id": "ha-039", "persona": "v2-DHOME-01", "text": "how much", "lang": "en"}
+{"id": "ha-040", "persona": "v2-SAL-01", "text": "what did I spend on food recently", "lang": "en"}
+{"id": "ha-041", "persona": "v2-IFAM-01", "text": "how much did I pay haddad last month", "lang": "en"}
+{"id": "ha-042", "persona": "v2-DRENT-01", "text": "combien j'ai mis chez concordia la session passée", "lang": "fr"}
+{"id": "ha-043", "persona": "v2-FREE-01", "text": "is it more than before?", "lang": "en"}
+{"id": "ha-044", "persona": "v2-TIGHT-01", "text": "should i cancel netflix?", "lang": "en"}
+{"id": "ha-045", "persona": "v2-DRENT-01", "text": "what will my balance be at christmas", "lang": "en"}
+{"id": "ha-046", "persona": "v2-IFAM-01", "text": "what's my credit score", "lang": "en"}
+{"id": "ha-047", "persona": "v2-SAL-01", "text": "est-ce que je devrais investir dans un CELI?", "lang": "fr"}
+{"id": "ha-048", "persona": "v2-DHOME-01", "text": "how much do i have in my savings account", "lang": "en"}
+{"id": "ha-049", "persona": "v2-FREE-01", "text": "am i spending too much on restaurants compared to other people my age", "lang": "en"}
+{"id": "ha-050", "persona": "v2-IFAM-01", "text": "forecast my balance for next march", "lang": "en"}
