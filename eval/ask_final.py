@@ -10,11 +10,12 @@ committed pass rule.
 - **Record before show:** the plans, then the result file, then the ledger entry are written, and
   only then is anything about the result printed.
 - **Runs once:** it refuses when a result exists. An attempt that did not finish (API credit or
-  key refused, spending cap, a crash, the process cut off) is void: the void is recorded and it
-  stops; another attempt needs a "go" line for that attempt in the ledger, committed, which is
-  added only on the owner's word.
+  key refused, 5 API failures in a row, spending cap, a crash, the process cut off) is void: the
+  void is recorded and it stops; another attempt needs a "go" line for that attempt in the
+  ledger, committed, which is added only on the owner's word. A result file left by a cut-off
+  attempt is not opened before the go, then committed unopened or removed.
 - **A single question** whose API call still fails after its retries counts as not correct (and
-  not silent wrong), as the rule says.
+  not silent wrong), as the rule says; so do up to 4 in a row.
 - **No content:** the log, the result file and the ledger hold ids, counts and error type names,
   never a question, a plan or an error's text. The LLM's plans are saved in the test set's folder.
 
@@ -47,6 +48,7 @@ MIN_ROOM_USD = 1.00  # not started with less than this left under the cap
 SET = "test"  # the ledger's name for this run's lines
 RESULT_NAME = "ask_final_result_"
 ACCOUNT_REFUSED = (401, 402, 403)  # no later call can succeed
+API_FAILURES_IN_A_ROW = 5  # this many questions failing one after another: void (an outage)
 CODE_PATHS = ("eval", "lookahead", "tools", "docs/specs", "docs/results")
 
 
@@ -196,7 +198,8 @@ def score_all(paths: Paths, name: str, planner: dev.Planner, items: list[Questio
               runner: Runner, refused: list[str],
               plans: list[dict[str, Any]], at: list[str]) -> list[Row]:  # fmt: skip
     """One planner over the questions; `plans` collects each plan an LLM gave, by id."""
-    rows = []
+    rows: list[Row] = []
+    failed = 0  # questions in a row whose API call failed
     for number, q in enumerate(items, 1):
         at[:] = [f"{name}, question {q.id}"]
         rows.append(score_one(runner, q, planner))
@@ -204,6 +207,9 @@ def score_all(paths: Paths, name: str, planner: dev.Planner, items: list[Questio
             plans.append({"id": q.id, "plan": dev.PRODUCED.pop(q.text)})
         if refused:
             raise Void(refused[0])
+        failed = failed + 1 if rows[-1].produced == "api_error" else 0
+        if failed == API_FAILURES_IN_A_ROW:
+            raise Void(f"{failed} API failures in a row")
         if number % 10 == 0 or number == len(items):
             say(paths, f"{name}: {number} of {len(items)} questions")
     return rows
@@ -313,6 +319,9 @@ def run_final(paths: Paths, make_sender: Callable[[], llm.Send], runner: Runner,
     if kind == "unfinished":
         record(paths, "void", about, void=True, why="cut off: started and never finished")
         say(paths, f"attempt {about} was cut off: recorded VOID. Stopped; a new run needs a go.")
+        if (paths.results / f"{RESULT_NAME}{about}.md").exists():
+            say(paths, "it left a result file: do not open it before the go; after the go, commit "
+                "it unopened or remove it")  # fmt: skip
         return 3
     if kind == "needs_go":
         say(paths, f"refused: attempt {about} is void and has no go in the ledger.")

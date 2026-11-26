@@ -299,3 +299,32 @@ def test_a_result_file_left_without_its_ledger_line_is_a_cut_off_attempt(
     final.record(paths, "go", "dead0002")
     assert go(paths, runner, fake) == 0
     assert go(paths, runner, fake) == 2
+
+
+def test_five_api_failures_in_a_row_void_the_attempt(tmp_path: Path, runner: Runner) -> None:
+    paths = make(tmp_path)
+    down: dict[int, BaseException] = {n: ApiError("overloaded", 529) for n in range(1, 6)}
+    fake = Fake(down)
+    assert go(paths, runner, fake) == 3 and fake.calls == 5
+    assert events(paths) == ["start", "void"]
+    assert final.ledger_lines(paths)[-1]["why"].startswith("5 API failures in a row (at ")
+    assert not list(paths.results.glob("ask_final_result_*.md"))
+
+
+def test_four_in_a_row_count_as_wrong_and_the_count_starts_again(
+    tmp_path: Path, runner: Runner
+) -> None:
+    paths = make(tmp_path)
+    # calls 1 to 4 fail, call 5 answers, call 6 fails: 5 failures, never 5 in a row
+    assert go(paths, runner, Fake({n: ConnectionError() for n in (1, 2, 3, 4, 6)})) == 0
+    assert final.ledger_lines(paths)[-1]["api_errors"] == 5
+
+
+def test_a_left_over_result_file_is_flagged_not_to_be_opened(
+    tmp_path: Path, runner: Runner
+) -> None:
+    paths = make(tmp_path)
+    final.record(paths, "start", "dead0003")
+    (paths.results / "ask_final_result_dead0003.md").write_text("")
+    assert go(paths, runner) == 3
+    assert "do not open it before the go" in paths.log.read_text()
