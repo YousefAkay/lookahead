@@ -61,20 +61,28 @@ def publish(source: Path = FOLDER, destination: Path = DESTINATION) -> tuple[boo
         return False, report
 
     destination.mkdir(parents=True, exist_ok=True)
-    for name, expected in EXPECTED.items():
-        target = destination / name
-        shutil.copyfile(source / name, target)
-        match = _digest(target) == expected
-        report.append(
-            f"{name}: {_lines(target)} lines, copy matches fingerprint: {'yes' if match else 'no'}"
-        )
-        if not match:
-            target.unlink()
-            ok = False
-    report.append(
-        "Done: 5 files copied." if ok else "Refused: a copy did not match; it was removed."
-    )
-    return ok, report
+    copied: list[Path] = []
+    try:
+        for name, expected in EXPECTED.items():
+            target = destination / name
+            shutil.copyfile(source / name, target)
+            copied.append(target)
+            match = _digest(target) == expected
+            report.append(
+                f"{name}: {_lines(target)} lines, copy matches fingerprint: "
+                f"{'yes' if match else 'no'}"
+            )
+            ok = ok and match
+    except OSError as e:
+        report.append(f"Copy failed: {type(e).__name__}.")
+        ok = False
+    if not ok:
+        for target in copied:
+            target.unlink(missing_ok=True)
+        report.append("Refused: a copy failed or did not match; every copy was removed.")
+        return False, report
+    report.append(f"Done: {len(copied)} files copied.")
+    return True, report
 
 
 def main() -> int:
