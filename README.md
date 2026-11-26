@@ -88,10 +88,10 @@ was 5. What I have to disclose:
   applied only to the LLM. I keep the rule as written, because changing it after seeing the result
   would make the test worthless; an Ask v2 needs a fixed rule and a new test set.
 - The offline parser was fitted to my development questions: 76% there (114 of 150), 43.4% on
-  the test set.
+  the test set (33 of 76).
 - On the development questions the LLM scored 98% (147 of 150). I flagged that as too good, since
   its instructions were written from its own misses on those questions. The test set measured
-  93.4%.
+  93.4% (71 of 76).
 
 All runs, including the void ones, are in [DECISIONS.md](DECISIONS.md) and
 `docs/results/ask_ledger.jsonl`.
