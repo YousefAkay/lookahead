@@ -31,8 +31,10 @@ Who may do what:
 - the coding session may run only `python -m eval.ask_heldout` fingerprint, apply-review and
   check-final (counts, ids and hashes);
 - the coding session may also start the one scored run (eval/ask_final.py, which shows no
-  question and no plan), by one command only, `FINAL_RUN`, exactly as typed; every other way of
-  running that module is refused for every caller (Yousef may type any command himself);
+  question and no plan), by one command only, `FINAL_RUN`, exactly as typed; running that module
+  by its dotted name, or by its name with an interpreter, is otherwise refused for every caller
+  (another runner or a disguised name is not caught, the same limit as above; Yousef may type any
+  command himself);
 - an allowed check command runs only on committed code: the hook refuses it when the checkout it
   runs in has uncommitted changes under eval/, lookahead/ or tools/ (`checkout_is_clean`), so
   an edited copy of the module never runs on the folder before it is committed and reviewed;

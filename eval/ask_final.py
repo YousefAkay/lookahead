@@ -101,10 +101,14 @@ def record(paths: Paths, event: str, attempt: str, **fields: Any) -> None:
 def state(paths: Paths) -> tuple[str, str]:
     """("ready" | "done" | "unfinished" | "needs_go", the attempt it is about)."""
     mine = [e for e in ledger_lines(paths) if e.get("set") == SET]
-    results = sorted(paths.results.glob(RESULT_NAME + "*.md"))
-    if results or any(e["event"] == "result" for e in mine):
-        return "done", results[0].name if results else "in the ledger"
+    if done := [e for e in mine if e["event"] == "result"]:
+        return "done", done[0].get("report", "in the ledger")
     starts = [e["attempt"] for e in mine if e["event"] == "start"]
+    # A result file belongs to the attempt in its name. One left by an attempt of the ledger with
+    # no result line is that cut-off attempt's; any other means a result exists.
+    for path in sorted(paths.results.glob(RESULT_NAME + "*.md")):
+        if path.stem.removeprefix(RESULT_NAME) not in starts:
+            return "done", path.name
     if not starts:
         return "ready", ""
     last = starts[-1]
@@ -162,6 +166,8 @@ def load_set(paths: Paths, runner: Runner, n: int) -> list[Question]:
             gold_outcome(runner, item)
         except Exception as e:  # the id and the error type only
             raise Refused(f"the gold plan for {q.id} fails ({type(e).__name__})") from None
+        if item.expect == "clarify" and not item.ambiguous:  # it would count as answerable
+            raise Refused(f"the gold plan for {q.id} asks back but is not marked ambiguous")
         out.append(item)
     return out
 
@@ -188,10 +194,11 @@ def watched(send: llm.Send, refused: list[str]) -> llm.Send:
 
 def score_all(paths: Paths, name: str, planner: dev.Planner, items: list[Question],
               runner: Runner, refused: list[str],
-              plans: list[dict[str, Any]]) -> list[Row]:  # fmt: skip
+              plans: list[dict[str, Any]], at: list[str]) -> list[Row]:  # fmt: skip
     """One planner over the questions; `plans` collects each plan an LLM gave, by id."""
     rows = []
     for number, q in enumerate(items, 1):
+        at[:] = [f"{name}, question {q.id}"]
         rows.append(score_one(runner, q, planner))
         if q.text in dev.PRODUCED:
             plans.append({"id": q.id, "plan": dev.PRODUCED.pop(q.text)})
@@ -280,6 +287,10 @@ def report(llm_rows: list[Row], off_rows: list[Row], meta: dict[str, Any]) -> st
         f"{meta['api_errors']} (each counted as not correct). Set fingerprint "
         f"`{meta['fingerprint']}`.",
         "",
+        "Earlier void attempts (nothing of theirs was scored here): "
+        + ("; ".join(meta["earlier_voids"]) or "none")
+        + ".",
+        "",
         "## By question",
         "",
         "| Id | Kind | LLM | LLM as the gold | Offline | Offline as the gold |",
@@ -333,12 +344,13 @@ def run_final(paths: Paths, make_sender: Callable[[], llm.Send], runner: Runner,
     dev.PRODUCED.clear()
     dev.API_ERRORS.clear()
     plans: list[dict[str, Any]] = []
+    at: list[str] = []
     try:
-        off_rows = score_all(paths, "offline parser", dev.offline, items, runner, [], plans)
+        off_rows = score_all(paths, "offline parser", dev.offline, items, runner, [], plans, at)
         refused: list[str] = []
         planner = dev.llm_planner(watched(send, refused), spend)
 
-        llm_rows = score_all(paths, "LLM planner", planner, items, runner, refused, plans)
+        llm_rows = score_all(paths, "LLM planner", planner, items, runner, refused, plans, at)
     except BaseException as e:  # anything that stops it, Ctrl-C included: void, content-free
         if isinstance(e, Void):
             why = str(e)
@@ -346,6 +358,7 @@ def run_final(paths: Paths, make_sender: Callable[[], llm.Send], runner: Runner,
             why = "spending cap reached"
         else:
             why = f"stopped by {type(e).__name__}"
+        why += f" (at {at[0]})" if at else ""
         record(paths, "void", attempt, void=True, why=why, spent_usd=round(spend.spent_usd, 4),
                calls=spend.calls)  # fmt: skip
         say(paths, f"attempt {attempt} VOID: {why}. Recorded. Stopped; a new run needs a go.")
@@ -354,7 +367,9 @@ def run_final(paths: Paths, make_sender: Callable[[], llm.Send], runner: Runner,
     meta |= {"spent_usd": round(spend.spent_usd, 4), "calls": spend.calls,
              "input_tokens": spend.input_tokens, "output_tokens": spend.output_tokens,
              "api_errors": sum(r.produced == "api_error" for r in llm_rows),
-             "api_error_types": dict(Counter(dev.API_ERRORS))}  # fmt: skip
+             "api_error_types": dict(Counter(dev.API_ERRORS)),
+             "earlier_voids": [f"{e['attempt']}: {e['why']}" for e in ledger_lines(paths)
+                               if e.get("set") == SET and e["event"] == "void"]}  # fmt: skip
     text = report(llm_rows, off_rows, meta)
     llm_s, off_s = summarize(llm_rows), summarize(off_rows)
     checks = conditions(llm_s, off_s)
@@ -362,7 +377,7 @@ def run_final(paths: Paths, make_sender: Callable[[], llm.Send], runner: Runner,
     with (paths.folder / f"plans_final_{attempt}.jsonl").open("x", encoding="utf-8") as f:
         for p in plans:
             f.write(json.dumps(p, ensure_ascii=False) + "\n")
-    result = paths.results / f"{RESULT_NAME}{datetime.now():%Y-%m-%d_%H%M}.md"
+    result = paths.results / f"{RESULT_NAME}{attempt}.md"
     with result.open("x", encoding="utf-8") as f:
         f.write(text)
     record(paths, "result", attempt, llm=asdict(llm_s), offline=asdict(off_s),

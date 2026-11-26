@@ -192,7 +192,7 @@ def test_the_spending_cap_voids_the_attempt(
     monkeypatch.setattr(final, "CAP_USD", 0.02)
     monkeypatch.setattr(final, "MIN_ROOM_USD", 0.0)
     assert go(paths, runner) == 3
-    assert final.ledger_lines(paths)[-1]["why"] == "spending cap reached"
+    assert final.ledger_lines(paths)[-1]["why"].startswith("spending cap reached (at LLM planner, ")
 
 
 def test_refusals_before_an_attempt_record_nothing(tmp_path: Path, runner: Runner) -> None:
@@ -238,3 +238,64 @@ def test_the_pass_rule_at_its_edges() -> None:
 
 def test_no_arguments_are_taken() -> None:
     assert final.main(["--again"]) == 2
+
+
+def test_a_gold_that_asks_back_must_be_marked_ambiguous(tmp_path: Path, runner: Runner) -> None:
+    paths = make(tmp_path)
+    gold = paths.folder / "gold_final.jsonl"
+    lines = [json.loads(x) for x in gold.read_text().splitlines()]
+    lines[0] |= {"expect": "clarify", "ambiguous": False,
+                 "steps": [{"op": "clarify", "about": "subject"}]}  # fmt: skip
+    gold.write_text("".join(json.dumps(x) + "\n" for x in lines))
+    paths.fingerprints.write_text(f"Set fingerprint: `{fingerprint(paths.folder)[-1].split()[-1]}`")
+    fake = Fake()
+    assert go(paths, runner, fake) == 2 and fake.calls == 0 and not paths.ledger.exists()
+    assert "ha-000 asks back but is not marked ambiguous" in paths.log.read_text()
+
+
+def test_a_gold_that_does_not_run_to_what_it_says_refuses(tmp_path: Path, runner: Runner) -> None:
+    paths = make(tmp_path)
+    gold = paths.folder / "gold_final.jsonl"
+    gold.write_text(gold.read_text().replace('"expect": "answer"', '"expect": "not_found"', 1))
+    paths.fingerprints.write_text(f"Set fingerprint: `{fingerprint(paths.folder)[-1].split()[-1]}`")
+    assert go(paths, runner) == 2 and not paths.ledger.exists()
+
+
+def test_a_crash_is_void_and_says_where_without_content(
+    tmp_path: Path, runner: Runner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = make(tmp_path)
+    real = final.score_one
+    count = [0]
+
+    def crash(*args: Any) -> Any:
+        count[0] += 1
+        if count[0] == N + 2:  # the LLM planner's second question
+            raise ValueError(ITEMS[2].text)
+        return real(*args)
+
+    monkeypatch.setattr(final, "score_one", crash)
+    assert go(paths, runner) == 3
+    why = final.ledger_lines(paths)[-1]["why"]
+    assert why == "stopped by ValueError (at LLM planner, question ha-002)"
+    assert ITEMS[2].text not in everything_written(paths)
+    final.record(paths, "go", final.ledger_lines(paths)[-1]["attempt"])
+    monkeypatch.setattr(final, "score_one", real)
+    assert go(paths, runner) == 0
+    result = next(paths.results.glob("ask_final_result_*.md")).read_text()
+    assert "stopped by ValueError (at LLM planner, question ha-002)" in result
+
+
+def test_a_result_file_left_without_its_ledger_line_is_a_cut_off_attempt(
+    tmp_path: Path, runner: Runner
+) -> None:
+    paths = make(tmp_path)
+    final.record(paths, "start", "dead0002")
+    (paths.results / "ask_final_result_dead0002.md").write_text("")
+    fake = Fake()
+    assert go(paths, runner, fake) == 3 and fake.calls == 0
+    assert events(paths) == ["start", "void"]
+    assert go(paths, runner, fake) == 2 and fake.calls == 0
+    final.record(paths, "go", "dead0002")
+    assert go(paths, runner, fake) == 0
+    assert go(paths, runner, fake) == 2
