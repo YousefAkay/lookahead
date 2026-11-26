@@ -249,3 +249,36 @@ def test_step_names_never_reach_the_page() -> None:
             shown += headline(Asked("q", parse({"steps": list(p.model_dump()["steps"])}), out))
     for word in ("sell_all", "crypto", "quit", "panic"):
         assert word not in shown, word
+
+
+def _group(source: str) -> dict:  # type: ignore[type-arg]
+    return {"op": "group", "name": "g", "source": source, "by": "month", "measure": "sum"}
+
+
+COMPARED = (
+    {"op": "aggregate", "name": "a", "source": "g", "measure": "max"},
+    {"op": "compare", "name": "c", "a": "a", "b": "a", "how": "difference"},
+)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        plan(_group("nope"), *COMPARED),  # a group of a step that is not there
+        plan(_group("g"), *COMPARED),  # a group of itself
+        plan(ROWS, _group("a"), *COMPARED),  # two steps naming each other
+        plan(_group("c"), *COMPARED),  # a group of a later step
+    ],
+)
+def test_a_broken_chain_under_a_comparison_fails_the_checks(data: dict) -> None:  # type: ignore[type-arg]
+    assert any("names no earlier step" in p for p in problems(data))
+
+
+def test_any_error_inside_the_check_is_a_failed_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    import lookahead.ask.plan as module
+
+    def broken(_: object) -> None:
+        raise KeyError("Fernwood Deli")
+
+    monkeypatch.setattr(module, "check", broken)
+    assert problems(plan(ROWS, TOTAL)) == ["the plan could not be checked"]

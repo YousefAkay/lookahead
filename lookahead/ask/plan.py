@@ -360,16 +360,18 @@ class PlanError(ValueError):
 
 
 def unit_of(steps: list[BaseModel], name: str) -> str:
-    """The unit of a step's numbers: money, count or percent."""
-    step = next(s for s in steps if s.name == name)  # type: ignore[attr-defined]
-    if isinstance(step, Rows):
-        return "money"
+    """The unit of a step's numbers: money, count or percent. "unknown" when its chain of
+    sources is broken (a source that is not an earlier step): the whole-plan check reports that."""
+    at = next((i for i, s in enumerate(steps) if s.name == name), None)  # type: ignore[attr-defined]
+    if at is None:
+        return "unknown"
+    step, earlier = steps[at], steps[:at]  # sources are earlier steps only, so this ends
     if isinstance(step, Group | Aggregate):
-        return "count" if step.measure == "count" else unit_of(steps, step.source)
+        return "count" if step.measure == "count" else unit_of(earlier, step.source)
     if isinstance(step, Top):
-        return unit_of(steps, step.source)
+        return unit_of(earlier, step.source)
     if isinstance(step, Compare):
-        return unit_of(steps, step.a) if step.how == "difference" else "percent"
+        return unit_of(earlier, step.a) if step.how == "difference" else "percent"
     return "money"
 
 
@@ -433,9 +435,13 @@ def parse(data: object) -> Plan:
     """A checked plan from JSON-like data, or PlanError with data-free problems."""
     try:
         plan = Plan.model_validate(data)
+        check(plan)
     except ValidationError as e:
         raise PlanError([_problem(err) for err in e.errors()]) from None
-    check(plan)
+    except PlanError:
+        raise
+    except Exception:  # an odd shape the checks did not foresee: failed checks, never a crash
+        raise PlanError(["the plan could not be checked"]) from None
     return plan
 
 
