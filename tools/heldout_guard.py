@@ -30,6 +30,9 @@ Who may do what:
   and run only their own check commands;
 - the coding session may run only `python -m eval.ask_heldout` fingerprint, apply-review and
   check-final (counts, ids and hashes);
+- the coding session may also start the one scored run (eval/ask_final.py, which shows no
+  question and no plan), by one command only, `FINAL_RUN`, exactly as typed; every other way of
+  running that module is refused for every caller (Yousef may type any command himself);
 - an allowed check command runs only on committed code: the hook refuses it when the checkout it
   runs in has uncommitted changes under eval/, lookahead/ or tools/ (`checkout_is_clean`), so
   an edited copy of the module never runs on the folder before it is committed and reviewed;
@@ -80,6 +83,15 @@ MODULE_COMMAND = re.compile(
     r"^(?:cd [\w./~-]+ && )?[\w./~-]*python3? -m eval\.ask_heldout (?P<sub>[a-z]+(?:-[a-z]+)?"
     r"(?: --(?:which|file) [ab])?)$"
 )
+# The one command that starts the scored run, matched whole, exactly as typed.
+FINAL_RUN = (
+    'tmux new-session -d -s askfinal "caffeinate -dimsu .venv/bin/python -m eval.ask_final '
+    '2>> logs/ask-final.log"'
+)
+# Running that module: by its dotted name in any command, or by its name in one that runs an
+# interpreter (its test file's name does not count).
+FINAL_MODULE = re.compile(r"eval\.ask_?final", re.IGNORECASE)
+FINAL_NAME = re.compile(r"\bask_?final\b", re.IGNORECASE)
 WILDCARD = re.compile(r"data[\\/]+\S*[*?\[{$]", re.IGNORECASE)
 CD_DATA = re.compile(r"\b(cd|pushd)\s+((\S*[\\/])?data\b|\S*[*?\[{$])", re.IGNORECASE)
 MOVE_DATA = re.compile(r"\b(ln|mv)\b[^|;&]*(^|[\s/])data(/|\s|$)", re.IGNORECASE)
@@ -194,6 +206,8 @@ def reaches(kind: str, text: str) -> bool:
     if NAMES.search(t) or WILDCARD.search(t):
         return True
     if kind == "command":
+        if FINAL_MODULE.search(raw) or (runs_code and FINAL_NAME.search(raw)):
+            return True
         return bool(MODULE.search(raw) or CD_DATA.search(t) or MOVE_DATA.search(t)
                     or walks_outside_code(t))  # fmt: skip
     if kind == "search":
@@ -214,6 +228,10 @@ def decide(kind: str, text: str, agent: str | None) -> Decision:
     if kind == "command":
         if CD_DATA.search(t):  # even in front of an allowed command
             return Decision(False, "this command could reach the held-out folder", True)
+        if text.strip() == FINAL_RUN:  # as typed
+            if agent is None:
+                return Decision(True, "the scored run", True)
+            return Decision(False, "this caller may not start the scored run", True)
         m = MODULE_COMMAND.match(text.strip())  # as typed, not with quotes removed
         if m is not None:
             sub = m.group("sub")

@@ -9,7 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from tools.heldout_guard import checkout_is_clean, decide, reaches, run_folder
+from tools.heldout_guard import (
+    FINAL_RUN,
+    checkout_is_clean,
+    decide,
+    reaches,
+    run_folder,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "ask_" + "heldout"  # built, so this file does not name the folder in one piece
@@ -362,3 +368,70 @@ def test_the_run_folder_is_the_cd_target_or_the_calls_folder() -> None:
     assert run_folder(f"cd /a/b && python -m {module} fingerprint", "/x") == Path("/a/b")
     assert run_folder(f"cd ../w && python -m {module} fingerprint", "/x/y") == Path("/x/y/../w")
     assert run_folder(f"python -m {module} fingerprint", "/x") == Path("/x")
+
+
+# --- the one scored run ---
+
+RUN = "eval.ask_" + "final"
+SCRIPT = "eval/ask_" + "final.py"
+
+
+def test_the_session_starts_the_scored_run_by_one_command_only() -> None:
+    assert FINAL_RUN == (
+        f'tmux new-session -d -s askfinal "caffeinate -dimsu .venv/bin/python -m {RUN} '
+        '2>> logs/ask-final.log"'
+    )
+    decision = decide("command", FINAL_RUN, None)
+    assert decision.allowed and decision.reaches  # reaching, so it runs only on committed code
+    assert allowed("command", FINAL_RUN + "\n")
+    for agent in ("reviewer", "general-purpose", "Explore", "heldout-gold-a", "heldout-fixer",
+                  "heldout-questions"):  # fmt: skip
+        assert not allowed("command", FINAL_RUN, agent), agent
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"python -m {RUN}",
+        f".venv/bin/python -m {RUN}",
+        f".venv/bin/python -m{RUN}",
+        f".venv/bin/python -u -m {RUN}",
+        f".venv/bin/python -m '{RUN}'",
+        f"python {SCRIPT}",
+        f"python3.13 {SCRIPT}",
+        f"PYTHONPATH=. .venv/bin/python -u {SCRIPT}",
+        "cd eval && python ask_" + "final.py",
+        "cd eval && python -m ask_" + "final",
+        'python -c "from eval import ask_' + 'final as f; f.main()"',
+        f"python -c \"import runpy; runpy.run_module('{RUN}')\"",
+        f"caffeinate -dimsu .venv/bin/python -m {RUN}",
+        f"cd /x/lookahead && {FINAL_RUN}",
+        f"{FINAL_RUN} && cat logs/x",
+        f"{FINAL_RUN}; ls",
+        f"echo hi; {FINAL_RUN}",
+        f"A=1 {FINAL_RUN}",
+        FINAL_RUN.replace(" 2>>", " --again 2>>"),
+        FINAL_RUN.replace(" 2>> logs/ask-final.log", ""),
+        FINAL_RUN.replace(".venv/bin/python", "python"),
+        FINAL_RUN.replace("-s askfinal", "-s other"),
+        FINAL_RUN.replace('"', "'"),
+        f'tmux send-keys -t x "python -m {RUN}" Enter',
+    ],
+)
+def test_every_other_way_of_starting_the_scored_run_is_refused(command: str) -> None:
+    for agent in OTHERS:
+        assert not allowed("command", command, agent), (command, agent)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ".venv/bin/python -m pytest tests/test_ask_" + "final.py -q",
+        f"git add {SCRIPT} tests/test_ask_" + "final.py",
+        f".venv/bin/ruff check {SCRIPT}",
+        "tail -n 20 logs/ask-final.log",
+        "tmux ls",
+    ],
+)
+def test_the_runs_code_and_log_are_not_blocked(command: str) -> None:
+    assert allowed("command", command)
