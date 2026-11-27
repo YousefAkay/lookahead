@@ -218,6 +218,7 @@ for page in pages:
     out[page] = {"exception": [str(e.value) for e in at.exception],
                  "banner": BANNER in text, "safe to spend": "Safe to spend" in text,
                  "intro": "MADE-UP DATA" in text,
+                 "this computer": "worked out on this computer" in text,
                  "time machine dates": "As of " in text,
                  "real date": "Today is " in text or "but before today" in text,
                  "my data offered": any("My data" in str(r.options) for r in at.sidebar.radio)}
@@ -253,6 +254,7 @@ def test_every_page_runs_in_demo_mode_without_env_and_never_opens_private_data(
         assert not result["real date"], page  # "today" is the day after the demo data ends
     assert out["app/Home.py"]["safe to spend"]
     assert [page for page, result in out.items() if result["intro"]] == ["app/Home.py"]
+    assert not out["app/pages/11_Ask.py"]["this computer"]  # the server works it out
     assert out["app/pages/5_Forecast.py"]["safe to spend"]
     assert out["app/pages/6_Time_machine.py"]["time machine dates"]  # the committed snapshots
     assert not (tmp_path / ".env").exists()

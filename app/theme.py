@@ -311,13 +311,14 @@ def series_card_html(s: Stored, name: str, category: str | None, selected: bool)
         f'<span style="font-size: 17px; font-weight: 800; color: {ink}">{html.escape(name)}</span>'
         f'<span style="font-size: 13px; color: {COLORS.muted}">'
         f"{html.escape(series_summary(s))}</span></div>"
-        f'<div style="{row}; align-items: baseline">'
+        f'<div style="{row}; align-items: baseline; flex-wrap: wrap">'  # the date moves down whole
         f'<span style="font-size: 22px; font-weight: 800; color: {amount_colour}; '
         f'white-space: nowrap">'
         f"{html.escape(amount)}"
         f'<span style="font-size: 14px; font-weight: 600; color: {COLORS.muted}"> '
         f"/ {PER[s.cadence]}</span></span>"
-        f'<span style="font-size: 13px; color: {COLORS.muted}">{html.escape(until)}</span></div>'
+        f'<span class="la-next" style="font-size: 13px; color: {COLORS.muted}; '
+        f'white-space: nowrap">{html.escape(until)}</span></div>'
         "</div>"
     )
 

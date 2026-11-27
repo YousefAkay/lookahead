@@ -93,9 +93,14 @@ top_bar(bar, TITLE, last, source)
 assert last is not None
 
 st.markdown(f"<h1>{TITLE}</h1>", unsafe_allow_html=True)
+WHERE = (
+    "by the demo's server from the made-up data, and nothing is sent to an AI service"
+    if demo_mode.is_demo()
+    else "on this computer from your data, and nothing is sent anywhere"
+)
 st.markdown(
     '<p class="la-sub">Ask about your spending, your forecast, a what-if, your budgets or safe to '
-    "spend. It is worked out on this computer from your data, and nothing is sent anywhere.</p>",
+    f"spend. It is worked out {WHERE}.</p>",
     unsafe_allow_html=True,
 )
 if not has_categories(conn, account):

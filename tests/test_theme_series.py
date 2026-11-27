@@ -151,3 +151,11 @@ def test_a_series_label_is_just_its_name_and_the_note_is_in_the_grey_line() -> N
     assert series_summary(make(kind="e-transfer", allowed_cents=(75000,), window=(30, 2))) == (
         "Interac e-Transfer, sent by hand, the day varies"
     )
+
+
+def test_the_next_date_never_breaks_inside_and_moves_down_whole_on_a_narrow_card() -> None:
+    card = series_card_html(make(next_expected=date(2026, 10, 9)), "Boutique", "Income", False)
+    span = card.split('class="la-next"', 1)[1].split(">", 1)[0]
+    assert "white-space: nowrap" in span
+    assert "Next Oct 9</span>" in card
+    assert "flex-wrap: wrap" in card  # the row it sits in may wrap instead
