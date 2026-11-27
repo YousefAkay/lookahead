@@ -1,6 +1,15 @@
-"""The synthetic demo database: each v0 persona imported as its own account."""
+"""The synthetic demo database: each v0 persona imported as its own account.
 
+On the public demo every visitor gets a copy of their own (`visit_copy`): the base database is
+built once per server (`ensure_base`) and never written after that, so nothing one visitor does
+reaches another."""
+
+import os
+import re
+import secrets
 import sqlite3
+import threading
+import time
 from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
@@ -15,6 +24,10 @@ from lookahead.recurring_store import refresh
 
 DEMO_ACCOUNTS = ("synthetic-A", "synthetic-B", "synthetic-C")
 DEMO_SETTINGS = Settings(threshold=0.5, synthetic_months=4)
+FIRST_ACCOUNT = "synthetic-C"  # the public demo opens on it: it has a fresh low-balance warning
+VISIT_ID = re.compile(r"[A-Za-z0-9_-]{12,40}")  # what a visit id in the address may look like
+VISIT_HOURS = 6  # a copy nobody used for this long is deleted
+_BUILD = threading.Lock()  # Streamlit runs every visitor's session in one process
 
 
 def has_categories(db_path: Path) -> bool:
@@ -41,6 +54,83 @@ def build_demo_db(db_path: Path, synthetic_dir: Path) -> None:
     for account in DEMO_ACCOUNTS:
         categorize(conn, account, DEMO_SETTINGS, model=model)
     conn.close()
+
+
+def base_ready(base: Path) -> bool:
+    return base.exists() and has_categories(base)
+
+
+def ensure_base(base: Path, synthetic_dir: Path) -> bool:
+    """Build the base demo database if it is missing (or from before categories). Built under a
+    lock into a side file that then replaces the base in one step, so a second visitor never
+    reads a half-built one. Returns True if it built."""
+    if base_ready(base):
+        return False
+    with _BUILD:
+        if base_ready(base):
+            return False
+        _refuse_private(base)
+        building = base.with_name(base.stem + "-building.db")
+        _remove(building)
+        build_demo_db(building, synthetic_dir)
+        os.replace(building, base)
+        return True
+
+
+def new_visit_id() -> str:
+    return secrets.token_urlsafe(12)  # 16 letters, digits, - or _
+
+
+def visits_dir(base: Path) -> Path:
+    return base.with_name(base.stem + "-visits")
+
+
+def visit_copy(base: Path, visit_id: str, *, fresh: bool = False) -> Path:
+    """The visitor's own copy of the base, made on first use (or again when `fresh`: "Start the
+    demo again"). Each use marks it as used now, so only abandoned copies are cleaned up."""
+    if not VISIT_ID.fullmatch(visit_id):
+        raise ValueError("not a visit id")
+    folder = visits_dir(base)
+    _refuse_private(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{visit_id}.db"
+    if fresh or not path.exists():
+        part = folder / f"{visit_id}.part"
+        _remove(part)
+        source, target = connect_readonly(base), sqlite3.connect(part)
+        try:
+            source.backup(target)  # a consistent copy even while another visitor reads the base
+        finally:
+            source.close()
+            target.close()
+        _remove(path)
+        os.replace(part, path)
+    os.utime(path)
+    return path
+
+
+def forget_old_visits(base: Path, hours: float = VISIT_HOURS, now: float | None = None) -> int:
+    """Delete the visitor copies (and half-made ones) unused for `hours`. Returns how many."""
+    folder = visits_dir(base)
+    if not folder.is_dir():
+        return 0
+    cutoff = (time.time() if now is None else now) - hours * 3600
+    gone = 0
+    for f in folder.iterdir():
+        if f.suffix in (".db", ".part") and f.stat().st_mtime < cutoff:
+            _remove(f)
+            gone += 1
+    return gone
+
+
+def _remove(path: Path) -> None:
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        Path(f"{path}{suffix}").unlink(missing_ok=True)
+
+
+def _refuse_private(path: Path) -> None:
+    if is_in_data_private(path.resolve()):
+        raise ValueError("the demo never writes inside a private folder")
 
 
 def is_in_data_private(path: Path) -> bool:
