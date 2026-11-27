@@ -19,6 +19,7 @@ from app.theme import (  # noqa: E402
     choice_query,
     data_settings,
     demo_database,
+    demo_intro_html,
     fmt_date,
     footer,
     link_button_html,
@@ -63,6 +64,8 @@ st.markdown(
     "your balance 30 days ahead, and shows the evidence behind every warning.</p>",
     unsafe_allow_html=True,
 )
+if is_demo():
+    st.markdown(demo_intro_html(), unsafe_allow_html=True)
 
 facts: list[tuple[str, str]] = []
 since_facts: list[tuple[str, str]] | None = None  # None: no marker yet

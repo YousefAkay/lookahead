@@ -101,3 +101,15 @@ def test_the_alert_list_escapes_and_has_a_sentence_when_empty() -> None:
 
     assert "<b>" not in alert_episodes_html([("<b>x</b>", "<i>y</i>", "Open")])
     assert "No earlier alerts" in alert_episodes_html([])
+
+
+def test_the_demo_intro_says_made_up_data_first_and_links_the_source() -> None:
+    from app.theme import REPO, demo_intro_html
+
+    page = demo_intro_html()
+    first = page.split("<p", 2)[1]
+    assert "MADE-UP DATA" in first and "font-size: 22px" in first  # first and largest
+    assert "own copy" in page and "Start the demo again" in page
+    assert f'href="{REPO}"' in page and 'rel="noopener"' in page
+    for word in ("guarantee", "fraud"):
+        assert word not in page.lower()

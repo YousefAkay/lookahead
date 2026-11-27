@@ -677,6 +677,29 @@ def demo_banner_html() -> str:
     )
 
 
+REPO = "https://github.com/YousefAkay/lookahead"
+
+
+def demo_intro_html() -> str:
+    """Home's intro box on the public demo: made-up data first and largest, what the app does,
+    and that a visitor's clicks stay in their own copy."""
+    return (
+        f'<div class="la-demo-intro" role="note" style="background: {COLORS.amber_bg}; border: '
+        f"2px solid {COLORS.amber_line}; color: {COLORS.amber_dark}; border-radius: 12px; "
+        'padding: 14px 18px; margin: 6px 0 14px 0">'
+        '<p style="font-size: 22px; font-weight: 800; margin: 0 0 6px 0">MADE-UP DATA. Every '
+        "account, payment and balance here was generated for this demo; none of it is a real "
+        "person's money.</p>"
+        '<p style="margin: 0 0 4px 0">Lookahead forecasts a bank balance 30 days ahead, warns '
+        "before it may dip below a safety buffer, shows the evidence behind each warning, and "
+        "answers questions about the data.</p>"
+        '<p style="margin: 0">Click anything: your changes stay in your own copy and are gone '
+        "when you leave (or use <strong>Start the demo again</strong> under the gear). "
+        f'<a href="{REPO}" target="_blank" rel="noopener" style="color: {COLORS.amber_link}">'
+        "Source code on GitHub</a>.</p></div>"
+    )
+
+
 def top_bar(slot: "st.delta_generator.DeltaGenerator", active: str, data_to: date | None,
             source: str, until: str | None = None) -> None:  # fmt: skip
     """Draw the green bar into the container `slot` (made first, filled once the data is known)."""
