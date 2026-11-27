@@ -25,7 +25,6 @@ from app.theme import (  # noqa: E402
     cached_safe_to_spend,
     callout_html,
     chart_legend_html,
-    choice_query,
     coming_up_html,
     data_settings,
     demo_database,
@@ -34,6 +33,7 @@ from app.theme import (  # noqa: E402
     fmt_day,
     footer,
     humanize_dates,
+    link_query,
     money,
     money_short,
     panel,
@@ -88,13 +88,6 @@ from lookahead.ui import (  # noqa: E402
     series_label,
 )
 from lookahead.views import accounts, import_status, transactions  # noqa: E402
-
-
-def link_query(page: str) -> str:
-    """A link to another page that keeps the data, account and demo visit choice."""
-    query = choice_query()
-    return page + (f"?{query}" if query else "")
-
 
 WAITING = f"Simulating {N_FUTURES} futures… This takes a few seconds."
 
@@ -541,8 +534,9 @@ with what_if, st.container(border=True, key="card-whatif"):
 with coming_up, st.container(border=True, key="card-coming"):
     head = st.columns([2, 1.2], vertical_alignment="bottom")
     head[0].markdown("<h2>Coming up</h2>", unsafe_allow_html=True)
+    to_recurring = html.escape(link_query("/Recurring"))
     head[1].markdown(
-        f'<p style="margin: 0; text-align: right"><a href="{html.escape(link_query("Recurring"))}" '
+        f'<p style="margin: 0; text-align: right"><a href="{to_recurring}" '
         f'target="_self" style="font-size: 14px; font-weight: 700; color: {COLORS.green_dark}">'
         "All recurring →</a></p>",
         unsafe_allow_html=True,

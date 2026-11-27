@@ -23,6 +23,7 @@ from app.theme import (  # noqa: E402
     fmt_date,
     footer,
     link_button_html,
+    link_query,
     money,
     safe_to_spend_card,
     status_card_html,
@@ -34,10 +35,10 @@ from lookahead.db import connect_readonly  # noqa: E402
 from lookahead.demo_mode import is_demo  # noqa: E402
 from lookahead.needs_a_look import NeedsALook, needs_a_look  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
-from lookahead.recurring_store import load_series  # noqa: E402
+from lookahead.recurring_store import current_without_saving  # noqa: E402
 from lookahead.settings import safety_buffer_cents  # noqa: E402
 from lookahead.since import card_counts, summarize  # noqa: E402
-from lookahead.ui import DISCLAIMER, private_db_path  # noqa: E402
+from lookahead.ui import DISCLAIMER, private_db_path, recurring_count  # noqa: E402
 from lookahead.views import accounts, import_status, transactions  # noqa: E402
 
 
@@ -89,13 +90,17 @@ else:
         account = account_setting(names)
         status = import_status(conn, account)
         last_day = status.last_date
-        found = [s for s in load_series(conn, account) if s.status != "rejected"]
-        confirmed = sum(s.status in ("confirmed", "user-added") for s in found)
+        try:
+            series_key: bytes | None = pseudonym_key()
+        except PseudonymKeyError:
+            series_key = None
+        found = current_without_saving(conn, account, series_key)
         facts = [
             ("Data to", fmt_date(last_day) if last_day else "No data yet"),
             ("Account", account),
             ("Transactions", f"{status.rows:,}"),
-            ("Confirmed recurring", f"{confirmed} of {len(found)}" if found else "None found yet"),
+            ("Recurring payments", recurring_count(found),
+             link_query("/Recurring")),
         ]
         top_bar(bar, "Home", last_day, source)
         summary = summarize(conn, account, transactions(conn, account))

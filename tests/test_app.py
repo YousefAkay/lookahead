@@ -56,7 +56,7 @@ def test_home_page_shows_the_status_and_links_to_the_main_pages(isolated: Path) 
     assert not at.exception, at.exception
     text = page_text(at)
     assert "A local-first cashflow planner" in text
-    for label in ("Data to", "Account", "synthetic-B", "Transactions", "Confirmed recurring"):
+    for label in ("Data to", "Account", "synthetic-B", "Transactions", "Recurring payments"):
         assert label in text
     assert "Oct 1, 2026" in text  # the day the made-up data ends
     for page in ("Forecast", "Recurring", "Transactions"):
@@ -1148,3 +1148,30 @@ def test_home_page_shows_safe_to_spend(isolated: Path) -> None:
     assert not at.exception, at.exception
     assert "Safe to spend" in page_text(at)
     assert metric(at, "Your usual everyday spending").endswith("/day")
+
+
+def test_home_counts_the_recurring_payments_found_and_confirmed_without_saving(
+    isolated: Path,
+) -> None:
+    """Home shows "N found · M confirmed" from the first visit (before the Recurring page has
+    saved anything), links it to Recurring, and writes nothing to the database."""
+    import hashlib
+    import sqlite3
+
+    from lookahead.recurring_store import load_series, refresh
+
+    at = run(HOME)
+    at.selectbox[0].set_value("synthetic-C").run()
+    assert not at.exception, at.exception
+    db = isolated / "demo.db"
+    before = hashlib.sha256(db.read_bytes()).hexdigest()
+    at.run()
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == before  # Home saved nothing
+    conn = sqlite3.connect(db)
+    assert load_series(conn, "synthetic-C") == []  # nothing saved by the Recurring page yet
+    found = [s for s in refresh(conn, "synthetic-C") if s.status != "rejected"]
+    conn.close()
+    assert found  # the made-up account has recurring payments
+    text = page_text(at)
+    assert f"{len(found)} found · 0 confirmed" in text
+    assert re.search(r'href="Recurring\?[^"]*account=synthetic-C', text)

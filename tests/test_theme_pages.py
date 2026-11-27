@@ -116,3 +116,26 @@ def test_the_demo_intro_is_two_plain_lines_with_the_source_link() -> None:
     assert f'href="{REPO}"' in page and 'rel="noopener"' in page
     for word in ("guarantee", "fraud"):
         assert word not in page.lower()
+
+
+def test_a_status_fact_can_link_to_its_page() -> None:
+    html = status_card_html([("Account", "a"), ("Recurring payments", "5 found · 0 confirmed",
+                                                 "Recurring?account=a&x=<b>")])  # fmt: skip
+    assert 'href="Recurring?account=a&amp;x=&lt;b&gt;"' in html and 'target="_self"' in html
+    assert ">5 found · 0 confirmed</a>" in html
+    assert html.count("<a ") == 1  # a fact without a link stays plain text
+
+
+def test_the_recurring_count_says_found_and_confirmed() -> None:
+    from types import SimpleNamespace
+
+    from lookahead.ui import recurring_count
+
+    def series(*statuses: str) -> list[SimpleNamespace]:
+        return [SimpleNamespace(status=s) for s in statuses]
+
+    assert recurring_count([]) == "None found"
+    assert recurring_count(series("rejected")) == "None found"
+    assert recurring_count(series("detected") * 5) == "5 found · 0 confirmed"
+    mixed = series("detected", "confirmed", "user-added", "rejected")
+    assert recurring_count(mixed) == "3 found · 2 confirmed"  # rejected ones are not counted

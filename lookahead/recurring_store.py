@@ -684,6 +684,16 @@ def ensure_current(
     return refresh(conn, account, key)
 
 
+def current_without_saving(
+    conn: sqlite3.Connection, account: str, key: bytes | None = None
+) -> list[Stored]:
+    """The series as the Recurring page would show them, without writing anything (for a page
+    with a read-only connection): the saved ones when they are current, else detected afresh."""
+    if cache_current(conn, account):
+        return load_series(conn, account)
+    return series_as_of(conn, account, None, key)[0]
+
+
 def load_series(conn: sqlite3.Connection, account: str) -> list[Stored]:
     """The stored series (empty before the first refresh, or in an older database)."""
     try:

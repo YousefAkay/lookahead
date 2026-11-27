@@ -195,6 +195,12 @@ def in_app(path: str) -> str:
     return rest if rest else "./"
 
 
+def link_query(path: str) -> str:
+    """A link to another page of the app that keeps the data, account and demo visit choice."""
+    query = choice_query()
+    return in_app(path) + (f"?{query}" if query else "")
+
+
 def top_bar_html(
     active: str, pages: list[tuple[str, str]], data_to: date | None, source: str, query: str = "",
     until: str | None = None,
@@ -449,15 +455,24 @@ def link_button_html(label: str, path: str, query: str = "", primary: bool = Fal
     )
 
 
-def status_card_html(items: Sequence[tuple[str, str]]) -> str:
-    """The Home page's status card: a few labelled facts side by side."""
+def status_card_html(items: Sequence[tuple[str, ...]]) -> str:
+    """The Home page's status card: a few labelled facts side by side. A fact given as (label,
+    value, link) shows its value as a link to that page."""
+
+    def value_html(item: tuple[str, ...]) -> str:
+        value = html.escape(item[1])
+        if len(item) < 3:
+            return value
+        return (f'<a href="{html.escape(item[2])}" target="_self" style="color: inherit; '
+                f'text-decoration-color: {COLORS.border_input}">{value}</a>')  # fmt: skip
+
     cells = "".join(
         f'<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">'
         f'<span style="font-size: 13px; color: {COLORS.muted}; font-weight: 600">'
-        f"{html.escape(label)}</span>"
+        f"{html.escape(item[0])}</span>"
         f'<span style="font-size: 22px; font-weight: 800; overflow-wrap: anywhere">'
-        f"{html.escape(value)}</span></div>"
-        for label, value in items
+        f"{value_html(item)}</span></div>"
+        for item in items
     )
     return (
         f'<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); '

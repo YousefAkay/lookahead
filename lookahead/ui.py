@@ -4,7 +4,9 @@ Kept out of the page scripts so they can be tested without running Streamlit.
 """
 
 import os
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import plotly.express as px
@@ -21,6 +23,16 @@ BLANK = "—"  # shown instead of the bank's single-space text
 def count(n: int, word: str) -> str:
     """ "1 row", "2 rows": a number with its noun in the right form."""
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def recurring_count(series: Sequence[Any]) -> str:
+    """Home's recurring fact: how many series were found and how many of those I confirmed (or
+    added myself), e.g. "5 found · 0 confirmed". Rejected ones are not counted."""
+    found = [s for s in series if s.status != "rejected"]
+    if not found:
+        return "None found"
+    confirmed = sum(s.status in ("confirmed", "user-added") for s in found)
+    return f"{len(found)} found · {confirmed} confirmed"
 
 
 def synthetic_dir() -> Path:
