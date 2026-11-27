@@ -1,9 +1,10 @@
 """The merge gate: nothing lands on `main` without a full-suite pass on that exact commit.
 
-- `python -m tools.merge_gate run` runs the full suite in the current folder. Only if pytest's
-  own exit code is 0, the worktree has no uncommitted or untracked (non-ignored) file, and HEAD
-  did not move, it writes a pass marker `logs/suite-pass/<sha>` (main folder) naming its log,
-  which ends with `PYTEST_EXIT=<code>`.
+- `python -m tools.merge_gate run` runs the full suite in the current folder, in parallel
+  (pytest-xdist, one worker per core; 3 parallel runs matched the serial count first). Only if
+  pytest's own exit code is 0, the worktree has no uncommitted or untracked (non-ignored) file,
+  and HEAD did not move, it writes a pass marker `logs/suite-pass/<sha>` (main folder) naming its
+  log, which ends with `PYTEST_EXIT=<code>`.
 - `python -m tools.merge_gate install` copies this file into the shared `.git/hooks/` and adds a
   check to `pre-push`, so the gate does not change with the branch that is checked out.
 - `pre_push(remote, lines)`: git's own pre-push hook. Every push whose destination is
@@ -45,6 +46,7 @@ VALUE_OPTS = {
     "--strategy",
     "--strategy-option",
 }
+PYTEST_ARGS = ("-q", "-p", "no:cacheprovider", "-n", "auto")  # the full suite, in parallel
 NO_REF = {"--abort", "--continue", "--quit"}
 
 
@@ -199,7 +201,7 @@ def run(cwd: Path) -> int:
     logs.mkdir(exist_ok=True)
     log = logs / f"suite-{head[:10]}-{datetime.now():%Y%m%d-%H%M%S}.log"
     with log.open("w", encoding="utf-8") as f:
-        proc = subprocess.Popen([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+        proc = subprocess.Popen([sys.executable, "-m", "pytest", *PYTEST_ARGS],
                                 cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True)  # fmt: skip
         assert proc.stdout is not None
