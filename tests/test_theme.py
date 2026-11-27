@@ -195,12 +195,13 @@ PAGES = [("Home", "/"), ("Transactions", "/Transactions"), ("Recurring", "/Recur
          ("Forecast", "/Forecast")]  # fmt: skip
 
 
-def test_the_top_bar_has_the_wordmark_links_the_data_date_and_the_source() -> None:
+def test_the_top_bar_has_the_wordmark_links_and_the_data_date() -> None:
     html = top_bar_html("Forecast", PAGES, date(2026, 10, 1), "Synthetic demo")
     assert "Lookahead" in html and "<svg" in html
     for label, path in PAGES:
         assert f">{label}<" in html and f'href="{path.lstrip("/") or "./"}"' in html
-    assert "Data to Oct 1, 2026" in html and "Synthetic demo" in html
+    assert "Data to Oct 1, 2026" in html
+    assert "Synthetic demo" not in html  # which data: the Data choice under the gear, no pill
     main = html[html.index('class="la-nav"') : html.index("</nav>")]
     assert main.count('aria-current="page"') == 1  # one section marked in the main links
     marked = main[main.index('aria-current="page"') :]
@@ -549,7 +550,7 @@ def test_jump_links_land_below_the_sticky_top_bar() -> None:
 def test_the_data_date_chip_is_hidden_in_demo_mode_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOOKAHEAD_DEMO", "1")
     demo = top_bar_html("Forecast", PAGES, date(2026, 10, 1), "Synthetic demo")
-    assert "Data to" not in demo and "la-until" not in demo and "Synthetic demo" in demo
+    assert "Data to" not in demo and "la-until" not in demo
     monkeypatch.delenv("LOOKAHEAD_DEMO")
     mine = top_bar_html("Forecast", PAGES, date(2026, 10, 1), "My data")
     assert "Data to Oct 1, 2026" in mine  # my real data keeps the chip

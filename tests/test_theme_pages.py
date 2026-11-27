@@ -103,12 +103,15 @@ def test_the_alert_list_escapes_and_has_a_sentence_when_empty() -> None:
     assert "No earlier alerts" in alert_episodes_html([])
 
 
-def test_the_demo_intro_says_made_up_data_first_and_links_the_source() -> None:
+def test_the_demo_intro_is_two_plain_lines_with_the_source_link() -> None:
+    """The slim banner says the data is made up; Home's intro says what the app does, that a
+    visitor's changes stay in their own copy, and where the code is. No all caps."""
     from app.theme import REPO, demo_intro_html
 
     page = demo_intro_html()
-    first = page.split("<p", 2)[1]
-    assert "MADE-UP DATA" in first and "font-size: 22px" in first  # first and largest
+    assert page.count("<p") == 2
+    assert "MADE-UP" not in page and "font-size: 22px" not in page
+    assert "forecasts a bank balance 30 days ahead" in page
     assert "own copy" in page and "Start the demo again" in page
     assert f'href="{REPO}"' in page and 'rel="noopener"' in page
     for word in ("guarantee", "fraud"):
