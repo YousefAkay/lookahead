@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from lookahead import ask_check
+from lookahead import ask_check, pseudonymize
 from lookahead.budgets import set_limit
 from lookahead.db import connect, connect_readonly
 from lookahead.demo import build_demo_db
@@ -25,15 +25,26 @@ KEY = bytes(range(32))
 DATA_END = date(2026, 9, 14)
 TODAY = DATA_END + timedelta(days=1)
 LINE = re.compile(
-    r"^Q\d\d (en|fr)  (ran|refused|asked back|not found|error) +matches: (yes|no|n/a)$"
+    r"^Q\d\d (en|fr)  (ran|refused|asked back|not found|skipped|error) +matches: (yes|no|n/a)$"
 )
 HEADER = f"{len(ask_check.QUESTIONS)} fixed questions, asked as the Ask page asks them (offline)."
 SUMMARY = re.compile(
-    r"^Summary: ran \d+, refused \d+, asked back \d+, not found \d+, error \d+; "
+    r"^Summary: ran \d+, refused \d+, asked back \d+, not found \d+, skipped \d+, error \d+; "
     r"matches: yes \d+, no \d+, n/a \d+$"
 )
 
 pytestmark = pytest.mark.slow
+
+
+@pytest.fixture(autouse=True)
+def never_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The key comes from the environment in every test here; reading .env fails the test."""
+    monkeypatch.setenv(KEY_NAME, KEY.hex())
+
+    def refuse(*args: object, **kwargs: object) -> dict[str, str]:
+        raise AssertionError(".env must not be read in tests")
+
+    monkeypatch.setattr(pseudonymize, "load_env", refuse)
 
 
 @pytest.fixture(scope="module")
@@ -118,7 +129,6 @@ def test_the_output_holds_ids_outcomes_and_yes_no_only(db: Path) -> None:
 def test_the_command_reads_only_and_refuses_a_day_past_the_forecast(
     db: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv(KEY_NAME, KEY.hex())  # never the .env file
     monkeypatch.setattr(ask_check.demo_mode, "today", lambda last: date(2026, 11, 26))
     before = hashlib.sha256(db.read_bytes()).hexdigest()
     assert ask_check.main(["--db", str(db)]) == 0
@@ -148,3 +158,52 @@ def test_no_categories_says_so(tmp_path: Path) -> None:
     assert ask_check.report(conn, ACCOUNT, TODAY, KEY) == [
         "No categories yet: run the categorizer first (Ask needs them)."
     ]
+
+
+def test_today_a_few_days_after_the_data_ends(db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real clock is usually days past the data: day offsets count from the forecast's first
+    day, not from today, and a wrong offset shows "no"."""
+    later = DATA_END + timedelta(days=5)
+    rows = by_id(lines_for(db, later))
+    for qid in ("Q18", "Q19", "Q20"):
+        assert " ran " in rows[qid] and rows[qid].endswith("matches: yes"), rows[qid]
+    real_window = ask_check.Facts.window
+
+    def shifted(self: ask_check.Facts) -> tuple[date, date] | None:
+        w = real_window(self)
+        return None if w is None else (w[0] + timedelta(days=1), w[1])
+
+    monkeypatch.setattr(ask_check.Facts, "window", shifted)
+    assert by_id(lines_for(db, later))["Q18"].endswith("matches: no")
+
+
+def test_an_error_message_never_reaches_the_output(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = connect_readonly(db)
+    merchant = next(m for m in transactions(conn, ACCOUNT)["merchant"] if isinstance(m, str))
+    conn.close()
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise ValueError(f"{merchant} -12.34 2026-09-01")
+
+    monkeypatch.setattr(ask_check, "ask_offline", boom)
+    lines = lines_for(db)
+    text = "\n".join(lines)
+    assert merchant not in text and "12.34" not in text and "2026" not in text
+    assert all(line.endswith("error       matches: n/a") for line in lines[1:-1])
+    monkeypatch.setattr(ask_check, "Facts", boom)
+    assert lines_for(db) == ["Could not prepare the check: ValueError."]
+
+
+def test_a_failing_expectation_is_n_a_and_no_merchant_is_skipped(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(self: ask_check.Facts, span: object, **kw: object) -> int:
+        raise KeyError("x")
+
+    monkeypatch.setattr(ask_check.Facts, "total", broken)
+    monkeypatch.setattr(ask_check.Facts, "_busiest_merchant", lambda self: None)
+    rows = by_id(lines_for(db))
+    assert rows["Q01"].endswith("ran         matches: n/a")
+    assert rows["Q13"].endswith("skipped     matches: n/a")

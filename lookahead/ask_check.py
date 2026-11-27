@@ -6,15 +6,19 @@ data) exactly as the Ask page does (`ask_offline`, the same "today", key and sav
 for each prints its id, its language, what happened (ran / refused / asked back / not found /
 error) and whether the outcome matches the same figure worked out another way (yes / no / n/a).
 Nothing else: no amounts, dates, merchants, names, categories or row text. One question names the
-merchant I use most; its name is used only to ask and is never printed.
+merchant I use most; its name is used only to ask and is never printed. If that name holds a
+word the parser reads as something else (a category or month word), that question can show
+"no" for that reason; with no merchant it is "skipped".
 
 "Another way" means independently of the parser, the plan, Ask's period rules and its runner:
 - lookups: the rows the Transactions page shows (`lookahead.views.transactions`), filtered by
   dates worked out here and summed, counted or ranked with plain pandas;
 - forecast figures: the forecast's 500 futures rebuilt with every daily balance kept, and the
   median, lowest or share below zero taken from those balances here;
-- safe to spend: Home's own call (`safe_to_spend`), which builds its own forecast;
-- recurring payments: the series the forecast reads (`series_as_of`), active and not rejected;
+- safe to spend: Home's own call (`safe_to_spend`), which builds its own forecast with the
+  same code as Ask's block, so this one shows only that the question reaches the right block;
+- recurring payments: the series the forecast reads (`series_as_of`), active and not rejected,
+  the same filter as Ask's block: again it shows only that the question reaches the right block;
 - budgets: each budget's spent so far summed here from the rows of the budget month.
 A question whose expected outcome is a refusal (advice, a day past the forecast, no budget set)
 matches when Ask refuses it.
@@ -48,7 +52,7 @@ from lookahead.recurring_store import series_as_of
 from lookahead.safe_to_spend import safe_to_spend
 from lookahead.views import accounts, has_categories, transactions
 
-OUTCOMES = ("ran", "refused", "asked back", "not found", "error")
+OUTCOMES = ("ran", "refused", "asked back", "not found", "skipped", "error")
 REFUSED = "refused"  # an expectation: Ask should refuse this one
 UNKNOWN = "unknown"  # an expectation: cannot tell (no merchant to ask about)
 MERCHANT = "{merchant}"  # replaced by the merchant I use most; never printed
@@ -354,10 +358,9 @@ def outcome_of(asked: Asked) -> str:
             "not_found": "not found"}[asked.outcome.kind]  # fmt: skip
 
 
-def check_one(q: Question, facts: Facts, ctx: Context) -> tuple[str, str]:
-    """(outcome, matches) for one question; never any figure or text from the data."""
+def _judge(q: Question, facts: Facts, ctx: Context) -> tuple[str, str]:
     if MERCHANT in q.text and facts.merchant is None:
-        return "error", "n/a"  # no merchant to ask about
+        return "skipped", "n/a"  # no merchant to ask about
     text = q.text.replace(MERCHANT, facts.merchant or "")
     try:
         asked = ask_offline(text, ctx)
@@ -378,11 +381,23 @@ def check_one(q: Question, facts: Facts, ctx: Context) -> tuple[str, str]:
     return outcome, "yes" if q.agrees(asked.outcome.result, expected) else "no"
 
 
+def check_one(q: Question, facts: Facts, ctx: Context) -> tuple[str, str]:
+    """(outcome, matches) for one question; never any figure or text from the data. Any
+    unforeseen failure is an error, with no message shown."""
+    try:
+        return _judge(q, facts, ctx)
+    except Exception:  # noqa: BLE001
+        return "error", "n/a"
+
+
 def report(conn: sqlite3.Connection, account: str, today: date, key: bytes | None) -> list[str]:
     """One line per question and a summary: ids, outcomes and yes/no only."""
-    if not has_categories(conn, account):
-        return ["No categories yet: run the categorizer first (Ask needs them)."]
-    facts = Facts(conn, account, today, key)
+    try:
+        if not has_categories(conn, account):
+            return ["No categories yet: run the categorizer first (Ask needs them)."]
+        facts = Facts(conn, account, today, key)
+    except Exception as e:  # noqa: BLE001  (the type only: a message could hold data)
+        return [f"Could not prepare the check: {type(e).__name__}."]
     ctx = Context(conn, account, today, key)
     lines = [f"{len(QUESTIONS)} fixed questions, asked as the Ask page asks them (offline)."]
     outcomes: dict[str, int] = dict.fromkeys(OUTCOMES, 0)
@@ -407,10 +422,6 @@ def main(argv: list[str] | None = None) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 2
-    try:
-        key: bytes | None = pseudonym_key()
-    except PseudonymKeyError:
-        key = None
     conn = connect_readonly(args.db)
     try:
         names = accounts(conn)
@@ -418,10 +429,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Account number 1 to {len(names)}", file=sys.stderr)
             return 2
         account = names[args.account - 1]
-        last = conn.execute("SELECT MAX(posted_date) FROM transactions WHERE account = ?",
-                            (account,)).fetchone()[0]  # fmt: skip
-        today = demo_mode.today(date.fromisoformat(last))  # the page's today
+        try:  # read only once the database and account are known to be fine
+            key: bytes | None = pseudonym_key()
+        except PseudonymKeyError:
+            key = None
         print(f"Account {args.account} of {len(names)}")
+        try:
+            last = conn.execute("SELECT MAX(posted_date) FROM transactions WHERE account = ?",
+                                (account,)).fetchone()[0]  # fmt: skip
+            today = demo_mode.today(date.fromisoformat(last))  # the page's today
+        except Exception as e:  # noqa: BLE001
+            print(f"Could not prepare the check: {type(e).__name__}.")
+            return 1
         print("\n".join(report(conn, account, today, key)))
     finally:
         conn.close()
