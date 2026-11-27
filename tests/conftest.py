@@ -49,6 +49,37 @@ def private_folders_of_the_tests(tmp_path_factory: pytest.TempPathFactory):  # t
     merchants.SANDBOXES.clear()
 
 
+# Every module that reads the local settings file. tests/test_env_guard.py fails if another
+# module starts importing load_env without being listed here.
+ENV_READERS = ("lookahead.config", "lookahead.llm_fallback", "lookahead.llm_categorizer",
+               "lookahead.pseudonymize", "lookahead.ask.llm")  # fmt: skip
+ENV_KEYS = ("ANTHROPIC_API_KEY", "PSEUDONYM_KEY")
+
+
+@pytest.fixture(autouse=True)
+def never_the_real_env_file(  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+):
+    """No test reads the developer's `.env` or uses a key from the shell. load_env reads only
+    files inside the tests' temporary folders; any other settings file counts as absent and is
+    never opened (as in a worktree, which has no .env). A test that needs a key sets it."""
+    import importlib
+
+    from lookahead import config
+
+    real = config.load_env
+    sandbox = tmp_path_factory.getbasetemp().resolve()
+
+    def guarded(path: Path = Path(".env")) -> dict[str, str]:
+        return real(path) if path.resolve().is_relative_to(sandbox) else {}
+
+    for name in ENV_READERS:
+        monkeypatch.setattr(importlib.import_module(name), "load_env", guarded)
+    for key in ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def close_database_connections(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
     """Close every SQLite connection a test (or an app page run by AppTest) opened and left open.
