@@ -69,7 +69,7 @@ from lookahead.budgets import (  # noqa: E402
     shown_categories,
     waiting_proposals,
 )
-from lookahead.chance import chance_text
+from lookahead.chance import chance_text  # noqa: E402
 from lookahead.corrections import (  # noqa: E402
     correct_row,
     merchant_fingerprints,

@@ -56,7 +56,7 @@ from lookahead.alerts import (  # noqa: E402
     restore,
     snapshot_of,
 )
-from lookahead.chance import chance_text
+from lookahead.chance import chance_text  # noqa: E402
 from lookahead.db import connect  # noqa: E402
 from lookahead.forecast.path import BASELINES, build_forecast  # noqa: E402
 from lookahead.forecast.scenario import (  # noqa: E402
@@ -66,6 +66,7 @@ from lookahead.forecast.scenario import (  # noqa: E402
     SpendingChange,
     run_scenario,
 )
+from lookahead.forecast.simulate import N_FUTURES  # noqa: E402
 from lookahead.planned import add_planned, remove_planned  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import rent_rule_of  # noqa: E402
@@ -86,6 +87,8 @@ from lookahead.ui import (  # noqa: E402
     series_label,
 )
 from lookahead.views import accounts, import_status, transactions  # noqa: E402
+
+WAITING = f"Simulating {N_FUTURES} futures… This takes a few seconds."
 
 apply("Forecast")
 bar = st.container(key="topbar")  # the green bar: drawn into once the data date is known
@@ -141,7 +144,10 @@ with st.sidebar.form("buffer_form"):
         set_safety_buffer_cents(conn, round(buffer_dollars * 100))  # dollars only on screen
         st.rerun()
 
+wait = st.empty()  # the futures take several seconds: say so at once, never a blank page
+wait.info(WAITING)
 forecast = build_forecast(conn, account, method, None, stored_key)
+wait.empty()
 if forecast is None:
     top_bar(bar, "Forecast", None, source)
     st.info("This account has no transactions yet.")

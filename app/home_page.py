@@ -29,7 +29,7 @@ from app.theme import (  # noqa: E402
     top_bar,
 )
 from lookahead.budget_alerts import home_line  # noqa: E402
-from lookahead.chance import chance_text
+from lookahead.chance import chance_text  # noqa: E402
 from lookahead.db import connect_readonly  # noqa: E402
 from lookahead.demo_mode import is_demo  # noqa: E402
 from lookahead.needs_a_look import NeedsALook, needs_a_look  # noqa: E402

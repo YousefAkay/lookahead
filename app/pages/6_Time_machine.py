@@ -33,7 +33,7 @@ from app.theme import (  # noqa: E402
     tag_html,
     top_bar,
 )
-from lookahead.chance import chance_text
+from lookahead.chance import chance_text  # noqa: E402
 from lookahead.forecast.scenario import Scenario, SpendingChange  # noqa: E402
 from lookahead.timemachine_snapshots import (  # noqa: E402
     alert_view,

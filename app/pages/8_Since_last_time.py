@@ -29,7 +29,7 @@ from app.theme import (  # noqa: E402
     tag_html,
     top_bar,
 )
-from lookahead.chance import chance_text
+from lookahead.chance import chance_text  # noqa: E402
 from lookahead.db import connect  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_alerts import message, record_look  # noqa: E402

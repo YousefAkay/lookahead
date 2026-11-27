@@ -254,3 +254,12 @@ def test_the_bar_keeps_room_for_the_header_buttons_and_more_for_cloud_s_toolbar(
     assert rooms[0] > 60
     assert all(b - a >= 44 for a, b in zip(rooms, rooms[1:], strict=False))  # 44px per button
     assert "padding: 0 var(--la-room) 0 0" in css
+
+
+@pytest.mark.slow
+def test_once_the_forecast_is_there_its_waiting_message_is_gone(isolated: Path) -> None:
+    at = AppTest.from_file(str(ROUTER), default_timeout=300).run()
+    at.switch_page("pages/5_Forecast.py").run()
+    assert not at.exception, at.exception
+    assert not [i for i in at.info if "Simulating" in i.value]  # shown while it works, then gone
+    assert at.metric  # the forecast itself is there

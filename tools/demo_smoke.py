@@ -204,6 +204,26 @@ def check_pages(page: Page, base: str, visit: str, result: Result) -> None:
                          app(page).url.split("?", 1)[-1])  # fmt: skip
 
 
+def check_forecast_wait(page: Page, base: str, visit: str, result: Result) -> None:
+    """Forecast takes seconds to simulate its futures: within 3 s it shows something (the waiting
+    message, or the finished page), never a blank page."""
+    start = time.monotonic()
+    page.goto(address(base, "/Forecast", visit=visit), timeout=WAIT_MS)
+    first = None
+    while time.monotonic() - start < 60:
+        body = app(page).locator("body").inner_text()
+        if "Simulating 500 futures" in body or app(page).locator(".la-demo-banner").count():
+            first = time.monotonic() - start
+            break
+        page.wait_for_timeout(100)
+    settle(page)
+    done = time.monotonic() - start
+    shown = f"{first:.1f} s" if first is not None else "never"
+    result.check("Forecast: shows the waiting message or the page within 3 s",
+                 first is not None and first <= 3,
+                 f"first shown at {shown}, ready at {done:.1f} s")  # fmt: skip
+
+
 def check_ask(page: Page, base: str, visit: str, result: Result) -> None:
     page.goto(address(base, "/Ask", visit=visit), timeout=WAIT_MS)
     settle(page)
@@ -369,6 +389,7 @@ def run(base: str, shots: Path | None) -> int:
         steps: list[Callable[[], None]] = [
             lambda: check_visits(browser, base, page, result),
             lambda: check_pages(page, base, visit, result),
+            lambda: check_forecast_wait(page, base, visit, result),
             lambda: check_ask(page, base, visit, result),
             lambda: check_scenario(page, base, visit, result),
             lambda: check_recurring(page, base, visit, result),
