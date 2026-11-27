@@ -53,3 +53,12 @@ def test_private_and_external_data_folders_are_never_walked() -> None:
             "ask_eval", "synthetic", "synthetic_v1", "backtest", "timemachine", "demo",
             "reference"}, folder  # fmt: skip
     assert tw.TOP_LEVEL == (".", "data")  # the files directly in them, never their subfolders
+
+
+def test_files_in_private_external_and_secret_places_never_enter_the_snapshot(
+    tmp_path: Path,
+) -> None:
+    for name in ("data/private/x.csv", "data/berka/x.csv", "data/public/x.csv", ".env",
+                 "DECISIONS-private.md"):  # fmt: skip
+        _write(tmp_path / name, "x")
+    assert tw.snapshot(tmp_path) == {}

@@ -154,6 +154,11 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     found = tree_watch.changes(before, tree_watch.snapshot(_CHECKOUT))
     if found:
         lines = found[:20] + ([f"... and {len(found) - 20} more"] if len(found) > 20 else [])
-        print("\nFILES CHANGED IN THE CHECKOUT DURING THE TESTS (tests must use tmp_path):")
-        print("\n".join(f"  {line}" for line in lines))
-        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+        out = session.config.pluginmanager.get_plugin("terminalreporter")
+        say = out.write_line if out is not None else print
+        say("")
+        say("FILES CHANGED IN THE CHECKOUT DURING THE TESTS (tests must use tmp_path):", red=True)
+        for line in lines:
+            say(f"  {line}", red=True)
+        if session.exitstatus == 0:  # keep an earlier failure's own code
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED

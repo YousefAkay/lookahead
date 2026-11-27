@@ -17,6 +17,7 @@ WATCHED = ("lookahead", "app", "eval", "tools", "tests", "docs", "models",
            "data/timemachine", "data/demo", "data/reference")  # fmt: skip
 TOP_LEVEL = (".", "data")  # only the files directly in these folders
 SKIP_NAMES = {"__pycache__", ".pytest_cache", ".ruff_cache", ".DS_Store"}
+NEVER_LOOKED_AT = {".env", "DECISIONS-private.md"}  # not even their size
 
 Snapshot = dict[str, tuple[int, int]]  # relative path -> (size, modification time in ns)
 
@@ -24,7 +25,7 @@ Snapshot = dict[str, tuple[int, int]]  # relative path -> (size, modification ti
 def _add(snap: Snapshot, root: Path, path: str) -> None:
     try:
         st = os.stat(path)
-    except FileNotFoundError:  # removed while we looked
+    except OSError:  # removed while we looked, or not readable
         return
     snap[Path(path).relative_to(root).as_posix()] = (st.st_size, st.st_mtime_ns)
 
@@ -36,7 +37,10 @@ def snapshot(root: Path) -> Snapshot:
         base = root / folder
         if base.is_dir():
             for entry in os.scandir(base):
-                if entry.is_file(follow_symlinks=False) and entry.name not in SKIP_NAMES:
+                if (
+                    entry.is_file(follow_symlinks=False)
+                    and entry.name not in SKIP_NAMES | NEVER_LOOKED_AT
+                ):
                     _add(snap, root, entry.path)
     for folder in WATCHED:
         for here, dirs, files in os.walk(root / folder):
