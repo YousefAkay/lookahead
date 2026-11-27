@@ -238,7 +238,19 @@ def test_on_a_narrow_screen_the_links_stay_on_one_row_and_scroll() -> None:
     narrow = theme.CSS[theme.CSS.index("@media (max-width: 760px)") :]
     nav = narrow[narrow.index(".la-nav {") :].split("}", 1)[0]
     assert "flex-wrap: nowrap" in nav and "overflow-x: auto" in nav
-    assert "padding-right: 56px" in narrow  # room for the gear, pinned top right
+    assert "padding: 12px var(--la-room) 12px 0" in narrow  # room for the gear, pinned top right
     smallest = theme.CSS[theme.CSS.index("@media (max-width: 480px)") :]
     assert ".la-bar-right" in smallest and "order: 4" in smallest  # the date goes under the links
     assert ".la-brand { min-height: 56px; }" in smallest  # the gear never covers a link
+
+
+def test_the_bar_keeps_room_for_the_header_buttons_and_more_for_cloud_s_toolbar() -> None:
+    """Served locally the header holds only the gear; on Community Cloud its own toolbar (Fork,
+    GitHub; Share, star, edit for the owner) sits beside it and covered the account pill."""
+    css = theme.CSS
+    assert ".stApp { --la-room: 60px; }" in css
+    rooms = [int(css.split(f"> :nth-child({n})) {{ --la-room: ", 1)[1].split("px", 1)[0])
+             for n in range(1, 6)]  # fmt: skip
+    assert rooms[0] > 60
+    assert all(b - a >= 44 for a, b in zip(rooms, rooms[1:], strict=False))  # 44px per button
+    assert "padding: 0 var(--la-room) 0 0" in css
