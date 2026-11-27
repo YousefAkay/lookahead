@@ -173,8 +173,10 @@ def first_visit(page: Page, base: str, result: Result) -> bool:
 
 def check_home(page: Page, result: Result) -> None:
     intro = app(page).locator(".la-demo-intro")
-    leads = intro.count() == 1 and intro.inner_text().strip().startswith("MADE-UP DATA")
-    result.check("Home leads with MADE-UP DATA", leads)
+    body = app(page).locator("body").inner_text()
+    once = app(page).locator(".la-demo-banner").count() == 1 and "MADE-UP DATA" not in body
+    result.check("Home: the made-up data said once (the banner), then two plain intro lines",
+                 once and intro.count() == 1 and "your own copy" in intro.inner_text())  # fmt: skip
     account = app(page).get_by_role("combobox", name="Account")
     shown = account.input_value() if account.count() else ""
     if not shown:  # the settings panel may be closed: read the choice from the links
@@ -318,36 +320,95 @@ def check_recurring(page: Page, base: str, visit: str, result: Result) -> None:
                  seen > 0 and not worst, detail)  # fmt: skip
 
 
+HEADER_WIDTHS = (1280, 768, 390)
+LAYOUT = """() => {
+  const vw = document.documentElement.clientWidth;
+  const shown = e => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden'; };
+  const box = e => e.getBoundingClientRect();
+  const name = e => (e.textContent.trim() || e.getAttribute('aria-label') || e.className)
+    .slice(0, 30);
+  const theirs = [...document.querySelectorAll(
+      '[data-testid="stHeader"] button, [data-testid="stHeader"] a')].filter(shown);
+  const gear = [...document.querySelectorAll('.st-key-la-gear button')].filter(shown);
+  const ours = [...document.querySelectorAll(
+      '.la-brand, .la-nav a, .la-bar-right > *, .la-tabs a, .la-menu')].filter(shown);
+  const hit = (a, b) => a.left < b.right && b.left < a.right
+    && a.top < b.bottom && b.top < a.bottom;
+  const out = [];
+  for (const o of [...ours, ...gear]) {
+    const r = box(o);
+    if (r.left < -0.5 || r.right > vw + 0.5) out.push(`'${name(o)}' off-screen`);
+    for (const t of theirs) if (hit(r, box(t))) out.push(`'${name(o)}' under Cloud's '${name(t)}'`);
+  }
+  for (const o of ours) for (const g of gear)
+    if (hit(box(o), box(g))) out.push(`'${name(o)}' under the gear`);
+  if (!gear.length) out.push('no gear');
+  return [out, theirs.length, document.documentElement.scrollWidth > vw + 1]; }"""
+
+
 def check_top_bar(page: Page, base: str, visit: str, result: Result) -> None:
-    """Nothing in our green bar sits under the header's buttons: the gear, and on Community Cloud
-    its own toolbar (Fork and GitHub for a visitor; Share, star, edit and GitHub for the owner)."""
+    """Our header shares no space with Community Cloud's toolbar (Fork and GitHub for a visitor;
+    Share, star, edit, Stop for the owner) nor with the gear, nothing in it is off-screen, and the
+    page never scrolls sideways: Home and Forecast (with its tab row), at three widths. On a phone
+    the menu lists every page on screen, and one of them opens."""
     hits: list[str] = []
-    page.goto(address(base, "/", visit=visit), timeout=WAIT_MS)
-    settle(page)
-    for width in WIDTHS:
+    cloud = 0
+    for width in HEADER_WIDTHS:
         page.set_viewport_size({"width": width, "height": 800})
-        page.wait_for_timeout(500)
-        found = app(page).evaluate(
-            """() => {
-            const theirs = [...document.querySelectorAll('[data-testid="stHeader"] button')]
-              .map(e => e.getBoundingClientRect()).filter(r => r.width > 0);
-            const ours = [...document.querySelectorAll(
-                '.la-brand, .la-nav a, .la-bar-right > *, .la-tabs a')]
-              .map(e => [e.textContent.trim() || e.className, e.getBoundingClientRect()]);
-            const out = [];
-            for (const [name, o] of ours) for (const b of theirs)
-              if (o.width > 0 && o.left < b.right && b.left < o.right
-                  && o.top < b.bottom && b.top < o.bottom) out.push(name);
-            return [theirs.length, out]; }"""
-        )
-        hits += [f"{width}px '{name}'" for name in found[1]]
-        if found[0] == 0:
-            hits.append(f"{width}px: no header buttons found")
+        for path in ("/", "/Forecast"):
+            page.goto(address(base, path, visit=visit), timeout=WAIT_MS)
+            settle(page)
+            found, cloud, sideways = app(page).evaluate(LAYOUT)
+            hits += [f"{width}px {path}: {f}" for f in found]
+            if sideways:
+                hits.append(f"{width}px {path}: the page scrolls sideways")
+    result.check("header: nothing overlaps Cloud's toolbar or the gear, nothing off-screen "
+                 "(1280, 768, 390 px; Home and Forecast)", not hits,
+                 "; ".join(hits[:5]) or f"Cloud toolbar: {cloud} buttons")  # fmt: skip
+    # the phone menu, at 390 px on Forecast
+    menu = app(page).locator(".la-menu")
+    menu.click()
+    page.wait_for_timeout(400)
+    links = app(page).evaluate(
+        """() => { const vw = document.documentElement.clientWidth;
+        return [...document.querySelectorAll('.la-menu-list a')].map(a => {
+          const r = a.getBoundingClientRect();
+          return [a.textContent.trim(), r.width > 0 && r.left >= 0 && r.right <= vw + 0.5]; }); }"""
+    )
+    off = [name for name, ok in links if not ok]
+    result.check("phone menu: every page listed and on screen (390 px)",
+                 len(links) >= len(APP_PAGES) - 2 and not off,
+                 f"{len(links)} links; off-screen: {', '.join(off) or 'none'}")  # fmt: skip
+    app(page).locator(".la-menu-list a", has_text="Budgets").first.click()
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline and "Budgets" not in app(page).url:
+        page.wait_for_timeout(300)
+    settle(page)
+    marked = app(page).locator('.la-menu-list a[aria-current="page"]')
+    result.check("phone menu: a page in it opens (Budgets)",
+                 marked.count() == 1 and marked.first.text_content().strip() == "Budgets")
     page.set_viewport_size({"width": 1280, "height": 800})
-    toolbar = app(page).locator('[data-testid="stToolbarActionButton"]').count()
-    where = f"Cloud toolbar: {toolbar} buttons" if toolbar else "no Cloud toolbar (local)"
-    result.check("top bar: nothing under the header's buttons (4 widths)", not hits,
-                 "; ".join(hits[:5]) or where)  # fmt: skip
+
+
+def check_settings(page: Page, base: str, visit: str, result: Result) -> None:
+    """The gear opens the settings panel and pressing it again closes it; on the demo there is no
+    pseudonymize switch (nothing to hide in made-up data)."""
+    page.goto(address(base, "/Forecast", visit=visit), timeout=WAIT_MS)
+    settle(page)
+    gear = app(page).get_by_role("button", name="Settings")
+    body = app(page).locator('[data-testid="stPopoverBody"]')
+    gear.click()
+    page.wait_for_timeout(600)
+    opened = body.count() > 0 and body.first.is_visible()
+    account = app(page).get_by_role("combobox", name="Account").count() > 0
+    pseudo = app(page).get_by_text("Pseudonymize text").count()
+    gear.click()
+    page.wait_for_timeout(600)
+    closed = body.count() == 0 or not body.first.is_visible()
+    result.check("the gear opens the settings and closes them again", opened and account and closed,
+                 f"opened {opened}, account choice {account}, closed {closed}")  # fmt: skip
+    result.check("no pseudonymize switch on the demo", pseudo == 0)
 
 
 def screenshots(browser: Browser, base: str, folder: Path) -> list[Path]:
@@ -428,6 +489,7 @@ def run(base: str, shots: Path | None, hosted: bool = False) -> int:
             lambda: check_scenario(page, base, visit, result),
             lambda: check_recurring(page, base, visit, result),
             lambda: check_top_bar(page, base, visit, result),
+            lambda: check_settings(page, base, visit, result),
         ]
         for step in steps:
             step()
