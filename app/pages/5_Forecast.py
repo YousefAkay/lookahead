@@ -531,7 +531,7 @@ with coming_up, st.container(border=True, key="card-coming"):
     head = st.columns([2, 1.2], vertical_alignment="bottom")
     head[0].markdown("<h2>Coming up</h2>", unsafe_allow_html=True)
     head[1].markdown(
-        f'<p style="margin: 0; text-align: right"><a href="/Recurring" target="_self" '
+        f'<p style="margin: 0; text-align: right"><a href="/Recurring" target="_top" '
         f'style="font-size: 14px; font-weight: 700; color: {COLORS.green_dark}">All recurring '
         "→</a></p>",
         unsafe_allow_html=True,

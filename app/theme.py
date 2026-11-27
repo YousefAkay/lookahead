@@ -200,14 +200,14 @@ def top_bar_html(
     for label, path in pages:
         current = ' aria-current="page"' if label == section else ""
         href = html.escape(path + suffix)
-        links.append(f'<a href="{href}" target="_self"{current}>{html.escape(label)}</a>')
+        links.append(f'<a href="{href}" target="_top"{current}>{html.escape(label)}</a>')
     if until is None:  # a page that is not about one account's data says so in `until`
         until = f"Data to {fmt_date(data_to)}" if data_to is not None else "No data yet"
         if is_demo():  # the public demo: no data-date chip (my own data keeps it)
             until = ""
     return (
         '<header class="la-bar"><div class="la-bar-inner">'
-        f'<a href="{html.escape("/" + suffix)}" target="_self" class="la-brand">'
+        f'<a href="{html.escape("/" + suffix)}" target="_top" class="la-brand">'
         f"{_MARK}Lookahead</a>"
         f'<nav aria-label="Main" class="la-nav">{"".join(links)}</nav>'
         f'<div class="la-bar-right">'
@@ -228,7 +228,7 @@ def section_tabs_html(active: str, query: str = "") -> str:
     for label, path, current in tabs:
         mark = ' aria-current="page"' if current else ""
         href = html.escape(path + suffix)
-        links.append(f'<a href="{href}" target="_self"{mark}>{html.escape(label)}</a>')
+        links.append(f'<a href="{href}" target="_top"{mark}>{html.escape(label)}</a>')
     section = html.escape(section_of(active))
     return f'<nav aria-label="{section}" class="la-tabs">{"".join(links)}</nav>'
 
@@ -410,7 +410,7 @@ def link_button_html(label: str, path: str, query: str = "", primary: bool = Fal
         look = (f"background: {COLORS.white}; color: {COLORS.text}; "
                 f"border: 1px solid {COLORS.border_input}")  # fmt: skip
     return (
-        f'<a class="la-linkbutton" href="{href}" target="_self" style="{look}; font-weight: 700; '
+        f'<a class="la-linkbutton" href="{href}" target="_top" style="{look}; font-weight: 700; '
         f"font-size: 14px; padding: 10px 18px; border-radius: 10px; min-height: 44px; "
         f"box-sizing: border-box; display: inline-flex; align-items: center; "
         f'text-decoration: none">{html.escape(label)}</a>'
@@ -509,7 +509,17 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
 .st-key-topbar {{ background: {COLORS.topbar}; padding: 0; gap: 0;
   box-shadow: 0 0 0 100vmax {COLORS.topbar}; clip-path: inset(0 -100vmax); }}
 .la-bar {{ background: {COLORS.topbar}; color: {COLORS.white}; }}
-.la-bar-inner {{ margin: 0; padding: 0; display: flex;
+/* the header's buttons sit over the right end of the bar's first row, so the bar keeps that room
+   free: the gear alone (served locally), or the gear plus Community Cloud's own toolbar on the
+   hosted site (Fork and GitHub for a visitor; Share, star, edit and GitHub for the owner), about
+   48px per toolbar button. Without it the toolbar covered the account pill. */
+.stApp {{ --la-room: 60px; }}
+.stApp:has([data-testid="stToolbarActions"] > :nth-child(1)) {{ --la-room: 116px; }}
+.stApp:has([data-testid="stToolbarActions"] > :nth-child(2)) {{ --la-room: 164px; }}
+.stApp:has([data-testid="stToolbarActions"] > :nth-child(3)) {{ --la-room: 212px; }}
+.stApp:has([data-testid="stToolbarActions"] > :nth-child(4)) {{ --la-room: 260px; }}
+.stApp:has([data-testid="stToolbarActions"] > :nth-child(5)) {{ --la-room: 308px; }}
+.la-bar-inner {{ margin: 0; padding: 0 var(--la-room) 0 0; display: flex;
   flex-wrap: wrap; align-items: center; gap: 12px 28px; min-height: 64px; }}
 .la-brand {{ display: flex; align-items: center; gap: 10px; color: {COLORS.white} !important;
   text-decoration: none !important; font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }}
@@ -519,8 +529,7 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
 .la-nav a:hover {{ background: rgba(255, 255, 255, 0.10); }}
 .la-nav a[aria-current="page"] {{ color: {COLORS.white} !important;
   background: rgba(255, 255, 255, 0.14); font-weight: 700; }}
-.la-bar-right {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding-right: 60px; }}
+.la-bar-right {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
 /* the tab row of a section with several pages (Transactions, Forecast, How it works) */
 .la-tabs {{ display: flex; gap: 4px; padding: 0 0 10px; overflow-x: auto; scrollbar-width: none; }}
 .la-tabs a {{ color: {COLORS.topbar_text} !important; text-decoration: none !important;
@@ -540,6 +549,11 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
   left: auto; width: auto; height: 64px; background: transparent; display: flex;
   align-items: center; }}
 [data-testid="stToolbar"] {{ position: static; padding: 0; }}
+[data-testid="stToolbar"] > div > div {{ min-width: 0 !important; width: auto !important;
+  flex: 0 0 auto; }}
+[data-testid="stToolbarActions"] {{ margin-left: 8px; }}
+[data-testid="stToolbarActions"] button, [data-testid="stToolbarActions"] button * {{
+  color: {COLORS.white} !important; }}
 [data-testid="stExpandSidebarButton"] {{ width: 44px; height: 44px; padding: 0;
   background: rgba(255, 255, 255, 0.14); border-radius: 10px; display: flex;
   align-items: center; justify-content: center; }}
@@ -625,8 +639,7 @@ button[data-variant="pills"][aria-pressed="true"] {{ border: 1.5px solid {COLORS
   .la-nav {{ flex: 1 1 100%; order: 3; flex-wrap: nowrap; overflow-x: auto;
     scrollbar-width: none; }}
   .la-nav a {{ white-space: nowrap; }}
-  .la-bar-right {{ padding-right: 56px; }}
-  .la-bar-inner {{ padding: 12px 0; gap: 8px 16px; }}
+  .la-bar-inner {{ padding: 12px var(--la-room) 12px 0; gap: 8px 16px; }}
   [data-testid="stHeader"] {{ top: 10px; right: 16px; height: auto; }}
   [data-testid="stMetric"] {{ min-height: 0; padding: 16px; }}
   h1 {{ font-size: 28px !important; }}
@@ -635,7 +648,7 @@ button[data-variant="pills"][aria-pressed="true"] {{ border: 1.5px solid {COLORS
   /* the wordmark row is as tall as the gear beside it, so the gear never covers a link; the data
      date and source move under the links */
   .la-brand {{ min-height: 56px; }}
-  .la-bar-right {{ flex: 1 1 100%; order: 4; padding-right: 0; }}
+  .la-bar-right {{ flex: 1 1 100%; order: 4; }}
 }}
 """
 

@@ -6,7 +6,7 @@ from app.theme import COLORS, link_button_html, status_card_html, transactions_t
 def test_a_link_button_is_a_link_that_carries_the_choice() -> None:
     html = link_button_html("Forecast", "/Forecast", "data=Synthetic+demo&account=a", primary=True)
     assert 'href="/Forecast?data=Synthetic+demo&amp;account=a"' in html
-    assert ">Forecast<" in html and 'target="_self"' in html
+    assert ">Forecast<" in html and 'target="_top"' in html
     assert COLORS.topbar in html  # the primary button is the deep green
 
 

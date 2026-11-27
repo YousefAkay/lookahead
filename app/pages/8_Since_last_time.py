@@ -159,7 +159,7 @@ with st.container(border=True, key="card-merchants"):
         category = f"{nm.category} (estimate)" if nm.category else "no category yet"
         check = (
             f' · <a href="{html.escape("/To_check" + (f"?{query}" if query else ""))}" '
-            f'target="_self">to check</a>'
+            f'target="_top">to check</a>'
             if nm.flagged
             else ""
         )
