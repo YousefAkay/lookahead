@@ -62,19 +62,29 @@ def never_the_real_env_file(  # type: ignore[no-untyped-def]
 ):
     """No test reads the developer's `.env` or uses a key from the shell. load_env reads only
     files inside the tests' temporary folders; any other settings file counts as absent and is
-    never opened (as in a worktree, which has no .env). A test that needs a key sets it."""
+    never opened (as in a worktree, which has no .env). Writing a new key into one outside them
+    is refused, since it would replace a key the guard hid. A test that needs a key sets it."""
     import importlib
 
-    from lookahead import config
+    from lookahead import config, pseudonymize
 
-    real = config.load_env
+    real, real_init = config.load_env, pseudonymize.init_key
     sandbox = tmp_path_factory.getbasetemp().resolve()
 
+    def inside(path: Path) -> bool:
+        return path.resolve().is_relative_to(sandbox)
+
     def guarded(path: Path = Path(".env")) -> dict[str, str]:
-        return real(path) if path.resolve().is_relative_to(sandbox) else {}
+        return real(path) if inside(path) else {}
+
+    def guarded_init(env_path: Path) -> bool:
+        if not inside(env_path):
+            raise AssertionError("a test tried to write a settings file outside its temp folder")
+        return real_init(env_path)
 
     for name in ENV_READERS:
         monkeypatch.setattr(importlib.import_module(name), "load_env", guarded)
+    monkeypatch.setattr(pseudonymize, "init_key", guarded_init)
     for key in ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
     yield
