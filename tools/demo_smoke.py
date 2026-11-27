@@ -198,7 +198,7 @@ def check_visits(browser: Browser, base: str, first: Page, result: Result) -> No
     theirs = visit_of(other)
     other.context.close()
     result.check("each visitor gets their own visit id", bool(mine and theirs and mine != theirs))
-    kept, stuck, nested = True, [], []
+    kept, stuck, nested, unsynced = True, [], [], []
     for link in ("Forecast", "How it works", "Home"):  # How it works reads no demo database
         app(first).get_by_role("link", name=link).first.click()
         deadline = time.monotonic() + 60
@@ -211,10 +211,15 @@ def check_visits(browser: Browser, base: str, first: Page, result: Result) -> No
         kept = kept and visit_of(first) == mine
         if sum("/~/+/" in f.url for f in first.frames) > 1:  # Cloud's page loaded again inside
             nested.append(link)
+        inner = urlparse(app(first).url).path.replace("/~/+/", "/")
+        if urlparse(first.url).path != inner:  # the address bar must show the page, for a reload
+            unsynced.append(link)  # or a shared link
     result.check("the visit id is kept across top-bar clicks (incl. How it works)", kept)
     result.check("each top-bar click opens its page", not stuck, ", ".join(stuck))
     result.check("a top-bar link never loads Cloud's page inside the app's frame", not nested,
                  ", ".join(nested))  # fmt: skip
+    result.check("the address bar shows the page after each top-bar click", not unsynced,
+                 ", ".join(unsynced))  # fmt: skip
 
 
 def check_pages(page: Page, base: str, visit: str, result: Result) -> None:

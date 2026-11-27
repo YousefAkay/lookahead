@@ -417,7 +417,7 @@ def test_a_row_whose_category_comes_from_its_series_is_not_moved_silently(isolat
     before = corrections_count(isolated)
     move(at, "Shopping", payment, "Groceries", "Just this row")
     assert any(SERIES_NOTE in str(w.value) for w in at.warning)
-    assert any("/Recurring" in str(m.value) for m in at.markdown)
+    assert any('href="Recurring' in str(m.value) for m in at.markdown)
     assert corrections_count(isolated) == before
 
 
@@ -434,7 +434,7 @@ def test_a_whole_merchant_move_of_only_series_payments_moves_nothing(isolated: P
     warnings = " ".join(str(w.value) for w in at.warning)
     assert "0 moved, 0 already there," in warnings and "kept by their series" in warnings
     assert "A series' category is changed on the Recurring page." in warnings
-    assert any("/Recurring" in str(m.value) for m in at.markdown)
+    assert any('href="Recurring' in str(m.value) for m in at.markdown)
     assert corrections_count(isolated) == before
 
 

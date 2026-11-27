@@ -46,7 +46,7 @@ def test_the_page_loads_on_the_demo_and_says_it_is_not_a_forecast() -> None:
     text = text_of(at)
     assert "You'd have" in text
     assert "This assumes exactly what you entered. It's not a forecast." in text
-    assert "/Scenario" in text  # in the top bar
+    assert 'href="Scenario' in text  # in the top bar
     assert len(at.get("plotly_chart")) == 1
     lowered = text.lower()
     assert "guarantee" not in lowered and "missed" not in lowered

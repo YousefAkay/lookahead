@@ -107,7 +107,7 @@ def test_got_it_sets_the_marker_then_new_rows_show_up(isolated: Path) -> None:
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
     assert not at.exception, at.exception
     text = text_of(at)
-    assert "Brand New Shop" in text and "/To_check" in text and "to check" in text
+    assert "Brand New Shop" in text and 'href="To_check' in text and "to check" in text
     assert "2 new transactions" in text
     assert "missed" not in text.lower() and "guarantee" not in text.lower()
     conn = sqlite3.connect(db)
@@ -131,7 +131,7 @@ def test_home_shows_the_card_and_links_to_the_page(isolated: Path) -> None:
     assert not at.exception, at.exception
     text = text_of(at)
     assert "Since last time" in text and "Nothing to compare yet" in text
-    assert "/Since_last_time" in text
+    assert 'href="Since_last_time' in text
     db = isolated / "demo.db"
     account = first_account(db)
     conn = connect(db)
