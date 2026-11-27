@@ -223,14 +223,31 @@ def test_asking_back_on_a_question_that_should_be_refused_is_a_miss(
     assert rows["Q01"].endswith("asked back  matches: n/a")
 
 
-def test_a_broken_key_prints_its_type_only(
+def test_a_malformed_key_prints_its_type_only(
     db: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def broken() -> bytes:
-        raise UnicodeDecodeError("utf-8", b"SECRETBYTE", 0, 1, "invalid start byte")
-
-    monkeypatch.setattr(ask_check, "pseudonym_key", broken)
+    monkeypatch.setenv(KEY_NAME, "SECRETnothex")
     assert ask_check.main(["--db", str(db)]) == 2
     captured = capsys.readouterr()
-    assert "SECRETBYTE" not in captured.out + captured.err
-    assert captured.err.strip() == "Could not read the key: UnicodeDecodeError."
+    assert "SECRET" not in captured.out + captured.err
+    assert captured.err.strip() == "Could not read the key: ValueError."
+
+
+def test_without_the_variable_it_runs_and_never_opens_the_env_file(
+    db: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv(KEY_NAME, raising=False)  # load_env still raises (autouse fixture)
+    assert ask_check.main(["--db", str(db)]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[1] == "Pseudonym key: not used (this check never reads .env)"
+    assert not [line for line in by_id(out).values() if " error " in line]
+
+
+def test_the_module_never_calls_what_opens_the_env_file() -> None:
+    import ast
+
+    tree = ast.parse(Path(ask_check.__file__).read_text(encoding="utf-8"))
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    names |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    names |= {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
+    assert not names & {"pseudonym_key", "load_env"}

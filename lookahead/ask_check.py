@@ -2,9 +2,10 @@
 docs/specs/2026-11-20-ask.md, definition of done 12 and "My real-data checks", item 1).
 
 It asks 24 fixed questions (English and French, written here and committed before any run on real
-data) exactly as the Ask page does (`ask_offline`, the same "today", key and saved budgets), and
-for each prints its id, its language, what happened (ran / refused / asked back / not found /
-error) and whether the outcome matches the same figure worked out another way (yes / no / n/a).
+data) as the Ask page does (`ask_offline`, the same "today" and saved budgets; the pseudonym key
+only from the environment, never from .env). For each it prints its id, its language, what
+happened (ran / refused / asked back / not found / skipped / error) and whether the outcome
+matches the same figure worked out another way (yes / no / n/a).
 Nothing else: no amounts, dates, merchants, names, categories or row text. One question names the
 merchant I use most; its name is used only to ask and is never printed. If that name holds a
 word the parser reads as something else (a category or month word), that question can show
@@ -29,6 +30,7 @@ The database is opened read-only (SQLite refuses writes), so nothing is saved.
 """
 
 import argparse
+import os
 import sqlite3
 import sys
 from collections.abc import Callable
@@ -47,7 +49,7 @@ from lookahead.budgets import load_limits
 from lookahead.db import connect_readonly
 from lookahead.forecast.path import build_forecast
 from lookahead.forecast.simulate import run as simulate
-from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key
+from lookahead.pseudonymize import KEY_NAME
 from lookahead.recurring_store import series_as_of
 from lookahead.safe_to_spend import safe_to_spend
 from lookahead.views import accounts, has_categories, transactions
@@ -415,6 +417,15 @@ def report(conn: sqlite3.Connection, account: str, today: date, key: bytes | Non
     return lines
 
 
+def key_from_environment() -> bytes | None:
+    """The pseudonym key from the PSEUDONYM_KEY environment variable, or None. Never the .env
+    file: this check is offline and sends nothing, so it needs no secret from there. Without the
+    key, series found from e-Transfer names and decisions stored against them may differ from
+    the app's; both sides of every comparison still use the same (missing) key."""
+    text = os.environ.get(KEY_NAME, "").strip()
+    return bytes.fromhex(text) if text else None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m lookahead.ask_check", description=__doc__)
     parser.add_argument("--db", type=Path, required=True)
@@ -434,14 +445,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Account number 1 to {len(names)}", file=sys.stderr)
             return 2
         account = names[args.account - 1]
-        try:  # read only once the database and account are known to be fine
-            key: bytes | None = pseudonym_key()
-        except PseudonymKeyError:
-            key = None
-        except Exception as e:  # noqa: BLE001  (the type only: a message could quote the file)
+        try:
+            key = key_from_environment()
+        except ValueError as e:  # the type only: a message could quote the value
             print(f"Could not read the key: {type(e).__name__}.", file=sys.stderr)
             return 2
         print(f"Account {args.account} of {len(names)}")
+        print("Pseudonym key: " + ("from the environment" if key else
+                                   "not used (this check never reads .env)"))  # fmt: skip
         try:
             last = conn.execute("SELECT MAX(posted_date) FROM transactions WHERE account = ?",
                                 (account,)).fetchone()[0]  # fmt: skip
