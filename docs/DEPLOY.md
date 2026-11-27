@@ -83,9 +83,10 @@ the three README pictures.
 
 On Community Cloud the app runs in a frame inside Cloud's own page, and Cloud adds its toolbar
 (Fork and GitHub for a visitor; Share, star, edit and GitHub for the owner) to the top right of
-the app. So the green bar keeps room for that toolbar, the app's own links open in the whole
-window (inside the frame they loaded Cloud's page a second time), and the smoke test looks in
-the frame and checks both.
+the app. So the green bar keeps room for that toolbar, and the app's own links are relative to
+the current page: a link from the site root loads Cloud's page a second time inside the frame,
+and the frame may not open links in the top window. The smoke test looks in the frame and
+checks that every top-bar click opens its page.
 
 ## Localhost: why the config file has no `address` line
 

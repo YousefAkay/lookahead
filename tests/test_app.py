@@ -60,7 +60,7 @@ def test_home_page_shows_the_status_and_links_to_the_main_pages(isolated: Path) 
         assert label in text
     assert "Oct 1, 2026" in text  # the day the made-up data ends
     for page in ("Forecast", "Recurring", "Transactions"):
-        assert f'href="/{page}?data=Synthetic+demo&amp;account=synthetic-B&amp;text=1"' in text
+        assert f'href="{page}?data=Synthetic+demo&amp;account=synthetic-B&amp;text=1"' in text
 
 
 def test_home_page_without_my_data_says_how_to_import(isolated: Path) -> None:
@@ -586,7 +586,7 @@ def test_the_top_bar_links_carry_the_account_so_the_next_page_opens_on_it(isolat
     at = run(RECURRING)
     at.sidebar.selectbox[0].set_value("synthetic-C").run()
     text = page_text(at)
-    assert 'href="/Forecast?data=Synthetic+demo&amp;account=synthetic-C&amp;text=1"' in text
+    assert 'href="Forecast?data=Synthetic+demo&amp;account=synthetic-C&amp;text=1"' in text
 
 
 def test_a_confirmed_series_can_get_a_rent_rule_form_and_a_category(isolated: Path) -> None:

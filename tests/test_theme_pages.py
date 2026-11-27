@@ -5,14 +5,14 @@ from app.theme import COLORS, link_button_html, status_card_html, transactions_t
 
 def test_a_link_button_is_a_link_that_carries_the_choice() -> None:
     html = link_button_html("Forecast", "/Forecast", "data=Synthetic+demo&account=a", primary=True)
-    assert 'href="/Forecast?data=Synthetic+demo&amp;account=a"' in html
-    assert ">Forecast<" in html and 'target="_top"' in html
+    assert 'href="Forecast?data=Synthetic+demo&amp;account=a"' in html  # relative: see in_app
+    assert ">Forecast<" in html and 'target="_self"' in html
     assert COLORS.topbar in html  # the primary button is the deep green
 
 
 def test_a_plain_link_button_is_white_with_an_outline_and_needs_no_query() -> None:
     html = link_button_html("Recurring", "/Recurring")
-    assert 'href="/Recurring"' in html and "?" not in html
+    assert 'href="Recurring"' in html and "?" not in html
     assert COLORS.border_input in html and COLORS.white in html
 
 

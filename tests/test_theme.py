@@ -199,7 +199,7 @@ def test_the_top_bar_has_the_wordmark_links_the_data_date_and_the_source() -> No
     html = top_bar_html("Forecast", PAGES, date(2026, 10, 1), "Synthetic demo")
     assert "Lookahead" in html and "<svg" in html
     for label, path in PAGES:
-        assert f">{label}<" in html and f'href="{path}"' in html
+        assert f">{label}<" in html and f'href="{path.lstrip("/") or "./"}"' in html
     assert "Data to Oct 1, 2026" in html and "Synthetic demo" in html
     main = html[html.index('class="la-nav"') : html.index("</nav>")]
     assert main.count('aria-current="page"') == 1  # one section marked in the main links
@@ -448,9 +448,10 @@ def test_every_top_bar_link_carries_the_data_and_account_choice() -> None:
         "data=Synthetic+demo&account=synthetic-C&text=1",
     )  # fmt: skip
     for _, path in PAGES:
-        assert f'href="{path}?data=Synthetic+demo&amp;account=synthetic-C&amp;text=1"' in html
-    assert 'href="/?data=' in html  # the wordmark too
-    assert 'href="/Forecast"' not in html  # no link without the choice
+        href = path.lstrip("/") or "./"  # relative to the current page: see in_app
+        assert f'href="{href}?data=Synthetic+demo&amp;account=synthetic-C&amp;text=1"' in html
+    assert 'href="./?data=' in html  # the wordmark too
+    assert 'href="Forecast"' not in html  # no link without the choice
 
 
 def test_the_choice_is_written_in_the_address_form() -> None:
@@ -553,3 +554,12 @@ def test_the_data_date_chip_is_hidden_in_demo_mode_only(monkeypatch: pytest.Monk
     mine = top_bar_html("Forecast", PAGES, date(2026, 10, 1), "My data")
     assert "Data to Oct 1, 2026" in mine  # my real data keeps the chip
     assert "No data yet" in top_bar_html("Forecast", PAGES, None, "My data")
+
+
+def test_in_app_links_are_relative_to_the_current_page() -> None:
+    """On Community Cloud the app runs in a frame at /~/+/: a relative link stays in it."""
+    from app.theme import in_app
+
+    assert in_app("/Forecast") == "Forecast"
+    assert in_app("/") == "./"
+    assert in_app("/To_check") == "To_check"

@@ -186,6 +186,15 @@ _MARK = (
 PAGES = section_links()  # the top-bar links (app/navigation.py)
 
 
+def in_app(path: str) -> str:
+    """A page's address written relative to the current one ("/Forecast" -> "Forecast", "/" ->
+    "./"). On Community Cloud the app runs in a sandboxed frame at /~/+/: a relative link stays in
+    that frame and opens the app's own page, where "/Forecast" would load Cloud's whole page inside
+    the frame, and opening the link in the top window is not allowed there."""
+    rest = path.lstrip("/")
+    return rest if rest else "./"
+
+
 def top_bar_html(
     active: str, pages: list[tuple[str, str]], data_to: date | None, source: str, query: str = "",
     until: str | None = None,
@@ -199,15 +208,15 @@ def top_bar_html(
     links = []
     for label, path in pages:
         current = ' aria-current="page"' if label == section else ""
-        href = html.escape(path + suffix)
-        links.append(f'<a href="{href}" target="_top"{current}>{html.escape(label)}</a>')
+        href = html.escape(in_app(path) + suffix)
+        links.append(f'<a href="{href}" target="_self"{current}>{html.escape(label)}</a>')
     if until is None:  # a page that is not about one account's data says so in `until`
         until = f"Data to {fmt_date(data_to)}" if data_to is not None else "No data yet"
         if is_demo():  # the public demo: no data-date chip (my own data keeps it)
             until = ""
     return (
         '<header class="la-bar"><div class="la-bar-inner">'
-        f'<a href="{html.escape("/" + suffix)}" target="_top" class="la-brand">'
+        f'<a href="{html.escape(in_app("/") + suffix)}" target="_self" class="la-brand">'
         f"{_MARK}Lookahead</a>"
         f'<nav aria-label="Main" class="la-nav">{"".join(links)}</nav>'
         f'<div class="la-bar-right">'
@@ -227,8 +236,8 @@ def section_tabs_html(active: str, query: str = "") -> str:
     links = []
     for label, path, current in tabs:
         mark = ' aria-current="page"' if current else ""
-        href = html.escape(path + suffix)
-        links.append(f'<a href="{href}" target="_top"{mark}>{html.escape(label)}</a>')
+        href = html.escape(in_app(path) + suffix)
+        links.append(f'<a href="{href}" target="_self"{mark}>{html.escape(label)}</a>')
     section = html.escape(section_of(active))
     return f'<nav aria-label="{section}" class="la-tabs">{"".join(links)}</nav>'
 
@@ -402,7 +411,7 @@ def alert_episodes_html(rows: Sequence[tuple[str, str, str]]) -> str:
 def link_button_html(label: str, path: str, query: str = "", primary: bool = False) -> str:
     """A link that looks like a button (the deep green one is the main action). `query` is the
     data and account choice, so the next page opens on the same ones."""
-    href = html.escape(path + (f"?{query}" if query else ""))
+    href = html.escape(in_app(path) + (f"?{query}" if query else ""))
     if primary:
         look = (f"background: {COLORS.topbar}; color: {COLORS.white}; "
                 f"border: 1px solid {COLORS.topbar}")  # fmt: skip
@@ -410,7 +419,7 @@ def link_button_html(label: str, path: str, query: str = "", primary: bool = Fal
         look = (f"background: {COLORS.white}; color: {COLORS.text}; "
                 f"border: 1px solid {COLORS.border_input}")  # fmt: skip
     return (
-        f'<a class="la-linkbutton" href="{href}" target="_top" style="{look}; font-weight: 700; '
+        f'<a class="la-linkbutton" href="{href}" target="_self" style="{look}; font-weight: 700; '
         f"font-size: 14px; padding: 10px 18px; border-radius: 10px; min-height: 44px; "
         f"box-sizing: border-box; display: inline-flex; align-items: center; "
         f'text-decoration: none">{html.escape(label)}</a>'

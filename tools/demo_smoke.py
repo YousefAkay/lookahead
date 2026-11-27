@@ -12,7 +12,8 @@ app then cannot open anything under data/private) and a demo database in a tempo
 else.
 
 Checks: every page opens with the banner, no error box and no browser console error (except the
-two health probes Streamlit's own front end sends when a page is opened by its own address); Home
+two health probes Streamlit's own front end sends when a page is opened by its own address, and,
+on the live link, the requests of Community Cloud's own page around the app); Home
 leads with MADE-UP DATA and opens on synthetic-C; each visitor gets their own visit id, kept across
 a top-bar click; Ask answers a question with its steps and rows; the Scenario chart's title is
 inside the chart and its legend is one row; on Recurring, every card's "Next <date>" stays on one
@@ -49,6 +50,16 @@ SCENARIO_DAILY_SPEND = "25"  # the README what-if: spend $25 a day
 # Streamlit's front end, opened at /<Page>, first asks /<Page>/_stcore/health and /host-config
 # (404) before it finds the server at the root. Not an error of the app: counted, not failed.
 PROBE = re.compile(r"/[A-Za-z_]+/_stcore/(health|host-config)$")
+
+
+def cloud_own(url: str, base: str) -> bool:
+    """On the live link only: a request made by Community Cloud's page around the app (its
+    analytics, its /api/ calls for a signed-in user), not by the app. The app loads nothing from
+    another host and has no /api/ path."""
+    where = urlparse(url)
+    if not where.netloc:  # no address: cannot tell whose, so it counts
+        return False
+    return where.netloc != urlparse(base).netloc or where.path.startswith("/api/")
 WAKE = "get this app back up"  # Community Cloud's page for an app that went to sleep
 WAIT_MS = 180_000
 NO_ACCOUNT = {"Model report", "Time machine"}  # pages not about one demo account
@@ -171,6 +182,14 @@ def check_home(page: Page, result: Result) -> None:
     result.check("the demo opens on synthetic-C", shown == "synthetic-C", shown)
 
 
+def _current_section(page: Page) -> str:
+    try:
+        marked = app(page).locator('.la-nav a[aria-current="page"]')
+        return marked.first.inner_text(timeout=1000).strip() if marked.count() else ""
+    except Exception:  # noqa: BLE001 - the page is being replaced
+        return ""
+
+
 def check_visits(browser: Browser, base: str, first: Page, result: Result) -> None:
     mine = visit_of(first)
     other = browser.new_context().new_page()
@@ -179,17 +198,22 @@ def check_visits(browser: Browser, base: str, first: Page, result: Result) -> No
     theirs = visit_of(other)
     other.context.close()
     result.check("each visitor gets their own visit id", bool(mine and theirs and mine != theirs))
-    kept, nested = True, []
+    kept, stuck, nested = True, [], []
     for link in ("Forecast", "How it works", "Home"):  # How it works reads no demo database
         app(first).get_by_role("link", name=link).first.click()
+        deadline = time.monotonic() + 60
+        while _current_section(first) != link and time.monotonic() < deadline:
+            first.wait_for_timeout(300)  # the click must really open that page
+        if _current_section(first) != link:
+            stuck.append(link)
+            continue
         settle(first)
         kept = kept and visit_of(first) == mine
-        frames = sum("/~/+/" in f.url for f in first.frames)
-        inner = urlparse(app(first).url).path.replace("/~/+/", "/")
-        if frames > 1 or inner != urlparse(first.url).path:  # on Cloud the window must show the
-            nested.append(link)  # page itself, not Cloud's page again inside the app's frame
+        if sum("/~/+/" in f.url for f in first.frames) > 1:  # Cloud's page loaded again inside
+            nested.append(link)
     result.check("the visit id is kept across top-bar clicks (incl. How it works)", kept)
-    result.check("a top-bar link opens its page in the window, not inside a frame", not nested,
+    result.check("each top-bar click opens its page", not stuck, ", ".join(stuck))
+    result.check("a top-bar link never loads Cloud's page inside the app's frame", not nested,
                  ", ".join(nested))  # fmt: skip
 
 
@@ -362,10 +386,11 @@ def screenshots(browser: Browser, base: str, folder: Path) -> list[Path]:
     return out
 
 
-def run(base: str, shots: Path | None) -> int:
+def run(base: str, shots: Path | None, hosted: bool = False) -> int:
     result = Result()
     console: list[str] = []
     probes = 0
+    cloud: list[str] = []
 
     def on_console(msg) -> None:  # type: ignore[no-untyped-def]
         nonlocal probes
@@ -373,6 +398,9 @@ def run(base: str, shots: Path | None) -> int:
             return
         if PROBE.search(msg.location.get("url", "")):
             probes += 1
+        elif hosted and cloud_own(msg.location.get("url", ""), base):
+            cloud.append(urlparse(msg.location.get("url", "")).netloc
+                         + urlparse(msg.location.get("url", "")).path)  # fmt: skip
         else:
             console.append(f"{msg.text} @ {msg.location.get('url', '')}")
 
@@ -398,7 +426,11 @@ def run(base: str, shots: Path | None) -> int:
         ]
         for step in steps:
             step()
-        detail = "; ".join(console[:5]) or f"{probes} Streamlit page-address probes ignored"
+        ignored = f"{probes} Streamlit page-address probes ignored"
+        if hosted:
+            where = ", ".join(sorted(set(cloud)))
+            ignored += f"; {len(cloud)} from Cloud's own page ignored ({where})"
+        detail = "; ".join(console[:5]) or ignored
         result.check("no browser console errors", not console, detail)
         if shots is not None:
             for f in screenshots(browser, base, shots):
@@ -415,7 +447,7 @@ def main() -> int:
     parser.add_argument("--screenshots", type=Path, help="save the README pictures here")
     args = parser.parse_args()
     if args.url:
-        return run(args.url, args.screenshots)
+        return run(args.url, args.screenshots, hosted=True)
     with tempfile.TemporaryDirectory(prefix="lookahead-demo-") as folder:
         server, base = start_local(Path(folder))
         try:

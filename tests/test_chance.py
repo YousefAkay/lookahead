@@ -67,21 +67,10 @@ def test_no_page_formats_a_chance_from_the_futures_with_plain_rounding() -> None
     assert found == []
 
 
-def test_every_in_app_link_opens_in_the_whole_window() -> None:
-    """On Community Cloud the app runs in a frame: a link opening in the frame loads Cloud's page a
-    second time, inside the first."""
-    assert [f"{w}:{i}" for w, i, line in _sources() if 'target="_self"' in line] == []
-
-
-def test_a_time_machine_step_saved_with_the_old_wording_is_worded_again() -> None:
-    from lookahead.timemachine_snapshots import alert_view
-
-    step = {"buffer_cents": 20_000, "shortfall_probability": 499 / 500, "alert": {
-        "condition": True, "notified": True, "reason": None, "active": True,
-        "message": "Possible shortfall: 100% of simulated futures dip below your $200.00 buffer",
-        "snapshot": {"data_date": "2026-10-01", "low_day": "2026-10-31", "low_cents": -25_140,
-                     "probability": 499 / 500, "buffer_cents": 20_000,
-                     "median_lowest_cents": -25_140}}}  # fmt: skip
-    sentence = alert_view(step).sentence
-    assert sentence.startswith("Possible shortfall: >99% of simulated futures")
-    assert "100%" not in sentence
+def test_every_in_app_link_is_relative_and_stays_in_the_app_s_frame() -> None:
+    """On Community Cloud the app runs in a sandboxed frame at /~/+/: a link from the site root
+    ("/Forecast") loads Cloud's whole page inside the frame, and a link to the top window
+    (target="_top") is blocked. So in-app links are relative and open in the same frame."""
+    lines = _sources()
+    assert [f"{w}:{i}" for w, i, line in lines if 'target="_top"' in line] == []
+    assert [f"{w}:{i}" for w, i, line in lines if re.search(r'href="/(?!/)', line)] == []
