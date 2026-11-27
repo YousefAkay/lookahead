@@ -103,6 +103,12 @@ def assert_development_only(ids: list[int], path: Path = SPLIT_FILE) -> None:
     bad = sorted(set(ids) & held)
     if bad and not called_by_harness():
         raise ValueError(f"{len(bad)} held-out Berka accounts are not for tuning or checking")
+    from eval.fresh_set import fresh_berka_accounts  # here: fresh_set imports this module
+
+    fresh = sorted(set(ids) & fresh_berka_accounts())
+    if fresh:  # the fresh set for forecaster v2: refused for every caller until its own run
+        raise ValueError(f"{len(fresh)} fresh held-out Berka accounts are not for tuning or "
+                         "checking")  # fmt: skip
 
 
 def main(argv: list[str] | None = None) -> int:

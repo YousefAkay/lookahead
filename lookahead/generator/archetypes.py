@@ -95,7 +95,20 @@ LONG_IDS: tuple[str, ...] = tuple(pid.replace(f"{MIX}-", f"{LONG_MIX}-", 1) for 
 LONG_HELD_OUT: frozenset[str] = frozenset(
     pid.replace(f"{MIX}-", f"{LONG_MIX}-", 1) for pid in HELD_OUT
 )
-ALL_HELD_OUT: frozenset[str] = HELD_OUT | LONG_HELD_OUT
+# The fresh held-out set for forecaster v2 (DECISIONS.md, 2026-11-27): the held-out mix (one or two
+# slots of each archetype, the slots of HELD_OUT), drawn again from a new parameter seed under new
+# ids, 12 and 24 months. Written only by eval/fresh_set.py, into a folder the guard refuses; never
+# used to tune anything.
+FRESH_MIX = "v3"
+FRESH_LONG_MIX = "v3L"
+FRESH_PARAM_SEED = 20261127
+FRESH_IDS: tuple[str, ...] = tuple(
+    pid.replace(f"{MIX}-", f"{FRESH_MIX}-", 1) for pid in PERSONA_IDS if pid in HELD_OUT
+)
+FRESH_LONG_IDS: tuple[str, ...] = tuple(
+    pid.replace(f"{FRESH_MIX}-", f"{FRESH_LONG_MIX}-", 1) for pid in FRESH_IDS
+)
+ALL_HELD_OUT: frozenset[str] = HELD_OUT | LONG_HELD_OUT | frozenset(FRESH_IDS + FRESH_LONG_IDS)
 
 
 def is_long(persona_id: str) -> bool:
@@ -808,7 +821,13 @@ def build_persona(persona_id: str) -> MixPersona:
     rng = np.random.default_rng(
         np.random.SeedSequence([PARAM_SEED, zlib.crc32(persona_id.encode())])
     )
-    code = archetype.code
+    persona = _build_slot(persona_id, rng)
+    return MixPersona(persona, archetype.buffer_cents, archetype.code, persona_id in HELD_OUT)
+
+
+def _build_slot(persona_id: str, rng: np.random.Generator) -> Persona:
+    """The persona of a `v2-` slot (its recorded spec and archetype), drawn from `rng`."""
+    code = persona_id.split("-")[1]
     if code in STUDENT_SHAPE:
         persona = _student(persona_id, rng, code)
     elif code == "SAL":
@@ -819,7 +838,46 @@ def build_persona(persona_id: str) -> MixPersona:
         persona = _tight(persona_id, rng)
     else:
         persona = _freelancer(persona_id, rng)
-    return MixPersona(persona, archetype.buffer_cents, code, persona_id in HELD_OUT)
+    return persona
+
+
+def build_fresh(persona_id: str) -> MixPersona:
+    """A persona of the fresh held-out set: the `v2-` slot with the same archetype and number (its
+    recorded spec), drawn from FRESH_PARAM_SEED mixed with the new id, then renamed to the new id.
+    A `v3L-` id is lengthened by one year with the same rules as the 24-month set. Only
+    eval/fresh_set.py calls this."""
+    if persona_id not in FRESH_IDS and persona_id not in FRESH_LONG_IDS:
+        raise ValueError(f"not a fresh held-out id {persona_id!r}")
+    mix, code, number = persona_id.split("-")
+    short_id = f"{FRESH_MIX}-{code}-{number}"
+    slot = f"{MIX}-{code}-{number}"
+    rng = np.random.default_rng(
+        np.random.SeedSequence([FRESH_PARAM_SEED, zlib.crc32(short_id.encode())])
+    )
+    persona = _build_slot(slot, rng)
+    start, old = START, slot
+    if mix == FRESH_LONG_MIX:
+        earlier = np.random.default_rng(
+            np.random.SeedSequence([FRESH_PARAM_SEED, zlib.crc32(persona_id.encode())])
+        )
+        old = f"{LONG_MIX}-{code}-{number}"
+        persona = _lengthen(persona, slot, old, earlier)
+        start = LONG_START
+    return MixPersona(_renamed(persona, old, persona_id), ARCHETYPES[code].buffer_cents, code,
+                      True, start)  # fmt: skip
+
+
+def _renamed(persona: Persona, old: str, new: str) -> Persona:
+    """The persona under a new id: its id, and the series and link ids that carry the old one."""
+    sources = []
+    for s in persona.sources:
+        if hasattr(s, "series_id"):
+            s = replace(s, series_id=_rename(s.series_id, old, new))  # type: ignore[type-var]
+        if isinstance(s, DatedSeries):
+            s = replace(s, items=tuple(replace(i, link_id=_rename(i.link_id, old, new))
+                                       for i in s.items))  # fmt: skip
+        sources.append(s)
+    return replace(persona, persona_id=new, sources=tuple(sources))
 
 
 # --- The 24-month set: the same rules one year earlier (DECISIONS.md, 2026-10-11, step A) ---

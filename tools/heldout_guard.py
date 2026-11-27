@@ -73,8 +73,10 @@ WRITERS: dict[str, dict[str, tuple[str, ...]]] = {
 # The coding session (no agent name): commands that print only counts, ids and hashes.
 SESSION_COMMANDS = ("fingerprint", "apply-review", "check-final")
 
-# The folder's name: "ask" then "held", with anything but letters and digits between them.
-NAMES = re.compile(r"ask[\W_]*held", re.IGNORECASE)
+# The folder's name: "ask" then "held", with anything but letters and digits between them. Also
+# the forecaster v2 fresh set's folder (eval/fresh_set.py), "lock" then "box": nobody reads it; its
+# module writes it and prints only counts and fingerprints.
+NAMES = re.compile(r"ask[\W_]*held|lock[\W_]*box", re.IGNORECASE)
 # The module and its test are code, not the folder: they may be edited, listed and committed.
 CODE_FILES = re.compile(r"eval[/\\]ask_heldout\.py|tests[/\\]test_ask_heldout\.py", re.IGNORECASE)
 # Running the module by name; a command that runs an interpreter keeps the file name in.
