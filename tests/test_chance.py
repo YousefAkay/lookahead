@@ -37,16 +37,51 @@ def test_ask_never_says_100_percent_when_one_future_stays_above() -> None:
     assert "at <1% instead of >99%" in _whatif(whatif)
 
 
-DIP = re.compile(r"(probability\w*|chance_now|chance_on_budget|chance_after)['\]\)]*:\.0%")
+WHOLE_PERCENT = re.compile(r"\{([^{}]+):\.0%\}")
+NOT_FROM_FUTURES = {  # whole percents that are not a share of simulated futures
+    "chosen.confidence",  # Label review: the categorizer's confidence
+    "p['threshold']", "chosen",  # Model report: alert thresholds
+    "CHANGE_SHARE", "PROBABILITY_THRESHOLD", "MATERIAL_SHARE", "DOMINANT_SHARE",  # fixed rules
+    "share",  # Ask: a what-if's share of usual spending; labels: a share of rows; chance.py itself
+}
 
 
-def test_no_page_formats_a_dip_chance_with_plain_rounding() -> None:
-    """Every place that shows the chance of dipping goes through chance_text."""
-    found = [
-        f"{path.relative_to(ROOT)}:{i}"
+def _sources() -> list[tuple[str, int, str]]:
+    return [
+        (str(path.relative_to(ROOT)), i, line)
         for folder in ("app", "lookahead")
         for path in sorted((ROOT / folder).rglob("*.py"))
         for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
-        if DIP.search(line)
+    ]
+
+
+def test_no_page_formats_a_chance_from_the_futures_with_plain_rounding() -> None:
+    """Every whole percent in the app is either on the list of fixed rules and other shares, or
+    goes through chance_text (a chance from the simulated futures)."""
+    found = [
+        f"{where}:{i} {m.group(1)}"
+        for where, i, line in _sources()
+        for m in WHOLE_PERCENT.finditer(line)
+        if m.group(1) not in NOT_FROM_FUTURES
     ]
     assert found == []
+
+
+def test_every_in_app_link_opens_in_the_whole_window() -> None:
+    """On Community Cloud the app runs in a frame: a link opening in the frame loads Cloud's page a
+    second time, inside the first."""
+    assert [f"{w}:{i}" for w, i, line in _sources() if 'target="_self"' in line] == []
+
+
+def test_a_time_machine_step_saved_with_the_old_wording_is_worded_again() -> None:
+    from lookahead.timemachine_snapshots import alert_view
+
+    step = {"buffer_cents": 20_000, "shortfall_probability": 499 / 500, "alert": {
+        "condition": True, "notified": True, "reason": None, "active": True,
+        "message": "Possible shortfall: 100% of simulated futures dip below your $200.00 buffer",
+        "snapshot": {"data_date": "2026-10-01", "low_day": "2026-10-31", "low_cents": -25_140,
+                     "probability": 499 / 500, "buffer_cents": 20_000,
+                     "median_lowest_cents": -25_140}}}  # fmt: skip
+    sentence = alert_view(step).sentence
+    assert sentence.startswith("Possible shortfall: >99% of simulated futures")
+    assert "100%" not in sentence

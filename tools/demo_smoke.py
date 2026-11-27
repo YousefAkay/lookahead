@@ -33,11 +33,12 @@ import time
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from playwright.sync_api import Browser, Frame, Page, sync_playwright
 
 from app.navigation import APP_PAGES
+from lookahead.forecast.simulate import N_FUTURES
 
 ROOT = Path(__file__).resolve().parents[1]
 BANNER = "Demo with made-up data"
@@ -183,10 +184,10 @@ def check_visits(browser: Browser, base: str, first: Page, result: Result) -> No
         app(first).get_by_role("link", name=link).first.click()
         settle(first)
         kept = kept and visit_of(first) == mine
-        if sum("/~/+/" in f.url for f in first.frames) > 1 or app(first).url != first.url and (
-            app(first).url.replace("/~/+/", "/") != first.url
-        ):  # on Cloud: the link must open the page itself, not Cloud's page inside the frame
-            nested.append(link)
+        frames = sum("/~/+/" in f.url for f in first.frames)
+        inner = urlparse(app(first).url).path.replace("/~/+/", "/")
+        if frames > 1 or inner != urlparse(first.url).path:  # on Cloud the window must show the
+            nested.append(link)  # page itself, not Cloud's page again inside the app's frame
     result.check("the visit id is kept across top-bar clicks (incl. How it works)", kept)
     result.check("a top-bar link opens its page in the window, not inside a frame", not nested,
                  ", ".join(nested))  # fmt: skip
@@ -205,14 +206,14 @@ def check_pages(page: Page, base: str, visit: str, result: Result) -> None:
 
 
 def check_forecast_wait(page: Page, base: str, visit: str, result: Result) -> None:
-    """Forecast takes seconds to simulate its futures: within 3 s it shows something (the waiting
-    message, or the finished page), never a blank page."""
+    """Forecast takes seconds to simulate its futures: within 3 s it shows the waiting message or
+    the forecast itself (its figure cards), never a page with only the bar."""
     start = time.monotonic()
     page.goto(address(base, "/Forecast", visit=visit), timeout=WAIT_MS)
     first = None
     while time.monotonic() - start < 60:
         body = app(page).locator("body").inner_text()
-        if "Simulating 500 futures" in body or app(page).locator(".la-demo-banner").count():
+        if f"Simulating {N_FUTURES} futures" in body or "Chance below buffer" in body:
             first = time.monotonic() - start
             break
         page.wait_for_timeout(100)

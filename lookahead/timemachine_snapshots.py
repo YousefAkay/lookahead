@@ -28,6 +28,7 @@ from typing import Any
 import pandas as pd
 import plotly.graph_objects as go
 
+from lookahead.alerts import alert_message
 from lookahead.chance import chance_text
 from lookahead.db import connect, connect_readonly
 from lookahead.forecast.path import build_forecast
@@ -45,7 +46,7 @@ from lookahead.generator.writer import write_persona
 from lookahead.ingest.scotiabank import parse_export
 from lookahead.ingest.store import store_exports
 from lookahead.settings import set_safety_buffer_cents
-from lookahead.timemachine import METHOD, available_dates, precompute
+from lookahead.timemachine import METHOD, available_dates, precompute, saved_snapshot
 
 DEMO_PERSONAS = ("synthetic-A", "synthetic-B", "synthetic-C")
 MIX_PERSONAS = ("v2-TIGHT-03", "v2-ITIGHT-01", "v2-FREE-01", "v2-SAL-01")  # development only
@@ -204,7 +205,9 @@ def alert_view(step: dict[str, Any]) -> AlertView:
     alert = step["alert"]
     buffer = _dollars(step["buffer_cents"])
     if alert["condition"]:
-        sentence = alert["message"] or "Possible shortfall."
+        # worded from the saved numbers, so today's wording also covers steps saved before it
+        snap = saved_snapshot(alert.get("snapshot"))
+        sentence = alert_message(snap) if snap else alert["message"] or "Possible shortfall."
         if not alert["notified"]:
             status = "The same alert as before: nothing material changed, so it stays quiet."
         elif alert["reason"]:

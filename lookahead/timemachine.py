@@ -195,16 +195,22 @@ def step_to_dict(step: Step) -> dict[str, Any]:
     }  # fmt: skip
 
 
+def saved_snapshot(raw: dict[str, Any] | None) -> Snapshot | None:
+    """The alert rule's snapshot as a saved step stores it (None when the rule did not alert)."""
+    if raw is None:
+        return None
+    return Snapshot(
+        date.fromisoformat(raw["data_date"]), date.fromisoformat(raw["low_day"]),
+        raw["low_cents"], raw["probability"], raw["buffer_cents"], raw["median_lowest_cents"],
+    )  # fmt: skip
+
+
 def _restore_alerts(account: str, saved: list[dict[str, Any]]) -> sqlite3.Connection:
     """The alert record as it stood after the saved steps, rebuilt from them (no forecasts)."""
     alerts = _scratch()
     for record in saved:
         a = record["alert"]
-        raw = a["snapshot"]
-        snap = None if raw is None else Snapshot(
-            date.fromisoformat(raw["data_date"]), date.fromisoformat(raw["low_day"]),
-            raw["low_cents"], raw["probability"], raw["buffer_cents"], raw["median_lowest_cents"],
-        )  # fmt: skip
+        snap = saved_snapshot(a["snapshot"])
         record_snapshot(alerts, account, snap, date.fromisoformat(record["as_of"]), a["evidence"])
     return alerts
 

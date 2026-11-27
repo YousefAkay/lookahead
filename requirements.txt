@@ -1,5 +1,5 @@
 # Week 1 and Week 2 dependencies.
-# Exact pins. The packages we use first, then what they pull in; see DECISIONS.md.
+# Exact pins: the packages the code imports first, then what they pull in; see DECISIONS.md.
 pandas==3.0.6
 numpy==2.5.3
 pydantic==2.13.5

@@ -204,18 +204,18 @@ if sim is not None:
     below = round(sim.shortfall_probability * sim.futures)
     below_zero = round(sim.below_zero_probability * sim.futures)
     spent = f"Everyday spending is about {html.escape(money(spending_per_day))} a day."
-    without = f"(without irregular deposits: {chance_text(sim.shortfall_probability_without)})"
+    chance = html.escape(chance_text(sim.shortfall_probability))  # "<1%" inside HTML
+    without_chance = html.escape(chance_text(sim.shortfall_probability_without))
+    without = f"(without irregular deposits: {without_chance})"
     if snapshot is not None:  # the rule alerts
         sentence = (
-            f"<strong>{chance_text(sim.shortfall_probability)} chance</strong> your balance dips "
-            f"below your "
+            f"<strong>{chance} chance</strong> your balance dips below your "
             f"{buffer_text} buffer around <strong>{fmt_day(low_day)}</strong> {without}. {spent}"
         )
         callout = callout_html("warning", "Possible shortfall", sentence, "See why →", "#alerts")
     elif below:
         sentence = (
-            f"<strong>Only {chance_text(sim.shortfall_probability)}</strong> of simulated futures "
-            f"dip below "
+            f"<strong>Only {chance}</strong> of simulated futures dip below "
             f"your {buffer_text} buffer, around {fmt_day(low_day)} {without}: not enough to "
             f"alert. {spent}"
         )
@@ -298,9 +298,10 @@ with st.container(border=True, key="card-alerts"):
             low_text = (
                 f"**Lowest balance:** {safe(money(ev['low_cents']))} in the middle future on "
                 f"{fmt_date(date.fromisoformat(ev['low_day']))}. Chance below your "
-                f"{safe(money_short(ev['buffer_cents']))} buffer: {chance_text(ev['probability'])} "
+                f"{safe(money_short(ev['buffer_cents']))} buffer: "
+                f"{safe(chance_text(ev['probability']))} "
                 f"(without irregular deposits: "
-                f"{chance_text(ev['probability_without_deposits'])}); median "
+                f"{safe(chance_text(ev['probability_without_deposits']))}); median "
                 f"lowest balance across the {ev['futures']} futures: "
                 f"{safe(money(ev['median_lowest_cents']))}."
             )
