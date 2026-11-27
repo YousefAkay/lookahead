@@ -11,6 +11,9 @@ It is a personal project and a study in testing a model honestly. It is not fina
 
 ## What it looks like
 
+Try the demo: https://lookahead.streamlit.app (made-up accounts only; it may take a minute to
+wake up if nobody has opened it for a while).
+
 These pictures come from the demo, which runs on made-up accounts only.
 
 ![Forecast page: a possible-shortfall warning above four figure cards](docs/img/forecast-warning.png)

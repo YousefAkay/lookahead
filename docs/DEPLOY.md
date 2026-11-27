@@ -81,6 +81,12 @@ first line gives the time the first page took, which after a sleep is the wake t
 once if the first page has no "Demo with made-up data" banner. `--screenshots docs/img` also saves
 the three README pictures.
 
+On Community Cloud the app runs in a frame inside Cloud's own page, and Cloud adds its toolbar
+(Fork and GitHub for a visitor; Share, star, edit and GitHub for the owner) to the top right of
+the app. So the green bar keeps room for that toolbar, the app's own links open in the whole
+window (inside the frame they loaded Cloud's page a second time), and the smoke test looks in
+the frame and checks both.
+
 ## Localhost: why the config file has no `address` line
 
 Locally, with my own data, the app must be reachable from this computer only. That used to be

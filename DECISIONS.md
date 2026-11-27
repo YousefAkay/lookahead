@@ -2674,3 +2674,15 @@ The one scored run (attempt 1dbc6244, code cb6f161, Claude Haiku 4.5 at temperat
 - Why: Community Cloud installs from requirements.txt alone. With only the top-level pins, a fresh Linux Python 3.13 install got 9 newer patch versions underneath than the suite runs on, and the demo server's build log showed an older pyarrow; the demo would run on a set nobody tested. With the full set, a fresh Linux 3.13 resolve gives exactly the 52 packages of the suite's environment.
 - Lost: top-level pins only (the 2026-09-30 entry; it let what lies underneath drift on every install); a lock file (uv.lock or a constraints file: a new tool, and the server reads requirements.txt anyway).
 - Updating: refresh all pins together, run the full suite, then commit.
+
+### 2026-11-27: Chances from the simulated futures never round to certainty
+- Decision: a chance read from the 500 simulated futures shows "100%" only when every future does it and "0%" only when none does; anything that would round to those shows ">99%" or "<1%" (lookahead/chance.py). It applies to every chance of dipping (Forecast, Ask, Home, alerts, Since last time, Time machine, the Budgets what-if) and, for consistency, to the budgets' chance of going over, which is read from the same futures.
+- Why: 499 of 500 futures rounded to "100%", which reads as a certainty the forecast cannot give. A test fails if any page formats a dip chance with plain rounding again.
+- Lost: one decimal everywhere ("99.8%": false precision for 500 futures); showing the count alone ("499 of 500": kept as the cards' second line, too long for sentences).
+- Alert sentences already stored keep the wording they were recorded with.
+
+### 2026-11-27: The hosted demo's top bar and links
+- Decision: the green bar keeps room on its right for the header's buttons: 60px for the gear, and 48px more per button of Community Cloud's toolbar, counted in CSS. The app's own links open in the whole window (`target="_top"`). Forecast says "Simulating 500 futures…" at once while it works.
+- Why: on Community Cloud the app runs in a frame and Cloud adds its toolbar to the app's header, where it covered the account pill; a link opening inside the frame loaded Cloud's whole page a second time, inside the first, and the address stayed on Home. Forecast showed a blank page for over 10 seconds while the futures were simulated.
+- Lost: hiding Cloud's toolbar (it is Cloud's, and the owner needs it); moving it to a corner (a visitor looks for it top right); one fixed room for the widest toolbar (wasted space for a visitor, who sees two buttons).
+- Known limit: the owner's toolbar (four buttons) was not seen by the smoke test, which visits as a stranger; the room per button is set for it from the visitor's measured buttons (44px or less each).
