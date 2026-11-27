@@ -1,4 +1,4 @@
-# Development only (not needed to run the app): screenshots of the synthetic demo for design review.
-# Uses the Edge or Chrome that is already installed, so no browser download.
+# Development tools only. Not installed on the demo server, which reads requirements.txt.
+# After installing, download the browser once: python -m playwright install chromium
 -r requirements.txt
-playwright==1.63.0
+playwright==1.63.0  # tools/demo_smoke.py: the demo smoke test and README pictures
