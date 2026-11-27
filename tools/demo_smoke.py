@@ -41,11 +41,13 @@ BANNER = "Demo with made-up data"
 ACCOUNTS = ("synthetic-A", "synthetic-B", "synthetic-C")
 WIDTHS = (1280, 1000, 768, 390)
 QUESTION = "How much did I spend on groceries last month?"
+SCENARIO_DAILY_SPEND = "25"  # the README what-if: spend $25 a day
 # Streamlit's front end, opened at /<Page>, first asks /<Page>/_stcore/health and /host-config
 # (404) before it finds the server at the root. Not an error of the app: counted, not failed.
 PROBE = re.compile(r"/[A-Za-z_]+/_stcore/(health|host-config)$")
 WAKE = "get this app back up"  # Community Cloud's page for an app that went to sleep
 WAIT_MS = 180_000
+NO_ACCOUNT = {"Model report", "Time machine"}  # pages not about one demo account
 
 
 class Result:
@@ -171,6 +173,9 @@ def check_pages(page: Page, base: str, visit: str, result: Result) -> None:
         n = errors_on(page)
         result.check(f"{p.name}: opens with the banner and no error box", n == 0,
                      f"{n} error boxes" if n else "")  # fmt: skip
+        if p.name not in NO_ACCOUNT:
+            result.check(f"{p.name}: opens on synthetic-C", "account=synthetic-C" in page.url,
+                         page.url.split("?", 1)[-1])  # fmt: skip
 
 
 def check_ask(page: Page, base: str, visit: str, result: Result) -> None:
@@ -264,8 +269,11 @@ def screenshots(browser: Browser, base: str, folder: Path) -> list[Path]:
     page.set_viewport_size({"width": 1280, "height": 820})
     page.goto(address(base, "/Scenario", visit=visit), timeout=WAIT_MS)
     settle(page)
-    chart = page.locator(".js-plotly-plot").first
-    chart.scroll_into_view_if_needed()
+    spend = page.get_by_label("Daily spend ($)")  # a what-if, so the two lines part
+    spend.fill(SCENARIO_DAILY_SPEND)
+    spend.press("Enter")
+    page.wait_for_timeout(500)
+    settle(page)
     page.evaluate("() => document.querySelector('.js-plotly-plot')"
                   ".scrollIntoView({block: 'center'})")  # fmt: skip
     page.wait_for_timeout(800)

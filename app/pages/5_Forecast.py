@@ -19,6 +19,7 @@ import streamlit as st  # noqa: E402
 
 from app.theme import (  # noqa: E402
     COLORS,
+    account_setting,
     alert_episodes_html,
     apply,
     cached_safe_to_spend,
@@ -36,7 +37,6 @@ from app.theme import (  # noqa: E402
     money_short,
     result_panel_html,
     safe_to_spend_card,
-    save_choices,
     scenario_legend_html,
     seed_choice,
     show_table,
@@ -122,10 +122,7 @@ if not names:
     top_bar(bar, "Forecast", None, source)
     st.info("This database has no transactions yet.")
     st.stop()
-side_label("Account")
-seed_choice("account", names)
-account = st.sidebar.selectbox("Account", names, label_visibility="collapsed", key="account")
-save_choices()
+account = account_setting(names)
 
 side_label("Forecast settings")
 METHOD_LABELS = {"recent": "28-day average", "weekday": "Weekday average (8 weeks)"}
