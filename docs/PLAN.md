@@ -8,7 +8,7 @@ A local-first cashflow planner: import bank CSVs, forecast the chequing balance,
 
 ## Feature freeze
 
-Week 8 is in feature freeze: no new features until forecaster v2 is done. Fixes, tests, docs and the hosted demo are allowed.
+Feature freeze from week 8 until forecaster v2 is done, even if that runs past week 8: no new features. Fixes, tests, docs and the hosted demo are allowed.
 
 ## Weeks 1-7, as built
 
@@ -41,13 +41,17 @@ Week 8 is in feature freeze: no new features until forecaster v2 is done. Fixes,
 Privacy
 - Real data and anything derived from it (databases, trained models, caches holding merchant names) lives only in `data/private/`. Code that writes such files refuses other paths.
 - Tests never read private files or the local settings file. They use temporary paths and synthetic data.
-- Reports on real data: aggregate metrics may be printed in my terminal; never rows, dates, names or individual amounts, and never written into the repository. Only categorizer and merchant-matching accuracy on my labelled rows may be published, as percentages with n.
+- Reports on real data: aggregate metrics over many forecasts may be printed in my terminal; never rows, dates, names or individual amounts, and never written into the repository. Only categorizer and merchant-matching accuracy on my labelled rows (percentages with n) and the RAG no-harm check (row counts) may be published; nothing from the forecaster on my account.
 - Anything leaving `data/private/` is pseudonymized first.
-- LLM features are off by default and opt-in, and get the least evidence they need (the categorizer gets a card purchase's merchant name only).
-- The app opens databases read-only, and with real data it runs only when served on localhost. Demo mode (`LOOKAHEAD_DEMO=1`) is synthetic data only and can never open anything under `data/private`.
+- LLM features are off by default and opt-in, use a pinned model (Claude Haiku 4.5) at temperature 0, and never get amounts, dates or people's names:
+  - LLM fallback: the merchant name of a card purchase only, cached.
+  - RAG categorizer: merchant names (my labelled ones and public chains) and category labels only.
+  - Ask's LLM planner (not shipped): the question and fixed instructions only, nothing from the account.
+- The app opens databases read-only, and with real data it runs only when served on localhost (the pages check the address). Demo mode (`LOOKAHEAD_DEMO=1`) is synthetic data only and can never open anything under `data/private`.
 
 Evaluation
-- Adopt rules are committed before any scored run. Every choice is made on development data. Held-out data is opened once, and nothing is tuned after it.
+- Test sets are frozen before labelling. Every choice is made on development data. Held-out data is opened once, and nothing is tuned after it.
+- Adopt rules are written in DECISIONS.md or a spec and committed before any scored run. Every variant scored goes in the ledger and is counted.
 - Losers are reported, not hidden.
 - Synthetic and real results are reported separately, always with n.
 - I don't merge weak categories to raise a score.
@@ -58,7 +62,7 @@ Product
 - The app never blocks on review: every row is categorized; low-confidence rows are only flagged.
 - Money is integer cents.
 - Forecast horizon: a fixed 30 days, starting the day after the data ends.
-- Large one-offs are scheduled items, kept out of everyday spending; big money that keeps coming is drawn as random arrivals. Fees are modelled separately.
+- Large one-offs are scheduled items, kept out of everyday spending; big rows that keep coming back at a similar size (deposits, and payments seen 6 or more times a year) are drawn as random arrivals. Fees are modelled separately.
 - Netted (fully reversed) rows are out of spending.
 - Recurring detection upgrades card subscriptions and e-Transfer rent, and downgrades one-off bill payments.
 
