@@ -33,6 +33,7 @@ from app.theme import (  # noqa: E402
     tag_html,
     top_bar,
 )
+from lookahead.chance import chance_text
 from lookahead.forecast.scenario import Scenario, SpendingChange  # noqa: E402
 from lookahead.timemachine_snapshots import (  # noqa: E402
     alert_view,
@@ -125,7 +126,7 @@ with cards[1]:
     st.metric("Lowest expected balance", money(low_cents), f"{fmt_day(low_day)}, middle future",
               delta_color="off", delta_arrow="off")  # fmt: skip
 with cards[2], st.container(key="tone-warn" if view.kind == "warning" else "tone-ok"):
-    st.metric("Chance below buffer", f"{step['shortfall_probability']:.0%}",
+    st.metric("Chance below buffer", f"{chance_text(step['shortfall_probability'])}",
               f"of {step['futures']} simulated futures", delta_color="off",
               delta_arrow="off")  # fmt: skip
 with cards[3]:
@@ -220,13 +221,13 @@ with what_if, st.container(border=True, key="card-whatif"):
 
             st.markdown(
                 result_panel_html([
-                    ("Chance below buffer", f"{o.shortfall_probability:.0%}",
-                     f"{m.shortfall_probability:.0%}",
+                    ("Chance below buffer", f"{chance_text(o.shortfall_probability)}",
+                     f"{chance_text(m.shortfall_probability)}",
                      verdict(o.shortfall_probability, m.shortfall_probability, True)),
                     ("Lowest expected balance", money(min(o.p50)), money(min(m.p50)),
                      verdict(min(o.p50), min(m.p50), False)),
-                    ("Chance below $0", f"{o.below_zero_probability:.0%}",
-                     f"{m.below_zero_probability:.0%}",
+                    ("Chance below $0", f"{chance_text(o.below_zero_probability)}",
+                     f"{chance_text(m.below_zero_probability)}",
                      verdict(o.below_zero_probability, m.below_zero_probability, True)),
                     (f"Balance on {fmt_day(o.days[-1])}", money(o.p50[-1]), money(m.p50[-1]),
                      verdict(o.p50[-1], m.p50[-1], False)),

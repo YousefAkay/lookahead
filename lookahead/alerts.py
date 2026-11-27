@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from lookahead.chance import chance_text
 from lookahead.forecast.path import Forecast
 from lookahead.forecast.simulate import Simulation
 
@@ -122,7 +123,8 @@ def material_change(old: Snapshot, new: Snapshot) -> str | None:
     if abs(move) >= MATERIAL_LOW_CENTS:
         return f"the low is {_dollars(abs(move))} {'higher' if move > 0 else 'lower'}"
     if new.band != old.band:
-        return f"the chance changed band ({old.probability:.0%} to {new.probability:.0%})"
+        was, now = chance_text(old.probability), chance_text(new.probability)
+        return f"the chance changed band ({was} to {now})"
     shift = (new.low_day - old.low_day).days
     if abs(shift) >= DATE_SHIFT_DAYS:
         return f"the low is {abs(shift)} days {'later' if shift > 0 else 'earlier'}"
@@ -134,7 +136,8 @@ def worse_after_dismissal(old: Snapshot, new: Snapshot) -> str | None:
     things count: the chance entered a higher band, or the middle future's low dropped below
     $0 (it was not below before). Getting better, and any smaller move, stay quiet."""
     if new.band > old.band:
-        return f"the chance entered a higher band ({old.probability:.0%} to {new.probability:.0%})"
+        was, now = chance_text(old.probability), chance_text(new.probability)
+        return f"the chance entered a higher band ({was} to {now})"
     if new.low_cents < 0 <= old.low_cents:
         return "the middle future's low dropped below $0"
     return None
@@ -144,7 +147,7 @@ def alert_message(snap: Snapshot) -> str:
     """One plain sentence, in forecast words."""
     days = snap.days_of_warning
     return (
-        f"Possible shortfall: {snap.probability:.0%} of simulated futures dip below your "
+        f"Possible shortfall: {chance_text(snap.probability)} of simulated futures dip below your "
         f"{_dollars(snap.buffer_cents)} buffer, and the middle future's lowest balance is about "
         f"{_dollars(snap.low_cents)} around {_day(snap.low_day)}, {days} "
         f"{'day' if days == 1 else 'days'} after the data ends."

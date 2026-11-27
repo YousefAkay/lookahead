@@ -29,6 +29,7 @@ from app.theme import (  # noqa: E402
     top_bar,
 )
 from lookahead.budget_alerts import home_line  # noqa: E402
+from lookahead.chance import chance_text
 from lookahead.db import connect_readonly  # noqa: E402
 from lookahead.demo_mode import is_demo  # noqa: E402
 from lookahead.needs_a_look import NeedsALook, needs_a_look  # noqa: E402
@@ -157,7 +158,8 @@ if look is not None:
         if look.shortfall is not None:
             e = look.shortfall
             st.markdown(
-                f"Possible shortfall: {e.probability:.0%} of simulated futures dip below your "
+                f"Possible shortfall: {chance_text(e.probability)} of simulated futures dip below "
+                f"your "
                 f"{money(e.buffer_cents, markdown=True)} buffer, lowest around "
                 f"{fmt_date(e.low_day)} (an estimate)."
             )

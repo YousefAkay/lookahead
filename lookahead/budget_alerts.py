@@ -28,6 +28,7 @@ from typing import Any
 
 from lookahead.alerts import band_of
 from lookahead.budgets import BudgetMonth, Pace, month_end, month_key
+from lookahead.chance import chance_text
 
 PROBABILITY_THRESHOLD = 0.50  # alert when the chance of going over is above this
 FIRST_DAY_OF_MONTH = 8  # ... and the forecast's first day is the 8th or later
@@ -163,14 +164,14 @@ def _look(
         if dismissed:
             if told is not None and band > band_of(told[0]):
                 notified, record = True, True
-                reason = (
-                    f"the chance entered a higher band ({told[0]:.0%} to {pace.chance_over:.0%})"
-                )
+                was, now = chance_text(told[0]), chance_text(pace.chance_over)
+                reason = f"the chance entered a higher band ({was} to {now})"
                 conn.execute("UPDATE budget_alert_episodes SET dismissed_on = NULL"
                              " WHERE episode_id = ?", (episode_id,))  # fmt: skip
         elif latest is not None and band != band_of(latest[0]):
             notified, record = True, True
-            reason = f"the chance changed band ({latest[0]:.0%} to {pace.chance_over:.0%})"
+            was, now = chance_text(latest[0]), chance_text(pace.chance_over)
+            reason = f"the chance changed band ({was} to {now})"
         if not record and latest is not None and abs(over - latest[1]) >= MATERIAL_CENTS:
             record = True  # evidence refreshed; never notified, never brings a dismissed one back
             reason = f"the likely overrun moved by {_dollars(abs(over - latest[1]))}"
@@ -269,8 +270,8 @@ def alert_message(e: BudgetEpisode) -> str:
             f"{_dollars(e.spent_cents)} against a {_dollars(e.limit_cents)} limit."
         )
     return (
-        f"Possible overspend in {e.category}: in {e.probability:.0%} of simulated futures you "
-        f"end the month above your {_dollars(e.limit_cents)} budget. Spent so far "
+        f"Possible overspend in {e.category}: in {chance_text(e.probability)} of simulated futures "
+        f"you end the month above your {_dollars(e.limit_cents)} budget. Spent so far "
         f"{_dollars(e.spent_cents)}; likely end of month about {_dollars(e.likely_end_cents)}."
     )
 
@@ -292,8 +293,8 @@ def home_line(e: BudgetEpisode) -> str:
     if e.spent_cents > e.limit_cents:
         return alert_message(e)
     return (
-        f"Possible overspend in {e.category}: {e.probability:.0%} of simulated futures end the "
-        f"month above your {_dollars(e.limit_cents)} budget (an estimate)."
+        f"Possible overspend in {e.category}: {chance_text(e.probability)} of simulated futures "
+        f"end the month above your {_dollars(e.limit_cents)} budget (an estimate)."
     )
 
 

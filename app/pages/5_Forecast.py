@@ -56,6 +56,7 @@ from lookahead.alerts import (  # noqa: E402
     restore,
     snapshot_of,
 )
+from lookahead.chance import chance_text
 from lookahead.db import connect  # noqa: E402
 from lookahead.forecast.path import BASELINES, build_forecast  # noqa: E402
 from lookahead.forecast.scenario import (  # noqa: E402
@@ -197,16 +198,18 @@ if sim is not None:
     below = round(sim.shortfall_probability * sim.futures)
     below_zero = round(sim.below_zero_probability * sim.futures)
     spent = f"Everyday spending is about {html.escape(money(spending_per_day))} a day."
-    without = f"(without irregular deposits: {sim.shortfall_probability_without:.0%})"
+    without = f"(without irregular deposits: {chance_text(sim.shortfall_probability_without)})"
     if snapshot is not None:  # the rule alerts
         sentence = (
-            f"<strong>{sim.shortfall_probability:.0%} chance</strong> your balance dips below your "
+            f"<strong>{chance_text(sim.shortfall_probability)} chance</strong> your balance dips "
+            f"below your "
             f"{buffer_text} buffer around <strong>{fmt_day(low_day)}</strong> {without}. {spent}"
         )
         callout = callout_html("warning", "Possible shortfall", sentence, "See why →", "#alerts")
     elif below:
         sentence = (
-            f"<strong>Only {sim.shortfall_probability:.0%}</strong> of simulated futures dip below "
+            f"<strong>Only {chance_text(sim.shortfall_probability)}</strong> of simulated futures "
+            f"dip below "
             f"your {buffer_text} buffer, around {fmt_day(low_day)} {without}: not enough to "
             f"alert. {spent}"
         )
@@ -236,11 +239,11 @@ with cards[1]:
     )  # fmt: skip
 if sim is not None:
     with cards[2], st.container(key="tone-warn" if below else "tone-ok"):
-        st.metric("Chance below buffer", f"{sim.shortfall_probability:.0%}",
+        st.metric("Chance below buffer", f"{chance_text(sim.shortfall_probability)}",
                   f"{below} of {sim.futures} simulated futures", delta_color="off",
                   delta_arrow="off")  # fmt: skip
     with cards[3]:
-        st.metric("Chance below $0", f"{sim.below_zero_probability:.0%}",
+        st.metric("Chance below $0", f"{chance_text(sim.below_zero_probability)}",
                   f"{below_zero} of {sim.futures} simulated futures", delta_color="off",
                   delta_arrow="off")  # fmt: skip
 
@@ -289,8 +292,9 @@ with st.container(border=True, key="card-alerts"):
             low_text = (
                 f"**Lowest balance:** {safe(money(ev['low_cents']))} in the middle future on "
                 f"{fmt_date(date.fromisoformat(ev['low_day']))}. Chance below your "
-                f"{safe(money_short(ev['buffer_cents']))} buffer: {ev['probability']:.0%} "
-                f"(without irregular deposits: {ev['probability_without_deposits']:.0%}); median "
+                f"{safe(money_short(ev['buffer_cents']))} buffer: {chance_text(ev['probability'])} "
+                f"(without irregular deposits: "
+                f"{chance_text(ev['probability_without_deposits'])}); median "
                 f"lowest balance across the {ev['futures']} futures: "
                 f"{safe(money(ev['median_lowest_cents']))}."
             )
@@ -357,7 +361,7 @@ with st.container(border=True, key="card-alerts"):
                     (
                         f"{fmt_day(e.opened_on)} – {fmt_day(e.closed_on or e.last_seen_on)}",
                         f"Low about {money(e.low_cents)} around {fmt_day(e.low_day)} · "
-                        f"{e.probability:.0%} chance",
+                        f"{chance_text(e.probability)} chance",
                         e.status.capitalize(),
                     )
                     for e in older
@@ -506,13 +510,13 @@ with what_if, st.container(border=True, key="card-whatif"):
 
                 st.markdown(
                     result_panel_html([
-                        ("Chance below buffer", f"{o.shortfall_probability:.0%}",
-                         f"{m.shortfall_probability:.0%}",
+                        ("Chance below buffer", f"{chance_text(o.shortfall_probability)}",
+                         f"{chance_text(m.shortfall_probability)}",
                          verdict(o.shortfall_probability, m.shortfall_probability, True)),
                         ("Lowest expected balance", money(min(o.p50)), money(min(m.p50)),
                          verdict(min(o.p50), min(m.p50), False)),
-                        ("Chance below $0", f"{o.below_zero_probability:.0%}",
-                         f"{m.below_zero_probability:.0%}",
+                        ("Chance below $0", f"{chance_text(o.below_zero_probability)}",
+                         f"{chance_text(m.below_zero_probability)}",
                          verdict(o.below_zero_probability, m.below_zero_probability, True)),
                         (f"Balance on {fmt_day(o.days[-1])}", money(o.p50[-1]), money(m.p50[-1]),
                          verdict(o.p50[-1], m.p50[-1], False)),

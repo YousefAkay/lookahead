@@ -69,6 +69,7 @@ from lookahead.budgets import (  # noqa: E402
     shown_categories,
     waiting_proposals,
 )
+from lookahead.chance import chance_text
 from lookahead.corrections import (  # noqa: E402
     correct_row,
     merchant_fingerprints,
@@ -227,8 +228,9 @@ if is_demo():
                  f"{money(p.limit_cents)} limit.")  # fmt: skip
             continue
         warn(
-            f"Possible overspend in {p.category}: in {p.chance_over:.0%} of simulated futures you "
-            f"end the month above your {money(p.limit_cents)} budget (an estimate)."
+            f"Possible overspend in {p.category}: in "
+            f"{chance_text(p.chance_over)} of simulated futures you end the month above your "
+            f"{money(p.limit_cents)} budget (an estimate)."
         )
 else:
     record_look(conn, account, month, first_day)
@@ -284,7 +286,7 @@ for s in shown:
             chance = tag_html(ALREADY_OVER, "warn")
         else:
             kind = "warn" if pace.chance_over > PROBABILITY_THRESHOLD else "neutral"
-            chance = tag_html(f"{pace.chance_over:.0%} chance of going over", kind)
+            chance = tag_html(f"{chance_text(pace.chance_over)} chance of going over", kind)
         st.markdown(
             '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">'
             f"<h2>{html.escape(s.category)}</h2>{chance}</div>",
@@ -322,8 +324,8 @@ for s in shown:
         b.metric("Limit", money(pace.limit_cents))
         c, d = st.columns(2)
         c.metric("Likely end of month", money(pace.likely_end_cents))
-        d.metric("Chance of going over",
-                 "Already over" if pace.already_over else f"{pace.chance_over:.0%}")  # fmt: skip
+        over = "Already over" if pace.already_over else chance_text(pace.chance_over)
+        d.metric("Chance of going over", over)
         st.plotly_chart(budget_chart(pace.spent_cents, pace.likely_end_cents, pace.limit_cents),
                         key=f"bu_chart_{s.category}", config={"displayModeBar": False})  # fmt: skip
         if pace.spent_cents < 0:
@@ -443,11 +445,11 @@ if month.paces:
         )
         now, kept = st.columns(2)
         now.metric("As things are now: lowest balance", money(result.low_now_cents))
-        now.metric("Chance of dipping below your buffer", f"{result.chance_now:.0%}")
+        now.metric("Chance of dipping below your buffer", chance_text(result.chance_now))
         kept.metric("On budget: lowest balance", money(result.low_on_budget_cents),
                     delta=money(result.low_on_budget_cents - result.low_now_cents, signed=True)
                     if result.low_on_budget_cents != result.low_now_cents else None)  # fmt: skip
-        kept.metric("Chance of dipping below your buffer", f"{result.chance_on_budget:.0%}")
+        kept.metric("Chance of dipping below your buffer", chance_text(result.chance_on_budget))
         note(
             "The next 30 days, the middle future's lowest balance. On budget: in each future, "
             "spending in each budgeted category stops at its limit for the rest of this month; "

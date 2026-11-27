@@ -29,6 +29,7 @@ from app.theme import (  # noqa: E402
     tag_html,
     top_bar,
 )
+from lookahead.chance import chance_text
 from lookahead.db import connect  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_alerts import message, record_look  # noqa: E402
@@ -214,7 +215,7 @@ with st.container(border=True, key="card-alerts"):
         st.markdown("No new alerts.")
     for e in summary.shortfall:
         st.markdown(
-            f"Possible shortfall (opened {fmt_date(e.opened_on)}): {e.probability:.0%} of "
+            f"Possible shortfall (opened {fmt_date(e.opened_on)}): {chance_text(e.probability)} of "
             f"simulated futures dipped below your {money(e.buffer_cents, markdown=True)} buffer; "
             f"the middle future's lowest balance was an estimate of about "
             f"{money(e.low_cents, markdown=True)} around {fmt_date(e.low_day)}."

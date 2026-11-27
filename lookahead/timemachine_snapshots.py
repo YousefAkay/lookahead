@@ -28,6 +28,7 @@ from typing import Any
 import pandas as pd
 import plotly.graph_objects as go
 
+from lookahead.chance import chance_text
 from lookahead.db import connect, connect_readonly
 from lookahead.forecast.path import build_forecast
 from lookahead.forecast.scenario import ExtraItem, Scenario, ScenarioResult, run_scenario
@@ -213,8 +214,8 @@ def alert_view(step: dict[str, Any]) -> AlertView:
         return AlertView("warning", "Possible shortfall", sentence, status)
     chance = step["shortfall_probability"]
     if chance > 0:
-        sentence = (f"Only {chance:.0%} of simulated futures dip below the {buffer} buffer: not "
-                    "enough to alert.")  # fmt: skip
+        sentence = (f"Only {chance_text(chance)} of simulated futures dip below the {buffer} "
+                    "buffer: not enough to alert.")  # fmt: skip
     else:
         sentence = f"No simulated future dips below the {buffer} buffer in the next 30 days."
     status = "No alert on this date." if not alert["active"] else "An earlier alert is still open."
@@ -238,8 +239,9 @@ def evidence_lines(step: dict[str, Any]) -> list[str]:
     lines = [
         f"Lowest balance in the middle future: {_dollars(ev['low_cents'])} on "
         f"{_day(ev['low_day'])}.",
-        f"Chance below the {_dollars(ev['buffer_cents'])} buffer: {ev['probability']:.0%} "
-        f"(without irregular deposits: {ev['probability_without_deposits']:.0%}); median lowest "
+        f"Chance below the {_dollars(ev['buffer_cents'])} buffer: {chance_text(ev['probability'])} "
+        f"(without irregular deposits: {chance_text(ev['probability_without_deposits'])}); "
+        f"median lowest "
         f"balance across the {ev['futures']} futures: {_dollars(ev['median_lowest_cents'])}.",
     ]
     for p in ev["largest_payments"]:

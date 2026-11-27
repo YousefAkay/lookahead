@@ -21,6 +21,7 @@ from lookahead.ask.offline import parse_question
 from lookahead.ask.plan import Aggregate, Compare, Plan, PlanError, Rows, check_phrases, parse
 from lookahead.ask.run import Context, Listing, Number, Outcome, Refusal, Table, run
 from lookahead.ask.words import EXAMPLES, MEASURE, period_words, step_ref
+from lookahead.chance import chance_text
 
 CANT_YET = "I can't answer that yet."
 
@@ -58,10 +59,6 @@ def ask_offline(question: str, ctx: Context) -> Asked:
 def dollars(cents: float | int) -> str:
     sign = "−" if cents < 0 else ""
     return f"{sign}${abs(cents) / 100:,.2f}"
-
-
-def _pct(share: float) -> str:
-    return f"{share:.0%}"
 
 
 def _rows_words(plan: Plan, name: str, matches: list[Match]) -> str:
@@ -159,16 +156,16 @@ def _forecast(r: ForecastAnswer) -> str:
     assert r.chance is not None and r.below_cents is not None
     what = "your buffer of " if r.below_is_buffer else ""
     n = round(r.chance * r.futures)
-    return (f"A {_pct(r.chance)} chance your balance goes below {what}{dollars(r.below_cents)} "
-            f"on some day up to {r.day:%b} {r.day.day} ({n} of {r.futures} simulated futures). "
-            "An estimate.")  # fmt: skip
+    return (f"A {chance_text(r.chance)} chance your balance goes below {what}"
+            f"{dollars(r.below_cents)} on some day up to {r.day:%b} {r.day.day} "
+            f"({n} of {r.futures} simulated futures). An estimate.")  # fmt: skip
 
 
 def _whatif(r: WhatIfAnswer) -> str:
     return (f"With the change, your lowest balance is forecast at {dollars(r.low_after_cents)} "
             f"instead of {dollars(r.low_now_cents)}, and the chance of going below your "
-            f"{dollars(r.buffer_cents)} buffer at {_pct(r.chance_after)} instead of "
-            f"{_pct(r.chance_now)} (the same {r.futures} simulated futures). "
+            f"{dollars(r.buffer_cents)} buffer at {chance_text(r.chance_after)} instead of "
+            f"{chance_text(r.chance_now)} (the same {r.futures} simulated futures). "
             "An estimate.")  # fmt: skip
 
 
@@ -177,8 +174,8 @@ def _budget_line(b: Any) -> str:
         return (f"{b.category}: you're already over this budget ({dollars(b.spent_cents)} spent "
                 f"of {dollars(b.limit_cents)}).")  # fmt: skip
     return (f"{b.category}: {dollars(b.spent_cents)} spent of {dollars(b.limit_cents)}; likely "
-            f"end of month about {dollars(b.likely_end_cents)}, a {_pct(b.chance_over)} chance "
-            "of going over (an estimate).")  # fmt: skip
+            f"end of month about {dollars(b.likely_end_cents)}, a "
+            f"{chance_text(b.chance_over)} chance of going over (an estimate).")  # fmt: skip
 
 
 # --- Tables ---
@@ -209,7 +206,7 @@ def result_table(r: Any) -> pd.DataFrame | None:
             "Limit ($)": [b.limit_cents / 100 for b in r.lines],
             "Spent so far ($)": [b.spent_cents / 100 for b in r.lines],
             "Likely end ($)": [b.likely_end_cents / 100 for b in r.lines],
-            "Chance over": [_pct(b.chance_over) for b in r.lines],
+            "Chance over": [chance_text(b.chance_over) for b in r.lines],
         })  # fmt: skip
     return None
 
