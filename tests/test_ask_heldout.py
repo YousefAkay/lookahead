@@ -7,7 +7,25 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 import eval.ask_heldout as held
+import eval.ask_personas as ask_personas
+import eval.ask_score as ask_score
+
+
+@pytest.fixture(scope="module")
+def persona_folder(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("ask_personas")
+
+
+@pytest.fixture(autouse=True)
+def personas_in_a_temp_folder(persona_folder: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The checks run plans on development personas, which the scorer builds into data/ask_eval
+    under the current folder by default. Here they go to a temporary folder instead, so tests
+    running in parallel never build or read the same file there."""
+    monkeypatch.setattr(ask_score, "build", lambda pid: ask_personas.build(pid, persona_folder))
+
 
 REFUSE = [{"op": "cannot_answer", "reason": "advice"}]
 CLARIFY = [{"op": "clarify", "about": "subject"}]

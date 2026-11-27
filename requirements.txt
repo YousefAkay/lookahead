@@ -6,6 +6,7 @@ pydantic==2.13.5
 streamlit==1.64.0
 plotly==7.1.0
 pytest==9.1.1
+pytest-xdist==3.8.0
 ruff==0.16.9
 # Week 2: classic ML (categorizer)
 scikit-learn==1.9.1
