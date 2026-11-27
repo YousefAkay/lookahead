@@ -214,5 +214,5 @@ def test_run_writes_a_marker_only_when_pytest_exits_0(repo: Path, body: str, cod
 
 
 def test_the_gate_runs_the_full_suite_in_parallel() -> None:
-    assert g.PYTEST_ARGS[-2:] == ("-n", "auto")
-    assert "-m" not in g.PYTEST_ARGS and "-k" not in g.PYTEST_ARGS  # nothing deselected
+    # exactly these: nothing deselected, no early stop, one worker per core
+    assert g.PYTEST_ARGS == ("-q", "-p", "no:cacheprovider", "-n", "auto")

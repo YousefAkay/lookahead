@@ -24,7 +24,9 @@ def personas_in_a_temp_folder(persona_folder: Path, monkeypatch: pytest.MonkeyPa
     """The checks run plans on development personas, which the scorer builds into data/ask_eval
     under the current folder by default. Here they go to a temporary folder instead, so tests
     running in parallel never build or read the same file there."""
-    monkeypatch.setattr(ask_score, "build", lambda pid: ask_personas.build(pid, persona_folder))
+    monkeypatch.setattr(
+        ask_score, "build", lambda pid, folder=persona_folder: ask_personas.build(pid, folder)
+    )
 
 
 REFUSE = [{"op": "cannot_answer", "reason": "advice"}]
