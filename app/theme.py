@@ -28,7 +28,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
 
-from app.navigation import section_links, section_of, tabs_of
+from app.navigation import menu_entries, section_links, section_of, tabs_of
 from lookahead.demo import (
     FIRST_ACCOUNT,
     VISIT_ID,
@@ -199,10 +199,12 @@ def top_bar_html(
     active: str, pages: list[tuple[str, str]], data_to: date | None, source: str, query: str = "",
     until: str | None = None,
 ) -> str:  # fmt: skip
-    """The green bar: wordmark, page links (the current page marked), the date the data runs to,
-    and which data is shown (Synthetic demo or My data). `query` ("data=...&account=...") is added
-    to every link: a link opens a new browser session, and the address is what carries the
-    data and account choice over."""
+    """The green bar: wordmark, page links (the current page marked), the date the data runs to
+    (my own data only), and on a phone a menu button listing every page. Which data is shown
+    (`source`) is the Data choice under the gear, not a chip in the bar. `query`
+    ("data=...&account=...") is added to every link: a link opens a new browser session, and the
+    address is what carries the data and account choice over. The gear itself is a Streamlit
+    popover (see `apply`), laid over the bar's right end."""
     suffix = f"?{query}" if query else ""
     section = section_of(active)
     links = []
@@ -214,15 +216,36 @@ def top_bar_html(
         until = f"Data to {fmt_date(data_to)}" if data_to is not None else "No data yet"
         if is_demo():  # the public demo: no data-date chip (my own data keeps it)
             until = ""
+    right = f'<div class="la-bar-right"><span class="la-until">{html.escape(until)}</span></div>'
     return (
         '<header class="la-bar"><div class="la-bar-inner">'
         f'<a href="{html.escape(in_app("/") + suffix)}" target="_self" class="la-brand">'
         f"{_MARK}Lookahead</a>"
         f'<nav aria-label="Main" class="la-nav">{"".join(links)}</nav>'
-        f'<div class="la-bar-right">'
-        + (f'<span class="la-until">{html.escape(until)}</span>' if until else "")
-        + f'<span class="la-source">{html.escape(source)}</span></div></div>'
+        + (right if until else "")
+        + f"{menu_html(active, query)}</div>"
         f"{section_tabs_html(active, query)}</header>"
+    )
+
+
+def menu_html(active: str, query: str = "") -> str:
+    """The phone menu: a button that opens a list of every page (sections, with the other pages of
+    their tab row indented), the current page marked. Plain HTML, no script: the button is the
+    label of a hidden checkbox, and the list shows while it is ticked, as a row of the bar itself
+    (so the bar grows to hold it). Shown only on narrow screens, where the bar's links and tab
+    rows are hidden."""
+    suffix = f"?{query}" if query else ""
+    items = []
+    for label, path, indented, name in menu_entries():
+        current = ' aria-current="page"' if name == active else ""
+        css = ' class="la-sub"' if indented else ""
+        href = html.escape(in_app(path) + suffix)
+        items.append(f'<a href="{href}" target="_self"{css}{current}>{html.escape(label)}</a>')
+    return (
+        '<input type="checkbox" id="la-menu-toggle" class="la-menu-check">'
+        '<label for="la-menu-toggle" class="la-menu"><span aria-hidden="true">&#9776;</span> '
+        "Menu</label>"
+        f'<nav aria-label="All pages" class="la-menu-list">{"".join(items)}</nav>'
     )
 
 
@@ -510,65 +533,93 @@ h2, h3 {{ font-size: 20px !important; font-weight: 800 !important; letter-spacin
 /* the block that carries this stylesheet takes no room (it would add a gap above the bar) */
 [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {{ display: none; }}
 
-/* the green top bar: the first block of the page, sticky at the top, so it takes its own height
-   (one row or three) and can never cover the title. A huge spread shadow, clipped above and
-   below, paints it across the full width while its content stays in the 1200px column. */
-[data-testid="stLayoutWrapper"]:has(> .st-key-topbar) {{ position: sticky; top: 0; z-index: 100;
-  margin-bottom: 8px; }}
+/* On Community Cloud, Streamlit's header holds Cloud's own toolbar (Fork and GitHub for a
+   visitor; Share, star, edit, Stop for the owner), whose width our code cannot know. So on the
+   hosted app the header becomes a thin green strip of its own above the bar, and nothing of ours
+   shares a row with it. Served locally the header is empty and hidden. */
+.stApp {{ --la-strip: 0px; }}
+.stApp:has([data-testid="stToolbarActions"] > *) {{ --la-strip: 44px; }}
+[data-testid="stHeader"] {{ position: fixed; top: 0; left: 0; right: 0; width: auto; z-index: 101;
+  height: var(--la-strip); min-height: 0; background: {COLORS.topbar}; display: flex;
+  align-items: center; justify-content: flex-end; padding: 0 16px; overflow: hidden;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12); }}
+.stApp:not(:has([data-testid="stToolbarActions"] > *)) [data-testid="stHeader"] {{
+  display: none; }}
+[data-testid="stToolbar"] {{ position: static; padding: 0; }}
+[data-testid="stToolbarActions"] button, [data-testid="stToolbarActions"] button * {{
+  color: {COLORS.white} !important; }}
+[data-testid="stMain"] {{ margin-top: var(--la-strip); max-height: calc(100% - var(--la-strip)); }}
+/* the settings live under the gear, not in Streamlit's side panel */
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"] {{ display: none !important; }}
+
+/* the green top bar: the first block of the page, sticky at the top of the scrolling area (below
+   Cloud's strip on the hosted app), so it takes its own height and can never cover the title. A
+   huge spread shadow, clipped above and below, paints it across the full width while its content
+   stays in the 1200px column. */
+[data-testid="stLayoutWrapper"]:has(> .st-key-topbar) {{ position: sticky; top: 0;
+  z-index: 100; margin-bottom: 8px; }}
 .st-key-topbar {{ background: {COLORS.topbar}; padding: 0; gap: 0;
   box-shadow: 0 0 0 100vmax {COLORS.topbar}; clip-path: inset(0 -100vmax); }}
 .la-bar {{ background: {COLORS.topbar}; color: {COLORS.white}; }}
-/* the header's buttons sit over the right end of the bar's first row, so the bar keeps that room
-   free: the gear alone (served locally), or the gear plus Community Cloud's own toolbar on the
-   hosted site (Fork and GitHub for a visitor; Share, star, edit and GitHub for the owner), about
-   48px per toolbar button. Without it the toolbar covered the account pill. */
-.stApp {{ --la-room: 60px; }}
-.stApp:has([data-testid="stToolbarActions"] > :nth-child(1)) {{ --la-room: 116px; }}
-.stApp:has([data-testid="stToolbarActions"] > :nth-child(2)) {{ --la-room: 164px; }}
-.stApp:has([data-testid="stToolbarActions"] > :nth-child(3)) {{ --la-room: 212px; }}
-.stApp:has([data-testid="stToolbarActions"] > :nth-child(4)) {{ --la-room: 260px; }}
-.stApp:has([data-testid="stToolbarActions"] > :nth-child(5)) {{ --la-room: 308px; }}
-.la-bar-inner {{ margin: 0; padding: 0 var(--la-room) 0 0; display: flex;
+/* the bar's right end is the gear's: 44px wide, plus a gap */
+.la-bar-inner {{ position: relative; margin: 0; padding: 0 60px 0 0; display: flex;
   flex-wrap: wrap; align-items: center; gap: 12px 28px; min-height: 64px; }}
 .la-brand {{ display: flex; align-items: center; gap: 10px; color: {COLORS.white} !important;
-  text-decoration: none !important; font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }}
+  text-decoration: none !important; font-weight: 800; font-size: 20px; letter-spacing: -0.02em;
+  white-space: nowrap; }}
 .la-nav {{ display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 auto; }}
 .la-nav a {{ color: {COLORS.topbar_text} !important; text-decoration: none !important;
-  font-weight: 600; font-size: 15px; padding: 8px 12px; border-radius: 8px; }}
+  font-weight: 600; font-size: 15px; padding: 8px 12px; border-radius: 8px; white-space: nowrap; }}
 .la-nav a:hover {{ background: rgba(255, 255, 255, 0.10); }}
 .la-nav a[aria-current="page"] {{ color: {COLORS.white} !important;
   background: rgba(255, 255, 255, 0.14); font-weight: 700; }}
-.la-bar-right {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
+.la-bar-right {{ display: flex; align-items: center; gap: 10px; }}
 /* the tab row of a section with several pages (Transactions, Forecast, How it works) */
-.la-tabs {{ display: flex; gap: 4px; padding: 0 0 10px; overflow-x: auto; scrollbar-width: none; }}
+.la-tabs {{ display: flex; flex-wrap: wrap; gap: 4px; padding: 0 0 10px; }}
 .la-tabs a {{ color: {COLORS.topbar_text} !important; text-decoration: none !important;
   font-weight: 600; font-size: 14px; padding: 6px 14px; border-radius: 999px;
   white-space: nowrap; }}
 .la-tabs a:hover {{ background: rgba(255, 255, 255, 0.10); }}
 .la-tabs a[aria-current="page"] {{ background: {COLORS.white}; color: {COLORS.topbar} !important;
   font-weight: 700; }}
-.la-until {{ font-size: 13px; color: {COLORS.topbar_text}; }}
-.la-source {{ font-size: 12px; font-weight: 700; background: {COLORS.white};
-  color: {COLORS.topbar}; padding: 4px 10px; border-radius: 999px; }}
+.la-until {{ font-size: 13px; color: {COLORS.topbar_text}; white-space: nowrap; }}
 
-/* the header holds only the settings button, drawn as a gear: it sits at the right end of the
-   green bar. The gear is a text character (U+2699, text style): no image, nothing fetched. */
-[data-testid="stHeader"] {{ position: fixed; top: 0; z-index: 101;
-  right: max(24px, calc((100vw - 1200px) / 2 + 24px));
-  left: auto; width: auto; height: 64px; background: transparent; display: flex;
-  align-items: center; }}
-[data-testid="stToolbar"] {{ position: static; padding: 0; }}
-[data-testid="stToolbar"] > div > div {{ min-width: 0 !important; width: auto !important;
-  flex: 0 0 auto; }}
-[data-testid="stToolbarActions"] {{ margin-left: 8px; }}
-[data-testid="stToolbarActions"] button, [data-testid="stToolbarActions"] button * {{
-  color: {COLORS.white} !important; }}
-[data-testid="stExpandSidebarButton"] {{ width: 44px; height: 44px; padding: 0;
-  background: rgba(255, 255, 255, 0.14); border-radius: 10px; display: flex;
+/* the phone menu (shown below 760px): a button (the label of a hidden checkbox) that opens the
+   list of every page as the bar's last row */
+.la-menu-check {{ position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }}
+.la-menu {{ display: none; margin: 0 0 0 auto; cursor: pointer; color: {COLORS.white};
+  font-weight: 700; font-size: 15px; padding: 10px 14px; border-radius: 10px; min-height: 44px;
+  box-sizing: border-box; background: rgba(255, 255, 255, 0.14); align-items: center; gap: 8px;
+  white-space: nowrap; user-select: none; }}
+.la-menu-check:focus-visible + .la-menu {{ outline: 3px solid {COLORS.white}; }}
+.la-menu-check:checked + .la-menu {{ background: {COLORS.white}; color: {COLORS.topbar}; }}
+.la-menu-list {{ display: none; flex: 1 1 100%; order: 10; flex-direction: column;
+  padding: 0 0 8px; }}
+.la-menu-check:checked ~ .la-menu-list {{ display: flex; }}
+.la-menu-list a {{ color: {COLORS.topbar_text} !important; text-decoration: none !important;
+  font-weight: 700; font-size: 16px; padding: 12px 8px; border-radius: 8px; }}
+.la-menu-list a.la-sub {{ font-weight: 600; font-size: 15px; padding-left: 28px; }}
+.la-menu-list a[aria-current="page"] {{ color: {COLORS.white} !important;
+  background: rgba(255, 255, 255, 0.14); }}
+
+/* the gear: Streamlit's popover button, laid over the right end of the bar's first row; its panel
+   drops down under it. The gear is a text character (U+2699, text style): nothing fetched. */
+[data-testid="stLayoutWrapper"]:has(> .st-key-la-gear), .st-key-la-gear {{ position: fixed;
+  top: calc(var(--la-strip) + 10px); right: max(24px, calc((100vw - 1200px) / 2 + 24px));
+  z-index: 102; width: auto; }}
+.st-key-la-gear button {{ width: 44px; height: 44px; min-height: 44px; padding: 0;
+  background: rgba(255, 255, 255, 0.14); border: 0; border-radius: 10px; display: flex;
   align-items: center; justify-content: center; }}
-[data-testid="stExpandSidebarButton"] span {{ display: none; }}
-[data-testid="stExpandSidebarButton"]::after {{ content: "\\2699\\FE0E"; color: {COLORS.white};
-  font-size: 22px; line-height: 1; }}
+.st-key-la-gear button:hover, .st-key-la-gear button:focus {{
+  background: rgba(255, 255, 255, 0.24); border: 0; }}
+.st-key-la-gear button > * {{ position: absolute !important; width: 1px; height: 1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; }}  /* read aloud, not shown */
+.st-key-la-gear button::after {{ content: "\\2699\\FE0E"; color: {COLORS.white}; font-size: 22px;
+  line-height: 1; }}
+[data-testid="stPopoverBody"] {{ width: min(380px, calc(100vw - 32px)); }}
+[data-testid="stPopoverBody"] [data-testid="stMetric"] {{ min-height: 0; padding: 14px 16px; }}
+[data-testid="stPopoverBody"] [data-testid="stMetricValue"] * {{ font-size: 26px !important; }}
 
 /* Streamlit's markdown block pulls the next block up by 1rem; an HTML block needs no such pull */
 [data-testid="stMarkdownContainer"] {{ margin-bottom: 0 !important; }}
@@ -631,35 +682,31 @@ button[data-variant="pills"][aria-pressed="true"] {{ border: 1.5px solid {COLORS
 [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button {{ min-height: 44px;
   font-weight: 700; }}
 
-/* the settings panel (Streamlit's sidebar), kept small and plain */
-[data-testid="stSidebar"] {{ border-right: 1px solid {COLORS.border}; }}
-[data-testid="stSidebar"][aria-expanded="true"] {{ width: 380px !important;
-  min-width: 380px !important; max-width: 100vw; }}
-[data-testid="stSidebar"] label, [data-testid="stSidebar"] label * {{ overflow-wrap: normal;
-  word-break: normal; white-space: normal; }}
-[data-testid="stSidebar"] [data-testid="stMetric"] {{ min-height: 0; padding: 14px 16px; }}
-[data-testid="stSidebar"] [data-testid="stMetricValue"] * {{ font-size: 26px !important;
-  white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; }}
 [data-testid="stAlert"] {{ border-radius: 14px; }}
 
 @media (max-width: 760px) {{
   [data-testid="stMainBlockContainer"] {{ padding: 0 16px 48px; }}
-  /* the five links stay on one row of their own and scroll sideways; the gear stays top right */
-  .la-nav {{ flex: 1 1 100%; order: 3; flex-wrap: nowrap; overflow-x: auto;
-    scrollbar-width: none; }}
-  .la-nav a {{ white-space: nowrap; }}
-  .la-bar-inner {{ padding: 12px var(--la-room) 12px 0; gap: 8px 16px; }}
-  [data-testid="stHeader"] {{ top: 10px; right: 16px; height: auto; }}
+  /* a phone: the wordmark, the menu button and the gear on one row; the menu lists every page,
+     so the links and tab rows of the bar are hidden and nothing scrolls sideways */
+  .la-nav, .la-tabs {{ display: none; }}
+  .la-menu {{ display: flex; }}
+  .la-bar-inner {{ padding: 10px 60px 10px 0; gap: 8px 12px; }}
+  .la-bar-right {{ display: none; }}
+  [data-testid="stLayoutWrapper"]:has(> .st-key-la-gear), .st-key-la-gear {{ right: 16px; }}
   [data-testid="stMetric"] {{ min-height: 0; padding: 16px; }}
   h1 {{ font-size: 28px !important; }}
 }}
-@media (max-width: 480px) {{
-  /* the wordmark row is as tall as the gear beside it, so the gear never covers a link; the data
-     date and source move under the links */
-  .la-brand {{ min-height: 56px; }}
-  .la-bar-right {{ flex: 1 1 100%; order: 4; }}
-}}
 """
+
+
+SETTINGS = "Settings"  # the gear's name (drawn as a gear by the CSS)
+_PANEL = "_la_settings_panel"  # this run's settings panel, made by apply()
+
+
+def panel() -> "st.delta_generator.DeltaGenerator":
+    """The settings panel: it drops down from the gear in the green bar, and pressing the gear
+    again (or clicking elsewhere) closes it. Every page's settings are drawn into it."""
+    return st.session_state[_PANEL]
 
 
 def apply(title: str) -> None:
@@ -670,6 +717,8 @@ def apply(title: str) -> None:
         initial_sidebar_state="collapsed",
     )  # fmt: skip
     st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
+    with st.container(key="la-gear"):  # laid over the right end of the green bar (CSS)
+        st.session_state[_PANEL] = st.popover(SETTINGS)  # its name is read aloud, not shown
     pio.templates.default = "lookahead"
     demo = enable_if_demo()
     if demo and "demo_visit" not in st.session_state:  # every page's links keep the visit,
@@ -709,21 +758,17 @@ REPO = "https://github.com/YousefAkay/lookahead"
 
 
 def demo_intro_html() -> str:
-    """Home's intro box on the public demo: made-up data first and largest, what the app does,
-    and that a visitor's clicks stay in their own copy."""
+    """Home's two lines on the public demo: what the app does, that a visitor's clicks stay in
+    their own copy, and the source code. The banner above already says the data is made up."""
     return (
-        f'<div class="la-demo-intro" role="note" style="background: {COLORS.amber_bg}; border: '
-        f"2px solid {COLORS.amber_line}; color: {COLORS.amber_dark}; border-radius: 12px; "
-        'padding: 14px 18px; margin: 6px 0 14px 0">'
-        '<p style="font-size: 22px; font-weight: 800; margin: 0 0 6px 0">MADE-UP DATA. Every '
-        "account, payment and balance here was generated for this demo; none of it is a real "
-        "person's money.</p>"
+        '<div class="la-demo-intro" role="note" style="margin: 2px 0 10px 0; font-size: 15px; '
+        f'color: {COLORS.muted}">'
         '<p style="margin: 0 0 4px 0">Lookahead forecasts a bank balance 30 days ahead, warns '
         "before it may dip below a safety buffer, shows the evidence behind each warning, and "
         "answers questions about the data.</p>"
-        '<p style="margin: 0">Click anything: your changes stay in your own copy and are deleted a '
-        "few hours after you leave (or use <strong>Start the demo again</strong> under the gear). "
-        f'<a href="{REPO}" target="_blank" rel="noopener" style="color: {COLORS.amber_link}">'
+        '<p style="margin: 0">Your changes stay in your own copy and are deleted a few hours after '
+        "you leave (or use <strong>Start the demo again</strong> under the gear). "
+        f'<a href="{REPO}" target="_blank" rel="noopener" style="color: {COLORS.green_dark}">'
         "Source code on GitHub</a>.</p></div>"
     )
 
@@ -799,14 +844,17 @@ def data_settings() -> tuple[str, bool]:
     side_label("Data")
     sources = data_sources()
     seed_choice("data_source", sources)
-    source = st.sidebar.radio("Data", sources, label_visibility="collapsed", key="data_source")
+    source = panel().radio("Data", sources, label_visibility="collapsed", key="data_source")
     seed_choice("pseudonymize")
-    pseudonymize = st.sidebar.toggle(
-        "Pseudonymize text", key="pseudonymize",
-        help="Hides people's names and reference numbers; business names stay readable.",
-    )  # fmt: skip
+    if is_demo():  # made-up data has no real names to hide: no switch to show
+        pseudonymize = bool(st.session_state["pseudonymize"])
+    else:
+        pseudonymize = panel().toggle(
+            "Pseudonymize text", key="pseudonymize",
+            help="Hides people's names and reference numbers; business names stay readable.",
+        )  # fmt: skip
     if is_demo():
-        st.sidebar.button(
+        panel().button(
             "Start the demo again", on_click=_start_again,
             help="Throws away your changes and gives you a fresh copy of the made-up data.",
         )  # fmt: skip
@@ -854,15 +902,15 @@ def account_setting(names: list[str]) -> str:
     seed_choice("account", names)
     if is_demo() and "account" not in st.session_state and FIRST_ACCOUNT in names:
         st.session_state["account"] = FIRST_ACCOUNT  # the public demo opens on its warning
-    account = st.sidebar.selectbox("Account", names, label_visibility="collapsed", key="account")
+    account = panel().selectbox("Account", names, label_visibility="collapsed", key="account")
     save_choices()
     return account
 
 
 def side_label(text: str) -> None:
     """A small section label in the settings panel."""
-    st.sidebar.markdown(f'<p class="la-note"><strong>{html.escape(text)}</strong></p>',
-                        unsafe_allow_html=True)  # fmt: skip
+    panel().markdown(f'<p class="la-note"><strong>{html.escape(text)}</strong></p>',
+                     unsafe_allow_html=True)  # fmt: skip
 
 
 def chart_legend_html(buffer_cents: int) -> str:

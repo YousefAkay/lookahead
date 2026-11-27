@@ -22,6 +22,7 @@ from app.theme import (  # noqa: E402
     data_settings,
     demo_database,
     footer,
+    panel,
     show_table,
     top_bar,
 )
@@ -100,7 +101,7 @@ settings = (
     if source == "Synthetic demo"
     else load_settings(private_dir / "eval" / "categorizer_choice.json")
 )
-if st.sidebar.button(
+if panel().button(
     "Retrain the model",
     help="Learns from your corrections with the saved settings, then refreshes every "
     "category. Rows held out for evaluation are never used.",
@@ -127,13 +128,13 @@ if "retrained" in st.session_state:
     st.success(st.session_state.pop("retrained"))
 
 # --- LLM fallback: opt-in, off by default ---
-st.sidebar.divider()
+panel().divider()
 if source == "Synthetic demo":
-    st.sidebar.caption("LLM fallback: not offered for the synthetic demo.")
+    panel().caption("LLM fallback: not offered for the synthetic demo.")
 else:
     on = llm_fallback.is_on(conn)
     has_key = llm_fallback.has_api_key()
-    wanted = st.sidebar.toggle(
+    wanted = panel().toggle(
         "LLM fallback for new merchants",
         value=on,
         disabled=not (on or (has_key and fallback_key is not None)),
@@ -143,9 +144,9 @@ else:
         key="llm_fallback",
     )
     if not has_key:
-        st.sidebar.caption("To use it, add ANTHROPIC_API_KEY to your .env file.")
+        panel().caption("To use it, add ANTHROPIC_API_KEY to your .env file.")
     elif fallback_key is None:
-        st.sidebar.caption("It needs PSEUDONYM_KEY (to decide which names may be sent).")
+        panel().caption("It needs PSEUDONYM_KEY (to decide which names may be sent).")
     if wanted != on:
         llm_fallback.set_on(conn, wanted)
         if not wanted:  # back to the trained model's own answers
@@ -154,14 +155,14 @@ else:
     if on and fallback_key is not None:
         waiting = llm_fallback.not_asked_yet(conn, account, fallback_key, llm_cache)
         asked = len(llm_fallback.candidates(conn, account, fallback_key)) - len(waiting)
-        st.sidebar.caption(
+        panel().caption(
             f"{count(len(waiting), 'merchant name')} would be sent; "
             f"{asked} already answered and saved."
         )
         if waiting:
-            with st.sidebar.expander("Names that would be sent (shown only here)"):
+            with panel().expander("Names that would be sent (shown only here)"):
                 st.write(waiting)
-            if has_key and st.sidebar.button(f"Send {count(len(waiting), 'name')} to Claude"):
+            if has_key and panel().button(f"Send {count(len(waiting), 'name')} to Claude"):
                 try:
                     result = llm_fallback.apply(conn, account, fallback_key, llm_cache, send=True)
                 except Exception as e:  # show the kind of error only: a message may quote a name
@@ -176,7 +177,7 @@ else:
         elif asked:
             llm_fallback.apply(conn, account, fallback_key, llm_cache)  # saved answers only
     if "llm_note" in st.session_state:
-        st.sidebar.info(st.session_state.pop("llm_note"))
+        panel().info(st.session_state.pop("llm_note"))
 
 # --- Smarter categories (categorizer v2): one setup question, off until I answer yes ---
 smarter_categories.ask_once(conn, llm_fallback.has_api_key(), source == "Synthetic demo")
@@ -186,7 +187,7 @@ smarter_categories.settings_panel(
     lambda: categorize(conn, account, settings, model_dir=model_dir_for(db_path)),
 )  # fmt: skip
 
-show_all = st.sidebar.toggle(
+show_all = panel().toggle(
     "Show every merchant", value=False,
     help="Off: only merchants with a category to check. On: all of them, to correct any row.",
 )  # fmt: skip

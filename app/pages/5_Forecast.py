@@ -27,7 +27,7 @@ from app.theme import (  # noqa: E402
     chart_legend_html,
     choice_query,
     coming_up_html,
-    data_sources,
+    data_settings,
     demo_database,
     fit_y_range,
     fmt_date,
@@ -36,10 +36,10 @@ from app.theme import (  # noqa: E402
     humanize_dates,
     money,
     money_short,
+    panel,
     result_panel_html,
     safe_to_spend_card,
     scenario_legend_html,
-    seed_choice,
     show_table,
     side_label,
     style_forecast_chart,
@@ -101,11 +101,8 @@ WAITING = f"Simulating {N_FUTURES} futures… This takes a few seconds."
 apply("Forecast")
 bar = st.container(key="topbar")  # the green bar: drawn into once the data date is known
 
-# --- Settings (the sidebar): data, account, forecast settings ---
-side_label("Data")
-SOURCES = data_sources()  # synthetic only in demo mode
-seed_choice("data_source", SOURCES)
-source = st.sidebar.radio("Data", SOURCES, label_visibility="collapsed", key="data_source")
+# --- Settings (under the gear): data, account, forecast settings ---
+source, pseudonymize = data_settings()
 if source == "Synthetic demo":
     db_path = demo_database()
 else:
@@ -115,11 +112,6 @@ else:
         st.info(f"No database found at `{db_path}`. Import your exports first.")
         st.stop()
 
-seed_choice("pseudonymize")
-pseudonymize = st.sidebar.toggle(
-    "Pseudonymize text", key="pseudonymize",
-    help="Hides people's names and reference numbers; business names stay readable.",
-)  # fmt: skip
 try:
     stored_key: bytes | None = pseudonym_key()
 except PseudonymKeyError:
@@ -138,12 +130,12 @@ account = account_setting(names)
 
 side_label("Forecast settings")
 METHOD_LABELS = {"recent": "28-day average", "weekday": "Weekday average (8 weeks)"}
-method = st.sidebar.selectbox(
+method = panel().selectbox(
     "Everyday spending estimate", list(BASELINES), format_func=METHOD_LABELS.get,
     index=list(BASELINES).index("weekday"),
 )  # fmt: skip
-st.sidebar.metric("Safety buffer", money(safety_buffer_cents(conn)))
-with st.sidebar.form("buffer_form"):
+panel().metric("Safety buffer", money(safety_buffer_cents(conn)))
+with panel().form("buffer_form"):
     buffer_dollars = st.number_input(
         "New safety buffer ($)", min_value=0.0, step=50.0,
         value=safety_buffer_cents(conn) / 100, key="buffer",

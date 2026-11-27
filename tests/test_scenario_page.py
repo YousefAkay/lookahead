@@ -84,14 +84,14 @@ def test_an_empty_database_says_there_is_nothing_yet(isolated: Path) -> None:
     db.parent.mkdir()
     connect(db).close()  # the tables, no rows
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
-    at.sidebar.radio[0].set_value("My data").run()
+    at.radio[0].set_value("My data").run()
     assert not at.exception, at.exception
     assert any("no transactions yet" in str(i.value) for i in at.info)
 
 
 def test_no_database_says_how_to_import() -> None:
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
-    at.sidebar.radio[0].set_value("My data").run()
+    at.radio[0].set_value("My data").run()
     assert not at.exception, at.exception
     assert any("No database found" in str(i.value) for i in at.info)
 
@@ -99,7 +99,7 @@ def test_no_database_says_how_to_import() -> None:
 def test_the_one_off_day_starts_the_day_after_the_data(isolated: Path) -> None:
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
     conn = connect(isolated / "demo.db")
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     last = conn.execute(
         "SELECT MAX(posted_date) FROM transactions WHERE account = ?", (account,)
     ).fetchone()[0]
@@ -246,7 +246,7 @@ def test_the_end_date_defaults_to_90_days_after_the_data(isolated: Path) -> None
     """Definition of done 8."""
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
     conn = connect(isolated / "demo.db")
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     last = conn.execute(
         "SELECT MAX(posted_date) FROM transactions WHERE account = ?", (account,)
     ).fetchone()[0]
@@ -273,7 +273,7 @@ def test_a_listed_top_up_and_the_top_ups_field_show_a_warning(isolated: Path) ->
     refresh(conn, ACCOUNT)  # as the Recurring page does after a decision
     conn.close()
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
-    at.sidebar.radio[0].set_value("My data").run()
+    at.radio[0].set_value("My data").run()
     assert not at.exception, at.exception
     assert not at.warning
     at.number_input(key="sc_top_ups").set_value(300.0).run()
@@ -352,7 +352,7 @@ def test_switching_to_my_data_refills_every_prefilled_field(isolated: Path) -> N
             for k in expected}  # fmt: skip
     assert all(demo[k] != v for k, v in expected.items()), (demo, expected)
     at.number_input(key="sc_savings").set_value(5000.0)  # typed, sent with the switch below
-    at.sidebar.radio(key="data_source").set_value("My data").run()
+    at.radio(key="data_source").set_value("My data").run()
     assert not at.exception, at.exception
     after = {k: (at.date_input(key=k) if k == "sc_end" else at.number_input(key=k)).value
              for k in expected}  # fmt: skip

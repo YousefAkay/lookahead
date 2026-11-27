@@ -217,11 +217,13 @@ for page in pages:
     text = "\n".join(str(m.value) for m in at.markdown)
     out[page] = {"exception": [str(e.value) for e in at.exception],
                  "banner": BANNER in text, "safe to spend": "Safe to spend" in text,
-                 "intro": "MADE-UP DATA" in text,
+                 "intro": "Your changes stay in your own copy" in text,
+                 "all caps": "MADE-UP DATA" in text,
+                 "pseudonymize offered": any("Pseudonymize" in t.label for t in at.toggle),
                  "this computer": "worked out on this computer" in text,
                  "time machine dates": "As of " in text,
                  "real date": "Today is " in text or "but before today" in text,
-                 "my data offered": any("My data" in str(r.options) for r in at.sidebar.radio)}
+                 "my data offered": any("My data" in str(r.options) for r in at.radio)}
 out["private opened"] = sorted({p for p in opened if is_private(p)})
 out["env opened"] = sorted({p for p in opened if p.endswith(".env")})
 print(json.dumps(out))
@@ -251,6 +253,8 @@ def test_every_page_runs_in_demo_mode_without_env_and_never_opens_private_data(
         assert result["exception"] == [], (page, result["exception"])
         assert result["banner"], page
         assert not result["my data offered"], page
+        assert not result["all caps"], page  # made-up data is said once, by the slim banner
+        assert not result["pseudonymize offered"], page  # nothing to hide in made-up data
         assert not result["real date"], page  # "today" is the day after the demo data ends
     assert out["app/Home.py"]["safe to spend"]
     assert [page for page, result in out.items() if result["intro"]] == ["app/Home.py"]
@@ -300,8 +304,8 @@ first = page("app/Home.py")
 a = first.query_params["visit"]
 a = a[0] if isinstance(a, list) else a
 out["exceptions"] = [str(e.value) for e in first.exception]
-out["account"] = first.sidebar.selectbox[0].value
-out["reset button"] = [b.label for b in first.sidebar.button]
+out["account"] = first.selectbox[0].value
+out["reset button"] = [b.label for b in first.button]
 digest = hashlib.sha256(base.read_bytes()).hexdigest()
 conn = sqlite3.connect(visits / f"{a}.db")  # a change made by visitor A
 conn.execute("CREATE TABLE visitor_mark (x INTEGER)")
@@ -316,7 +320,7 @@ out["B differs"] = b != a
 out["B sees A's change"] = marked(b)
 out["base unchanged"] = hashlib.sha256(base.read_bytes()).hexdigest() == digest
 reset = page("app/Home.py", a)
-reset.sidebar.button[0].click().run()
+reset.button[0].click().run()
 out["A after reset"] = marked(a)
 tm = page("app/pages/6_Time_machine.py", a)  # a page that reads no demo database
 bar = " ".join(str(m.value) for m in tm.markdown if "la-bar" in str(m.value))

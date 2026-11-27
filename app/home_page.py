@@ -59,14 +59,13 @@ if source == "Synthetic demo":
 else:
     db_path = private_db_path()
 
-st.markdown(
-    "<h1>Lookahead</h1>"
+SUBTITLE = (
     '<p class="la-sub">A local-first cashflow planner: it reads your bank exports, forecasts '
-    "your balance 30 days ahead, and shows the evidence behind every warning.</p>",
-    unsafe_allow_html=True,
+    "your balance 30 days ahead, and shows the evidence behind every warning.</p>"
 )
-if is_demo():
-    st.markdown(demo_intro_html(), unsafe_allow_html=True)
+st.markdown(  # the demo's two lines say what the app does, so they replace the subtitle there
+    "<h1>Lookahead</h1>" + (demo_intro_html() if is_demo() else SUBTITLE), unsafe_allow_html=True
+)
 
 facts: list[tuple[str, str]] = []
 since_facts: list[tuple[str, str]] | None = None  # None: no marker yet

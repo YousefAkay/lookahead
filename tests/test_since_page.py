@@ -121,7 +121,7 @@ def test_got_it_sets_the_marker_then_new_rows_show_up(isolated: Path) -> None:
 
 def test_without_my_data_the_page_says_how_to_import() -> None:
     at = AppTest.from_file(str(PAGE), default_timeout=90).run()
-    at.sidebar.radio[0].set_value("My data").run()
+    at.radio[0].set_value("My data").run()
     assert not at.exception, at.exception
     assert any("No database found" in str(i.value) for i in at.info)
 

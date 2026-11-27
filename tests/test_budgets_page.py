@@ -75,7 +75,7 @@ def test_looks_right_saves_the_proposals_and_shows_the_budgets(isolated: Path) -
     text = text_of(at)
     assert "Budgets for September 2026" in text
     assert "Proposed limits" in text
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     button(at, "Looks right, accept all").click().run()
     assert not at.exception, at.exception
     conn = connect(isolated / "demo.db")
@@ -91,7 +91,7 @@ def test_looks_right_saves_the_proposals_and_shows_the_budgets(isolated: Path) -
 
 def test_an_edited_limit_is_saved(isolated: Path) -> None:
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     button(at, "Looks right, accept all").click().run()
     conn = connect(isolated / "demo.db")
     first = next(iter(load_limits(conn, account)))
@@ -122,7 +122,7 @@ def metric_for(at: AppTest, category: str, isolated: Path) -> float:
     from lookahead.budgets import BUDGETABLE
 
     conn = connect(isolated / "demo.db")
-    saved = load_limits(conn, at.sidebar.selectbox[0].value)
+    saved = load_limits(conn, at.selectbox[0].value)
     conn.close()
     order = [c for c in BUDGETABLE if saved.get(c)]
     spent = [m for m in at.metric if m.label == "Spent so far"]
@@ -147,7 +147,7 @@ def test_in_demo_mode_nothing_is_saved_and_the_line_is_not_stale(
               for p in sorted(SNAPSHOTS.glob("*.db"))}  # fmt: skip
     at = opened()
     assert STALE_NOTE not in text_of(at)  # demo "today" is the day after the data ends
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     button(at, "Looks right, accept all").click().run()
     assert not at.exception, at.exception
     assert "Spent so far" in {m.label for m in at.metric}  # accepted, in this session
@@ -164,7 +164,7 @@ def test_in_demo_mode_nothing_is_saved_and_the_line_is_not_stale(
 
 def test_a_budget_alert_is_recorded_and_can_be_dismissed(isolated: Path) -> None:
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     conn = connect(isolated / "demo.db")
     from lookahead.budgets import DEFAULT_CATEGORIES, set_limit
 
@@ -183,7 +183,7 @@ def test_a_budget_alert_is_recorded_and_can_be_dismissed(isolated: Path) -> None
 def test_a_turned_off_default_category_can_be_turned_back_on(isolated: Path) -> None:
     """N2: turning a default category off is never final; the add list offers it again."""
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     button(at, "Looks right, accept all").click().run()
     category = "Restaurants & cafés"
     (off,) = [b for b in at.button if b.key == f"bu_turnoff_{category}"]
@@ -209,7 +209,7 @@ def test_moving_a_whole_merchant_from_the_budget_view(isolated: Path) -> None:
     from lookahead.corrections import merchant_fingerprints
 
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     button(at, "Looks right, accept all").click().run()
     category = "Restaurants & cafés"
     rows_box = at.selectbox(key=f"bu_row_{category}")
@@ -247,7 +247,7 @@ def test_a_whole_merchant_move_on_a_rule_merchant_says_why(isolated: Path) -> No
     """Every Food delivery row of the demo personas is decided by a rule: the whole-merchant move
     changes nothing, and the page says so instead of doing nothing silently."""
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     button(at, "Looks right, accept all").click().run()
     category = "Food delivery"
     conn = connect(isolated / "demo.db")
@@ -272,7 +272,7 @@ def test_before_looks_right_the_limit_box_holds_the_proposal(isolated: Path) -> 
     from lookahead.budgets import budget_forecast, category_rows, proposals_for
 
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     conn = connect(isolated / "demo.db")
     f = budget_forecast(conn, account, futures=10)
     assert f is not None
@@ -289,7 +289,7 @@ def test_before_looks_right_the_limit_box_holds_the_proposal(isolated: Path) -> 
 
 def test_a_zero_limit_is_refused_with_a_message(isolated: Path) -> None:
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     category = "Food delivery"
     at.number_input(key=f"bu_typed_{category}").set_value(0.0)
     (save,) = [b for b in at.button if b.label == "Save limit" and category in str(b.form_id)]
@@ -355,7 +355,7 @@ def test_a_budget_already_over_says_so(isolated: Path) -> None:
     from lookahead.budgets import ALREADY_OVER, set_limit
 
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     conn = connect(isolated / "demo.db")
     set_limit(conn, account, "Restaurants & cafés", 100)  # $1: already spent more this month
     conn.close()
@@ -410,7 +410,7 @@ def test_a_row_whose_category_comes_from_its_series_is_not_moved_silently(isolat
     from lookahead.budgets import SERIES_NOTE
 
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     payment, _ = series_with_a_category(isolated, account)
     at = opened()
     button(at, "Looks right, accept all").click().run()
@@ -425,7 +425,7 @@ def test_a_whole_merchant_move_of_only_series_payments_moves_nothing(isolated: P
     """Every stored Fizz row is a payment of the series given a category: nothing is stored and
     the page says why, with the Recurring link."""
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     payment, _ = series_with_a_category(isolated, account)
     at = opened()
     button(at, "Looks right, accept all").click().run()
@@ -441,7 +441,7 @@ def test_a_whole_merchant_move_of_only_series_payments_moves_nothing(isolated: P
 def test_the_add_form_never_mentions_a_zero_limit(isolated: Path) -> None:
     """N4: the Add form fills in the proposal and refuses $0 like the cards."""
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     at.selectbox(key="bu_add_category").set_value("Groceries").run()
     notes = " ".join(str(m.value) for m in at.markdown)
     assert "Leave the limit" not in notes and "at &#36;0" not in notes
@@ -464,7 +464,7 @@ def test_home_says_youre_already_over_like_the_tab(isolated: Path) -> None:
 
     home = ROOT / "app" / "Home.py"
     at = AppTest.from_file(str(home), default_timeout=300).run()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     conn = connect(isolated / "demo.db")
     over = Pace("Shopping", 2_000, 3_000, 4_000, 1.0, 100, False, ())
     record_look(conn, account, BudgetMonth(date(2026, 9, 1), date(2026, 9, 14), 16, (over,)),
@@ -485,7 +485,7 @@ def test_a_mixed_whole_merchant_move_on_the_tab(isolated: Path) -> None:
     from lookahead.corrections import corrections
 
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     payment, merchant = series_with_a_category(isolated, account)
     conn = connect(isolated / "demo.db")
     in_series = {r[0] for r in conn.execute(
@@ -589,7 +589,7 @@ def test_refunds_larger_than_spending_show_as_minus_dollars_with_a_note(isolated
     from lookahead.budgets import REFUNDS_CHART_NOTE, REFUNDS_NOTE, set_limit
 
     at = opened()
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     conn = connect(isolated / "demo.db")
     with conn:  # a $500 Shopping refund this month: larger than the month's Shopping purchases
         conn.execute(

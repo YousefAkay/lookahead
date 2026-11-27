@@ -55,9 +55,13 @@ def test_the_bar_has_the_sections_in_order_with_the_current_one_marked(
 
 
 def test_settings_is_a_gear_not_a_word() -> None:
-    rule = theme.CSS[theme.CSS.index('stExpandSidebarButton"]::after') :].split("}", 1)[0]
+    """The gear is Streamlit's popover button, its name ("Settings") kept for screen readers but
+    drawn as the gear character."""
+    rule = theme.CSS[theme.CSS.index(".st-key-la-gear button::after") :].split("}", 1)[0]
     assert '"\\2699\\FE0E"' in rule  # the gear character, text style
-    assert "Settings" not in rule
+    hidden = theme.CSS[theme.CSS.index(".st-key-la-gear button > *") :].split("}", 1)[0]
+    assert "clip-path: inset(50%)" in hidden and "display: none" not in hidden  # still read aloud
+    assert theme.SETTINGS == "Settings"
     assert "url(" not in theme.CSS  # still nothing fetched
 
 
@@ -194,7 +198,7 @@ def test_home_shows_needs_a_look_without_running_the_forecast(
     at = AppTest.from_file(str(ROUTER), default_timeout=300).run()
     assert not at.exception, at.exception
     assert "Nothing needs a look" in text_of(at)
-    account = at.sidebar.selectbox[0].value
+    account = at.selectbox[0].value
     conn = connect(isolated / "demo.db")
     add_alerts(conn, account)
     conn.close()
@@ -211,7 +215,7 @@ def test_home_shows_needs_a_look_without_running_the_forecast(
 @pytest.mark.slow
 def test_the_demo_click_path_works(isolated: Path) -> None:
     at = AppTest.from_file(str(ROUTER), default_timeout=300).run()
-    at.sidebar.selectbox[0].set_value("synthetic-C").run()
+    at.selectbox[0].set_value("synthetic-C").run()
     assert not at.exception, at.exception
     assert "synthetic-C" in text_of(at)
     at.switch_page("pages/1_Transactions.py").run()
@@ -234,26 +238,28 @@ def test_the_demo_click_path_works(isolated: Path) -> None:
 # --- Narrow screens ---
 
 
-def test_on_a_narrow_screen_the_links_stay_on_one_row_and_scroll() -> None:
+def test_on_a_phone_a_menu_lists_every_page_and_nothing_scrolls_sideways() -> None:
     narrow = theme.CSS[theme.CSS.index("@media (max-width: 760px)") :]
-    nav = narrow[narrow.index(".la-nav {") :].split("}", 1)[0]
-    assert "flex-wrap: nowrap" in nav and "overflow-x: auto" in nav
-    assert "padding: 12px var(--la-room) 12px 0" in narrow  # room for the gear, pinned top right
-    smallest = theme.CSS[theme.CSS.index("@media (max-width: 480px)") :]
-    assert ".la-bar-right" in smallest and "order: 4" in smallest  # the date goes under the links
-    assert ".la-brand { min-height: 56px; }" in smallest  # the gear never covers a link
+    assert ".la-nav, .la-tabs { display: none; }" in narrow
+    assert ".la-menu { display: flex; }" in narrow
+    assert "overflow-x: auto" not in theme.CSS  # no row of the bar scrolls sideways
+    html = theme.top_bar_html("Scenario", theme.PAGES, None, "Synthetic demo", "data=x")
+    menu = html[html.index('class="la-menu-list"') :]
+    for page in APP_PAGES:
+        if page.tab is not None or page.url_path in ("", "Recurring", "Ask"):
+            assert f'href="{page.url_path or "./"}?data=x"' in menu, page.name
+    assert 'aria-current="page">Scenario<' in menu
 
 
-def test_the_bar_keeps_room_for_the_header_buttons_and_more_for_cloud_s_toolbar() -> None:
-    """Served locally the header holds only the gear; on Community Cloud its own toolbar (Fork,
-    GitHub; Share, star, edit for the owner) sits beside it and covered the account pill."""
+def test_on_the_hosted_app_cloud_s_toolbar_has_its_own_strip_above_the_bar() -> None:
+    """Community Cloud puts its own buttons (Fork, GitHub; Share, star, edit, Stop for the owner)
+    in Streamlit's header, at a width our code cannot know: they get a row of their own."""
     css = theme.CSS
-    assert ".stApp { --la-room: 60px; }" in css
-    rooms = [int(css.split(f"> :nth-child({n})) {{ --la-room: ", 1)[1].split("px", 1)[0])
-             for n in range(1, 6)]  # fmt: skip
-    assert rooms[0] > 60
-    assert all(b - a >= 44 for a, b in zip(rooms, rooms[1:], strict=False))  # 44px per button
-    assert "padding: 0 var(--la-room) 0 0" in css
+    assert ".stApp { --la-strip: 0px; }" in css
+    assert '.stApp:has([data-testid="stToolbarActions"] > *) { --la-strip: 44px; }' in css
+    assert "margin-top: var(--la-strip)" in css  # the page scrolls below the strip
+    assert "top: calc(var(--la-strip) + 10px)" in css  # the gear sits in the bar, not the strip
+    assert "--la-room" not in css
 
 
 @pytest.mark.slow

@@ -28,6 +28,7 @@ from app.theme import (  # noqa: E402
     footer,
     money_short,
     monthly_totals,
+    panel,
     payments_table_html,
     series_card_html,
     tag_html,
@@ -105,12 +106,12 @@ if not names:
     st.stop()
 account = account_setting(names)
 
-if st.sidebar.button("Detect again", help="Run the detection on the stored transactions."):
+if panel().button("Detect again", help="Run the detection on the stored transactions."):
     refresh(conn, account, stored_key)
     st.rerun()
 series = ensure_current(conn, account, stored_key)  # rebuilt first if older code or data
 record_look(conn, account, series)  # the alerts follow the data date: looking again adds nothing
-show_rejected = st.sidebar.toggle("Show the ones I rejected", value=False)
+show_rejected = panel().toggle("Show the ones I rejected", value=False)
 
 rows = transactions(conn, account)
 shown_rows = display_table(rows, display_key)

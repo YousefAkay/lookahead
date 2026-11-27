@@ -59,7 +59,7 @@ def test_the_card_shows_the_alert_and_dismiss_keeps_it_quiet(isolated: Path) -> 
     add_account(isolated / "demo.db")
     at = AppTest.from_file(str(RECURRING), default_timeout=60).run()
     assert not at.exception, at.exception
-    at.sidebar.selectbox[0].set_value(ACCOUNT).run()
+    at.selectbox[0].set_value(ACCOUNT).run()
     assert not at.exception, at.exception
     text = "\n".join(str(m.value) for m in at.markdown)
     assert "Needs a look" in text and "Expected payment not seen yet" in text

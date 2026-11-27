@@ -11,6 +11,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from app.theme import panel
 from lookahead import smarter_categories as smarter
 from lookahead.ui import count
 
@@ -41,8 +42,8 @@ def settings_panel(
     current = smarter.state(conn, has_key, demo)
     if current == "hidden":  # the synthetic demo: nothing shown, nothing changes
         return
-    st.sidebar.divider()
-    wanted = st.sidebar.toggle(
+    panel().divider()
+    wanted = panel().toggle(
         "Smarter categories for new merchants",
         value=current == "on",
         disabled=current == "needs key",
@@ -50,7 +51,7 @@ def settings_panel(
         key="smarter_categories",
     )
     if current == "needs key":
-        st.sidebar.caption(smarter.NEEDS_KEY)
+        panel().caption(smarter.NEEDS_KEY)
         return
     if wanted != (current == "on"):
         smarter.answer(conn, wanted)
@@ -60,7 +61,7 @@ def settings_panel(
     if current != "on" or key is None:
         return
     if not has_key:  # on, but the key is gone: what is needed, and no send button
-        st.sidebar.caption(smarter.NEEDS_KEY)
+        panel().caption(smarter.NEEDS_KEY)
     from lookahead import rag_categorizer
     from lookahead.llm_fallback import candidates
 
@@ -68,9 +69,9 @@ def settings_panel(
         rag_categorizer.apply(conn, account, key, cache)
 
     names = len(candidates(conn, account, key))
-    st.sidebar.caption(f"{count(names, 'new merchant name')} could be sent, with similar "
+    panel().caption(f"{count(names, 'new merchant name')} could be sent, with similar "
                        "labelled merchants and directory chains.")  # fmt: skip
-    if names and has_key and st.sidebar.button(f"Send {count(names, 'name')} to Haiku 4.5"):
+    if names and has_key and panel().button(f"Send {count(names, 'name')} to Haiku 4.5"):
         try:
             done = rag_categorizer.apply(conn, account, key, cache, send=True)
         except Exception as e:  # the kind of error only: a message may quote a name
@@ -86,4 +87,4 @@ def settings_panel(
             st.session_state["smarter_note"] = (none_usable if done.warning() else "") + note
         st.rerun()
     if "smarter_note" in st.session_state:
-        st.sidebar.info(st.session_state.pop("smarter_note"))
+        panel().info(st.session_state.pop("smarter_note"))

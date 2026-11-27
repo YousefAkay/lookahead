@@ -98,7 +98,7 @@ def _text(at: AppTest) -> str:
 
 def _page() -> AppTest:
     at = AppTest.from_file(str(TO_CHECK), default_timeout=60).run()
-    at.sidebar.radio[0].set_value("My data").run()
+    at.radio[0].set_value("My data").run()
     assert not at.exception, at.exception
     return at
 

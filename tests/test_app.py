@@ -52,7 +52,7 @@ def test_home_page_renders_with_the_disclaimer() -> None:
 
 def test_home_page_shows_the_status_and_links_to_the_main_pages(isolated: Path) -> None:
     at = run(HOME)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     text = page_text(at)
     assert "A local-first cashflow planner" in text
@@ -65,15 +65,15 @@ def test_home_page_shows_the_status_and_links_to_the_main_pages(isolated: Path) 
 
 def test_home_page_without_my_data_says_how_to_import(isolated: Path) -> None:
     at = run(HOME)
-    at.sidebar.radio[0].set_value("My data").run()
+    at.radio[0].set_value("My data").run()
     assert not at.exception, at.exception
     assert "python -m lookahead.ingest" in " ".join(str(i.value) for i in at.info)
 
 
 def test_transactions_page_defaults_to_the_synthetic_demo() -> None:
     at = run(TRANSACTIONS)
-    assert at.sidebar.radio[0].value == "Synthetic demo"
-    assert at.sidebar.selectbox[0].value == "synthetic-A"
+    assert at.radio[0].value == "Synthetic demo"
+    assert at.selectbox[0].value == "synthetic-A"
     assert len(at.dataframe[0].value) > 100
     assert "reconciliation OK" in page_text(at)
     assert "Not financial advice" in page_text(at)
@@ -81,8 +81,8 @@ def test_transactions_page_defaults_to_the_synthetic_demo() -> None:
 
 def test_pseudonymize_is_on_by_default() -> None:
     at = run(TRANSACTIONS)
-    assert at.sidebar.toggle[0].value is True
-    at.sidebar.selectbox[0].set_value("synthetic-C").run()
+    assert at.toggle[0].value is True
+    at.selectbox[0].set_value("synthetic-C").run()
     texts = at.dataframe[0].value["Text"]
     assert not texts.str.contains("Nadia").any()
     assert texts.str.contains("PERSON_").any()
@@ -90,8 +90,8 @@ def test_pseudonymize_is_on_by_default() -> None:
 
 def test_turning_pseudonymize_off_shows_raw_text() -> None:
     at = run(TRANSACTIONS)
-    at.sidebar.selectbox[0].set_value("synthetic-C").run()
-    at.sidebar.toggle[0].set_value(False).run()
+    at.selectbox[0].set_value("synthetic-C").run()
+    at.toggle[0].set_value(False).run()
     assert at.dataframe[0].value["Text"].str.contains("1/Nadia Haddad").any()
 
 
@@ -105,7 +105,7 @@ def test_search_narrows_the_table() -> None:
 
 def test_my_data_without_a_database_explains_how_to_import() -> None:
     at = run(TRANSACTIONS)
-    at.sidebar.radio[0].set_value("My data").run()
+    at.radio[0].set_value("My data").run()
     assert not at.exception
     assert "python -m lookahead.ingest" in page_text(at)
     assert len(at.dataframe) == 0
@@ -251,7 +251,9 @@ def test_transactions_page_shows_a_trimmed_table_and_the_rest_behind_details() -
     for hidden in ("Flow", "Flag", "From", "Type"):  # not in the trimmed table
         assert f">{hidden}<" not in html
     assert html.count("<tr") == 51  # the header and the first 50
-    assert not at.sidebar.text_input  # search and filters are on top, not in Settings
+    gear = next(b for b in at.main.children.values() if getattr(b, "type", "") == "flex_container")
+    assert not gear.text_input  # search and filters are on the page, not under the gear
+    assert at.text_input  # (the search box itself)
     assert [e.label for e in at.expander if e.label.startswith("Details")]
     assert len(at.dataframe[0].value) > 100  # every row, every column, behind Details
 
@@ -288,7 +290,7 @@ def test_to_check_page_says_so_when_nothing_is_flagged() -> None:
 
 def test_to_check_page_needs_a_confirmation_for_a_whole_merchant(isolated: Path) -> None:
     at = run(TO_CHECK)
-    at.sidebar.toggle[1].set_value(True).run()  # show every merchant
+    at.toggle[1].set_value(True).run()  # show every merchant
     merchants = [o for o in at.selectbox(key="merchant").options if "no merchant" not in o]
     pick = next(o for o in merchants if o.startswith("Maxi"))
     at.selectbox(key="merchant").select(pick).run()
@@ -307,7 +309,7 @@ def test_to_check_page_needs_a_confirmation_for_a_whole_merchant(isolated: Path)
 
 def test_to_check_page_refuses_a_category_that_contradicts_the_flow(isolated: Path) -> None:
     at = run(TO_CHECK)
-    at.sidebar.toggle[1].set_value(True).run()
+    at.toggle[1].set_value(True).run()
     pick = next(o for o in at.selectbox(key="merchant").options if o.startswith("Maxi"))
     at.selectbox(key="merchant").select(pick).run()
     before = demo_categories(isolated)
@@ -322,7 +324,7 @@ def test_to_check_page_refuses_a_category_that_contradicts_the_flow(isolated: Pa
 
 def test_retrain_button_reports_what_changed(isolated: Path) -> None:
     at = run(TO_CHECK)
-    at.sidebar.toggle[1].set_value(True).run()
+    at.toggle[1].set_value(True).run()
     button(at, "Retrain the model").click().run()
     assert "Retrained on" in page_text(at) and "changed category" in page_text(at)
     assert not list(isolated.glob("**/*.joblib"))  # the demo model is not kept
@@ -367,7 +369,7 @@ def test_llm_fallback_is_off_by_default_and_sends_only_on_click(
     monkeypatch.setattr(llm, "make_client", lambda *_: client)
 
     at = AppTest.from_file(str(TO_CHECK), default_timeout=300).run()
-    at.sidebar.radio[0].set_value("My data").run()
+    at.radio[0].set_value("My data").run()
     assert not at.exception, at.exception
     toggle = at.toggle(key="llm_fallback")
     assert toggle.value is False and client.requests == []  # off by default
@@ -422,7 +424,7 @@ def open_series(at: AppTest, name: str) -> None:
 
 def test_recurring_page_lists_detected_series_with_their_evidence(isolated: Path) -> None:
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     cards = series_cards(at)
     series = stored_series(isolated, "synthetic-B")
@@ -440,7 +442,7 @@ def test_recurring_page_lists_detected_series_with_their_evidence(isolated: Path
 
 def test_recurring_page_confirms_rejects_and_adds(isolated: Path) -> None:
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     first_key = at.session_state["series"]
 
     def status() -> str:
@@ -479,7 +481,7 @@ def test_looks_right_confirm_all_confirms_every_detected_series_and_logs_each(
     from lookahead.recurring_store import load_decisions
 
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     before = stored_series(isolated, "synthetic-B")
     assert {s.status for s in before.values()} == {"detected"} and len(before) == 6
     button(at, "Looks right, confirm all").click().run()  # one click
@@ -517,12 +519,12 @@ def test_recurring_page_hides_a_persons_name_when_pseudonymizing(isolated: Path)
     refresh(conn, "synthetic-B", bytes(range(32)))
     conn.close()
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     cards = " ".join(series_cards(at))
     assert "(hidden)" in cards and "Jane" not in cards
     assert "Rent share" in cards  # a name I typed myself stays
     assert not any("Jane" in b.label for b in at.button)
-    at.sidebar.toggle[0].set_value(False).run()
+    at.toggle[0].set_value(False).run()
     assert "Jane Doe" in " ".join(series_cards(at))
 
 
@@ -531,7 +533,7 @@ def test_recurring_page_hides_a_persons_name_when_pseudonymizing(isolated: Path)
 
 def test_edit_form_shows_the_selected_series_values(isolated: Path) -> None:
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     series = stored_series(isolated, "synthetic-B")
     seen = set()
     for name in [
@@ -551,7 +553,7 @@ def test_edit_form_shows_the_selected_series_values(isolated: Path) -> None:
 
 def test_the_edit_form_is_closed_until_asked_for(isolated: Path) -> None:
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     key = at.session_state["series"]
     assert not [d for d in at.date_input if d.key == f"next_date|{key}"]
     button(at, "Edit").click().run()
@@ -560,7 +562,7 @@ def test_the_edit_form_is_closed_until_asked_for(isolated: Path) -> None:
 
 def test_a_confirmed_fixed_series_can_get_a_category(isolated: Path) -> None:
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     open_series(at, "Netflix")
     key = at.session_state["series"]
     assert not [s for s in at.selectbox if s.key == f"series_category|{key}"]  # not confirmed yet
@@ -577,21 +579,21 @@ def test_a_confirmed_fixed_series_can_get_a_category(isolated: Path) -> None:
 
 def test_a_series_shows_an_estimated_category_until_i_choose_one(isolated: Path) -> None:
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert any("(estimate)" in card for card in series_cards(at))
     assert "Data to " in page_text(at)  # the top bar's date chip
 
 
 def test_the_top_bar_links_carry_the_account_so_the_next_page_opens_on_it(isolated: Path) -> None:
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-C").run()
+    at.selectbox[0].set_value("synthetic-C").run()
     text = page_text(at)
     assert 'href="Forecast?data=Synthetic+demo&amp;account=synthetic-C&amp;text=1"' in text
 
 
 def test_a_confirmed_series_can_get_a_rent_rule_form_and_a_category(isolated: Path) -> None:
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     open_series(at, "Netflix")
     key = at.session_state["series"]
     assert not [t for t in at.text_input if t.key == f"rent_amounts|{key}"]  # not confirmed yet
@@ -604,13 +606,13 @@ def test_the_page_refreshes_an_older_saved_copy_by_itself(isolated: Path) -> Non
     from lookahead.recurring_store import cache_current
 
     at = run(RECURRING)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     conn = connect(isolated / "demo.db")
     with conn:  # as if the saved copy came from an older version of the code
         conn.execute("UPDATE recurring_cache_info SET version = -1")
     assert not cache_current(conn, "synthetic-B")
     conn.close()
-    run(RECURRING).sidebar.selectbox[0].set_value("synthetic-B").run()
+    run(RECURRING).selectbox[0].set_value("synthetic-B").run()
     conn = connect(isolated / "demo.db")
     assert cache_current(conn, "synthetic-B")
     conn.close()
@@ -625,7 +627,7 @@ def test_forecast_page_shows_the_start_the_assumptions_and_the_placed_payments(
     isolated: Path,
 ) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     text = page_text(at)
     assert "Data to " in text and "the day after the data ends" in text
@@ -646,14 +648,14 @@ def test_forecast_page_says_so_when_no_income_is_assumed(isolated: Path) -> None
     from lookahead.recurring_store import ensure_current, reject
 
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     conn = connect(isolated / "demo.db")
     for s in ensure_current(conn, "synthetic-B"):
         if s.direction == "in":
             reject(conn, "synthetic-B", s)  # no income series left
     conn.close()
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert "no regular income found; irregular deposits estimated from your history" in page_text(
         at
     )
@@ -661,28 +663,28 @@ def test_forecast_page_says_so_when_no_income_is_assumed(isolated: Path) -> None
 
 def test_the_safety_buffer_can_be_changed_and_is_kept(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     at.number_input(key="buffer").set_value(500.0)
-    at.sidebar.button[0].click().run()  # "Save buffer"
+    at.button[0].click().run()  # "Save buffer"
     assert not at.exception, at.exception
     assert metric(at, "Safety buffer") == "$500.00"
     again = run(FORECAST)
-    again.sidebar.selectbox[0].set_value("synthetic-B").run()
+    again.selectbox[0].set_value("synthetic-B").run()
     assert metric(again, "Safety buffer") == "$500.00"
 
 
 def test_forecast_page_can_switch_the_spending_baseline(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert "average for each weekday" in page_text(at)
-    at.sidebar.selectbox[1].set_value("recent").run()
+    at.selectbox[1].set_value("recent").run()
     assert not at.exception, at.exception
     assert "average of the last 28 days" in page_text(at)
 
 
 def test_forecast_page_shows_what_is_in_everyday_spending(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     assert "adds these up over the weekdays" in page_text(at)
     tables = [d.value for d in at.dataframe if "Per week" in d.value.columns]
@@ -691,7 +693,7 @@ def test_forecast_page_shows_what_is_in_everyday_spending(isolated: Path) -> Non
 
 def test_forecast_page_lists_the_big_one_time_events_it_leaves_out(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     text = page_text(at)
     assert "Big one-time rows" in text  # the explanation, whether or not there are any
@@ -719,7 +721,7 @@ def insert_rows(db: Path, rows: list[tuple[str, int, str, str]]) -> None:
 def test_forecast_page_says_what_keeps_coming_is_drawn_and_lists_what_is_not_placed(
     isolated: Path,
 ) -> None:
-    run(FORECAST).sidebar.selectbox[0].set_value("synthetic-B").run()  # builds the demo database
+    run(FORECAST).selectbox[0].set_value("synthetic-B").run()  # builds the demo database
     yoga = [
         (
             (date(2026, 7, 2) + timedelta(weeks=k)).isoformat(),
@@ -733,7 +735,7 @@ def test_forecast_page_says_what_keeps_coming_is_drawn_and_lists_what_is_not_pla
            (("2026-06-20", 400000), ("2026-08-04", 350000), ("2026-09-08", 420000))]  # fmt: skip
     insert_rows(isolated / "demo.db", yoga + big)
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     text = page_text(at)
     assert "1 recurring-size deposit" in text and "drawn as random arrivals" in text
@@ -746,14 +748,14 @@ def test_the_transactions_page_refreshes_an_older_saved_copy_too(isolated: Path)
     from lookahead.recurring_store import cache_current
 
     first = run(RECURRING)  # builds the demo database and the saved series
-    first.sidebar.selectbox[0].set_value("synthetic-B").run()
+    first.selectbox[0].set_value("synthetic-B").run()
     conn = connect(isolated / "demo.db")
     with conn:  # as if the saved copy came from an older version of the code
         conn.execute("UPDATE recurring_cache_info SET version = -1")
     assert not cache_current(conn, "synthetic-B")
     conn.close()
     page = run(TRANSACTIONS)
-    page.sidebar.selectbox[0].set_value("synthetic-B").run()
+    page.selectbox[0].set_value("synthetic-B").run()
     assert not page.exception, page.exception
     conn = connect(isolated / "demo.db")
     assert cache_current(conn, "synthetic-B")
@@ -762,7 +764,7 @@ def test_the_transactions_page_refreshes_an_older_saved_copy_too(isolated: Path)
 
 def test_forecast_page_shows_the_shortfall_probability_plainly(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     text = page_text(at)
     assert "below your" in text  # the callout sentence
@@ -783,7 +785,7 @@ def test_forecast_page_asks_for_a_planned_deposit_only_when_large_deposits_were_
         "You sometimes receive large deposits. If you expect one, add it as a planned deposit."
     )
     without = run(FORECAST)  # also builds the demo database
-    without.sidebar.selectbox[0].set_value("synthetic-B").run()
+    without.selectbox[0].set_value("synthetic-B").run()
     assert not without.exception, without.exception
     assert sentence not in page_text(without)
     conn = connect(isolated / "demo.db")
@@ -796,7 +798,7 @@ def test_forecast_page_asks_for_a_planned_deposit_only_when_large_deposits_were_
         )
     conn.close()
     with_deposit = run(FORECAST)
-    with_deposit.sidebar.selectbox[0].set_value("synthetic-B").run()
+    with_deposit.selectbox[0].set_value("synthetic-B").run()
     assert not with_deposit.exception, with_deposit.exception
     assert sentence in page_text(with_deposit)
     wanted = ["Date", "Type", "Amount ($)", "What"]  # the big events table, not the deposit weeks
@@ -816,7 +818,7 @@ def test_a_planned_payment_can_be_added_and_shows_in_the_forecast_as_entered(
     isolated: Path,
 ) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     day = at.date_input(key="planned_date").value  # the default is the first forecast day
     add_planned_item(at, day, "Money out", 500.0, "Concert tickets")
     assert not at.exception, at.exception
@@ -830,7 +832,7 @@ def test_a_planned_payment_can_be_added_and_shows_in_the_forecast_as_entered(
 
 def test_a_planned_deposit_is_money_in(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     day = at.date_input(key="planned_date").value
     add_planned_item(at, day, "Money in", 2000.0, "Family, for the term")
     planned = next(d.value for d in at.dataframe if "Entered on" in d.value.columns)
@@ -839,7 +841,7 @@ def test_a_planned_deposit_is_money_in(isolated: Path) -> None:
 
 def test_a_planned_item_can_be_removed(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     day = at.date_input(key="planned_date").value
     add_planned_item(at, day, "Money out", 500.0, "Concert tickets")
     button(at, "Remove planned item").click().run()
@@ -850,7 +852,7 @@ def test_a_planned_item_can_be_removed(isolated: Path) -> None:
 
 def test_a_planned_item_with_no_description_is_refused(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     day = at.date_input(key="planned_date").value
     add_planned_item(at, day, "Money out", 500.0, "   ")
     assert "Could not save" in " ".join(str(w.value) for w in at.warning)
@@ -859,7 +861,7 @@ def test_a_planned_item_with_no_description_is_refused(isolated: Path) -> None:
 
 def test_forecast_page_shows_whats_in_irregular_deposits_week_by_week(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-C").run()  # a persona that receives deposits
+    at.selectbox[0].set_value("synthetic-C").run()  # a persona that receives deposits
     assert not at.exception, at.exception
     assert "picks one of the weeks below at random" in page_text(at)
     tables = [
@@ -874,7 +876,7 @@ def test_forecast_page_shows_whats_in_irregular_deposits_week_by_week(isolated: 
 
 def scenario_page() -> AppTest:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     return at
 
@@ -995,7 +997,7 @@ def test_review_page_has_the_top_bar_with_the_data_date(isolated: Path) -> None:
 
 def test_to_check_page_has_the_top_bar_and_a_plain_table(isolated: Path) -> None:
     at = run(TO_CHECK)
-    at.sidebar.toggle[1].set_value(True).run()  # show every merchant
+    at.toggle[1].set_value(True).run()  # show every merchant
     text = page_text(at)
     assert "Data to " in text and 'aria-current="page">To check<' in text
     table = at.dataframe[0].value
@@ -1028,7 +1030,7 @@ def alert_episodes(tmp_path: Path, account: str) -> list:  # type: ignore[type-a
 
 def alert_page(account: str) -> AppTest:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value(account).run()
+    at.selectbox[0].set_value(account).run()
     assert not at.exception, at.exception
     return at
 
@@ -1099,7 +1101,7 @@ def test_past_episodes_are_listed(isolated: Path) -> None:
     dismiss(conn, "synthetic-C", episode.episode_id, date(2026, 10, 2))
     conn.close()
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-C").run()
+    at.selectbox[0].set_value("synthetic-C").run()
     text = page_text(at)
     assert "Earlier and dismissed alerts" in text and "Dismissed" in text
 
@@ -1115,7 +1117,7 @@ def test_review_page_warns_about_screenshots_only_for_my_data(isolated: Path) ->
 
 def test_forecast_page_shows_safe_to_spend_beside_the_usual_spending(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     text = page_text(at)
     assert "Safe to spend" in text and "estimate" in text
@@ -1134,7 +1136,7 @@ def test_forecast_page_shows_safe_to_spend_beside_the_usual_spending(isolated: P
 
 def test_safe_to_spend_says_no_safe_amount_plainly_when_already_below(isolated: Path) -> None:
     at = run(FORECAST)
-    at.sidebar.selectbox[0].set_value("synthetic-A").run()  # starts below its buffer
+    at.selectbox[0].set_value("synthetic-A").run()  # starts below its buffer
     assert not at.exception, at.exception
     assert metric(at, "Everyday spending you can afford") == "No safe amount"
     assert "No safe amount" in page_text(at) and "$-" not in page_text(at)
@@ -1142,7 +1144,7 @@ def test_safe_to_spend_says_no_safe_amount_plainly_when_already_below(isolated: 
 
 def test_home_page_shows_safe_to_spend(isolated: Path) -> None:
     at = run(HOME)
-    at.sidebar.selectbox[0].set_value("synthetic-B").run()
+    at.selectbox[0].set_value("synthetic-B").run()
     assert not at.exception, at.exception
     assert "Safe to spend" in page_text(at)
     assert metric(at, "Your usual everyday spending").endswith("/day")

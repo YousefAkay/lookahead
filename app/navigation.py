@@ -70,3 +70,16 @@ def tabs_of(name: str) -> list[tuple[str, str, bool]]:
         return []
     return [(p.tab, path_of(p), p.name == name) for p in APP_PAGES
             if p.section == page.section and p.tab is not None]  # fmt: skip
+
+
+def menu_entries() -> list[tuple[str, str, bool, str]]:
+    """The phone menu's list of every page: (label, address, indented, page name). Each section
+    first (opening on its first page), then the other pages of its tab row, indented."""
+    out = []
+    for section in SECTIONS:
+        pages = [p for p in APP_PAGES if p.section == section]
+        first = pages[0]
+        out.append((section, path_of(first), False, first.name))
+        out += [(p.tab or p.name, path_of(p), True, p.name) for p in pages[1:]
+                if p.tab is not None]  # fmt: skip
+    return out
