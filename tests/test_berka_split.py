@@ -59,7 +59,9 @@ def test_the_split_does_not_move_when_the_rows_come_in_another_order() -> None:
 def test_a_held_out_account_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from eval import fresh_set
 
-    monkeypatch.setattr(fresh_set, "LIST_FILE", tmp_path / "none.json")  # made-up ids only
+    empty = tmp_path / "fresh.json"
+    empty.write_text("{}")
+    monkeypatch.setattr(fresh_set, "LIST_FILE", empty)  # made-up ids only
     path = tmp_path / "s.json"
     path.write_text(json.dumps({"primary_held_out": [7], "sensitivity_held_out": [9]}))
     with pytest.raises(ValueError):

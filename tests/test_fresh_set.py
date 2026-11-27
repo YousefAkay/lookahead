@@ -30,18 +30,54 @@ def test_every_development_only_check_refuses_them() -> None:
     assert not set(a.FRESH_IDS) & set(a.development_ids())
 
 
-def test_a_fresh_persona_is_new_draws_of_its_slot_and_always_the_same() -> None:
-    pid = a.FRESH_IDS[0]
+def _ids_in(persona: a.Persona) -> list[str]:
+    """Every id a persona's sources carry: series ids and link ids."""
+    out = [str(getattr(s, "series_id", "")) for s in persona.sources]
+    for s in persona.sources:
+        for item in getattr(s, "items", ()):
+            out.append(str(getattr(item, "link_id", "") or ""))
+    return [i for i in out if i]
+
+
+@pytest.mark.parametrize("pid", [a.FRESH_IDS[0], a.FRESH_LONG_IDS[0], a.FRESH_IDS[4],
+                                 a.FRESH_LONG_IDS[4]])  # fmt: skip
+def test_a_fresh_persona_always_the_same_and_carries_only_its_own_id(pid: str) -> None:
     one, two = a.build_fresh(pid), a.build_fresh(pid)
     assert one == two and one.held_out and one.persona.persona_id == pid
-    slot = a.build_persona(pid.replace(f"{a.FRESH_MIX}-", f"{a.MIX}-", 1))
-    assert one.archetype == slot.archetype and one.buffer_cents == slot.buffer_cents
-    assert one.persona.opening_balance_cents != slot.persona.opening_balance_cents  # new draws
-    long = a.build_fresh(a.FRESH_LONG_IDS[0])
-    assert long.start == a.LONG_START and long.persona.persona_id == a.FRESH_LONG_IDS[0]
-    assert not any(a.MIX + "-" in str(getattr(s, "series_id", "")) for s in long.persona.sources)
+    assert one.archetype == pid.split("-")[1]
+    assert one.buffer_cents == a.ARCHETYPES[one.archetype].buffer_cents
+    assert one.start == (a.LONG_START if a.is_long(pid) else a.START)
+    ids = _ids_in(one.persona)
+    assert ids and all(i.startswith(pid + "-") or i.startswith(pid) for i in ids), ids[:3]
+    assert not any(i.startswith(("v2-", "v2L-")) for i in ids)  # nothing of the old slot's id
     with pytest.raises(ValueError):
         a.build_fresh(a.PERSONA_IDS[0])
+
+
+def test_the_fresh_24_month_personas_count_as_24_month() -> None:
+    assert all(a.is_long(pid) for pid in a.FRESH_LONG_IDS)
+    assert not any(a.is_long(pid) for pid in a.FRESH_IDS)
+    assert [a.base_id(pid) for pid in a.FRESH_LONG_IDS] == list(a.FRESH_IDS)
+
+
+DEVELOPMENT_DIGEST = "9ef910667f0ed6f656fd6ddd2ab85758b511b1f6c9e6e258e39e1cd2741ecc97"
+
+
+@pytest.mark.slow
+def test_the_40_development_personas_are_unchanged(tmp_path: Path) -> None:
+    """The generator change for the fresh set leaves every development persona byte-identical
+    (the digest was taken before the change)."""
+    import hashlib
+
+    from lookahead.generator.writer import write_persona
+
+    parts = []
+    for pid in a.development_ids() + a.development_ids(long=True):
+        p = a.build_persona(pid)
+        export, key = write_persona(p.persona, tmp_path, 42, p.start, a.END)
+        parts.append(hashlib.sha256(export.read_bytes() + key.read_bytes()).hexdigest())
+    assert len(parts) == 40
+    assert hashlib.sha256("".join(parts).encode()).hexdigest() == DEVELOPMENT_DIGEST
 
 
 def test_the_berka_choice_skips_every_used_account_and_follows_the_new_salt() -> None:

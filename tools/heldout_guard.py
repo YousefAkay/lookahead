@@ -1,4 +1,7 @@
-"""The guard on Ask's held-out folder (spec docs/specs/2026-11-20-ask.md, step 9).
+"""The guard on Ask's held-out folder (spec docs/specs/2026-11-20-ask.md, step 9), and on the
+folder of forecaster v2's fresh held-out personas (eval/fresh_set.py; DECISIONS 2026-11-27). The
+second folder is only refused by name: its module writes it and prints counts and fingerprints,
+and unlike Ask's it is not limited to exact commands on committed code (a known limit).
 
 A local hook (outside the repository) calls `decide` before every file or command access of the
 coding session and of every agent, with the access as one of these kinds:

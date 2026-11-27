@@ -112,12 +112,14 @@ ALL_HELD_OUT: frozenset[str] = HELD_OUT | LONG_HELD_OUT | frozenset(FRESH_IDS + 
 
 
 def is_long(persona_id: str) -> bool:
-    """True for a persona of the 24-month set."""
-    return persona_id.startswith(f"{LONG_MIX}-")
+    """True for a persona of a 24-month set (the original or the fresh one)."""
+    return persona_id.startswith((f"{LONG_MIX}-", f"{FRESH_LONG_MIX}-"))
 
 
 def base_id(persona_id: str) -> str:
     """The 12-month namesake of a 24-month persona (the id itself for a 12-month persona)."""
+    if persona_id.startswith(f"{FRESH_LONG_MIX}-"):
+        return persona_id.replace(f"{FRESH_LONG_MIX}-", f"{FRESH_MIX}-", 1)
     return persona_id.replace(f"{LONG_MIX}-", f"{MIX}-", 1) if is_long(persona_id) else persona_id
 
 
@@ -147,6 +149,9 @@ def assert_development_only(ids: list[str] | tuple[str, ...]) -> None:
     bad = sorted(set(ids) & ALL_HELD_OUT)
     if bad and not called_by_harness():
         raise ValueError(f"held-out personas are never used for tuning: {', '.join(bad)}")
+    fresh = sorted(set(ids) & set(FRESH_IDS + FRESH_LONG_IDS))
+    if fresh:  # forecaster v2's fresh set: refused for every caller until its own run
+        raise ValueError(f"fresh held-out personas are never used for tuning: {', '.join(fresh)}")
 
 
 @dataclass(frozen=True)

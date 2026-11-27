@@ -34,7 +34,7 @@ from lookahead.generator.archetypes import (
 from lookahead.generator.writer import write_persona
 
 FOLDER = Path("data/forecast_lockbox")
-LIST_FILE = Path("docs/fresh_set.json")
+LIST_FILE = Path(__file__).resolve().parents[1] / "docs" / "fresh_set.json"  # this checkout's
 SALT = "berka-fresh-2026-11-27"
 PER_SET = 200
 TXN_SEED = 1127  # the transaction draws of the fresh personas (the development sets use 42)
@@ -137,7 +137,10 @@ def fingerprint() -> int:
 
 
 def fresh_berka_accounts() -> set[int]:
-    """The fresh Berka accounts (empty before they are chosen): never development."""
+    """The fresh Berka accounts: never development. The list is committed; if it is missing, no
+    check can pass, so this raises instead of letting every account through."""
+    if not LIST_FILE.exists():
+        raise ValueError("the fresh held-out list (docs/fresh_set.json) is missing")
     return {int(a) for a in _read().get("berka", {}).get("chosen", [])}
 
 
