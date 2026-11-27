@@ -207,3 +207,30 @@ def test_a_failing_expectation_is_n_a_and_no_merchant_is_skipped(
     rows = by_id(lines_for(db))
     assert rows["Q01"].endswith("ran         matches: n/a")
     assert rows["Q13"].endswith("skipped     matches: n/a")
+
+
+def test_asking_back_on_a_question_that_should_be_refused_is_a_miss(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lookahead.ask.answer import Asked
+    from lookahead.ask.run import Outcome
+
+    monkeypatch.setattr(
+        ask_check, "ask_offline", lambda text, ctx: Asked(text, None, Outcome("clarify", None, []))
+    )
+    rows = by_id(lines_for(db))
+    assert rows["Q24"].endswith("asked back  matches: no")  # advice: only a refusal is right
+    assert rows["Q01"].endswith("asked back  matches: n/a")
+
+
+def test_a_broken_key_prints_its_type_only(
+    db: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def broken() -> bytes:
+        raise UnicodeDecodeError("utf-8", b"SECRETBYTE", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(ask_check, "pseudonym_key", broken)
+    assert ask_check.main(["--db", str(db)]) == 2
+    captured = capsys.readouterr()
+    assert "SECRETBYTE" not in captured.out + captured.err
+    assert captured.err.strip() == "Could not read the key: UnicodeDecodeError."

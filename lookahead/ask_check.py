@@ -201,7 +201,8 @@ class Facts:
 
 
 def median(values: list[int]) -> int:
-    """The middle value (the lower middle for an even count, rounded as the forecast states)."""
+    """The forecast's middle value: the sorted list at round(0.5 * (n - 1)), Python's rounding
+    (for 500 futures, index 250, the upper of the two middle values)."""
     ordered = sorted(values)
     return ordered[round(0.5 * (len(ordered) - 1))]
 
@@ -371,10 +372,10 @@ def _judge(q: Question, facts: Facts, ctx: Context) -> tuple[str, str]:
         expected = q.expect(facts)
     except Exception:  # noqa: BLE001
         return outcome, "n/a"
+    if expected == REFUSED:  # anything but a refusal is a miss, asking back included
+        return outcome, "n/a" if outcome == "error" else "yes" if outcome == "refused" else "no"
     if expected == UNKNOWN or outcome in ("asked back", "error"):
         return outcome, "n/a"
-    if expected == REFUSED:
-        return outcome, "yes" if outcome == "refused" else "no"
     if outcome != "ran":
         return outcome, "no"
     assert asked.outcome is not None
@@ -422,9 +423,13 @@ def main(argv: list[str] | None = None) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 2
-    conn = connect_readonly(args.db)
     try:
+        conn = connect_readonly(args.db)
         names = accounts(conn)
+    except Exception as e:  # noqa: BLE001  (the type only)
+        print(f"Could not open the database: {type(e).__name__}.", file=sys.stderr)
+        return 2
+    try:
         if not 1 <= args.account <= len(names):
             print(f"Account number 1 to {len(names)}", file=sys.stderr)
             return 2
@@ -433,6 +438,9 @@ def main(argv: list[str] | None = None) -> int:
             key: bytes | None = pseudonym_key()
         except PseudonymKeyError:
             key = None
+        except Exception as e:  # noqa: BLE001  (the type only: a message could quote the file)
+            print(f"Could not read the key: {type(e).__name__}.", file=sys.stderr)
+            return 2
         print(f"Account {args.account} of {len(names)}")
         try:
             last = conn.execute("SELECT MAX(posted_date) FROM transactions WHERE account = ?",
