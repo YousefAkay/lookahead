@@ -88,6 +88,10 @@ the current page: a link from the site root loads Cloud's page a second time ins
 and the frame may not open links in the top window. The smoke test looks in the frame and
 checks that every top-bar click opens its page.
 
+After a push that changes shared app modules (`app/theme.py`, `app/navigation.py`, anything under
+`lookahead/`), Cloud may keep the old modules loaded (pages then fail with an ImportError), so
+reboot the app (its ⋮ menu, Reboot) and rerun the live smoke test.
+
 ## Localhost: why the config file has no `address` line
 
 Locally, with my own data, the app must be reachable from this computer only. That used to be
