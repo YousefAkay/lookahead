@@ -9,6 +9,25 @@ on your own computer.
 
 It is a personal project and a study in testing a model honestly. It is not financial advice.
 
+## What it looks like
+
+These pictures come from the demo, which runs on made-up accounts only.
+
+![Forecast page: a possible-shortfall warning above four figure cards](docs/img/forecast-warning.png)
+
+**Forecast.** A warning before the balance may dip below the buffer: the chance, the day it is
+most likely, and how many of the 500 simulated futures go below. "See why" opens the evidence.
+
+![Ask page: a question, its answer, the steps and the rows behind it](docs/img/ask-answer.png)
+
+**Ask.** A question in plain words, answered by code from the stored rows, with every step and the
+rows behind the number. No AI service is used for it.
+
+![Scenario page: two balance lines, as things are now and with less daily spending](docs/img/scenario.png)
+
+**Scenario.** What if everyday spending dropped to $25 a day? The blue line is things as they are
+now, the orange line is the scenario, and the dot is the first day below the buffer.
+
 ## Categorizer results
 
 I labelled my own transactions by hand (17 categories) and fixed two test sets before tuning

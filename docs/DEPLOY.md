@@ -48,9 +48,13 @@ dependencies" pages):
 8. Click **Save**, then **Deploy**.
 9. Wait for the build (a few minutes: scikit-learn and pandas are large). The log is on the right.
 10. When it opens, check by eye (below). The first visit builds the synthetic demo database and
-    trains the demo categorizer, which takes a minute; later visits are quick.
+    trains the demo categorizer (the page says "Building the demo, about a minute"); later visits
+    are quick.
+11. Run the smoke test against the link (below).
 
 ## Check by eye on the deployed app
+
+- Home starts with the **MADE-UP DATA** box and opens on **synthetic-C**.
 
 - Every page shows the amber **Demo with made-up data** banner under the green bar.
 - Settings (top right) offers **Synthetic demo** only; there is no "My data".
@@ -60,6 +64,22 @@ dependencies" pages):
 - **Time machine** opens on a persona with dates to step through (from the committed snapshots).
 - **To check:** the LLM fallback says it is not offered.
 - **Model report:** the real column says to run it locally.
+
+## Smoke test
+
+`tools/demo_smoke.py` opens the demo in a real browser (Playwright) and checks every page; see its
+docstring for the list. Once per machine:
+
+```
+pip install -r requirements-dev.txt
+python -m playwright install chromium
+```
+
+Before a deploy (it starts a local demo on a fresh temporary database):
+`python -m tools.demo_smoke`. After a deploy: `python -m tools.demo_smoke --url <the link>`; its
+first line gives the time the first page took, which after a sleep is the wake time. It stops at
+once if the first page has no "Demo with made-up data" banner. `--screenshots docs/img` also saves
+the three README pictures.
 
 ## Localhost: why the config file has no `address` line
 
@@ -106,9 +126,11 @@ is needed, `.env` is never read and nothing under `data/private` can be opened.
 
 ## Known limits of the free demo
 
-- Visitors share one demo database: a series confirmed by one visitor is confirmed for the next,
-  until the app restarts (**Reboot app** resets it). A savings balance typed on the Scenario page
-  is the exception: it stays in that visitor's own session and is never saved.
+- Each visitor works on their own copy of the demo database (`lookahead/demo.py`). The base is
+  built once per server start and never written after that. The copy's id travels in the address
+  (`?visit=...`), because every top-bar link starts a new browser session; so **sharing a link
+  shares that copy**. "Start the demo again" (under the gear) gives a fresh one. A copy nobody
+  used for 6 hours is deleted, and a reboot (usually a sleep too) deletes them all.
 - An app with no visitors goes to sleep after a while; the next visit wakes it (a minute).
 - To refresh the Time Machine snapshots after a forecaster change:
   `python -m lookahead.timemachine_snapshots --out data/demo/timemachine` (synthetic personas only,
