@@ -15,6 +15,9 @@ Agreed 2026-11-27. What, not how.
 4. The demo opens on synthetic-C (a fresh low-balance warning with its evidence).
 5. Home keeps its layout plus a three-line intro box in demo mode; "made-up data" impossible to
    miss.
+   Changed 2026-11-27, after the owner looked at the live demo: "made-up data" is said once, by
+   the slim banner on every page; Home's intro is two plain lines (what the app does, your own
+   copy, the source link), no all caps.
 6. A "Start the demo again" button.
 7. A committed browser smoke test, `tools/demo_smoke.py`, with Playwright pinned in
    requirements-dev.txt. It checks the Scenario chart, the Recurring "Next <date>" wrap and the

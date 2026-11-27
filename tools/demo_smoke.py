@@ -13,12 +13,15 @@ else.
 
 Checks: every page opens with the banner, no error box and no browser console error (except the
 two health probes Streamlit's own front end sends when a page is opened by its own address, and,
-on the live link, the requests of Community Cloud's own page around the app); Home
-leads with MADE-UP DATA and opens on synthetic-C; each visitor gets their own visit id, kept across
-a top-bar click; Ask answers a question with its steps and rows; the Scenario chart's title is
-inside the chart and its legend is one row; on Recurring, every card's "Next <date>" stays on one
-line, for each demo account at four window widths; nothing in the green top bar sits under the
-header's buttons (the gear, and Community Cloud's own toolbar on the live site) at four widths.
+on the live link, the requests of Community Cloud's own page around the app); Home says the
+data is made up once (the banner) and opens on synthetic-C; each visitor gets their own visit id,
+kept across top-bar clicks, and each click opens its page with the address bar following; Ask
+answers a question with its steps and rows; the Scenario chart's title is inside the chart and its
+legend is one row; on Recurring, every card's "Next <date>" stays on one line, for each demo
+account at four window widths; at 1280, 768 and 390 px nothing in the header overlaps Community
+Cloud's toolbar or the gear, nothing is off-screen and nothing scrolls sideways; on a phone the
+menu lists every page on screen and opens one; the gear opens and closes the settings, with no
+pseudonymize switch on the demo.
 On Community Cloud the app runs in a frame inside Cloud's page; every check looks in that frame.
 Exit code 0 when every check passes.
 """
@@ -38,7 +41,7 @@ from urllib.parse import urlencode, urlparse
 
 from playwright.sync_api import Browser, Frame, Page, sync_playwright
 
-from app.navigation import APP_PAGES
+from app.navigation import APP_PAGES, menu_entries
 from lookahead.forecast.simulate import N_FUTURES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -378,7 +381,7 @@ def check_top_bar(page: Page, base: str, visit: str, result: Result) -> None:
     )
     off = [name for name, ok in links if not ok]
     result.check("phone menu: every page listed and on screen (390 px)",
-                 len(links) >= len(APP_PAGES) - 2 and not off,
+                 len(links) == len(menu_entries()) and not off,
                  f"{len(links)} links; off-screen: {', '.join(off) or 'none'}")  # fmt: skip
     app(page).locator(".la-menu-list a", has_text="Budgets").first.click()
     deadline = time.monotonic() + 60

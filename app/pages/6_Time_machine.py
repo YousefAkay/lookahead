@@ -28,6 +28,7 @@ from app.theme import (  # noqa: E402
     humanize_dates,
     money,
     money_short,
+    no_settings,
     result_panel_html,
     style_forecast_chart,
     tag_html,
@@ -55,6 +56,7 @@ from lookahead.ui import DISCLAIMER  # noqa: E402
 
 SOURCE = "Synthetic data"
 apply("Time machine")
+no_settings()  # the gear still opens: it says there is nothing to set here
 bar = st.container(key="topbar")
 
 directory = snapshot_dir()

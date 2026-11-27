@@ -251,7 +251,11 @@ def test_transactions_page_shows_a_trimmed_table_and_the_rest_behind_details() -
     for hidden in ("Flow", "Flag", "From", "Type"):  # not in the trimmed table
         assert f">{hidden}<" not in html
     assert html.count("<tr") == 51  # the header and the first 50
-    gear = next(b for b in at.main.children.values() if getattr(b, "type", "") == "flex_container")
+    def holds_the_gear(block: object) -> bool:
+        kids = getattr(block, "children", {}).values()
+        return any(getattr(c, "type", "") == "popover" for c in kids)
+
+    gear = next(b for b in at.main.children.values() if holds_the_gear(b))
     assert not gear.text_input  # search and filters are on the page, not under the gear
     assert at.text_input  # (the search box itself)
     assert [e.label for e in at.expander if e.label.startswith("Details")]

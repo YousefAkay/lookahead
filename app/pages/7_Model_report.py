@@ -17,7 +17,15 @@ import pandas as pd  # noqa: E402
 import plotly.graph_objects as go  # noqa: E402
 import streamlit as st  # noqa: E402
 
-from app.theme import COLORS, apply, footer, show_table, tag_html, top_bar  # noqa: E402
+from app.theme import (  # noqa: E402
+    COLORS,
+    apply,
+    footer,
+    no_settings,
+    show_table,
+    tag_html,
+    top_bar,
+)
 from eval.report_data import (  # noqa: E402
     ALERT_LABELS,
     CATEGORIZER,
@@ -34,6 +42,7 @@ from eval.report_data import (  # noqa: E402
 from lookahead.ui import DISCLAIMER  # noqa: E402
 
 apply("Model report")
+no_settings()  # the gear still opens: it says there is nothing to set here
 bar = st.container(key="topbar")
 top_bar(bar, "Model report", None, "Results", until="Saved test results")
 

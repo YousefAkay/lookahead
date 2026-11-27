@@ -720,7 +720,11 @@ _PANEL = "_la_settings_panel"  # this run's settings panel, made by apply()
 
 def panel() -> "st.delta_generator.DeltaGenerator":
     """The settings panel: it drops down from the gear in the green bar, and pressing the gear
-    again (or clicking elsewhere) closes it. Every page's settings are drawn into it."""
+    again (or clicking elsewhere) closes it. Every page's settings are drawn into it. `apply()`
+    makes it at the top of every run, so call this only after `apply()`, and not from inside an
+    st.fragment (the panel is outside it)."""
+    if _PANEL not in st.session_state:
+        raise RuntimeError("panel() is called before apply() made the settings panel")
     return st.session_state[_PANEL]
 
 
@@ -869,11 +873,23 @@ def data_settings() -> tuple[str, bool]:
             help="Hides people's names and reference numbers; business names stay readable.",
         )  # fmt: skip
     if is_demo():
-        panel().button(
-            "Start the demo again", on_click=_start_again,
-            help="Throws away your changes and gives you a fresh copy of the made-up data.",
-        )  # fmt: skip
+        start_again_button()
     return source, pseudonymize
+
+
+def no_settings() -> None:
+    """The gear's panel on a page with no settings of its own (Time machine, Model report): it
+    says so, and on the demo still offers to start again."""
+    panel().caption("This page has no settings.")
+    if is_demo():
+        start_again_button()
+
+
+def start_again_button() -> None:
+    panel().button(
+        "Start the demo again", on_click=_start_again,
+        help="Throws away your changes and gives you a fresh copy of the made-up data.",
+    )  # fmt: skip
 
 
 def _start_again() -> None:
