@@ -2668,3 +2668,9 @@ The one scored run (attempt 1dbc6244, code cb6f161, Claude Haiku 4.5 at temperat
 - Also: Home's intro box in demo mode leads with MADE-UP DATA; the demo opens every account page on synthetic-C (the Forecast page now uses the shared account picker); a card's next date never breaks inside; on the demo, Ask says the server works the answer out, not "this computer".
 - Lost: a read-only demo (visitors could not try corrections, confirmations or dismissals); a committed prebuilt demo database (instant first visit, but a new exception to the rule against committing .db files: revisited only if the measured wake time is well over a minute); one shared database (N5).
 - **Smoke test:** tools/demo_smoke.py, by hand, not in the merge gate (it needs a browser); Playwright pinned in requirements-dev.txt so the server never installs it. It ignores only the two health probes Streamlit's own front end sends when a page is opened by its address (a 404 each), and counts them.
+
+### 2026-11-27: Pin everything the app installs, not only the packages it uses
+- Decision: requirements.txt pins, besides the packages we use, everything they pull in (42 more), at the versions the full suite passes with. A test fails when an installed version differs from its pin.
+- Why: Community Cloud installs from requirements.txt alone. With only the top-level pins, a fresh Linux Python 3.13 install got 9 newer patch versions underneath than the suite runs on, and the demo server's build log showed an older pyarrow; the demo would run on a set nobody tested. With the full set, a fresh Linux 3.13 resolve gives exactly the 52 packages of the suite's environment.
+- Lost: top-level pins only (the 2026-09-30 entry; it let what lies underneath drift on every install); a lock file (uv.lock or a constraints file: a new tool, and the server reads requirements.txt anyway).
+- Updating: refresh all pins together, run the full suite, then commit.
