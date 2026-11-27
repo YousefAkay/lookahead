@@ -125,3 +125,35 @@ def _served_on_localhost() -> Iterator[None]:
     st_config.set_option("server.address", "localhost")
     yield
     st_config.set_option("server.address", "localhost")
+
+
+# --- No test writes into the checkout (tools/tree_watch.py) ---
+
+_TREE_BEFORE = pytest.StashKey[dict[str, tuple[int, int]]]()
+_CHECKOUT = Path(__file__).resolve().parent.parent
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Snapshot the output folders once, in the main process (not in each parallel worker)."""
+    if not hasattr(session.config, "workerinput"):
+        from tools import tree_watch
+
+        session.config.stash[_TREE_BEFORE] = tree_watch.snapshot(_CHECKOUT)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Fail the session if a test added, changed or removed a file in the checkout: tests write
+    only into their temporary folders. Something else writing there during the run (an editor, a
+    long job) trips it too; the list says which files."""
+    before = session.config.stash.get(_TREE_BEFORE, None)
+    if before is None:
+        return
+    from tools import tree_watch
+
+    found = tree_watch.changes(before, tree_watch.snapshot(_CHECKOUT))
+    if found:
+        lines = found[:20] + ([f"... and {len(found) - 20} more"] if len(found) > 20 else [])
+        print("\nFILES CHANGED IN THE CHECKOUT DURING THE TESTS (tests must use tmp_path):")
+        print("\n".join(f"  {line}" for line in lines))
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
