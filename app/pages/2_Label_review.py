@@ -19,13 +19,13 @@ from app.theme import (  # noqa: E402
     account_setting,
     apply,
     data_settings,
+    demo_database,
     footer,
     show_table,
     tag_html,
     top_bar,
 )
 from lookahead.db import connect  # noqa: E402
-from lookahead.demo import build_demo_db  # noqa: E402
 from lookahead.labels import (  # noqa: E402
     current_labels,
     label_merchant,
@@ -39,10 +39,8 @@ from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E40
 from lookahead.taxonomy import CATEGORIES  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     count,
-    demo_db_path,
     private_db_path,
     review_table,
-    synthetic_dir,
 )
 from lookahead.views import accounts, last_posted  # noqa: E402
 
@@ -54,10 +52,7 @@ bar = st.container(key="topbar")  # the green bar: drawn into once the data date
 # --- Which database ---
 source, pseudonymize = data_settings()
 if source == "Synthetic demo":
-    db_path = demo_db_path()
-    if not db_path.exists():
-        with st.spinner("Building the synthetic demo database..."):
-            build_demo_db(db_path, synthetic_dir())
+    db_path = demo_database()
 else:
     db_path = private_db_path()
     if not db_path.exists():

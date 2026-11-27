@@ -19,6 +19,7 @@ from app.theme import (  # noqa: E402
     account_setting,
     apply,
     data_settings,
+    demo_database,
     fmt_date,
     footer,
     style_balance_chart,
@@ -27,8 +28,6 @@ from app.theme import (  # noqa: E402
     transactions_table_html,
 )
 from lookahead.db import connect, connect_readonly  # noqa: E402
-from lookahead.demo import build_demo_db  # noqa: E402
-from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import cache_current, ensure_current  # noqa: E402
 from lookahead.taxonomy import CATEGORIES  # noqa: E402
@@ -37,10 +36,8 @@ from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
     balance_chart,
     daily_balance,
-    demo_db_path,
     display_table,
     private_db_path,
-    synthetic_dir,
 )
 from lookahead.views import (  # noqa: E402
     accounts,
@@ -58,10 +55,7 @@ bar = st.container(key="topbar")  # the green bar: drawn into once the data date
 # --- Which database ---
 source, pseudonymize = data_settings()
 if source == "Synthetic demo":
-    db_path = demo_db_path()
-    if not db_path.exists() or not demo_has_categories(db_path):
-        with st.spinner("Building the synthetic demo database..."):
-            build_demo_db(db_path, synthetic_dir())
+    db_path = demo_database()
 else:
     db_path = private_db_path()
     if not db_path.exists():

@@ -22,7 +22,15 @@ sys.path.insert(
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
-from app.theme import account_setting, apply, data_settings, fmt_date, footer, top_bar  # noqa: E402
+from app.theme import (  # noqa: E402
+    account_setting,
+    apply,
+    data_settings,
+    demo_database,
+    fmt_date,
+    footer,
+    top_bar,
+)
 from lookahead import demo_mode  # noqa: E402
 from lookahead.ask.answer import (  # noqa: E402
     EXAMPLES,
@@ -35,16 +43,12 @@ from lookahead.ask.answer import (  # noqa: E402
 from lookahead.ask.run import AskBack, Context, Listing, RowSet  # noqa: E402
 from lookahead.budgets import load_limits  # noqa: E402
 from lookahead.db import connect_readonly  # noqa: E402
-from lookahead.demo import build_demo_db  # noqa: E402
-from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
     HIDDEN,
-    demo_db_path,
     display_table,
     private_db_path,
-    synthetic_dir,
 )
 from lookahead.views import accounts, has_categories, last_posted, transactions  # noqa: E402
 
@@ -61,10 +65,7 @@ bar = st.container(key="topbar")
 # --- Which database ---
 source, pseudonymize = data_settings()
 if source == "Synthetic demo":
-    db_path = demo_db_path()
-    if not db_path.exists() or not demo_has_categories(db_path):
-        with st.spinner("Building the synthetic demo database..."):
-            build_demo_db(db_path, synthetic_dir())
+    db_path = demo_database()
 else:
     db_path = private_db_path()
     if not db_path.exists():

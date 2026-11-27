@@ -26,6 +26,7 @@ from app.theme import (  # noqa: E402
     chart_legend_html,
     coming_up_html,
     data_sources,
+    demo_database,
     fit_y_range,
     fmt_date,
     fmt_day,
@@ -56,8 +57,6 @@ from lookahead.alerts import (  # noqa: E402
     snapshot_of,
 )
 from lookahead.db import connect  # noqa: E402
-from lookahead.demo import build_demo_db  # noqa: E402
-from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.forecast.path import BASELINES, build_forecast  # noqa: E402
 from lookahead.forecast.scenario import (  # noqa: E402
     ExtraItem,
@@ -75,7 +74,6 @@ from lookahead.ui import (  # noqa: E402
     DISCLAIMER,
     breakdown_table,
     daily_balance,
-    demo_db_path,
     deposit_weeks_table,
     events_table,
     forecast_chart,
@@ -85,7 +83,6 @@ from lookahead.ui import (  # noqa: E402
     private_db_path,
     scenario_chart,
     series_label,
-    synthetic_dir,
 )
 from lookahead.views import accounts, import_status, transactions  # noqa: E402
 
@@ -98,10 +95,7 @@ SOURCES = data_sources()  # synthetic only in demo mode
 seed_choice("data_source", SOURCES)
 source = st.sidebar.radio("Data", SOURCES, label_visibility="collapsed", key="data_source")
 if source == "Synthetic demo":
-    db_path = demo_db_path()
-    if not db_path.exists() or not demo_has_categories(db_path):
-        with st.spinner("Building the synthetic demo database..."):
-            build_demo_db(db_path, synthetic_dir())
+    db_path = demo_database()
 else:
     db_path = private_db_path()
     if not db_path.exists():

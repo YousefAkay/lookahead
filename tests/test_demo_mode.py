@@ -267,3 +267,74 @@ def test_today_is_the_day_after_the_data_in_demo_mode_only(
     assert demo_mode.today(None) == date.today()  # no data: the real date
     monkeypatch.delenv("LOOKAHEAD_DEMO")
     assert demo_mode.today(end) == date.today()  # my real data: the real clock, unchanged
+
+
+VISITS_SCRIPT = r"""
+import hashlib, json, sqlite3
+from pathlib import Path
+from streamlit.testing.v1 import AppTest
+
+base = Path("data/synthetic/demo.db")
+visits = Path("data/synthetic/demo-visits")
+
+def page(file, visit=None):
+    at = AppTest.from_file(file, default_timeout=300)
+    if visit:
+        at.query_params["visit"] = visit
+    return at.run()
+
+def marked(visit):
+    conn = sqlite3.connect(visits / f"{visit}.db")
+    try:
+        return bool(conn.execute("SELECT name FROM sqlite_master WHERE name = 'visitor_mark'")
+                    .fetchone())
+    finally:
+        conn.close()
+
+out = {}
+first = page("app/Home.py")
+a = first.query_params["visit"]
+a = a[0] if isinstance(a, list) else a
+out["exceptions"] = [str(e.value) for e in first.exception]
+out["account"] = first.sidebar.selectbox[0].value
+out["reset button"] = [b.label for b in first.sidebar.button]
+digest = hashlib.sha256(base.read_bytes()).hexdigest()
+conn = sqlite3.connect(visits / f"{a}.db")  # a change made by visitor A
+conn.execute("CREATE TABLE visitor_mark (x INTEGER)")
+conn.commit()
+conn.close()
+again = page("app/pages/5_Forecast.py", a)  # A opens another page: the same copy
+out["A keeps its change"] = marked(a)
+second = page("app/Home.py")
+b = second.query_params["visit"]
+b = b[0] if isinstance(b, list) else b
+out["B differs"] = b != a
+out["B sees A's change"] = marked(b)
+out["base unchanged"] = hashlib.sha256(base.read_bytes()).hexdigest() == digest
+reset = page("app/Home.py", a)
+reset.sidebar.button[0].click().run()
+out["A after reset"] = marked(a)
+for run in (again, second, reset):
+    out["exceptions"] += [str(e.value) for e in run.exception]
+print(json.dumps(out))
+"""
+
+
+@pytest.mark.slow
+def test_each_visitor_has_their_own_copy_and_can_start_again(tmp_path: Path) -> None:
+    plant_private(tmp_path)
+    for name in ("app", "lookahead", "eval", "docs", ".streamlit"):
+        (tmp_path / name).symlink_to(ROOT / name)
+    for f in (ROOT / "data" / "synthetic").glob("persona_*.csv"):
+        (tmp_path / "data" / "synthetic" / f.name).symlink_to(f)
+    (tmp_path / "data" / "demo").symlink_to(ROOT / "data" / "demo")
+    done = run_python(VISITS_SCRIPT, tmp_path, timeout=1800)
+    assert done.returncode == 0, done.stderr[-3000:]
+    out = json.loads(done.stdout.strip().splitlines()[-1])
+    assert out["exceptions"] == []
+    assert out["account"] == "synthetic-C"  # the demo opens on the account with a warning
+    assert out["reset button"] == ["Start the demo again"]
+    assert out["A keeps its change"] and out["B differs"]
+    assert not out["B sees A's change"]
+    assert out["base unchanged"]
+    assert not out["A after reset"]

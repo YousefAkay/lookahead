@@ -18,6 +18,7 @@ from app.theme import (  # noqa: E402
     cached_safe_to_spend,
     choice_query,
     data_settings,
+    demo_database,
     fmt_date,
     footer,
     link_button_html,
@@ -28,15 +29,13 @@ from app.theme import (  # noqa: E402
 )
 from lookahead.budget_alerts import home_line  # noqa: E402
 from lookahead.db import connect_readonly  # noqa: E402
-from lookahead.demo import build_demo_db  # noqa: E402
-from lookahead.demo import has_categories as demo_has_categories  # noqa: E402
 from lookahead.demo_mode import is_demo  # noqa: E402
 from lookahead.needs_a_look import NeedsALook, needs_a_look  # noqa: E402
 from lookahead.pseudonymize import PseudonymKeyError, pseudonym_key  # noqa: E402
 from lookahead.recurring_store import load_series  # noqa: E402
 from lookahead.settings import safety_buffer_cents  # noqa: E402
 from lookahead.since import card_counts, summarize  # noqa: E402
-from lookahead.ui import DISCLAIMER, demo_db_path, private_db_path, synthetic_dir  # noqa: E402
+from lookahead.ui import DISCLAIMER, private_db_path  # noqa: E402
 from lookahead.views import accounts, import_status, transactions  # noqa: E402
 
 
@@ -54,10 +53,7 @@ bar = st.container(key="topbar")  # the green bar: drawn into once the data date
 
 source, _ = data_settings()
 if source == "Synthetic demo":
-    db_path = demo_db_path()
-    if not db_path.exists() or not demo_has_categories(db_path):
-        with st.spinner("Building the synthetic demo database..."):
-            build_demo_db(db_path, synthetic_dir())
+    db_path = demo_database()
 else:
     db_path = private_db_path()
 

@@ -29,9 +29,19 @@ import plotly.io as pio
 import streamlit as st
 
 from app.navigation import section_links, section_of, tabs_of
+from lookahead.demo import (
+    FIRST_ACCOUNT,
+    VISIT_ID,
+    base_ready,
+    ensure_base,
+    forget_old_visits,
+    new_visit_id,
+    visit_copy,
+)  # fmt: skip
 from lookahead.demo_mode import BANNER, enable_if_demo, is_demo
 from lookahead.recurring_store import Stored
 from lookahead.safe_to_spend import SafeToSpend, exact_figure, safe_to_spend, sentence
+from lookahead.ui import demo_db_path, synthetic_dir
 
 STATIC = Path(__file__).resolve().parent / "static"
 FAVICON = STATIC / "favicon.png"
@@ -684,7 +694,8 @@ def top_bar(slot: "st.delta_generator.DeltaGenerator", active: str, data_to: dat
 # one. So the three choices live in the address (`?data=...&account=...&text=...`): written after
 # the widgets are drawn, read before they are drawn on the next page.
 
-CHOICES = {"data_source": "data", "account": "account", "pseudonymize": "text"}
+CHOICES = {"data_source": "data", "account": "account", "pseudonymize": "text",
+           "demo_visit": "visit"}  # fmt: skip
 
 
 def seed_choice(key: str, options: list[str] | None = None) -> None:
@@ -743,13 +754,55 @@ def data_settings() -> tuple[str, bool]:
         "Pseudonymize text", key="pseudonymize",
         help="Hides people's names and reference numbers; business names stay readable.",
     )  # fmt: skip
+    if is_demo():
+        st.sidebar.button(
+            "Start the demo again", on_click=_start_again,
+            help="Throws away your changes and gives you a fresh copy of the made-up data.",
+        )  # fmt: skip
     return source, pseudonymize
+
+
+def _start_again() -> None:
+    """The reset button: forget this visitor's session choices (accepted budgets, open forms)
+    and ask `demo_database` for a fresh copy. The address choices stay."""
+    for key in list(st.session_state):
+        if key not in CHOICES:
+            del st.session_state[key]
+    st.session_state["demo_fresh"] = True
+
+
+BUILDING = ("Building the demo, about a minute. This happens once after the demo has been "
+            "asleep; the page carries on by itself.")  # fmt: skip
+
+
+def demo_database() -> Path:
+    """The synthetic demo database a page reads and writes. Built first if missing, with a
+    message instead of a blank page. Outside demo mode: the one shared file, as before. On the
+    public demo: this visitor's own copy (lookahead/demo.py), whose id travels in the address
+    like the other choices, since every top-bar link starts a new session."""
+    base = demo_db_path()
+    if not base_ready(base):
+        note = st.empty()
+        note.info(BUILDING)
+        ensure_base(base, synthetic_dir())
+        note.empty()
+    if not is_demo():
+        return base
+    visit = st.session_state.get("demo_visit") or st.query_params.get("visit") or ""
+    if not VISIT_ID.fullmatch(visit):
+        visit = new_visit_id()
+    st.session_state["demo_visit"] = visit
+    st.query_params["visit"] = visit
+    forget_old_visits(base)
+    return visit_copy(base, visit, fresh=st.session_state.pop("demo_fresh", False))
 
 
 def account_setting(names: list[str]) -> str:
     """The account choice, the same on every page; it is written into the address."""
     side_label("Account")
     seed_choice("account", names)
+    if is_demo() and "account" not in st.session_state and FIRST_ACCOUNT in names:
+        st.session_state["account"] = FIRST_ACCOUNT  # the public demo opens on its warning
     account = st.sidebar.selectbox("Account", names, label_visibility="collapsed", key="account")
     save_choices()
     return account
