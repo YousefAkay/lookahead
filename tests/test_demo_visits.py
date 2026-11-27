@@ -122,3 +122,51 @@ def test_the_base_is_built_once_even_when_two_visitors_arrive_together(
     assert len(calls) == 1 and calls[0] != base  # built beside it, then moved into place
     assert demo.base_ready(base)
     assert demo.ensure_base(base, tmp_path) is False
+
+
+def test_beyond_the_cap_the_least_recently_used_copies_go(tmp_path: Path) -> None:
+    base = _fake_base(tmp_path / "demo.db")
+    visits = [demo.new_visit_id() for _ in range(4)]
+    for age, visit in enumerate(visits):  # the first is the most recently used
+        copy = demo.visit_copy(base, visit)
+        os.utime(copy, (time.time() - 60 * age, time.time() - 60 * age))
+    assert demo.forget_old_visits(base, keep=2) == 2
+    left = sorted(p.stem for p in demo.visits_dir(base).glob("*.db"))
+    assert left == sorted(visits[:2])
+
+
+def test_a_file_that_vanishes_during_the_sweep_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = _fake_base(tmp_path / "demo.db")
+    demo.visit_copy(base, demo.new_visit_id())
+    real_stat = Path.stat
+
+    def gone_meanwhile(self: Path, *args: object, **kwargs: object) -> os.stat_result:
+        if self.suffix == ".db" and self.parent == demo.visits_dir(base):
+            raise FileNotFoundError(self)  # another visitor's copy moved or deleted meanwhile
+        return real_stat(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "stat", gone_meanwhile)
+    assert demo.forget_old_visits(base) == 0
+
+
+def test_two_tabs_making_the_same_copy_at_once_both_get_a_whole_copy(tmp_path: Path) -> None:
+    base = _fake_base(tmp_path / "demo.db")
+    visit = demo.new_visit_id()
+    errors: list[BaseException] = []
+
+    def open_tab() -> None:
+        try:
+            for _ in range(20):
+                assert _notes(demo.visit_copy(base, visit, fresh=True)) == []
+        except BaseException as e:  # noqa: BLE001 - reported below
+            errors.append(e)
+
+    tabs = [threading.Thread(target=open_tab) for _ in range(2)]
+    for t in tabs:
+        t.start()
+    for t in tabs:
+        t.join()
+    assert errors == []
+    assert not list(demo.visits_dir(base).glob("*.part"))  # nothing half-made left

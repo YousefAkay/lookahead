@@ -53,3 +53,6 @@ data/ask_eval/
 
 # Ask held-out questions and gold plans: git-ignored and hook-blocked until the one scored run
 data/ask_heldout/
+
+# The public demo's per-visitor copies (made-up data; local runs in demo mode)
+data/synthetic/demo-visits/

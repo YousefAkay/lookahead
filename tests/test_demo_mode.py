@@ -318,7 +318,16 @@ out["base unchanged"] = hashlib.sha256(base.read_bytes()).hexdigest() == digest
 reset = page("app/Home.py", a)
 reset.sidebar.button[0].click().run()
 out["A after reset"] = marked(a)
-for run in (again, second, reset):
+tm = page("app/pages/6_Time_machine.py", a)  # a page that reads no demo database
+bar = " ".join(str(m.value) for m in tm.markdown if "la-bar" in str(m.value))
+out["Time machine links keep the visit"] = f"visit={a}" in bar
+bad = page("app/Home.py", "../../x/../demo")
+b2 = bad.query_params["visit"]
+b2 = b2[0] if isinstance(b2, list) else b2
+out["a malformed visit is replaced"] = b2 != "../../x/../demo" and len(b2) >= 12
+out["no file outside the visits folder"] = sorted(p.name for p in Path("data").rglob("*.db")
+                                                   if "demo-visits" not in str(p)) == ["demo.db"]
+for run in (again, second, reset, tm, bad):
     out["exceptions"] += [str(e.value) for e in run.exception]
 print(json.dumps(out))
 """
@@ -342,3 +351,6 @@ def test_each_visitor_has_their_own_copy_and_can_start_again(tmp_path: Path) -> 
     assert not out["B sees A's change"]
     assert out["base unchanged"]
     assert not out["A after reset"]
+    assert out["Time machine links keep the visit"]
+    assert out["a malformed visit is replaced"]
+    assert out["no file outside the visits folder"]

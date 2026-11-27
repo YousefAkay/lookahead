@@ -161,9 +161,12 @@ def check_visits(browser: Browser, base: str, first: Page, result: Result) -> No
     theirs = visit_of(other)
     other.context.close()
     result.check("each visitor gets their own visit id", bool(mine and theirs and mine != theirs))
-    first.get_by_role("link", name="Forecast").first.click()
-    settle(first)
-    result.check("the visit id is kept across a top-bar click", visit_of(first) == mine)
+    kept = True
+    for link in ("Forecast", "How it works", "Home"):  # How it works reads no demo database
+        first.get_by_role("link", name=link).first.click()
+        settle(first)
+        kept = kept and visit_of(first) == mine
+    result.check("the visit id is kept across top-bar clicks (incl. How it works)", kept)
 
 
 def check_pages(page: Page, base: str, visit: str, result: Result) -> None:

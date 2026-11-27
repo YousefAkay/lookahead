@@ -649,7 +649,12 @@ def apply(title: str) -> None:
     )  # fmt: skip
     st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
     pio.templates.default = "lookahead"
-    if not enable_if_demo() and not served_locally():
+    demo = enable_if_demo()
+    if demo and "demo_visit" not in st.session_state:  # every page's links keep the visit,
+        visit = st.query_params.get("visit", "")  # also those that read no demo database
+        if VISIT_ID.fullmatch(visit):
+            st.session_state["demo_visit"] = visit
+    if not demo and not served_locally():
         st.error(
             "Lookahead with your own data runs on this computer only. Start it with "
             "`streamlit run app/Home.py --server.address localhost`, or put "
@@ -694,8 +699,8 @@ def demo_intro_html() -> str:
         '<p style="margin: 0 0 4px 0">Lookahead forecasts a bank balance 30 days ahead, warns '
         "before it may dip below a safety buffer, shows the evidence behind each warning, and "
         "answers questions about the data.</p>"
-        '<p style="margin: 0">Click anything: your changes stay in your own copy and are gone '
-        "when you leave (or use <strong>Start the demo again</strong> under the gear). "
+        '<p style="margin: 0">Click anything: your changes stay in your own copy and are deleted a '
+        "few hours after you leave (or use <strong>Start the demo again</strong> under the gear). "
         f'<a href="{REPO}" target="_blank" rel="noopener" style="color: {COLORS.amber_link}">'
         "Source code on GitHub</a>.</p></div>"
     )

@@ -27,6 +27,7 @@ DEMO_SETTINGS = Settings(threshold=0.5, synthetic_months=4)
 FIRST_ACCOUNT = "synthetic-C"  # the public demo opens on it: it has a fresh low-balance warning
 VISIT_ID = re.compile(r"[A-Za-z0-9_-]{12,40}")  # what a visit id in the address may look like
 VISIT_HOURS = 6  # a copy nobody used for this long is deleted
+MAX_VISITS = 300  # at most this many copies (about 200 MB); the least recently used go first
 _BUILD = threading.Lock()  # Streamlit runs every visitor's session in one process
 
 
@@ -95,31 +96,46 @@ def visit_copy(base: Path, visit_id: str, *, fresh: bool = False) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{visit_id}.db"
     if fresh or not path.exists():
-        part = folder / f"{visit_id}.part"
-        _remove(part)
+        part = folder / f"{visit_id}.{secrets.token_hex(4)}.part"  # its own, even for two tabs
         source, target = connect_readonly(base), sqlite3.connect(part)
         try:
             source.backup(target)  # a consistent copy even while another visitor reads the base
         finally:
             source.close()
             target.close()
-        _remove(path)
+        for suffix in ("-wal", "-shm", "-journal"):  # the old copy's leftovers, never the copy:
+            Path(f"{path}{suffix}").unlink(missing_ok=True)  # a reader sees old or new, whole
         os.replace(part, path)
     os.utime(path)
     return path
 
 
-def forget_old_visits(base: Path, hours: float = VISIT_HOURS, now: float | None = None) -> int:
-    """Delete the visitor copies (and half-made ones) unused for `hours`. Returns how many."""
+def forget_old_visits(base: Path, hours: float = VISIT_HOURS, now: float | None = None,
+                      keep: int = MAX_VISITS) -> int:  # fmt: skip
+    """Delete the visitor copies (and half-made ones) unused for `hours`, then the least recently
+    used copies beyond `keep`. A file another visitor moves or deletes meanwhile is skipped.
+    Returns how many were deleted."""
     folder = visits_dir(base)
     if not folder.is_dir():
         return 0
     cutoff = (time.time() if now is None else now) - hours * 3600
     gone = 0
+    copies: list[tuple[float, Path]] = []
     for f in folder.iterdir():
-        if f.suffix in (".db", ".part") and f.stat().st_mtime < cutoff:
+        if f.suffix not in (".db", ".part"):
+            continue
+        try:
+            used = f.stat().st_mtime
+        except FileNotFoundError:
+            continue
+        if used < cutoff:
             _remove(f)
             gone += 1
+        elif f.suffix == ".db":
+            copies.append((used, f))
+    for _, f in sorted(copies)[: max(0, len(copies) - keep)]:
+        _remove(f)
+        gone += 1
     return gone
 
 
