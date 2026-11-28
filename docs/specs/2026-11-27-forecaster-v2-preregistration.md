@@ -154,3 +154,24 @@ disclosed, and the whole command runs again.
 
 I expect F+a+b to win on development data and pass the coverage conditions on the fresh sets; I'm
 least sure about the alert condition, and I'd put the chance of adoption slightly above 50%.
+
+## 8. Readings, recorded 2026-11-27 before any scoring
+
+Points the text above leaves open, read by me before any development number exists:
+
+- **k(h) out of reach.** If on some day no finite k brings pooled 80% coverage to 80 percent (more
+  than a fifth of the weight has a band of no width on the side the actual falls), that fit has
+  no k: a variant with such a fit in any fold is not eligible, and the final fit of a winner that
+  hits it voids the stage. There is no cap.
+- **"The last three months" (F)** are calendar months: the month of the forecast date and the two
+  before it, up to the forecast date.
+- **A repeating fee** is found from any day of the month (not only the latest fee's): a fee kind
+  repeats on a day if its fees within 2 days of that day (counted from the start, or from the end,
+  of the month) fall in at least two of those three months. Only the fees that match the pattern
+  leave the drawn weeks; a fee of the same kind on another day is drawn with its week. The amount
+  placed is the latest matched charge.
+- **b and d apply to the main futures only** (band, dip chance, lowest balance, Safe to spend,
+  scores). The "without irregular deposits" futures stay as F or F+a draws them: k is fitted on
+  the main futures, and walk paths contain deposits.
+- **Ties.** "Within 0.1 point" means pooled CRPS skill against v1 within 0.1 percentage point; an
+  exact tie between walk shares goes to the smaller share.
