@@ -394,3 +394,59 @@ def test_a_k_out_of_reach_makes_the_variant_not_eligible_and_voids_a_final_fit(
     assert not (tmp_path / "frozen.json").exists()
     last = json.loads((tmp_path / "ledger.jsonl").read_text().splitlines()[-1])
     assert last["stage"] == "development, void"
+
+
+def _rec(unit: str, origin: str, crps: float) -> dict:
+    return {"unit": unit, "origin": origin, "in_shortfall_at_origin": False, "walk": {},
+            "crps_forecast": [crps] * 30}  # fmt: skip
+
+
+def test_skill_vs_v1_pairs_records_by_unit_and_origin_not_position() -> None:
+    v1 = [_rec("a", "2026-01-01", 100.0), _rec("a", "2026-02-01", 300.0),
+          _rec("b", "2026-01-01", 200.0)]  # fmt: skip
+    same_shuffled = [v1[2], v1[0], v1[1]]
+    assert v2_dev.crps_skill_vs_v1(same_shuffled, v1) == 0.0
+    # only unit b's origin gets worse (200 -> 400): skill = 1 - 800/600, wherever it sits
+    worse = [_rec("b", "2026-01-01", 400.0), v1[1], v1[0]]
+    assert v2_dev.crps_skill_vs_v1(worse, v1) == pytest.approx(1 - 800 / 600)
+    with pytest.raises(ValueError):
+        v2_dev.crps_skill_vs_v1([v1[0], v1[1], _rec("c", "2026-01-01", 1.0)], v1)
+    with pytest.raises(ValueError):
+        v2_dev.crps_skill_vs_v1([v1[0], v1[0], v1[1]], v1)
+
+
+def test_a_cross_fitted_variant_equal_to_v1_has_skill_zero_on_every_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cross-fit returns records group by group; paired by position this was not zero."""
+    _fake_sets(tmp_path, monkeypatch)
+    monkeypatch.setattr(v2_dev, "futures_of", lambda o, variant, k, w: o["raw"]["v1"])
+    all_sets = {s: v2_dev.load_set(s) for s in v2_dev.SETS}
+    recs, _ = v2_dev.cross_fitted(all_sets, "F")
+    assert recs is not None
+    for s in v2_dev.SETS:
+        order = [(r["unit"], r["origin"]) for r in recs[s]]
+        assert order != [(o["unit"], o["record"]["origin"]) for o in all_sets[s]]
+        assert v2_dev.crps_skill_vs_v1(recs[s], v2_dev.v1_records(all_sets[s])) == 0.0
+
+
+def test_the_correction_needs_a_scored_run_reproduces_it_and_runs_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_sets(tmp_path, monkeypatch)
+    assert v2_dev.correct() == 1  # nothing scored yet
+    assert v2_dev.score() == 0
+    assert v2_dev.correct() == 0
+    lines = [json.loads(x) for x in (tmp_path / "ledger.jsonl").read_text().splitlines()]
+    last = lines[-1]
+    assert last["stage"] == v2_dev.CORRECTION
+    assert set(last["per_set"]) == set(v2_dev.VARIANTS)
+    assert "Correction, reporting only" in (tmp_path / "report.md").read_text()
+    assert v2_dev.correct() == 1  # once
+    # a scored number that no longer matches: refused and recorded
+    edited = [e for e in lines if e.get("stage") != v2_dev.CORRECTION]
+    edited[0]["per_set"]["12"]["coverage_all"] += 0.01
+    (tmp_path / "ledger.jsonl").write_text("".join(json.dumps(e) + "\n" for e in edited))
+    assert v2_dev.correct() == 1
+    last = json.loads((tmp_path / "ledger.jsonl").read_text().splitlines()[-1])
+    assert last["stage"] == "development, correction refused"

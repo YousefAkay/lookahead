@@ -6,6 +6,7 @@ docs/specs/2026-11-27-forecaster-v2-preregistration.md, commit 7e4a266).
     python -m eval.v2_dev simulate --set berka --jobs 8 --data ../lookahead-runs/data/berka
     python -m eval.v2_dev status                 # one line: units done per set
     python -m eval.v2_dev score                  # the five variants, cross-fitted; ledger first
+    python -m eval.v2_dev correct                # skill vs v1 by unit and origin (report only)
     python -m eval.v2_dev freeze                 # the winner's final k(h) and w, all dev data
     python -m eval.v2_dev threshold              # the winner's alert threshold, re-picked
 
@@ -298,6 +299,7 @@ def futures_of(o: dict, variant: str, k: list[float] | None, w: float) -> np.nda
 def record_of(o: dict, paths: np.ndarray) -> dict:
     """The v1 record with the forecast's own numbers replaced by this variant's."""
     rec = dict(o["record"])
+    rec["unit"] = o.get("unit")
     s = np.sort(paths, axis=0)
     rec["p10"], rec["p50"], rec["p90"] = (_rank(s, q).tolist() for q in (0.1, 0.5, 0.9))
     lows = np.sort(paths.min(axis=1))
@@ -308,13 +310,25 @@ def record_of(o: dict, paths: np.ndarray) -> dict:
     return rec
 
 
+def _key(rec: dict) -> tuple[str, str]:
+    return (rec["unit"], rec["origin"])
+
+
 def crps_skill_vs_v1(recs: list[dict], v1: list[dict]) -> float:
-    rows = [
-        i for i, r in enumerate(v1) if not r["in_shortfall_at_origin"] and r["walk"] is not None
-    ]
-    f = np.mean([np.mean(recs[i]["crps_forecast"]) for i in rows])
-    base = np.mean([np.mean(v1[i]["crps_forecast"]) for i in rows])
+    """CRPS skill of `recs` against v1, each record paired with v1's record of the same unit and
+    origin (never by position: the cross-fit returns records group by group)."""
+    by_key = {_key(r): r for r in recs}
+    if len(by_key) != len(recs) or set(by_key) != {_key(r) for r in v1} or len(v1) != len(recs):
+        raise ValueError("the variant's records and v1's are not the same units and origins")
+    rows = [r for r in v1 if not r["in_shortfall_at_origin"] and r["walk"] is not None]
+    f = np.mean([np.mean(by_key[_key(r)]["crps_forecast"]) for r in rows])
+    base = np.mean([np.mean(r["crps_forecast"]) for r in rows])
     return float(1 - f / base)
+
+
+def v1_records(rows: list[dict]) -> list[dict]:
+    """v1's records of these origins, each carrying its unit (for pairing)."""
+    return [{**o["record"], "unit": o["unit"]} for o in rows]
 
 
 def pooled_skill(sets: dict[str, list[dict]], variant: str, k: list[float] | None,
@@ -322,7 +336,7 @@ def pooled_skill(sets: dict[str, list[dict]], variant: str, k: list[float] | Non
     vals = []
     for rows in sets.values():
         recs = [record_of(o, futures_of(o, variant, k, w)) for o in rows]
-        vals.append(crps_skill_vs_v1(recs, [o["record"] for o in rows]))
+        vals.append(crps_skill_vs_v1(recs, v1_records(rows)))
     return float(np.mean(vals))
 
 
@@ -426,7 +440,7 @@ def score() -> int:
                        "reason": f"futures from {len(codes)} commits"})  # fmt: skip
         print(f"the saved futures come from {len(codes)} different commits: nothing scored")
         return 1
-    v1 = {s: [o["record"] for o in rows] for s, rows in all_sets.items()}
+    v1 = {s: v1_records(rows) for s, rows in all_sets.items()}
     results: dict[str, dict | None] = {"v1": {s: numbers(v1[s], v1[s]) for s in SETS}}
     for s, (n, cov30) in V1_EXPECTED.items():
         m = results["v1"][s]  # type: ignore[index]
@@ -502,6 +516,99 @@ def report(results: dict, pooled: dict, ok: list, winner: str | None, code: str)
         ),
         "",
         f"Eligible: {', '.join(ok) if ok else 'none'}. Winner: {winner or 'none (v1 stays)'}.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+# --- correction (reporting only) ---
+
+CORRECTION = "development, correction (reporting only)"
+
+
+def correct() -> int:
+    """The skill-vs-v1 column of the scored run, recomputed with records paired by unit and
+    origin. Reporting only: the folds are refitted exactly as `score` did, every other number
+    must reproduce the ledger, and eligibility and the winner (coverage only) are untouched."""
+    code = _code()
+    lines = [json.loads(x) for x in LEDGER.read_text().splitlines() if x] if LEDGER.exists() else []
+    scored_entries = {
+        e["variant"]: e
+        for e in lines
+        if e.get("stage") == "development, cross-fitted" and e.get("prereg") == PREREG
+    }
+    if not scored_entries:
+        print("nothing scored yet: nothing to correct")
+        return 1
+    if any(e.get("stage") == CORRECTION for e in lines):
+        print("the correction is already in the ledger: nothing done")
+        return 1
+    all_sets = {s: load_set(s) for s in SETS}
+    v1 = {s: v1_records(rows) for s, rows in all_sets.items()}
+    same = ("n_origins", "n_units", "coverage_all", "coverage30", "skill_vs_walk", "skill_vs_stays")
+    corrected: dict[str, dict | None] = {}
+    for variant in VARIANTS:
+        recs, _ = cross_fitted(all_sets, variant)
+        old = scored_entries[variant]["per_set"]
+        if recs is None or old is None:
+            corrected[variant] = None
+            continue
+        corrected[variant] = {}
+        for s in SETS:
+            m = numbers(recs[s], v1[s])
+            if any(m[x] != old[s][x] for x in same):
+                why = f"{variant} on {s} does not reproduce"
+                _ledger_write({"stage": "development, correction refused", "code": code,
+                               "prereg": PREREG, "reason": why})  # fmt: skip
+                print(f"{variant} on {s} does not reproduce the scored run: nothing corrected")
+                return 1
+            corrected[variant][s] = {"n_origins": m["n_origins"], "n_units": m["n_units"],
+                                     "skill_vs_v1": m["skill_vs_v1"],
+                                     "recorded_skill_vs_v1": old[s]["skill_vs_v1"]}  # fmt: skip
+    pooled = {v: None if c is None else float(np.mean([c[s]["skill_vs_v1"] for s in SETS]))
+              for v, c in corrected.items()}  # fmt: skip
+    _ledger_write({"stage": CORRECTION, "code": code, "prereg": PREREG,
+                   "reason": "skill vs v1 paired records by position; the cross-fit returns "
+                             "them group by group, so it compared different origins",
+                   "per_set": corrected, "pooled_skill_vs_v1": pooled,
+                   "eligibility_and_winner": "unchanged (coverage only)"})  # fmt: skip
+    text = correction_text(corrected, pooled, code)
+    with REPORT.open("a", encoding="utf-8") as f:
+        f.write("\n" + text)
+    print(text)
+    return 0
+
+
+def correction_text(corrected: dict, pooled: dict, code: str) -> str:
+    names = {"12": "12-month", "long": "24-month", "berka": "Berka"}
+    lines = [
+        f"## Correction, reporting only (code {code})",
+        "",
+        "The 'vs v1' column above is wrong. It paired each variant's records with v1's by "
+        "position, but the cross-fit returns records group by group while v1's are in load "
+        "order, so it compared different origins. Recomputed with records paired by unit and "
+        "origin, from the same saved futures and the same refitted k(h) and w; every other "
+        "number above reproduces exactly. Eligibility and the winner use coverage only, so "
+        "they do not change: none eligible, v1 stays.",
+        "",
+        "| variant | set | n (units) | vs v1, corrected | vs v1, as recorded |",
+        "|---|---|---|---|---|",
+    ]
+    for v in VARIANTS:
+        if corrected[v] is None:
+            lines.append(f"| {v} | all | - | not eligible: k(h) out of reach | |")
+            continue
+        for s in SETS:
+            c = corrected[v][s]
+            lines.append(
+                f"| {v} | {names[s]} | {c['n_origins']} ({c['n_units']}) | "
+                f"{100 * c['skill_vs_v1']:+.1f} | {100 * c['recorded_skill_vs_v1']:+.1f} |"
+            )
+    lines += [
+        "",
+        "Pooled CRPS skill against v1, corrected (mean of the three sets): "
+        + ", ".join(
+            f"{v} {'-' if pooled[v] is None else f'{100 * pooled[v]:+.2f}'}" for v in VARIANTS
+        ),  # fmt: skip
     ]
     return "\n".join(lines) + "\n"
 
@@ -586,14 +693,18 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--set", choices=SETS, required=True)
     s.add_argument("--jobs", type=int, default=8)
     s.add_argument("--data", type=Path)
-    for name in ("status", "score", "freeze", "threshold"):
+    for name in ("status", "score", "correct", "freeze", "threshold"):
         sub.add_parser(name)
     args = parser.parse_args(argv)
     if args.command == "simulate":
         return simulate(args.set, args.jobs, args.data)
-    return {"status": status, "score": score, "freeze": freeze, "threshold": threshold}[
-        args.command
-    ]()
+    return {
+        "status": status,
+        "score": score,
+        "correct": correct,
+        "freeze": freeze,
+        "threshold": threshold,
+    }[args.command]()
 
 
 if __name__ == "__main__":
