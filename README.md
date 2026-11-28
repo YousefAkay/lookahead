@@ -249,6 +249,18 @@ threshold chosen on the other personas each time (leave one persona out). With 3
 personas, which is what the development column of the table above shows: precision 76% (22 of 29),
 0.041 false alerts per 30 days. 52 episodes from 8 personas is a small n.
 
+**Forecaster v2 (not adopted, 2026-11-28).** I tried five changes to make the 80% band honest
+(it covers 57-63% of actual balances, not 80%): fees on their real dates, an own spending rate per
+future, a stretch per day ahead, and a share of random-walk futures. I wrote the adopt rule before
+scoring: 75-85% average coverage and at least 70% on day 30 on all three development sets (726, 717
+and 7,135 origins). None passed. Fees on their real dates fixed Berka's early days (57.0% to 74.9%
+average coverage), but one stretch for everyone could not fit both data sources: wide enough for the
+synthetic personas meant over 85% on Berka. So v1 stays, and the fresh held-out set I had locked
+for v2 was never opened. I had predicted the opposite. The scored report also had a bug in its
+skill-against-v1 column (records paired by position, not by origin); it is corrected in the report,
+and the outcome does not change. Details:
+[docs/results/v2_dev_2026-11-27.md](docs/results/v2_dev_2026-11-27.md) and DECISIONS.md.
+
 ## How it works
 
 ```mermaid
