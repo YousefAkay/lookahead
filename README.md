@@ -329,7 +329,7 @@ that an account never ends up on a network by accident.
 ## Limits
 
 - The synthetic personas follow rules I wrote, so they test the method on the kinds of accounts I
-  thought of, not on the real world. Berka is the only outside data for the forecaster, and it is
+  thought of, not on the real world. Berka is the only outside data for the forecaster, and its
   old and Czech.
 - The forecast does not expect a first or one-off large payment (tuition, say). For students paid
   in lumps the error is still large.
