@@ -169,7 +169,9 @@ Points the text above leaves open, read by me before any development number exis
   repeats on a day if its fees within 2 days of that day (counted from the start, or from the end,
   of the month) fall in at least two of those three months. Only the fees that match the pattern
   leave the drawn weeks; a fee of the same kind on another day is drawn with its week. The amount
-  placed is the latest matched charge.
+  placed is the latest matched charge. "A day" is a day one of its fees was charged on (two fees
+  4 days apart do not match through a day between them), and the fee is placed on the day of its
+  latest matched charge (read 2026-11-27, before any F futures were saved).
 - **b and d apply to the main futures only** (band, dip chance, lowest balance, Safe to spend,
   scores). The "without irregular deposits" futures stay as F or F+a draws them: k is fitted on
   the main futures, and walk paths contain deposits.
