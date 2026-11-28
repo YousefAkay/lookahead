@@ -422,6 +422,8 @@ def score() -> int:
     codes: set[str] = set()
     all_sets = {s: load_set(s, codes) for s in SETS}
     if len(codes) != 1:
+        _ledger_write({"stage": "development, score refused", "code": code, "prereg": PREREG,
+                       "reason": f"futures from {len(codes)} commits"})  # fmt: skip
         print(f"the saved futures come from {len(codes)} different commits: nothing scored")
         return 1
     v1 = {s: [o["record"] for o in rows] for s, rows in all_sets.items()}
@@ -429,6 +431,9 @@ def score() -> int:
     for s, (n, cov30) in V1_EXPECTED.items():
         m = results["v1"][s]  # type: ignore[index]
         if m["n_origins"] != n or round(m["coverage30"], 3) != cov30:
+            why = f"v1 does not reproduce on {s}"
+            _ledger_write({"stage": "development, score refused", "code": code,
+                           "prereg": PREREG, "reason": why})  # fmt: skip
             print(f"v1 does not reproduce 2026-11-19 on {s}: nothing scored")
             return 1
     entries = []
@@ -505,15 +510,33 @@ def report(results: dict, pooled: dict, ok: list, winner: str | None, code: str)
 
 
 def freeze() -> int:
+    """The winner's final k(h) and w, fitted on all development data, written to FROZEN and the
+    ledger. A final k(h) out of reach voids the stage (pre-registration, section 8)."""
+    code = _code()
+    if FROZEN.exists():
+        print(f"{FROZEN} exists: the winner is already frozen; nothing done")
+        return 1
     entries = [json.loads(x) for x in LEDGER.read_text().splitlines() if x]
     winner = next(e["winner"] for e in reversed(entries) if "winner" in e)
     if winner is None:
         print("no winner: nothing to freeze")
         return 1
-    all_sets = {s: load_set(s) for s in SETS}
+    codes: set[str] = set()
+    all_sets = {s: load_set(s, codes) for s in SETS}
+    if len(codes) != 1:
+        _ledger_write({"stage": "development, freeze refused", "code": code, "prereg": PREREG,
+                       "reason": f"futures from {len(codes)} commits"})  # fmt: skip
+        print("the saved futures come from different commits: nothing frozen")
+        return 1
     k, w = fit(all_sets, winner)
-    FROZEN.write_text(json.dumps({"variant": winner, "prereg": PREREG, "stretch": k,
-                                  "walk_share": w}, indent=1) + "\n", encoding="utf-8")  # fmt: skip
+    if winner in NEEDS_K and k is None:
+        _ledger_write({"stage": "development, void", "code": code, "prereg": PREREG,
+                       "variant": winner, "reason": "final k(h) out of reach"})  # fmt: skip
+        print(f"{winner}: the final k(h) is out of reach on some day; the stage is void")
+        return 1
+    frozen = {"variant": winner, "prereg": PREREG, "code": code, "stretch": k, "walk_share": w}
+    _ledger_write({"stage": "development, frozen", **frozen})
+    FROZEN.write_text(json.dumps(frozen, indent=1) + "\n", encoding="utf-8")
     shown = {h: round(k[h - 1], 3) for h in (1, 7, 14, 30)} if k else None
     print(f"frozen {winner}: k(h) at days 1, 7, 14, 30 = {shown}; w = {w}")
     return 0

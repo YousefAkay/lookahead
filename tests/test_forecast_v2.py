@@ -266,6 +266,7 @@ def test_d_reads_nothing_after_the_forecast_date(tmp_path: Path) -> None:
     as_of = date(2026, 9, 1)
     opts = replace(DEFAULT_OPTIONS, walk_share=0.5)
     before = build_forecast(conn, ACCOUNT, "weekday", as_of, None, 30, 100, options=opts)
+    assert before is not None and before.inputs is not None and before.inputs.walk_paths
     insert(conn, date(2026, 9, 25), -500000, "pos purchase", "Apos Big #1 Montr", -1)
     after = build_forecast(conn, ACCOUNT, "weekday", as_of, None, 30, 100, options=opts)
     assert before is not None and after is not None
@@ -344,4 +345,52 @@ def test_the_harness_refuses_futures_from_mixed_code(
     d["code"] = np.array("other")
     np.savez_compressed(one, **d)
     assert v2_dev.score() == 1
-    assert not (tmp_path / "ledger.jsonl").exists()
+    lines = [json.loads(x) for x in (tmp_path / "ledger.jsonl").read_text().splitlines()]
+    assert [e["stage"] for e in lines] == ["development, score refused"]  # recorded, no scores
+
+
+def test_the_ledger_is_written_before_anything_is_shown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_sets(tmp_path, monkeypatch)
+    seen: list[int] = []
+
+    def watch(*args: object, **kwargs: object) -> None:
+        seen.append(len((tmp_path / "ledger.jsonl").read_text().splitlines()))
+
+    monkeypatch.setattr("builtins.print", watch)
+    assert v2_dev.score() == 0
+    assert seen and min(seen) == 6  # five variants and v1, before the first print
+
+
+def test_a_v1_that_does_not_reproduce_stops_the_scoring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_sets(tmp_path, monkeypatch)
+    monkeypatch.setattr(v2_dev, "V1_EXPECTED", {"12": (999, 0.5)})
+    assert v2_dev.score() == 1
+    lines = [json.loads(x) for x in (tmp_path / "ledger.jsonl").read_text().splitlines()]
+    assert [e["stage"] for e in lines] == ["development, score refused"]
+
+
+def test_a_k_out_of_reach_makes_the_variant_not_eligible_and_voids_a_final_fit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every future the same (a band of no width) and the actual elsewhere: no finite k."""
+    rows = [{"raw": {"F": np.full((500, 30), 100, dtype=np.int64)},
+             "record": {"realized": [150] * 30}} for _ in range(10)]  # fmt: skip
+    assert v2_dev.fit_k({"a": rows}, "F") is None
+    _fake_sets(tmp_path, monkeypatch)
+    monkeypatch.setattr(v2_dev, "FROZEN", tmp_path / "frozen.json")
+    monkeypatch.setattr(v2_dev, "fit_k", lambda sets, raw: None)
+    assert v2_dev.score() == 0
+    lines = [json.loads(x) for x in (tmp_path / "ledger.jsonl").read_text().splitlines()]
+    for e in lines[:5]:
+        if e["variant"] in v2_dev.NEEDS_K:
+            assert e["k_out_of_reach"] and not e["eligible"]
+    with (tmp_path / "ledger.jsonl").open("a") as f:  # say a b variant had won
+        f.write(json.dumps({"stage": "test", "winner": "F+a+b"}) + "\n")
+    assert v2_dev.freeze() == 1
+    assert not (tmp_path / "frozen.json").exists()
+    last = json.loads((tmp_path / "ledger.jsonl").read_text().splitlines()[-1])
+    assert last["stage"] == "development, void"
