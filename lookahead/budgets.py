@@ -385,7 +385,8 @@ def future_category_days(
     for row_id, day, cents in forecast.spending_rows.kept:
         by_day[day][category_of.get(row_id)] += cents
     starts = pool_week_starts(inputs.start, inputs.history_start)
-    weeks = week_draws(inputs.seed, future, len(starts), -(-days // BLOCK))
+    weeks = week_draws(inputs.seed, future, len(starts), -(-days // BLOCK),
+                           inputs.own_rate)
     out: list[dict[str | None, int]] = []
     for k in range(days):
         if not weeks:

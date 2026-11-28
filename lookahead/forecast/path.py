@@ -51,6 +51,7 @@ from lookahead.forecast.spending import (
     weekday_average_path,
 )
 from lookahead.forecast.start import HORIZON_DAYS, ForecastStart, forecast_start
+from lookahead.forecast.v2 import closing_balances, fee_plan, walk_windows
 from lookahead.planned import PlannedItem, planned_as_of, received_planned
 from lookahead.proposals import (
     CONFIRMED,
@@ -98,6 +99,13 @@ class ForecastOptions:
     # drawn from the account's own past gaps, given the days since the last one, instead of at a
     # constant daily chance. Off by default: False is the old forecaster exactly.
     renewal: bool = False
+    # Forecaster v2 (lookahead/forecast/v2.py; pre-registration 2026-11-27), all off by default:
+    # F fees on their real dates, a an own spending rate per future, b a stretch per day ahead
+    # (one factor per day, empty: none), d a share of random-walk futures.
+    fee_dates: bool = False
+    own_rate: bool = False
+    stretch: tuple[float, ...] = ()
+    walk_share: float = 0.0
 
 
 DEFAULT_OPTIONS = ForecastOptions()
@@ -255,6 +263,11 @@ def build_forecast(
     daily = spending_by_day(txns, flows, in_series, start.data_last_updated)
     first_posted = min(t.posted_date for t in txns)
     horizon = (start.last_day - start.first_day).days + 1
+    fee_dates = None
+    if options.fee_dates:  # v2's F: repeating fees placed, the others drawn with their week
+        fee_dates = fee_plan(txns, flows, start.data_last_updated, start.first_day, horizon)
+        for day, cents in fee_dates.extra_daily.items():
+            daily[day] = daily.get(day, 0) + cents
     if method == "recent":
         spending = recent_average_path(daily, start.data_last_updated, first_posted, horizon)
     else:
@@ -273,7 +286,7 @@ def build_forecast(
     proposed = _proposals(conn, account, as_of, txns, flows, in_series, start, rows, options, key)
     items = sorted([*items, *proposed.items], key=lambda i: (i.day, i.series_key))
     fee_rate = recent_fee_rate(txns, flows, start.data_last_updated, first_posted)
-    fees = constant_path(fee_rate, horizon)
+    fees = constant_path(fee_rate, horizon) if fee_dates is None else list(fee_dates.cumulative)
     arrivals = Arrivals()
     if keeps is not None:  # on by default; `keeps=None` is the old forecaster exactly
         placed = {row_of[fp] for p in proposed.placements for fp in p.evidence if fp in row_of}
@@ -296,6 +309,12 @@ def build_forecast(
             arrivals_out_rate=arrivals.out_rate, arrivals_out_sizes=arrivals.out_sizes,
             arrivals_in_gaps=arrivals.in_gaps, arrivals_in_last=arrivals.in_last,
             lump_rate=rate, lump_sizes=sizes, item_windows=proposed.windows or {},
+            fee_path=None if fee_dates is None else fee_dates.cumulative,
+            own_rate=options.own_rate, stretch=options.stretch,
+            walk_paths=(walk_windows(closing_balances(conn, account, start.data_last_updated),
+                                     horizon, (start.data_last_updated - first_posted).days + 1)
+                        if options.walk_share > 0 else ()),
+            walk_share=options.walk_share,
         )  # fmt: skip
         simulation = run(inputs, keep_paths=keep_paths)
     return Forecast(

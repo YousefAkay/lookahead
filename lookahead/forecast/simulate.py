@@ -34,6 +34,7 @@ from datetime import date, timedelta
 from lookahead.forecast.schedule import MOVED_NOTE, OVERDUE_MARK, ScheduledItem
 from lookahead.forecast.spending import constant_path
 from lookahead.forecast.start import ForecastStart
+from lookahead.forecast.v2 import mix_walk, stretch
 from lookahead.recurring_store import Stored, rent_rule_of
 from lookahead.rent import cycle_start, draw_rent_date
 
@@ -140,15 +141,27 @@ def _stream(seed: int, future: int, *parts: object) -> random.Random:
     return random.Random("|".join(str(p) for p in (seed, future, *parts)))
 
 
-def week_draws(seed: int, future: int, pool_size: int, weeks: int) -> list[int]:
+def week_draws(
+    seed: int, future: int, pool_size: int, weeks: int, own_rate: bool = False
+) -> list[int]:  # fmt: skip
     """Which past week of the pool each week ahead of one future takes (its position in
     `pool_week_starts`, oldest first). Forecast day k takes day k % 7 of week k // 7. The one
     place the futures' weeks are drawn: the forecast and the budgets both read it, so they
-    share the same mapping, weekday alignment included. An empty pool draws nothing."""
+    share the same mapping, weekday alignment included. An empty pool draws nothing.
+
+    `own_rate` (v2's part a): the future first resamples the pool (as many weeks as it holds,
+    with replacement, from its own "rate" stream), then draws its weeks ahead from that resample,
+    so each future has a spending level of its own. The "weeks" stream is drawn the same way
+    either way."""
     if pool_size == 0:
         return []
     stream = _stream(seed, future, "weeks")
-    return [stream.choice(range(pool_size)) for _ in range(weeks)]
+    picks = [stream.choice(range(pool_size)) for _ in range(weeks)]
+    if not own_rate:
+        return picks
+    rate = _stream(seed, future, "rate")
+    resample = [rate.choice(range(pool_size)) for _ in range(pool_size)]
+    return [resample[i] for i in picks]
 
 
 @dataclass(frozen=True)
@@ -182,6 +195,14 @@ class SimulationInputs:
     # Proposals (an option, off by default): series key -> (days before, days after) its placed
     # day inside which the day is drawn uniformly in each future. Empty: nothing changes.
     item_windows: Mapping[str, tuple[int, int]] = field(default_factory=dict)
+    # Forecaster v2 (lookahead/forecast/v2.py), all off by default: F's fee path (cumulative cents
+    # placed on their days; None: the fee rate spread over the days), a's own rate per future,
+    # b's stretch per day ahead (empty: none), d's walk paths and their share of the futures.
+    fee_path: tuple[int, ...] | None = None
+    own_rate: bool = False
+    stretch: tuple[float, ...] = ()
+    walk_paths: tuple[tuple[int, ...], ...] = ()
+    walk_share: float = 0.0
 
 
 def simulate(
@@ -249,7 +270,8 @@ def run(
     by_key = {s.key: s for s in inputs.series}
     pool = _week_pool(inputs.spending_daily, inputs.deposits_daily, start, inputs.history_start)
     weeks = -(-horizon // BLOCK)
-    fees = constant_path(inputs.fees_per_day, horizon)
+    fees = (list(inputs.fee_path[:horizon]) if inputs.fee_path is not None
+            else constant_path(inputs.fees_per_day, horizon))  # fmt: skip
     renewal_last = inputs.arrivals_in_last  # None: the constant rate draws the deposits
     if renewal_last is not None and not (
         inputs.arrivals_in_gaps and inputs.arrivals_in_rate > 0 and inputs.arrivals_in_sizes
@@ -285,7 +307,8 @@ def run(
                                inputs.arrivals_out_sizes, horizon)  # fmt: skip
         spend_daily: list[int] = []
         dep_daily: list[int] = []
-        for i in week_draws(seed, future, len(pool), weeks) if pool else [None] * weeks:
+        draws = week_draws(seed, future, len(pool), weeks, inputs.own_rate)
+        for i in draws if pool else [None] * weeks:
             spend, dep = pool[i] if i is not None else ((0,) * BLOCK, (0,) * BLOCK)
             spend_daily += spend
             dep_daily += dep
@@ -311,6 +334,11 @@ def run(
             b.append(base)
         with_dep.append(a)
         without.append(b)
+
+    with_dep = mix_walk(stretch(with_dep, inputs.stretch), inputs.walk_paths, inputs.walk_share,
+                        seed)  # v2's b and d; nothing changes when they are off  # fmt: skip
+    without = mix_walk(stretch(without, inputs.stretch), inputs.walk_paths, inputs.walk_share,
+                       seed)  # fmt: skip
 
     def share(paths: list[list[int]], limit: int) -> float:
         return sum(min(p) < limit for p in paths) / len(paths) if paths else 0.0
