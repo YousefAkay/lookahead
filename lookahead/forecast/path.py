@@ -133,13 +133,18 @@ def forecaster_settings(
     options. A saved run is continued only if these are the same, so changing a default can never
     mix old and new forecasts. `options=None` is the current default, read when this is called."""
     chosen = DEFAULT_OPTIONS if options is None else options
-    return {
+    out: dict[str, Any] = {
         "keeps": None if keeps is None else asdict(keeps),
         "recurring_fix": None if chosen.recurring_fix is None else asdict(chosen.recurring_fix),
         "lump_arrivals": chosen.lump_arrivals,
         "outflow_placements": chosen.outflow_placements,
         "outflow_rule": chosen.outflow_rule,
     }
+    v2 = {"fee_dates": chosen.fee_dates, "own_rate": chosen.own_rate,
+          "stretch": list(chosen.stretch), "walk_share": chosen.walk_share}  # fmt: skip
+    if chosen.fee_dates or chosen.own_rate or chosen.stretch or chosen.walk_share:
+        out["v2"] = v2  # only when on: the settings of every v1 run saved so far stay valid
+    return out
 
 
 @dataclass(frozen=True)

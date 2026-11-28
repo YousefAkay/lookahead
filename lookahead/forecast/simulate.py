@@ -335,10 +335,10 @@ def run(
         with_dep.append(a)
         without.append(b)
 
+    # v2's b and d change the main futures only (pre-registration, section 8): the "without
+    # irregular deposits" futures stay as drawn. Nothing changes when they are off.
     with_dep = mix_walk(stretch(with_dep, inputs.stretch), inputs.walk_paths, inputs.walk_share,
-                        seed)  # v2's b and d; nothing changes when they are off  # fmt: skip
-    without = mix_walk(stretch(without, inputs.stretch), inputs.walk_paths, inputs.walk_share,
-                       seed)  # fmt: skip
+                        seed)  # fmt: skip
 
     def share(paths: list[list[int]], limit: int) -> float:
         return sum(min(p) < limit for p in paths) / len(paths) if paths else 0.0

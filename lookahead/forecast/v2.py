@@ -3,8 +3,9 @@ All off by default: with every option off the forecaster is v1 exactly.
 
 - F, fees on their real dates (`fee_plan`): a fee charged within 2 days of the same day of the
   month (counted from the start or from the end of the month) in at least two of the last three
-  months is placed on that day in the months ahead, in every future. Every other fee joins the
-  everyday spending of its own day, so it is drawn with its past week. Only rows posted on or
+  calendar months is placed on that day in the months ahead, at its latest amount, in every
+  future. Every other fee joins the everyday spending of its own day, so it is drawn with its
+  past week. Only rows posted on or
   before the forecast date are read (rule zero).
 - a, its own spending rate per future, lives in `simulate.week_draws` (each future first
   resamples the pool of past weeks).
@@ -25,7 +26,7 @@ from datetime import date, timedelta
 from lookahead.flows import Flow, Txn
 from lookahead.one_time import FEE_REASONS
 
-FEE_LOOKBACK_DAYS = 92  # the last three months
+FEE_MONTHS_BACK = 2  # the forecast date's month and the two calendar months before it
 FEE_DAY_TOLERANCE = 2
 FEE_MONTHS_NEEDED = 2
 WALK_LOOKBACK_DAYS = 365
@@ -63,46 +64,73 @@ def _fee_text(t: Txn) -> str:
     return " ".join("".join(c for c in text if not c.isdigit()).split())
 
 
+def _window_start(as_of: date) -> date:
+    """The first day of the calendar month two months before `as_of`'s month."""
+    month = as_of.replace(day=1)
+    for _ in range(FEE_MONTHS_BACK):
+        month = (month - timedelta(days=1)).replace(day=1)
+    return month
+
+
+def _pattern(rows: Sequence[Txn], window_from: date) -> tuple[Txn, str, list[Txn]] | None:
+    """The best repeating day among `rows` (one fee kind): for every fee in the window as an
+    anchor, counted from the start and from the end of the month, the fees within the tolerance
+    of it; it repeats if they fall in at least FEE_MONTHS_NEEDED calendar months of the window.
+    Most months wins, then the latest anchor. Returns (the latest matched fee, the way, every
+    matched fee of the kind at any date) or None."""
+    recent = [t for t in rows if t.posted_date >= window_from]
+    best: tuple[int, date, Txn, str, list[Txn]] | None = None
+    for anchor in recent:
+        for way in ("start", "end"):
+            in_window = [t for t in recent if _same_day(t.posted_date, anchor.posted_date, way)]
+            months = len({(t.posted_date.year, t.posted_date.month) for t in in_window})
+            if months < FEE_MONTHS_NEEDED:
+                continue
+            latest = max(in_window, key=lambda t: (t.posted_date, t.row_id))
+            key = (months, latest.posted_date)
+            if best is None or key > best[:2]:
+                matched = [t for t in rows if _same_day(t.posted_date, anchor.posted_date, way)]
+                best = (months, latest.posted_date, latest, way, matched)
+    return None if best is None else (best[2], best[3], best[4])
+
+
 def fee_plan(
     txns: Sequence[Txn], flows: Mapping[int, Flow], as_of: date, first_day: date, horizon: int
 ) -> FeePlan:
-    """F: which fees repeat on a day of the month (placed ahead), and the rest (drawn with their
-    week). Fees are the rows whose reason is a bank fee; a fee reversal (money back) is drawn with
-    its week as negative spending."""
+    """F: which fees repeat on a day of the month (placed ahead at their latest amount), and the
+    rest (drawn with their week). Fees are the rows whose reason is a bank fee; a fee reversal
+    (money back) is drawn with its week as negative spending. The three months are calendar
+    months: `as_of`'s month and the two before it (pre-registration, section 8)."""
     fees = [t for t in txns if t.posted_date <= as_of and t.amount_cents < 0
             and flows[t.row_id].reason in FEE_REASONS]  # fmt: skip
     reversals = [t for t in txns if t.posted_date <= as_of and t.amount_cents > 0
                  and flows[t.row_id].reason == "fee reversal"]  # fmt: skip
-    recent_from = as_of - timedelta(days=FEE_LOOKBACK_DAYS - 1)
+    window_from = _window_start(as_of)
     groups: dict[str, list[Txn]] = defaultdict(list)
     for t in fees:
         groups[_fee_text(t)].append(t)
-    repeating: dict[str, tuple[Txn, str, list[Txn]]] = {}
-    for text, rows in groups.items():
-        recent = sorted((t for t in rows if t.posted_date >= recent_from),
-                        key=lambda t: t.posted_date)  # fmt: skip
-        if not recent:
-            continue
-        last = recent[-1]
-        for way in ("start", "end"):
-            matched = [t for t in recent if _same_day(t.posted_date, last.posted_date, way)]
-            months = {(t.posted_date.year, t.posted_date.month) for t in matched}
-            if len(months) >= FEE_MONTHS_NEEDED:
-                repeating[text] = (last, way, matched)
-                break
+    patterns: list[tuple[Txn, str]] = []
+    drawn: list[Txn] = []
+    for rows in groups.values():
+        left = list(rows)
+        while (found := _pattern(left, window_from)) is not None:  # a kind may repeat twice
+            latest, way, matched = found
+            patterns.append((latest, way))
+            taken = {t.row_id for t in matched}
+            left = [t for t in left if t.row_id not in taken]
+        drawn += left
     placed: list[tuple[date, int]] = []
     last_day = first_day + timedelta(days=horizon - 1)
-    for last, way, matched in repeating.values():
-        cents = sorted(-t.amount_cents for t in matched)[len(matched) // 2]
+    for latest, way in patterns:
         month = first_day.replace(day=1)
         while month <= last_day:
             end = _month_end(month)
             if way == "start":
-                day = month.replace(day=min(last.posted_date.day, end.day))
+                day = month.replace(day=min(latest.posted_date.day, end.day))
             else:
-                day = end - timedelta(days=_days_from_end(last.posted_date))
-            if first_day <= day <= last_day and day > last.posted_date:
-                placed.append((day, cents))
+                day = end - timedelta(days=_days_from_end(latest.posted_date))
+            if first_day <= day <= last_day and day > latest.posted_date:
+                placed.append((day, -latest.amount_cents))
             month = end + timedelta(days=1)
     per_day = [0] * horizon
     for day, cents in placed:
@@ -112,11 +140,8 @@ def fee_plan(
         total += cents
         cumulative.append(total)
     extra: dict[date, int] = defaultdict(int)
-    for text, rows in groups.items():
-        if text in repeating:
-            continue
-        for t in rows:
-            extra[t.posted_date] += -t.amount_cents
+    for t in drawn:
+        extra[t.posted_date] += -t.amount_cents
     for t in reversals:
         extra[t.posted_date] -= t.amount_cents
     return FeePlan(tuple(cumulative), dict(extra), tuple(sorted(placed)))

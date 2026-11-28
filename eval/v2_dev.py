@@ -39,7 +39,7 @@ from eval.berka_split import assert_development_only as berka_development_only
 from eval.berka_split import development_accounts
 from eval.metrics import alert_metrics
 from eval.personas_db import persona_db
-from eval.thresholds_raw import choose, curve, leave_one_out
+from eval.thresholds_raw import choose, curve, leave_one_out, stop_conditions
 from lookahead.forecast.path import DEFAULT_OPTIONS, build_forecast
 from lookahead.forecast.v2 import mix_walk, stretch
 from lookahead.generator.archetypes import assert_development_only, development_ids
@@ -56,7 +56,6 @@ VARIANTS = ("F", "F+a", "F+b", "F+a+b", "F+a+b+d")
 WALK_SHARES = tuple(round(0.1 * i, 1) for i in range(6))  # 0, 0.1, ..., 0.5
 FOLDS = 5
 MAX_WINDOWS = 336  # at most 365 - 30 + 1 windows of 30 days in the 365 days before
-K_CAP = 50.0  # a numeric ceiling for the search only (see `fit_k`)
 
 
 def options_of(raw: str) -> Any:
@@ -69,8 +68,12 @@ def options_of(raw: str) -> Any:
 # --- simulate ---
 
 
-def _origin(conn: Any, unit: str, origin: Any) -> tuple[dict, dict[str, np.ndarray], np.ndarray]:
-    record, paths, _ = run_origin_full(conn, unit, "synthetic", origin, FUTURES, "dev", False,
+def _origin(
+    conn: Any, unit: str, origin: Any, archetype: str
+) -> tuple[dict, dict[str, np.ndarray], np.ndarray]:  # fmt: skip
+    """One origin: v1's record with the fields the 2026-11-19 scores add (as
+    eval.berka_scores.account_records), the three raw futures, and the random walk's windows."""
+    record, paths, _ = run_origin_full(conn, unit, "synthetic", origin, FUTURES, archetype, False,
                                        keep_paths=True)  # fmt: skip
     out = {"v1": np.asarray(paths, dtype=np.int64)}
     for raw in ("F", "Fa"):
@@ -78,14 +81,30 @@ def _origin(conn: Any, unit: str, origin: Any) -> tuple[dict, dict[str, np.ndarr
                            options=options_of(raw))  # fmt: skip
         assert f is not None and f.simulation is not None
         out[raw] = np.asarray(f.simulation.paths, dtype=np.int64)
-    walk = random_walk_paths(balance_series(conn, unit, origin))
-    history = len(balance_series(conn, unit, origin))
-    record["history_days"] = history
+    series = balance_series(conn, unit, origin)
+    walk = random_walk_paths(series)
+    realized = np.asarray(record["realized"], dtype=float)
+    record["history_days"] = len(series)
+    record["crps_forecast"] = crps_samples(out["v1"], realized).round(1).tolist()
+    record["crps_stays"] = np.abs(float(record["start_balance_cents"]) - realized).round(1).tolist()
     record["walk_windows"] = 0 if walk is None else len(walk)
+    if walk is None:
+        record["crps_walk"] = record["walk"] = None
+    else:
+        record["crps_walk"] = crps_samples(walk, realized).round(1).tolist()
+        record["walk"] = {
+            "shortfall_probability": dip_share(walk, record["buffer_cents"]),
+            "p10": np.rint(np.quantile(walk, 0.10, axis=0)).astype(int).tolist(),
+            "p50": np.rint(np.median(walk, axis=0)).astype(int).tolist(),
+            "p90": np.rint(np.quantile(walk, 0.90, axis=0)).astype(int).tolist(),
+            "median_lowest_cents": int(np.rint(np.median(walk.min(axis=1)))),
+        }
     return record, out, (np.zeros((0, HORIZON)) if walk is None else walk)
 
 
-def _save(path: Path, records: list[dict], paths: dict[str, list], walks: list[np.ndarray]) -> None:
+def _save(
+    path: Path, records: list[dict], paths: dict[str, list], walks: list[np.ndarray], code: str
+) -> None:  # fmt: skip
     walk = np.zeros((len(walks), MAX_WINDOWS, HORIZON), dtype=np.int64)
     counts = np.zeros(len(walks), dtype=np.int32)
     for i, w in enumerate(walks):
@@ -94,13 +113,13 @@ def _save(path: Path, records: list[dict], paths: dict[str, list], walks: list[n
     tmp = path.with_name(path.stem + ".part.npz")
     np.savez_compressed(
         tmp, **{f"paths_{k}": np.stack(v).astype(np.int64) for k, v in paths.items()},
-        walk=walk, walk_n=counts, records=np.array(json.dumps(records)),
+        walk=walk, walk_n=counts, records=np.array(json.dumps(records)), code=np.array(code),
     )  # fmt: skip
     tmp.replace(path)
 
 
-def _synthetic_job(args: tuple[str, bool, str]) -> str:
-    pid, long, folder = args
+def _synthetic_job(args: tuple[str, bool, str, str]) -> str:
+    pid, long, folder, code = args
     path = Path(folder) / f"{pid}.npz"
     if path.exists():
         return f"{pid}: already done"
@@ -108,17 +127,17 @@ def _synthetic_job(args: tuple[str, bool, str]) -> str:
     records, paths, walks = [], {k: [] for k in RAW}, []
     with persona_db(pid, Path(folder) / "work") as db:
         for origin in origins():
-            rec, p, w = _origin(db.conn, pid, origin)
+            rec, p, w = _origin(db.conn, pid, origin, db.persona.archetype)
             records.append(rec)
             walks.append(w)
             for k in RAW:
                 paths[k].append(p[k])
-    _save(path, records, paths, walks)
+    _save(path, records, paths, walks, code)
     return f"{pid}: {len(records)} origins"
 
 
-def _berka_job(args: tuple[int, Any, str]) -> str:
-    account, frame, folder = args
+def _berka_job(args: tuple[int, Any, str, str]) -> str:
+    account, frame, folder, code = args
     path = Path(folder) / f"{account}.npz"
     if path.exists():
         return f"{account}: already done"
@@ -131,7 +150,7 @@ def _berka_job(args: tuple[int, Any, str]) -> str:
     records, paths, walks = [], {k: [] for k in RAW}, []
     try:
         for origin in days:
-            rec, p, w = _origin(conn, str(account), origin)
+            rec, p, w = _origin(conn, str(account), origin, "berka")
             records.append(rec)
             walks.append(w)
             for k in RAW:
@@ -139,11 +158,12 @@ def _berka_job(args: tuple[int, Any, str]) -> str:
     finally:
         conn.close()
         db.unlink(missing_ok=True)
-    _save(path, records, paths, walks)
+    _save(path, records, paths, walks, code)
     return f"{account}: {len(records)} origins"
 
 
 def simulate(which: str, jobs: int, data: Path | None) -> int:
+    code = _code()  # committed code only: every saved file carries the commit it ran
     folder = OUT / which
     folder.mkdir(parents=True, exist_ok=True)
     if which == "berka":
@@ -152,11 +172,11 @@ def simulate(which: str, jobs: int, data: Path | None) -> int:
         if data is not None:
             anchor.DATA = data
         ids, frames = anchor._berka_frames()
-        tasks: list[Any] = [(a, frames[a], str(folder)) for a in ids]
+        tasks: list[Any] = [(a, frames[a], str(folder), code) for a in ids]
         job: Any = _berka_job
     else:
         ids = development_ids(long=which == "long")
-        tasks = [(pid, which == "long", str(folder)) for pid in ids]
+        tasks = [(pid, which == "long", str(folder), code) for pid in ids]
         job = _synthetic_job
     with ProcessPoolExecutor(max_workers=jobs) as pool:
         for line in pool.map(job, tasks):
@@ -186,11 +206,14 @@ def status() -> int:
 # --- load ---
 
 
-def load_set(which: str) -> list[dict]:
-    """Every origin of a set: its v1 record, the raw futures and the walk windows."""
+def load_set(which: str, codes: set[str] | None = None) -> list[dict]:
+    """Every origin of a set: its v1 record, the raw futures and the walk windows. The commit
+    each file was made by goes into `codes` (`score` refuses futures made by mixed code)."""
     out = []
     for u in units(which):
         d = np.load(OUT / which / f"{u}.npz")
+        if codes is not None:
+            codes.add(str(d["code"]))
         records = json.loads(str(d["records"]))
         for i, rec in enumerate(records):
             out.append({
@@ -234,10 +257,11 @@ def needed_k(raw: np.ndarray, realized: np.ndarray) -> np.ndarray:
     return k
 
 
-def fit_k(sets: dict[str, list[dict]], raw: str) -> list[float]:
+def fit_k(sets: dict[str, list[dict]], raw: str) -> list[float] | None:
     """k(h): per day ahead, the smallest k >= 1 at which pooled 80% coverage reaches 80 percent,
     each set weighted equally (every origin weighs 1 / its set's origins), then made
-    non-decreasing in h. Capped at K_CAP when no finite k reaches it (a band of no width)."""
+    non-decreasing in h. None when on some day no finite k reaches it (pre-registration,
+    section 8: no cap; the variant is then not eligible)."""
     needs, weights = [], []
     for rows in sets.values():
         if not rows:
@@ -251,7 +275,10 @@ def fit_k(sets: dict[str, list[dict]], raw: str) -> list[float]:
         order = np.argsort(need[:, h])
         cum = np.cumsum(w[order])
         idx = int(np.searchsorted(cum, 0.8 - 1e-12))
-        k.append(float(min(max(need[order[idx], h], 1.0), K_CAP)))
+        value = float(need[order[idx], h])
+        if not np.isfinite(value):
+            return None
+        k.append(max(value, 1.0))
     return [float(x) for x in np.maximum.accumulate(k)]
 
 
@@ -299,12 +326,18 @@ def pooled_skill(sets: dict[str, list[dict]], variant: str, k: list[float] | Non
     return float(np.mean(vals))
 
 
+NEEDS_K = ("F+b", "F+a+b", "F+a+b+d")
+
+
 def fit(sets: dict[str, list[dict]], variant: str) -> tuple[list[float] | None, float]:
-    """k(h) and w for a variant, fitted on `sets` (scored origins only)."""
+    """k(h) and w for a variant, fitted on `sets` (scored origins only). k is None for a
+    variant without b, and also when it is out of reach (the caller checks `NEEDS_K`)."""
     fit_rows = {s: [o for o in rows if scored(o)] for s, rows in sets.items()}
     k = None
-    if variant in ("F+b", "F+a+b", "F+a+b+d"):
+    if variant in NEEDS_K:
         k = fit_k(fit_rows, "F" if variant == "F+b" else "Fa")
+        if k is None:
+            return None, 0.0
     w = 0.0
     if variant == "F+a+b+d":
         w = max(WALK_SHARES, key=lambda share: (pooled_skill(fit_rows, variant, k, share),
@@ -315,9 +348,10 @@ def fit(sets: dict[str, list[dict]], variant: str) -> tuple[list[float] | None, 
 # --- score ---
 
 
-def cross_fitted(all_sets: dict[str, list[dict]], variant: str) -> tuple[dict, list]:
+def cross_fitted(all_sets: dict[str, list[dict]], variant: str) -> tuple[dict | None, list]:
     """Each set's records of the variant, each origin scored by k and w fitted without its
-    group; and the five folds' fitted values."""
+    group; and the five folds' fitted values. None when a fold's k is out of reach (the variant
+    is then not eligible)."""
     groups = {s: group_of(s) for s in all_sets}
     out: dict[str, list[dict]] = {s: [] for s in all_sets}
     fitted = []
@@ -325,6 +359,8 @@ def cross_fitted(all_sets: dict[str, list[dict]], variant: str) -> tuple[dict, l
         train = {s: [o for o in rows if groups[s][o["unit"]] != g] for s, rows in all_sets.items()}
         k, w = fit(train, variant)
         fitted.append({"fold": g, "k": None if k is None else [round(x, 4) for x in k], "w": w})
+        if variant in NEEDS_K and k is None:
+            return None, fitted
         for s, rows in all_sets.items():
             for o in rows:
                 if groups[s][o["unit"]] == g:
@@ -365,35 +401,65 @@ def _code() -> str:
     return head
 
 
+# v1 at 2026-11-19 (docs/results/scores_development_2026-11-19.md): scored origins and day-30
+# coverage. The saved v1 futures must reproduce them before any variant is scored.
+V1_EXPECTED = {"12": (726, 0.490), "long": (717, 0.587), "berka": (7135, 0.753)}
+
+
+def _scored_before() -> bool:
+    if not LEDGER.exists():
+        return False
+    return any(json.loads(x).get("stage") == "development, cross-fitted"
+               and json.loads(x).get("prereg") == PREREG
+               for x in LEDGER.read_text().splitlines() if x)  # fmt: skip
+
+
 def score() -> int:
     code = _code()
-    all_sets = {s: load_set(s) for s in SETS}
+    if _scored_before():
+        print("the development stage is already scored in the ledger: no second run")
+        return 1
+    codes: set[str] = set()
+    all_sets = {s: load_set(s, codes) for s in SETS}
+    if len(codes) != 1:
+        print(f"the saved futures come from {len(codes)} different commits: nothing scored")
+        return 1
     v1 = {s: [o["record"] for o in rows] for s, rows in all_sets.items()}
-    results: dict[str, dict] = {"v1": {s: numbers(v1[s], v1[s]) for s in SETS}}
+    results: dict[str, dict | None] = {"v1": {s: numbers(v1[s], v1[s]) for s in SETS}}
+    for s, (n, cov30) in V1_EXPECTED.items():
+        m = results["v1"][s]  # type: ignore[index]
+        if m["n_origins"] != n or round(m["coverage30"], 3) != cov30:
+            print(f"v1 does not reproduce 2026-11-19 on {s}: nothing scored")
+            return 1
     entries = []
     for variant in VARIANTS:
         recs, fitted = cross_fitted(all_sets, variant)
-        per_set = {s: numbers(recs[s], v1[s]) for s in SETS}
+        per_set = None if recs is None else {s: numbers(recs[s], v1[s]) for s in SETS}
         results[variant] = per_set
         entries.append({"stage": "development, cross-fitted", "variant": variant,
-                        "code": code, "prereg": PREREG, "per_set": per_set,
-                        "eligible": eligible(per_set), "folds": fitted})  # fmt: skip
-    pooled = {v: float(np.mean([results[v][s]["skill_vs_v1"] for s in SETS])) for v in VARIANTS}
-    ok = [v for v in VARIANTS if eligible(results[v])]
+                        "code": code, "futures_code": next(iter(codes)), "prereg": PREREG,
+                        "per_set": per_set,
+                        "eligible": per_set is not None and eligible(per_set),
+                        "k_out_of_reach": per_set is None, "folds": fitted})  # fmt: skip
+    pooled = {v: None if results[v] is None
+              else float(np.mean([results[v][s]["skill_vs_v1"] for s in SETS]))  # type: ignore[index]
+              for v in VARIANTS}  # fmt: skip
+    ok = [v for v in VARIANTS if results[v] is not None and eligible(results[v])]  # type: ignore[arg-type]
     parts = {"F": 1, "F+a": 2, "F+b": 2, "F+a+b": 3, "F+a+b+d": 4}
     winner = None
     if ok:
-        best = max(pooled[v] for v in ok)
-        close = [v for v in ok if best - pooled[v] <= 0.001]
-        winner = min(close, key=lambda v: (parts[v], -pooled[v]))
+        best = max(pooled[v] for v in ok)  # type: ignore[type-var]
+        close = [v for v in ok if best - pooled[v] <= 0.001]  # type: ignore[operator]
+        winner = min(close, key=lambda v: (parts[v], -pooled[v]))  # type: ignore[operator]
     for e in entries:  # every variant recorded before anything is shown
         e["pooled_skill_vs_v1"] = pooled[e["variant"]]
         e["winner"] = winner
         _ledger_write(e)
     _ledger_write({"stage": "development, v1 reference", "code": code, "prereg": PREREG,
                    "per_set": results["v1"]})  # fmt: skip
-    REPORT.write_text(report(results, pooled, ok, winner, code), encoding="utf-8")
-    print(report(results, pooled, ok, winner, code))
+    text = report(results, pooled, ok, winner, code)
+    REPORT.write_text(text, encoding="utf-8")
+    print(text)
     return 0
 
 
@@ -412,6 +478,9 @@ def report(results: dict, pooled: dict, ok: list, winner: str | None, code: str)
         "|---|---|---|---|---|---|---|---|",
     ]
     for v in ("v1", *VARIANTS):
+        if results[v] is None:
+            lines.append(f"| {v} | all | - | not eligible: k(h) out of reach in a fold | | | | |")
+            continue
         for s in SETS:
             m = results[v][s]
             lines.append(
@@ -423,7 +492,9 @@ def report(results: dict, pooled: dict, ok: list, winner: str | None, code: str)
     lines += [
         "",
         "Pooled CRPS skill against v1 (mean of the three sets): "
-        + ", ".join(f"{v} {100 * pooled[v]:+.2f}" for v in VARIANTS),
+        + ", ".join(
+            f"{v} {'-' if pooled[v] is None else f'{100 * pooled[v]:+.2f}'}" for v in VARIANTS
+        ),
         "",
         f"Eligible: {', '.join(ok) if ok else 'none'}. Winner: {winner or 'none (v1 stays)'}.",
     ]
@@ -455,10 +526,12 @@ def threshold() -> int:
     recs = [record_of(o, futures_of(o, variant, k, w)) for o in rows]
     for r in recs:
         r["dataset"] = "synthetic"
-    pick = choose(curve(recs))
+    points = curve(recs)
     loo, folds = leave_one_out(recs)
+    stops = stop_conditions(points, folds)  # as the 2026-11-19 report: a stop means no threshold
+    pick = None if stops else choose(points)
     t = None if pick is None else pick["threshold"]
-    out = {"variant": variant, "threshold": t,
+    out = {"variant": variant, "threshold": t, "stop_conditions": stops,
            "leave_one_out": {"recall_on": loo["recall_on"], "precision": loo["precision"],
                              "caught_on": loo["caught_on"], "episodes": loo["shortfall_episodes"],
                              "false_per_30_days": loo["false_per_30_days"]},
